@@ -3526,10 +3526,10 @@ fn run_resume_command(
             Ok(ResumeCommandOutcome {
                 session: session.clone(),
                 message: Some(handle_agents_slash_command(args.as_deref(), &cwd)?),
-                json: Some(serde_json::json!({
-                    "kind": "agents",
-                    "text": handle_agents_slash_command(args.as_deref(), &cwd)?,
-                })),
+                json: Some(
+                    serde_json::to_value(handle_agents_slash_command_json(args.as_deref(), &cwd)?)
+                        .unwrap_or_else(|_| serde_json::json!(null)),
+                ),
             })
         }
         SlashCommand::Skills { args } => {

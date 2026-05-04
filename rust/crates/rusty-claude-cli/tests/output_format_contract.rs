@@ -369,6 +369,34 @@ fn resumed_inventory_commands_emit_structured_json_when_requested() {
     assert_eq!(skills["action"], "list");
     assert!(skills["summary"]["total"].is_number());
     assert!(skills["skills"].is_array());
+
+    let agents = assert_json_command_with_env(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "--resume",
+            session_path.to_str().expect("utf8 session path"),
+            "/agents",
+        ],
+        &[
+            (
+                "CLAW_CONFIG_HOME",
+                config_home.to_str().expect("utf8 config home"),
+            ),
+            ("HOME", home.to_str().expect("utf8 home")),
+        ],
+    );
+    assert_eq!(agents["kind"], "agents");
+    assert_eq!(agents["action"], "list");
+    assert!(
+        agents["agents"].is_array(),
+        "agents field must be a JSON array"
+    );
+    assert!(
+        agents["count"].is_number(),
+        "count must be a number, not a text render"
+    );
 }
 
 #[test]
