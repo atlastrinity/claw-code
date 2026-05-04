@@ -2627,12 +2627,15 @@ fn print_version(output_format: CliOutputFormat) -> Result<(), Box<dyn std::erro
 }
 
 fn version_json_value() -> serde_json::Value {
+    let executable_path = env::current_exe().ok().map(|p| p.display().to_string());
     json!({
         "kind": "version",
         "message": render_version_report(),
         "version": VERSION,
         "git_sha": GIT_SHA,
         "target": BUILD_TARGET,
+        "build_date": DEFAULT_DATE,
+        "executable_path": executable_path,
     })
 }
 

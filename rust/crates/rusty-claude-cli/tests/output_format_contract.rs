@@ -30,6 +30,15 @@ fn version_emits_json_when_requested() {
     let parsed = assert_json_command(&root, &["--output-format", "json", "version"]);
     assert_eq!(parsed["kind"], "version");
     assert_eq!(parsed["version"], env!("CARGO_PKG_VERSION"));
+    // Provenance fields must be present for binary identification (#507).
+    assert!(
+        parsed["build_date"].is_string(),
+        "build_date must be a string in version JSON"
+    );
+    assert!(
+        parsed["executable_path"].is_string(),
+        "executable_path must be a string in version JSON so callers can identify which binary is running"
+    );
 }
 
 #[test]
