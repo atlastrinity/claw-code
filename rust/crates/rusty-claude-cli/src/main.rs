@@ -877,13 +877,17 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         // `missing Anthropic credentials` even though the command is purely
         // local introspection. Mirror `agents`/`mcp`/`skills`: action is the
         // first positional arg, target is the second.
-        "plugins" => {
+        // `plugin` (singular) and `marketplace` are aliases for `plugins`.
+        // All three must route to the same local handler so that no form
+        // falls through to the LLM/prompt path.
+        "plugins" | "plugin" | "marketplace" => {
             let tail = &rest[1..];
             let action = tail.first().cloned();
             let target = tail.get(1).cloned();
             if tail.len() > 2 {
                 return Err(format!(
-                    "unexpected extra arguments after `claw plugins {}`: {}",
+                    "unexpected extra arguments after `claw {} {}`: {}",
+                    rest[0],
                     tail[..2].join(" "),
                     tail[2..].join(" ")
                 ));
