@@ -2674,8 +2674,42 @@ fn render_mcp_report_for(
                 )),
             }
         }
+        Some(args) if args.split_whitespace().next() == Some("list") && args.contains(' ') => {
+            // `mcp list <filter>` — list does not accept arguments; treat as unsupported action.
+            Ok(render_mcp_unsupported_action_text(
+                args,
+                "list accepts no filter argument; use `claw mcp list`",
+            ))
+        }
+        Some(args) if matches!(args.split_whitespace().next(), Some("info" | "describe")) => {
+            Ok(render_mcp_unsupported_action_text(
+                args,
+                "use `claw mcp show <server>` to inspect a server",
+            ))
+        }
         Some(args) => Ok(render_mcp_usage(Some(args))),
     }
+}
+
+fn render_mcp_unsupported_action_text(action: &str, hint: &str) -> String {
+    format!(
+        "MCP\n  Error            unsupported action '{action}'\n  Hint             {hint}\n  Usage            /mcp [list|show <server>|help]"
+    )
+}
+
+fn render_mcp_unsupported_action_json(action: &str, hint: &str) -> Value {
+    json!({
+        "kind": "mcp",
+        "action": "error",
+        "ok": false,
+        "error_kind": "unsupported_action",
+        "requested_action": action,
+        "hint": hint,
+        "usage": {
+            "slash_command": "/mcp [list|show <server>|help]",
+            "direct_cli": "claw mcp [list|show <server>|help]",
+        },
+    })
 }
 
 fn render_mcp_report_json_for(
@@ -2757,6 +2791,18 @@ fn render_mcp_report_json_for(
                     "working_directory": cwd.display().to_string(),
                 })),
             }
+        }
+        Some(args) if args.split_whitespace().next() == Some("list") && args.contains(' ') => {
+            Ok(render_mcp_unsupported_action_json(
+                args,
+                "list accepts no filter argument; use `claw mcp list`",
+            ))
+        }
+        Some(args) if matches!(args.split_whitespace().next(), Some("info" | "describe")) => {
+            Ok(render_mcp_unsupported_action_json(
+                args,
+                "use `claw mcp show <server>` to inspect a server",
+            ))
         }
         Some(args) => Ok(render_mcp_usage_json(Some(args))),
     }
@@ -4743,6 +4789,38 @@ mod tests {
             classify_skills_slash_command(Some("install ./skill-pack")),
             SkillSlashDispatch::Local
         );
+    }
+
+    #[test]
+    fn mcp_unsupported_actions_return_typed_error_not_generic_help() {
+        // `mcp info <name>` and `mcp list <filter>` must return typed errors, not raw help.
+        // Regression for #504: these previously fell through to render_mcp_usage with
+        // unexpected=arg, giving no machine-readable error_kind.
+        use crate::handle_mcp_slash_command_json;
+        use std::path::PathBuf;
+        let cwd = PathBuf::from("/tmp");
+
+        let info_json = handle_mcp_slash_command_json(Some("info nonexistent"), &cwd)
+            .expect("info nonexistent should not error at IO level");
+        assert_eq!(info_json["kind"], "mcp");
+        assert_eq!(info_json["ok"], false);
+        assert_eq!(info_json["error_kind"], "unsupported_action");
+        assert!(info_json["hint"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("show"));
+
+        let list_filter_json = handle_mcp_slash_command_json(Some("list nonexistent"), &cwd)
+            .expect("list nonexistent should not error at IO level");
+        assert_eq!(list_filter_json["kind"], "mcp");
+        assert_eq!(list_filter_json["ok"], false);
+        assert_eq!(list_filter_json["error_kind"], "unsupported_action");
+
+        let describe_json = handle_mcp_slash_command_json(Some("describe myserver"), &cwd)
+            .expect("describe myserver should not error at IO level");
+        assert_eq!(describe_json["kind"], "mcp");
+        assert_eq!(describe_json["ok"], false);
+        assert_eq!(describe_json["error_kind"], "unsupported_action");
     }
 
     #[test]
