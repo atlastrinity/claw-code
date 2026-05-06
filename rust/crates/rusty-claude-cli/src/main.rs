@@ -148,11 +148,7 @@ impl ModelProvenance {
 }
 
 fn max_tokens_for_model(model: &str) -> u32 {
-    if model.contains("opus") {
-        32_000
-    } else {
-        64_000
-    }
+    api::max_tokens_for_model(model)
 }
 // Build-time constants injected by build.rs (fall back to static values when
 // build.rs hasn't run, e.g. in doc-test or unusual toolchain environments).
@@ -9600,6 +9596,39 @@ mod tests {
         assert!(
             rendered
                 .contains("Detail           This model's maximum context length is 200000 tokens"),
+            "{rendered}"
+        );
+        assert!(rendered.contains("Compact          /compact"), "{rendered}");
+        assert!(
+            rendered.contains("Fresh session    /clear --confirm"),
+            "{rendered}"
+        );
+    }
+
+    #[test]
+    fn openai_configured_limit_errors_are_rendered_as_context_window_guidance() {
+        let error = ApiError::Api {
+            status: "400".parse().expect("status"),
+            error_type: Some("invalid_request_error".to_string()),
+            message: Some(
+                "Input tokens exceed the configured limit of 922000 tokens. Your messages resulted in 1860900 tokens. Please reduce the length of the messages."
+                    .to_string(),
+            ),
+            request_id: Some("req_ctx_openai_456".to_string()),
+            body: String::new(),
+            retryable: false,
+            suggested_action: None,
+        };
+
+        let rendered = format_user_visible_api_error("session-issue-32", &error);
+        assert!(rendered.contains("Context window blocked"), "{rendered}");
+        assert!(rendered.contains("context_window_blocked"), "{rendered}");
+        assert!(
+            rendered.contains("Trace            req_ctx_openai_456"),
+            "{rendered}"
+        );
+        assert!(
+            rendered.contains("Detail           Input tokens exceed the configured limit of 922000 tokens."),
             "{rendered}"
         );
         assert!(rendered.contains("Compact          /compact"), "{rendered}");
