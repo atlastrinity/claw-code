@@ -8693,8 +8693,12 @@ mod tests {
         let _guard = env_lock()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let path = temp_path("subagent-input.txt");
+        let root = temp_path("subagent-runtime");
+        std::fs::create_dir_all(&root).expect("create root");
+        let path = root.join("subagent-input.txt");
         std::fs::write(&path, "hello from child").expect("write input file");
+        let original_dir = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(&root).expect("set cwd");
 
         let mut runtime = ConversationRuntime::new(
             Session::new(),
@@ -8726,7 +8730,8 @@ mod tests {
                     if output.contains("hello from child")
             )));
 
-        let _ = std::fs::remove_file(path);
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
@@ -9787,11 +9792,14 @@ printf 'pwsh:%s' "$1"
         fs::create_dir_all(&root).expect("create root");
         let file = root.join("readable.txt");
         fs::write(&file, "content\n").expect("write test file");
+        let original_dir = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(&root).expect("set cwd");
 
         let registry = read_only_registry();
         let result = registry.execute("read_file", &json!({ "path": file.display().to_string() }));
         assert!(result.is_ok(), "read_file should be allowed: {result:?}");
 
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
         let _ = fs::remove_dir_all(root);
     }
 
