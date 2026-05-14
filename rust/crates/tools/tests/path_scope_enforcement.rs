@@ -34,7 +34,8 @@ fn assert_permission_denied(result: Result<String, String>, case_name: &str) {
     let err = result
         .unwrap_err_or_else(|ok| panic!("{case_name} should be denied before execution, got {ok}"));
     assert!(
-        err.contains("requires danger-full-access permission")
+        (err.contains("requires danger-full-access permission")
+            || err.contains("requires \'danger-full-access\' permission"))
             || err.contains("current mode is workspace-write"),
         "{case_name} should fail in permission enforcement, got: {err}"
     );
