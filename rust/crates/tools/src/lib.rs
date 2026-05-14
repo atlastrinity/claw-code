@@ -1500,15 +1500,11 @@ fn run_task_output(input: TaskIdInput) -> Result<String, String> {
 fn run_worker_create(input: WorkerCreateInput) -> Result<String, String> {
     // Merge config-level trusted_roots with per-call overrides.
     // Config provides the default allowlist; per-call roots add on top.
-    let config_roots: Vec<String> = ConfigLoader::default_for(&input.cwd)
+    let merged_roots: Vec<String> = ConfigLoader::default_for(&input.cwd)
         .load()
         .ok()
-        .map(|c| c.trusted_roots().to_vec())
-        .unwrap_or_default();
-    let merged_roots: Vec<String> = config_roots
-        .into_iter()
-        .chain(input.trusted_roots.iter().cloned())
-        .collect();
+        .map(|config| config.trusted_roots_with_overrides(&input.trusted_roots))
+        .unwrap_or_else(|| input.trusted_roots.clone());
     let worker = global_worker_registry().create(
         &input.cwd,
         &merged_roots,
@@ -6567,6 +6563,45 @@ mod tests {
         assert_eq!(
             output["trust_auto_resolve"], true,
             "config-level trustedRoots should auto-resolve trust without per-call override"
+        );
+
+        fs::remove_dir_all(&worktree).ok();
+    }
+
+    #[test]
+    fn worker_create_merges_config_trusted_roots_with_per_call_roots() {
+        use std::fs;
+
+        let worktree = temp_path("config-and-call-trust-worktree");
+        let claw_dir = worktree.join(".claw");
+        fs::create_dir_all(&claw_dir).expect("create .claw dir");
+        fs::write(
+            claw_dir.join("settings.json"),
+            r#"{"trustedRoots": ["/definitely/not/this/worktree"]}"#,
+        )
+        .expect("write settings");
+
+        let cwd = worktree.to_str().expect("valid utf-8").to_string();
+        let parent = worktree
+            .parent()
+            .expect("temp path has parent")
+            .to_str()
+            .expect("valid parent utf-8")
+            .to_string();
+
+        let created = execute_tool(
+            "WorkerCreate",
+            &json!({
+                "cwd": cwd,
+                "trusted_roots": [parent]
+            }),
+        )
+        .expect("WorkerCreate should succeed");
+        let output: serde_json::Value = serde_json::from_str(&created).expect("json");
+
+        assert_eq!(
+            output["trust_auto_resolve"], true,
+            "per-call trusted_roots must extend config defaults for this create request"
         );
 
         fs::remove_dir_all(&worktree).ok();
