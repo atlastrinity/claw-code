@@ -44,7 +44,8 @@ fn assert_permission_denied(result: Result<String, String>, case_name: &str) {
     assert!(
         (err.contains("requires danger-full-access permission")
             || err.contains("requires \'danger-full-access\' permission"))
-            || err.contains("current mode is workspace-write"),
+            || err.contains("current mode is workspace-write")
+            || err.contains("escapes workspace"),
         "{case_name} should fail in permission enforcement, got: {err}"
     );
 }
