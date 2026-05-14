@@ -1974,6 +1974,45 @@ mod tests {
     }
 
     #[test]
+    fn startup_timeout_preserves_original_prompt_sent_timestamp() {
+        let registry = WorkerRegistry::new();
+        let worker = registry.create("/tmp/repo-prompt-timestamp", &[], true);
+
+        registry
+            .observe(&worker.worker_id, "Ready for input\n>")
+            .expect("ready observe should succeed");
+        let prompted = registry
+            .send_prompt(
+                &worker.worker_id,
+                Some("Run timestamp-sensitive work"),
+                None,
+            )
+            .expect("prompt send should succeed");
+        let sent_at = prompted
+            .prompt_sent_at
+            .expect("prompt send should record a prompt timestamp");
+
+        let timed_out = registry
+            .observe_startup_timeout(&worker.worker_id, "claw worker", true, true)
+            .expect("startup timeout observe should succeed");
+
+        let event = timed_out
+            .events
+            .iter()
+            .find(|e| e.kind == WorkerEventKind::StartupNoEvidence)
+            .expect("startup no evidence event should exist");
+
+        match event.payload.as_ref() {
+            Some(WorkerEventPayload::StartupNoEvidence { evidence, .. }) => {
+                assert_eq!(evidence.prompt_sent_at, Some(sent_at));
+                assert!(evidence.last_lifecycle_at <= evidence.pane_observed_at);
+                assert!(evidence.command_started_at <= sent_at);
+            }
+            _ => panic!("expected StartupNoEvidence payload"),
+        }
+    }
+
+    #[test]
     fn startup_evidence_bundle_serializes_correctly() {
         let bundle = StartupEvidenceBundle {
             last_lifecycle_state: WorkerStatus::Running,
