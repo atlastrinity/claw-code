@@ -4,6 +4,7 @@ use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tokio::process::Command as TokioCommand;
 use tokio::runtime::Builder;
 use tokio::time::timeout;
@@ -179,6 +180,8 @@ async fn execute_bash_async(
         match timeout(Duration::from_millis(timeout_ms), command.output()).await {
             Ok(result) => (result?, false),
             Err(_) => {
+                let is_test = is_test_command(&input.command);
+                let return_code_interpretation = if is_test { "test.hung" } else { "timeout" };
                 return Ok(BashCommandOutput {
                     stdout: String::new(),
                     stderr: format!("Command exceeded timeout of {timeout_ms} ms"),
@@ -189,9 +192,13 @@ async fn execute_bash_async(
                     backgrounded_by_user: None,
                     assistant_auto_backgrounded: None,
                     dangerously_disable_sandbox: input.dangerously_disable_sandbox,
-                    return_code_interpretation: Some(String::from("timeout")),
+                    return_code_interpretation: Some(String::from(return_code_interpretation)),
                     no_output_expected: Some(true),
-                    structured_content: None,
+                    structured_content: Some(vec![test_timeout_provenance(
+                        &input.command,
+                        timeout_ms,
+                        is_test,
+                    )]),
                     persisted_output_path: None,
                     persisted_output_size: None,
                     sandbox_status: Some(sandbox_status),
@@ -230,6 +237,37 @@ async fn execute_bash_async(
         persisted_output_path: None,
         persisted_output_size: None,
         sandbox_status: Some(sandbox_status),
+    })
+}
+
+fn is_test_command(command: &str) -> bool {
+    let normalized = command
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    normalized.contains("cargo test")
+        || normalized.contains("cargo nextest")
+        || normalized.contains("npm test")
+        || normalized.contains("pnpm test")
+        || normalized.contains("yarn test")
+        || normalized.contains("pytest")
+}
+
+fn test_timeout_provenance(
+    command: &str,
+    timeout_ms: u64,
+    classified_as_test_hang: bool,
+) -> serde_json::Value {
+    json!({
+        "event": if classified_as_test_hang { "test.hung" } else { "command.timeout" },
+        "failureClass": if classified_as_test_hang { "test_hang" } else { "timeout" },
+        "data": {
+            "command": command,
+            "timeoutMs": timeout_ms,
+            "provenance": "bash.timeout",
+            "classification": if classified_as_test_hang { "test.hung" } else { "timeout" }
+        }
     })
 }
 
@@ -348,6 +386,31 @@ mod tests {
         .expect("bash command should execute");
 
         assert!(!output.sandbox_status.expect("sandbox status").enabled);
+    }
+
+    #[test]
+    fn timed_out_test_command_is_classified_as_hung_test_with_provenance() {
+        let output = execute_bash(BashCommandInput {
+            command: String::from("sleep 1 # cargo test slow_case"),
+            timeout: Some(1),
+            description: None,
+            run_in_background: Some(false),
+            dangerously_disable_sandbox: Some(false),
+            namespace_restrictions: Some(false),
+            isolate_network: Some(false),
+            filesystem_mode: Some(FilesystemIsolationMode::WorkspaceOnly),
+            allowed_mounts: None,
+        })
+        .expect("bash command should return structured timeout");
+
+        assert!(output.interrupted);
+        assert_eq!(
+            output.return_code_interpretation.as_deref(),
+            Some("test.hung")
+        );
+        let structured = output.structured_content.expect("structured content");
+        assert_eq!(structured[0]["event"], "test.hung");
+        assert_eq!(structured[0]["data"]["provenance"], "bash.timeout");
     }
 }
 

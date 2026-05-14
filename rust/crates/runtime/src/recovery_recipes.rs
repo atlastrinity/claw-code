@@ -376,8 +376,10 @@ pub fn attempt_recovery(scenario: &FailureScenario, ctx: &mut RecoveryContext) -
             }
             RecoveryResult::PartialRecovery { remaining, .. } => {
                 entry.state = RecoveryAttemptState::Failed;
-                entry.last_failure_summary =
-                    Some(format!("{} step(s) remaining after partial recovery", remaining.len()));
+                entry.last_failure_summary = Some(format!(
+                    "{} step(s) remaining after partial recovery",
+                    remaining.len()
+                ));
             }
             RecoveryResult::EscalationRequired { reason } => {
                 entry.state = RecoveryAttemptState::Exhausted;
@@ -630,10 +632,7 @@ mod tests {
         let result = attempt_recovery(&scenario, &mut ctx);
 
         // then
-        assert!(matches!(
-            result,
-            RecoveryResult::EscalationRequired { .. }
-        ));
+        assert!(matches!(result, RecoveryResult::EscalationRequired { .. }));
         let entry = ctx.ledger_entry(&scenario).expect("ledger entry");
         assert_eq!(entry.state, RecoveryAttemptState::Exhausted);
         assert_eq!(entry.attempt_count, 1);
