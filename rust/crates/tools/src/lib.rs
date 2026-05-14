@@ -9063,6 +9063,23 @@ mod tests {
     }
 
     #[test]
+    fn bash_tool_classifies_test_timeout_as_hung_with_provenance() {
+        let timeout = execute_tool(
+            "bash",
+            &json!({ "command": "sleep 1 # cargo test slow_case", "timeout": 10 }),
+        )
+        .expect("bash timeout should return output");
+        let timeout_output: serde_json::Value = serde_json::from_str(&timeout).expect("json");
+        assert_eq!(timeout_output["interrupted"], true);
+        assert_eq!(timeout_output["returnCodeInterpretation"], "test.hung");
+        assert_eq!(timeout_output["structuredContent"][0]["event"], "test.hung");
+        assert_eq!(
+            timeout_output["structuredContent"][0]["data"]["provenance"],
+            "bash.timeout"
+        );
+    }
+
+    #[test]
     fn bash_workspace_tests_are_blocked_when_branch_is_behind_main() {
         let _guard = env_lock()
             .lock()
