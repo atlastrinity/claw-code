@@ -1272,8 +1272,8 @@ fn push_unique(target: &mut Vec<String>, value: String) {
 mod tests {
     use super::{
         deep_merge_objects, parse_permission_mode_label, ConfigLoader, ConfigSource,
-        McpServerConfig, McpTransport, ResolvedPermissionMode, RuntimeHookConfig,
-        RuntimePluginConfig, CLAW_SETTINGS_SCHEMA_NAME,
+        McpServerConfig, McpTransport, ResolvedPermissionMode, RuntimeFeatureConfig,
+        RuntimeHookConfig, RuntimePluginConfig, CLAW_SETTINGS_SCHEMA_NAME,
     };
     use crate::json::JsonValue;
     use crate::sandbox::FilesystemIsolationMode;

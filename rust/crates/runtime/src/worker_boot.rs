@@ -1969,7 +1969,10 @@ mod tests {
     fn startup_evidence_bundle_serializes_correctly() {
         let bundle = StartupEvidenceBundle {
             last_lifecycle_state: WorkerStatus::Running,
+            last_lifecycle_at: 1_234_567_889,
             pane_command: "test command".to_string(),
+            pane_observed_at: 1_234_567_891,
+            command_started_at: 1_234_567_800,
             prompt_sent_at: Some(1_234_567_890),
             prompt_acceptance_state: false,
             trust_prompt_detected: true,
@@ -1977,7 +1980,9 @@ mod tests {
             tool_permission_prompt_age_seconds: None,
             tool_permission_allow_scope: None,
             transport_healthy: true,
+            transport_health: StartupHealthSummary::observed("transport", true),
             mcp_healthy: false,
+            mcp_health: StartupHealthSummary::observed("mcp", false),
             elapsed_seconds: 60,
         };
 
@@ -1999,7 +2004,10 @@ mod tests {
     fn classify_startup_failure_detects_transport_dead() {
         let evidence = StartupEvidenceBundle {
             last_lifecycle_state: WorkerStatus::Spawning,
+            last_lifecycle_at: 1,
             pane_command: "test".to_string(),
+            pane_observed_at: 2,
+            command_started_at: 0,
             prompt_sent_at: None,
             prompt_acceptance_state: false,
             trust_prompt_detected: false,
@@ -2007,7 +2015,9 @@ mod tests {
             tool_permission_prompt_age_seconds: None,
             tool_permission_allow_scope: None,
             transport_healthy: false,
+            transport_health: StartupHealthSummary::observed("transport", false),
             mcp_healthy: true,
+            mcp_health: StartupHealthSummary::observed("mcp", true),
             elapsed_seconds: 30,
         };
 
@@ -2019,7 +2029,10 @@ mod tests {
     fn classify_startup_failure_defaults_to_unknown() {
         let evidence = StartupEvidenceBundle {
             last_lifecycle_state: WorkerStatus::Spawning,
+            last_lifecycle_at: 1,
             pane_command: "test".to_string(),
+            pane_observed_at: 2,
+            command_started_at: 0,
             prompt_sent_at: None,
             prompt_acceptance_state: false,
             trust_prompt_detected: false,
@@ -2027,7 +2040,9 @@ mod tests {
             tool_permission_prompt_age_seconds: None,
             tool_permission_allow_scope: None,
             transport_healthy: true,
+            transport_health: StartupHealthSummary::observed("transport", true),
             mcp_healthy: true,
+            mcp_health: StartupHealthSummary::observed("mcp", true),
             elapsed_seconds: 10,
         };
 
@@ -2041,7 +2056,10 @@ mod tests {
         // Don't have prompt in flight (no prompt_sent_at) to avoid matching PromptAcceptanceTimeout
         let evidence = StartupEvidenceBundle {
             last_lifecycle_state: WorkerStatus::Spawning,
+            last_lifecycle_at: 1,
             pane_command: "test".to_string(),
+            pane_observed_at: 2,
+            command_started_at: 0,
             prompt_sent_at: None, // No prompt sent yet
             prompt_acceptance_state: false,
             trust_prompt_detected: false,
@@ -2049,7 +2067,9 @@ mod tests {
             tool_permission_prompt_age_seconds: None,
             tool_permission_allow_scope: None,
             transport_healthy: true,
-            mcp_healthy: false, // MCP unhealthy but transport healthy suggests crash
+            transport_health: StartupHealthSummary::observed("transport", true),
+            mcp_healthy: false,
+            mcp_health: StartupHealthSummary::observed("mcp", false), // MCP unhealthy but transport healthy suggests crash
             elapsed_seconds: 45,
         };
 
