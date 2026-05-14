@@ -35,6 +35,7 @@ mod policy_engine;
 mod prompt;
 pub mod recovery_recipes;
 mod remote;
+mod report_schema;
 pub mod sandbox;
 mod session;
 pub mod session_control;
@@ -149,6 +150,13 @@ pub use remote::{
     inherited_upstream_proxy_env, no_proxy_list, read_token, upstream_proxy_ws_url,
     RemoteSessionContext, UpstreamProxyBootstrap, UpstreamProxyState, DEFAULT_REMOTE_BASE_URL,
     DEFAULT_SESSION_TOKEN_PATH, DEFAULT_SYSTEM_CA_BUNDLE, NO_PROXY_HOSTS, UPSTREAM_PROXY_ENV_KEYS,
+};
+pub use report_schema::{
+    canonicalize_report, project_report, report_content_hash, report_schema_v1_registry,
+    CanonicalReportV1, ClaimKind, ConsumerCapabilities, FieldDelta, FieldDeltaState,
+    NegativeEvidence, NegativeFindingStatus, ProjectionProvenance, RedactionProvenance,
+    ReportClaim, ReportConfidence, ReportIdentity, ReportProjectionV1, ReportSchemaField,
+    ReportSchemaRegistry, SensitivityClass, DEFAULT_PROJECTION_POLICY_V1, REPORT_SCHEMA_V1,
 };
 pub use sandbox::{
     build_linux_sandbox_command, detect_container_environment, detect_container_environment_from,
