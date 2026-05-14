@@ -1503,8 +1503,10 @@ fn run_worker_create(input: WorkerCreateInput) -> Result<String, String> {
     let merged_roots: Vec<String> = ConfigLoader::default_for(&input.cwd)
         .load()
         .ok()
-        .map(|config| config.trusted_roots_with_overrides(&input.trusted_roots))
-        .unwrap_or_else(|| input.trusted_roots.clone());
+        .map_or_else(
+            || input.trusted_roots.clone(),
+            |config| config.trusted_roots_with_overrides(&input.trusted_roots),
+        );
     let worker = global_worker_registry().create(
         &input.cwd,
         &merged_roots,
