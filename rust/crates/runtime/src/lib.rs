@@ -13,6 +13,7 @@ mod config;
 pub mod config_validate;
 mod conversation;
 mod file_ops;
+pub mod g004_conformance;
 mod git_context;
 pub mod green_contract;
 mod hooks;
