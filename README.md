@@ -192,6 +192,7 @@ cargo test --workspace
 - [`PARITY.md`](./PARITY.md) — parity status for the Rust port
 - [`rust/MOCK_PARITY_HARNESS.md`](./rust/MOCK_PARITY_HARNESS.md) — deterministic mock-service harness details
 - [`ROADMAP.md`](./ROADMAP.md) — active roadmap and open cleanup work
+- [`docs/g004-events-reports-contract.md`](./docs/g004-events-reports-contract.md) — Stream 2 lane event/report contract guidance for consumers
 - [`PHILOSOPHY.md`](./PHILOSOPHY.md) — why the project exists and how it is operated
 
 ## Ecosystem
