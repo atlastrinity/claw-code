@@ -458,10 +458,12 @@ pub fn compute_event_fingerprint(
     });
     let canonical = serde_json::to_vec(&payload).unwrap_or_default();
     let digest = Sha256::digest(canonical);
-    digest[..8]
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect()
+    let mut fingerprint = String::with_capacity(16);
+    for byte in &digest[..8] {
+        use std::fmt::Write as _;
+        write!(&mut fingerprint, "{byte:02x}").expect("writing to String should not fail");
+    }
+    fingerprint
 }
 
 /// Classification of event terminality for reconciliation.
