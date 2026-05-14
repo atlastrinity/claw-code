@@ -27,12 +27,10 @@ impl std::fmt::Display for GreenLevel {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GreenContract {
     pub required_level: GreenLevel,
-    pub require_test_command_provenance: bool,
-    pub require_base_branch_freshness: bool,
-    pub require_recovery_attempt_context: bool,
+    pub requirements: Vec<GreenContractRequirement>,
     pub block_known_flakes: bool,
 }
 
@@ -41,9 +39,7 @@ impl GreenContract {
     pub fn new(required_level: GreenLevel) -> Self {
         Self {
             required_level,
-            require_test_command_provenance: false,
-            require_base_branch_freshness: false,
-            require_recovery_attempt_context: false,
+            requirements: Vec::new(),
             block_known_flakes: false,
         }
     }
@@ -52,15 +48,17 @@ impl GreenContract {
     pub fn merge_ready(required_level: GreenLevel) -> Self {
         Self {
             required_level,
-            require_test_command_provenance: true,
-            require_base_branch_freshness: true,
-            require_recovery_attempt_context: true,
+            requirements: vec![
+                GreenContractRequirement::TestCommandProvenance,
+                GreenContractRequirement::BaseBranchFreshness,
+                GreenContractRequirement::RecoveryAttemptContext,
+            ],
             block_known_flakes: true,
         }
     }
 
     #[must_use]
-    pub fn evaluate(self, observed_level: Option<GreenLevel>) -> GreenContractOutcome {
+    pub fn evaluate(&self, observed_level: Option<GreenLevel>) -> GreenContractOutcome {
         match observed_level {
             Some(level) if level >= self.required_level => GreenContractOutcome::Satisfied {
                 required_level: self.required_level,
@@ -82,16 +80,23 @@ impl GreenContract {
             missing.push(GreenContractRequirement::RequiredLevel);
         }
 
-        if self.require_test_command_provenance && !evidence.has_passing_test_command() {
-            missing.push(GreenContractRequirement::TestCommandProvenance);
-        }
-
-        if self.require_base_branch_freshness && !evidence.base_branch_fresh {
-            missing.push(GreenContractRequirement::BaseBranchFreshness);
-        }
-
-        if self.require_recovery_attempt_context && !evidence.recovery_attempt_context_recorded {
-            missing.push(GreenContractRequirement::RecoveryAttemptContext);
+        for requirement in &self.requirements {
+            match requirement {
+                GreenContractRequirement::TestCommandProvenance
+                    if !evidence.has_passing_test_command() =>
+                {
+                    missing.push(*requirement);
+                }
+                GreenContractRequirement::BaseBranchFreshness if !evidence.base_branch_fresh => {
+                    missing.push(*requirement);
+                }
+                GreenContractRequirement::RecoveryAttemptContext
+                    if !evidence.recovery_attempt_context_recorded =>
+                {
+                    missing.push(*requirement);
+                }
+                _ => {}
+            }
         }
 
         if self.block_known_flakes {
@@ -119,7 +124,7 @@ impl GreenContract {
     }
 
     #[must_use]
-    pub fn is_satisfied_by(self, observed_level: GreenLevel) -> bool {
+    pub fn is_satisfied_by(&self, observed_level: GreenLevel) -> bool {
         observed_level >= self.required_level
     }
 }
