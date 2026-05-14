@@ -240,7 +240,10 @@ impl ApprovalTokenLedger {
         executing_actor: &str,
         now_epoch_seconds: u64,
     ) -> Result<ApprovalTokenAudit, ApprovalTokenError> {
-        let grant = self.grants.get(token).ok_or(ApprovalTokenError::NoApproval)?;
+        let grant = self
+            .grants
+            .get(token)
+            .ok_or(ApprovalTokenError::NoApproval)?;
         Self::validate_grant(grant, scope, executing_actor, now_epoch_seconds)?;
         Ok(Self::audit_for(grant, executing_actor))
     }
@@ -272,7 +275,9 @@ impl ApprovalTokenLedger {
     ) -> Result<(), ApprovalTokenError> {
         match grant.status {
             ApprovalTokenStatus::Pending => return Err(ApprovalTokenError::ApprovalPending),
-            ApprovalTokenStatus::Consumed => return Err(ApprovalTokenError::ApprovalAlreadyConsumed),
+            ApprovalTokenStatus::Consumed => {
+                return Err(ApprovalTokenError::ApprovalAlreadyConsumed)
+            }
             ApprovalTokenStatus::Expired => return Err(ApprovalTokenError::ApprovalExpired),
             ApprovalTokenStatus::Revoked => return Err(ApprovalTokenError::ApprovalRevoked),
             ApprovalTokenStatus::Granted => {}
@@ -315,7 +320,9 @@ impl ApprovalTokenLedger {
             ));
         }
         if grant.approving_actor != executing_actor
-            && !delegation_chain.iter().any(|hop| hop.actor == executing_actor)
+            && !delegation_chain
+                .iter()
+                .any(|hop| hop.actor == executing_actor)
         {
             delegation_chain.push(ApprovalDelegationHop::new(
                 executing_actor.to_string(),

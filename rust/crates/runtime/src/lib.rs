@@ -4,6 +4,7 @@
 //! MCP plumbing, tool-facing file operations, and the core conversation loop
 //! that drives interactive and one-shot turns.
 
+mod approval_tokens;
 mod bash;
 pub mod bash_validation;
 mod bootstrap;
@@ -50,6 +51,10 @@ mod trust_resolver;
 mod usage;
 pub mod worker_boot;
 
+pub use approval_tokens::{
+    ApprovalDelegationHop, ApprovalScope, ApprovalTokenAudit, ApprovalTokenError,
+    ApprovalTokenGrant, ApprovalTokenLedger, ApprovalTokenStatus,
+};
 pub use bash::{execute_bash, BashCommandInput, BashCommandOutput};
 pub use bootstrap::{BootstrapPhase, BootstrapPlan};
 pub use branch_lock::{detect_branch_lock_collisions, BranchLockCollision, BranchLockIntent};
@@ -121,9 +126,7 @@ pub use oauth::{
     PkceChallengeMethod, PkceCodePair,
 };
 pub use permissions::{
-    ApprovalDelegationHop, ApprovalScope, ApprovalTokenAudit, ApprovalTokenError,
-    ApprovalTokenGrant, ApprovalTokenLedger, ApprovalTokenStatus, PermissionContext,
-    PermissionMode, PermissionOutcome, PermissionOverride, PermissionPolicy,
+    PermissionContext, PermissionMode, PermissionOutcome, PermissionOverride, PermissionPolicy,
     PermissionPromptDecision, PermissionPrompter, PermissionRequest,
 };
 pub use plugin_lifecycle::{
