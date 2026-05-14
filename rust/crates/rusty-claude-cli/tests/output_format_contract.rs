@@ -358,11 +358,7 @@ fn doctor_and_resume_status_emit_json_when_requested() {
         .find(|check| check["name"] == "boot preflight")
         .expect("boot preflight check");
     assert!(boot_preflight["boot_preflight"]["repo"]["exists"].is_boolean());
-    assert!(
-        boot_preflight["boot_preflight"]["branch_freshness"]["behind"]
-            .as_u64()
-            .is_some()
-    );
+    assert!(boot_preflight["boot_preflight"]["mcp_startup"]["eligible"].is_boolean());
     assert!(boot_preflight["boot_preflight"]["required_binaries"].is_array());
 
     let sandbox = checks
