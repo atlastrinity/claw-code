@@ -12,22 +12,22 @@ use api::{
 use plugins::PluginTool;
 use reqwest::blocking::Client;
 use runtime::{
-    check_freshness, dedupe_superseded_commit_events, edit_file, execute_bash, glob_search,
-    grep_search, load_system_prompt,
+    check_freshness, dedupe_superseded_commit_events, edit_file_in_workspace, execute_bash,
+    glob_search_in_workspace, grep_search_in_workspace, load_system_prompt,
     lsp_client::LspRegistry,
     mcp_tool_bridge::McpToolRegistry,
     permission_enforcer::{EnforcementResult, PermissionEnforcer},
-    read_file,
+    read_file_in_workspace,
     summary_compression::compress_summary_text,
     task_registry::TaskRegistry,
     team_cron_registry::{CronRegistry, TeamRegistry},
     worker_boot::{WorkerReadySnapshot, WorkerRegistry, WorkerTaskReceipt},
-    write_file, ApiClient, ApiRequest, AssistantEvent, BashCommandInput, BashCommandOutput,
-    BranchFreshness, ConfigLoader, ContentBlock, ConversationMessage, ConversationRuntime,
-    GrepSearchInput, LaneCommitProvenance, LaneEvent, LaneEventBlocker, LaneEventName,
-    LaneEventStatus, LaneFailureClass, McpDegradedReport, MessageRole, PermissionMode,
-    PermissionPolicy, PromptCacheEvent, ProviderFallbackConfig, RuntimeError, Session, TaskPacket,
-    ToolError, ToolExecutor,
+    write_file_in_workspace, ApiClient, ApiRequest, AssistantEvent, BashCommandInput,
+    BashCommandOutput, BranchFreshness, ConfigLoader, ContentBlock, ConversationMessage,
+    ConversationRuntime, GrepSearchInput, LaneCommitProvenance, LaneEvent, LaneEventBlocker,
+    LaneEventName, LaneEventStatus, LaneFailureClass, McpDegradedReport, MessageRole,
+    PermissionMode, PermissionPolicy, PromptCacheEvent, ProviderFallbackConfig, RuntimeError,
+    Session, TaskPacket, ToolError, ToolExecutor,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -1885,11 +1885,26 @@ fn classify_bash_permission(command: &str) -> PermissionMode {
 fn has_dangerous_paths(command: &str) -> bool {
     // Look for absolute paths
     let tokens: Vec<&str> = command.split_whitespace().collect();
+    let cwd = std::env::current_dir().ok();
 
     for token in tokens {
+        let token = token.trim_matches(|ch: char| {
+            matches!(
+                ch,
+                '"' | '\'' | '`' | ',' | ';' | ')' | '(' | '[' | ']' | '{' | '}'
+            )
+        });
         // Skip flags/options
         if token.starts_with('-') {
             continue;
+        }
+
+        if token.contains('$') {
+            return true;
+        }
+
+        if looks_like_windows_absolute_path(token) {
+            return true;
         }
 
         // Check for absolute paths
@@ -1897,7 +1912,7 @@ fn has_dangerous_paths(command: &str) -> bool {
             // Check if it's within CWD
             let path =
                 PathBuf::from(token.replace('~', &std::env::var("HOME").unwrap_or_default()));
-            if let Ok(cwd) = std::env::current_dir() {
+            if let Some(cwd) = cwd.as_ref() {
                 if !path.starts_with(&cwd) {
                     return true; // Path outside workspace
                 }
@@ -1908,9 +1923,33 @@ fn has_dangerous_paths(command: &str) -> bool {
         if token.contains("../..") || token.starts_with("../") && !token.starts_with("./") {
             return true;
         }
+
+        if let Some(cwd) = cwd.as_ref() {
+            if token.starts_with('.') || token.contains('/') || Path::new(token).exists() {
+                let candidate = if Path::new(token).is_absolute() {
+                    PathBuf::from(token)
+                } else {
+                    cwd.join(token)
+                };
+                if let Ok(canonical) = candidate.canonicalize() {
+                    if !canonical.starts_with(cwd) {
+                        return true;
+                    }
+                }
+            }
+        }
     }
 
     false
+}
+
+fn looks_like_windows_absolute_path(token: &str) -> bool {
+    let bytes = token.as_bytes();
+    (bytes.len() >= 3
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1] == b':'
+        && matches!(bytes[2], b'/' | b'\\'))
+        || token.starts_with(r"\\")
 }
 
 fn run_bash(input: BashCommandInput) -> Result<String, String> {
@@ -2069,22 +2108,31 @@ fn branch_divergence_output(
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_read_file(input: ReadFileInput) -> Result<String, String> {
-    to_pretty_json(read_file(&input.path, input.offset, input.limit).map_err(io_to_string)?)
+    let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
+    to_pretty_json(
+        read_file_in_workspace(&input.path, input.offset, input.limit, &workspace)
+            .map_err(io_to_string)?,
+    )
 }
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_write_file(input: WriteFileInput) -> Result<String, String> {
-    to_pretty_json(write_file(&input.path, &input.content).map_err(io_to_string)?)
+    let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
+    to_pretty_json(
+        write_file_in_workspace(&input.path, &input.content, &workspace).map_err(io_to_string)?,
+    )
 }
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_edit_file(input: EditFileInput) -> Result<String, String> {
+    let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
     to_pretty_json(
-        edit_file(
+        edit_file_in_workspace(
             &input.path,
             &input.old_string,
             &input.new_string,
             input.replace_all.unwrap_or(false),
+            &workspace,
         )
         .map_err(io_to_string)?,
     )
@@ -2092,12 +2140,17 @@ fn run_edit_file(input: EditFileInput) -> Result<String, String> {
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_glob_search(input: GlobSearchInputValue) -> Result<String, String> {
-    to_pretty_json(glob_search(&input.pattern, input.path.as_deref()).map_err(io_to_string)?)
+    let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
+    to_pretty_json(
+        glob_search_in_workspace(&input.pattern, input.path.as_deref(), &workspace)
+            .map_err(io_to_string)?,
+    )
 }
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_grep_search(input: GrepSearchInput) -> Result<String, String> {
-    to_pretty_json(grep_search(&input).map_err(io_to_string)?)
+    let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
+    to_pretty_json(grep_search_in_workspace(&input, &workspace).map_err(io_to_string)?)
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -9118,6 +9171,78 @@ mod tests {
     }
 
     #[test]
+    fn file_tools_reject_paths_outside_current_workspace() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let root = temp_path("workspace-scope");
+        let outside = temp_path("workspace-scope-outside");
+        fs::create_dir_all(&root).expect("create root");
+        fs::create_dir_all(&outside).expect("create outside");
+        fs::write(outside.join("secret.txt"), "secret\n").expect("outside fixture");
+        let original_dir = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(&root).expect("set cwd");
+
+        let read_error = execute_tool(
+            "read_file",
+            &json!({ "path": outside.join("secret.txt").display().to_string() }),
+        )
+        .expect_err("read outside workspace should fail");
+        assert!(read_error.contains("escapes workspace"));
+
+        let write_error = execute_tool(
+            "write_file",
+            &json!({ "path": outside.join("created.txt").display().to_string(), "content": "nope" }),
+        )
+        .expect_err("write outside workspace should fail");
+        assert!(write_error.contains("escapes workspace"));
+        assert!(!outside.join("created.txt").exists());
+
+        let glob_error = execute_tool(
+            "glob_search",
+            &json!({ "pattern": outside.join("*.txt").display().to_string() }),
+        )
+        .expect_err("absolute glob outside workspace should fail");
+        assert!(glob_error.contains("escapes workspace"));
+
+        let grep_error = execute_tool(
+            "grep_search",
+            &json!({ "pattern": "secret", "path": outside.display().to_string() }),
+        )
+        .expect_err("grep outside workspace should fail");
+        assert!(grep_error.contains("escapes workspace"));
+
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(outside);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn file_tools_reject_symlink_escape_from_current_workspace() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let root = temp_path("workspace-symlink-scope");
+        let outside = temp_path("workspace-symlink-outside");
+        fs::create_dir_all(&root).expect("create root");
+        fs::create_dir_all(&outside).expect("create outside");
+        fs::write(outside.join("secret.txt"), "secret\n").expect("outside fixture");
+        std::os::unix::fs::symlink(outside.join("secret.txt"), root.join("link.txt"))
+            .expect("create symlink");
+        let original_dir = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(&root).expect("set cwd");
+
+        let error = execute_tool("read_file", &json!({ "path": "link.txt" }))
+            .expect_err("symlink outside workspace should fail");
+        assert!(error.contains("escapes workspace"));
+
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(outside);
+    }
+
+    #[test]
     fn sleep_waits_and_reports_duration() {
         let started = std::time::Instant::now();
         let result =
@@ -9530,6 +9655,19 @@ printf 'pwsh:%s' "$1"
         registry
     }
 
+    fn workspace_write_registry() -> super::GlobalToolRegistry {
+        use runtime::permission_enforcer::PermissionEnforcer;
+        use runtime::PermissionPolicy;
+
+        let policy = mvp_tool_specs().into_iter().fold(
+            PermissionPolicy::new(runtime::PermissionMode::WorkspaceWrite),
+            |policy, spec| policy.with_tool_requirement(spec.name, spec.required_permission),
+        );
+        let mut registry = super::GlobalToolRegistry::builtin();
+        registry.set_enforcer(PermissionEnforcer::new(policy));
+        registry
+    }
+
     #[test]
     fn path_scope_classifies_direct_paths_inside_and_outside_workspace() {
         let _guard = env_guard();
@@ -9658,6 +9796,63 @@ printf 'pwsh:%s' "$1"
             err.contains("current mode is 'read-only'"),
             "should cite active mode: {err}"
         );
+    }
+
+    #[test]
+    fn given_workspace_write_enforcer_when_bash_uses_shell_expansion_then_denied() {
+        let registry = workspace_write_registry();
+        let err = registry
+            .execute("bash", &json!({ "command": "cat $HOME/.ssh/config" }))
+            .expect_err("shell-expanded path should require elevated permission");
+        assert!(
+            err.contains("requires 'danger-full-access'"),
+            "should require elevated mode: {err}"
+        );
+    }
+
+    #[test]
+    fn given_workspace_write_enforcer_when_bash_uses_windows_absolute_path_then_denied() {
+        let registry = workspace_write_registry();
+        let err = registry
+            .execute(
+                "bash",
+                &json!({ "command": r"cat C:\\Users\\alice\\.ssh\\config" }),
+            )
+            .expect_err("Windows absolute path should require elevated permission");
+        assert!(
+            err.contains("requires 'danger-full-access'"),
+            "should require elevated mode: {err}"
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn given_workspace_write_enforcer_when_bash_reads_symlink_escape_then_denied() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let root = temp_path("bash-symlink-scope");
+        let outside = temp_path("bash-symlink-outside");
+        fs::create_dir_all(&root).expect("create root");
+        fs::create_dir_all(&outside).expect("create outside");
+        fs::write(outside.join("secret.txt"), "secret\n").expect("outside fixture");
+        std::os::unix::fs::symlink(outside.join("secret.txt"), root.join("link.txt"))
+            .expect("create symlink");
+        let original_dir = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(&root).expect("set cwd");
+
+        let registry = workspace_write_registry();
+        let err = registry
+            .execute("bash", &json!({ "command": "cat link.txt" }))
+            .expect_err("symlink escape should require elevated permission");
+        assert!(
+            err.contains("requires 'danger-full-access'"),
+            "should require elevated mode: {err}"
+        );
+
+        std::env::set_current_dir(&original_dir).expect("restore cwd");
+        let _ = fs::remove_dir_all(root);
+        let _ = fs::remove_dir_all(outside);
     }
 
     #[test]
