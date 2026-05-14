@@ -338,6 +338,7 @@ pub fn recipe_for(scenario: &FailureScenario) -> RecoveryRecipe {
 /// Looks up the recipe, enforces the one-attempt-before-escalation
 /// policy, simulates step execution (controlled by the context), and
 /// emits structured [`RecoveryEvent`]s for every attempt.
+#[allow(clippy::too_many_lines)]
 pub fn attempt_recovery(scenario: &FailureScenario, ctx: &mut RecoveryContext) -> RecoveryResult {
     let recipe = recipe_for(scenario);
     let recipe_id = scenario.to_string();
