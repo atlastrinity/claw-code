@@ -92,6 +92,32 @@ fn status_and_sandbox_emit_json_when_requested() {
 }
 
 #[test]
+fn status_json_surfaces_permission_mode_override_for_security_audit() {
+    let root = unique_temp_dir("status-json-permission-mode");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+
+    let parsed = assert_json_command(
+        &root,
+        &[
+            "--permission-mode",
+            "read-only",
+            "--output-format",
+            "json",
+            "status",
+        ],
+    );
+
+    assert_eq!(parsed["kind"], "status");
+    assert_eq!(parsed["permission_mode"], "read-only");
+    assert!(
+        parsed["workspace"]["cwd"].as_str().is_some(),
+        "status JSON should retain workspace context with permission mode"
+    );
+
+    fs::remove_dir_all(root).expect("cleanup temp dir");
+}
+
+#[test]
 fn acp_guidance_emits_json_when_requested() {
     let root = unique_temp_dir("acp-json");
     fs::create_dir_all(&root).expect("temp dir should exist");

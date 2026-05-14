@@ -708,7 +708,7 @@ mod tests {
     use super::{
         component_contains_glob, derive_glob_walk_root, edit_file, expand_braces, glob_search,
         grep_search, is_symlink_escape, read_file, read_file_in_workspace, write_file,
-        GrepSearchInput, MAX_WRITE_SIZE,
+        write_file_in_workspace, GrepSearchInput, MAX_WRITE_SIZE,
     };
 
     fn temp_path(name: &str) -> std::path::PathBuf {
@@ -806,6 +806,68 @@ mod tests {
         let normal = workspace.join("normal.txt");
         std::fs::write(&normal, "normal content").expect("normal file should write");
         assert!(!is_symlink_escape(&normal, &workspace).expect("check should succeed"));
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn workspace_read_rejects_symlink_escape_regression_3007_class() {
+        let workspace = temp_path("workspace-read-symlink-escape");
+        let outside = temp_path("workspace-read-symlink-target");
+        std::fs::create_dir_all(&workspace).expect("workspace dir should be created");
+        std::fs::create_dir_all(&outside).expect("outside dir should be created");
+        let outside_file = outside.join("secret.txt");
+        std::fs::write(&outside_file, "outside secret").expect("outside file should write");
+
+        let link_path = workspace.join("linked-secret.txt");
+        std::os::unix::fs::symlink(&outside_file, &link_path).expect("symlink should create");
+
+        let result =
+            read_file_in_workspace(link_path.to_string_lossy().as_ref(), None, None, &workspace);
+
+        assert!(result.is_err(), "symlink escape must be rejected");
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(
+            error.to_string().contains("escapes workspace"),
+            "error should explain workspace escape: {error}"
+        );
+
+        let _ = std::fs::remove_dir_all(&workspace);
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn workspace_write_rejects_parent_symlink_escape_regression_3007_class() {
+        let workspace = temp_path("workspace-write-symlink-escape");
+        let outside = temp_path("workspace-write-symlink-target");
+        std::fs::create_dir_all(&workspace).expect("workspace dir should be created");
+        std::fs::create_dir_all(&outside).expect("outside dir should be created");
+
+        let link_dir = workspace.join("linked-outside");
+        std::os::unix::fs::symlink(&outside, &link_dir).expect("symlink dir should create");
+        let escaped_child = link_dir.join("created.txt");
+
+        let result = write_file_in_workspace(
+            escaped_child.to_string_lossy().as_ref(),
+            "must not escape",
+            &workspace,
+        );
+
+        assert!(result.is_err(), "parent symlink escape must be rejected");
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(
+            error.to_string().contains("escapes workspace"),
+            "error should explain workspace escape: {error}"
+        );
+        assert!(
+            !outside.join("created.txt").exists(),
+            "write should not create through an escaping symlink"
+        );
+
+        let _ = std::fs::remove_dir_all(&workspace);
+        let _ = std::fs::remove_dir_all(&outside);
     }
 
     #[test]
