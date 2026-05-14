@@ -9530,7 +9530,6 @@ printf 'pwsh:%s' "$1"
         registry
     }
 
-
     #[test]
     fn path_scope_classifies_direct_paths_inside_and_outside_workspace() {
         let _guard = env_guard();
