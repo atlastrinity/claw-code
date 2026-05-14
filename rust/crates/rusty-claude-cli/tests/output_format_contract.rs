@@ -310,7 +310,7 @@ fn doctor_and_resume_status_emit_json_when_requested() {
     assert!(summary["failures"].as_u64().is_some());
 
     let checks = doctor["checks"].as_array().expect("doctor checks");
-    assert_eq!(checks.len(), 6);
+    assert_eq!(checks.len(), 7);
     let check_names = checks
         .iter()
         .map(|check| {
@@ -327,6 +327,7 @@ fn doctor_and_resume_status_emit_json_when_requested() {
             "config",
             "install source",
             "workspace",
+            "boot preflight",
             "sandbox",
             "system"
         ]
@@ -351,6 +352,18 @@ fn doctor_and_resume_status_emit_json_when_requested() {
         .expect("workspace check");
     assert!(workspace["cwd"].as_str().is_some());
     assert!(workspace["in_git_repo"].is_boolean());
+
+    let boot_preflight = checks
+        .iter()
+        .find(|check| check["name"] == "boot preflight")
+        .expect("boot preflight check");
+    assert!(boot_preflight["boot_preflight"]["repo"]["exists"].is_boolean());
+    assert!(
+        boot_preflight["boot_preflight"]["branch_freshness"]["behind"]
+            .as_u64()
+            .is_some()
+    );
+    assert!(boot_preflight["boot_preflight"]["required_binaries"].is_array());
 
     let sandbox = checks
         .iter()
