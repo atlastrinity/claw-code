@@ -143,8 +143,9 @@ pub use prompt::{
     PromptBuildError, SystemPromptBuilder, FRONTIER_MODEL_NAME, SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
 };
 pub use recovery_recipes::{
-    attempt_recovery, recipe_for, EscalationPolicy, FailureScenario, RecoveryContext,
-    RecoveryEvent, RecoveryRecipe, RecoveryResult, RecoveryStep,
+    attempt_recovery, recipe_for, EscalationPolicy, FailureScenario, RecoveryAttemptState,
+    RecoveryContext, RecoveryEvent, RecoveryLedgerEntry, RecoveryRecipe, RecoveryResult,
+    RecoveryStep,
 };
 pub use remote::{
     inherited_upstream_proxy_env, no_proxy_list, read_token, upstream_proxy_ws_url,
