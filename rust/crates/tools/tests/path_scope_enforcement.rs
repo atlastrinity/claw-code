@@ -30,6 +30,14 @@ fn run_bash(command: &str) -> Result<String, String> {
     workspace_write_registry().execute("bash", &json!({ "command": command }))
 }
 
+fn run_powershell(command: &str) -> Result<String, String> {
+    workspace_write_registry().execute("PowerShell", &json!({ "command": command }))
+}
+
+fn run_read_file(path: &Path) -> Result<String, String> {
+    workspace_write_registry().execute("read_file", &json!({ "path": path.display().to_string() }))
+}
+
 fn assert_permission_denied(result: Result<String, String>, case_name: &str) {
     let err = result
         .unwrap_err_or_else(|ok| panic!("{case_name} should be denied before execution, got {ok}"));
@@ -80,6 +88,24 @@ fn direct_paths_allow_workspace_file_and_deny_absolute_outside_file() {
             run_bash(&format!("cat {}", outside.display())),
             "absolute outside file",
         );
+    });
+
+    let _ = fs::remove_dir_all(root);
+    let _ = fs::remove_file(outside);
+}
+
+#[test]
+fn file_tool_direct_outside_path_is_denied_before_reading() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let root = temp_path("file-tool-direct");
+    fs::create_dir_all(&root).expect("create workspace");
+    let outside = temp_path("file-tool-secret.txt");
+    fs::write(&outside, "secret\n").expect("write outside file");
+
+    with_cwd(&root, || {
+        assert_permission_denied(run_read_file(&outside), "read_file outside workspace");
     });
 
     let _ = fs::remove_dir_all(root);
@@ -161,5 +187,18 @@ fn windows_style_absolute_paths_are_denied_before_execution() {
         ("windows drive slash", r"cat C:/Users/attacker/secret.txt"),
     ] {
         assert_permission_denied(run_bash(command), name);
+    }
+
+    for (name, command) in [
+        (
+            "powershell windows drive backslash",
+            r"Get-Content -Path C:\Users\attacker\secret.txt",
+        ),
+        (
+            "powershell windows drive slash",
+            r"Get-Content -Path C:/Users/attacker/secret.txt",
+        ),
+    ] {
+        assert_permission_denied(run_powershell(command), name);
     }
 }
