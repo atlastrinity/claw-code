@@ -122,13 +122,37 @@ pub enum StartupFailureClassification {
     Unknown,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StartupHealthSummary {
+    /// Whether this subsystem appeared healthy at timeout.
+    pub healthy: bool,
+    /// Stable placeholder/source string until deeper transport and MCP probes are wired in.
+    pub summary: String,
+}
+
+impl StartupHealthSummary {
+    fn observed(name: &str, healthy: bool) -> Self {
+        let status = if healthy { "healthy" } else { "unhealthy" };
+        Self {
+            healthy,
+            summary: format!("{name}_{status}_placeholder"),
+        }
+    }
+}
+
 /// Evidence bundle collected when worker startup times out without clear evidence.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct StartupEvidenceBundle {
     /// Last known worker lifecycle state before timeout
     pub last_lifecycle_state: WorkerStatus,
+    /// Timestamp of the last lifecycle state transition, unix epoch seconds
+    pub last_lifecycle_at: u64,
     /// The pane/command that was being executed
     pub pane_command: String,
+    /// Timestamp when the pane/command snapshot was observed, unix epoch seconds
+    pub pane_observed_at: u64,
+    /// Timestamp when the worker command was started, unix epoch seconds
+    pub command_started_at: u64,
     /// Timestamp when prompt was sent (if any), unix epoch seconds
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_sent_at: Option<u64>,
@@ -146,8 +170,12 @@ pub struct StartupEvidenceBundle {
     pub tool_permission_allow_scope: Option<ToolPermissionAllowScope>,
     /// Transport health summary (true = healthy/responsive)
     pub transport_healthy: bool,
+    /// Typed transport health placeholder for future concrete probes
+    pub transport_health: StartupHealthSummary,
     /// MCP health summary (true = all servers healthy)
     pub mcp_healthy: bool,
+    /// Typed MCP health placeholder for future concrete probes
+    pub mcp_health: StartupHealthSummary,
     /// Seconds since worker creation
     pub elapsed_seconds: u64,
 }
@@ -225,6 +253,7 @@ pub struct Worker {
     pub auto_recover_prompt_misdelivery: bool,
     pub prompt_delivery_attempts: u32,
     pub prompt_in_flight: bool,
+    pub prompt_sent_at: Option<u64>,
     pub last_prompt: Option<String>,
     pub expected_receipt: Option<WorkerTaskReceipt>,
     pub replay_prompt: Option<String>,
@@ -274,6 +303,7 @@ impl WorkerRegistry {
             auto_recover_prompt_misdelivery,
             prompt_delivery_attempts: 0,
             prompt_in_flight: false,
+            prompt_sent_at: None,
             last_prompt: None,
             expected_receipt: None,
             replay_prompt: None,
@@ -528,6 +558,7 @@ impl WorkerRegistry {
 
         worker.prompt_delivery_attempts += 1;
         worker.prompt_in_flight = true;
+        worker.prompt_sent_at = Some(now_secs());
         worker.last_prompt = Some(next_prompt.clone());
         worker.expected_receipt = task_receipt;
         worker.replay_prompt = None;
@@ -579,6 +610,7 @@ impl WorkerRegistry {
         worker.last_error = None;
         worker.prompt_delivery_attempts = 0;
         worker.prompt_in_flight = false;
+        worker.prompt_sent_at = None;
         push_event(
             worker,
             WorkerEventKind::Restarted,
@@ -696,12 +728,11 @@ impl WorkerRegistry {
         // Build evidence bundle
         let evidence = StartupEvidenceBundle {
             last_lifecycle_state: worker.status,
+            last_lifecycle_at: worker.updated_at,
             pane_command: pane_command.to_string(),
-            prompt_sent_at: if worker.prompt_delivery_attempts > 0 {
-                Some(worker.updated_at)
-            } else {
-                None
-            },
+            pane_observed_at: now,
+            command_started_at: worker.created_at,
+            prompt_sent_at: worker.prompt_sent_at,
             prompt_acceptance_state: worker.status == WorkerStatus::Running
                 && !worker.prompt_in_flight,
             trust_prompt_detected: worker
@@ -716,7 +747,9 @@ impl WorkerRegistry {
                 .map(|event| now.saturating_sub(event.timestamp)),
             tool_permission_allow_scope,
             transport_healthy,
+            transport_health: StartupHealthSummary::observed("transport", transport_healthy),
             mcp_healthy,
+            mcp_health: StartupHealthSummary::observed("mcp", mcp_healthy),
             elapsed_seconds: elapsed,
         };
 
