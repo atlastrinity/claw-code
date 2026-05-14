@@ -1873,8 +1873,16 @@ mod tests {
                     "last state should be spawning"
                 );
                 assert_eq!(evidence.pane_command, "cargo test");
+                assert!(evidence.command_started_at <= evidence.pane_observed_at);
+                assert!(evidence.last_lifecycle_at <= evidence.pane_observed_at);
                 assert!(!evidence.transport_healthy);
+                assert!(!evidence.transport_health.healthy);
+                assert!(evidence
+                    .transport_health
+                    .summary
+                    .contains("transport_unhealthy"));
                 assert!(evidence.mcp_healthy);
+                assert!(evidence.mcp_health.healthy);
                 assert_eq!(*classification, StartupFailureClassification::TransportDead);
             }
             _ => panic!(
@@ -1991,8 +1999,13 @@ mod tests {
         assert!(json.contains("\"pane_command\""));
         assert!(json.contains("\"prompt_sent_at\":1234567890"));
         assert!(json.contains("\"trust_prompt_detected\":true"));
+        assert!(json.contains("\"last_lifecycle_at\":1234567889"));
+        assert!(json.contains("\"pane_observed_at\":1234567891"));
+        assert!(json.contains("\"command_started_at\":1234567800"));
         assert!(json.contains("\"transport_healthy\":true"));
+        assert!(json.contains("\"transport_health\""));
         assert!(json.contains("\"mcp_healthy\":false"));
+        assert!(json.contains("\"mcp_health\""));
 
         let deserialized: StartupEvidenceBundle =
             serde_json::from_str(&json).expect("should deserialize");
@@ -2004,10 +2017,10 @@ mod tests {
     fn classify_startup_failure_detects_transport_dead() {
         let evidence = StartupEvidenceBundle {
             last_lifecycle_state: WorkerStatus::Spawning,
-            last_lifecycle_at: 1,
+            last_lifecycle_at: 10,
             pane_command: "test".to_string(),
-            pane_observed_at: 2,
-            command_started_at: 0,
+            pane_observed_at: 40,
+            command_started_at: 1,
             prompt_sent_at: None,
             prompt_acceptance_state: false,
             trust_prompt_detected: false,
@@ -2029,10 +2042,10 @@ mod tests {
     fn classify_startup_failure_defaults_to_unknown() {
         let evidence = StartupEvidenceBundle {
             last_lifecycle_state: WorkerStatus::Spawning,
-            last_lifecycle_at: 1,
+            last_lifecycle_at: 10,
             pane_command: "test".to_string(),
-            pane_observed_at: 2,
-            command_started_at: 0,
+            pane_observed_at: 40,
+            command_started_at: 1,
             prompt_sent_at: None,
             prompt_acceptance_state: false,
             trust_prompt_detected: false,
@@ -2051,15 +2064,43 @@ mod tests {
     }
 
     #[test]
+    fn classify_startup_failure_detects_prompt_misdelivery_after_timeout() {
+        let evidence = StartupEvidenceBundle {
+            last_lifecycle_state: WorkerStatus::ReadyForPrompt,
+            last_lifecycle_at: 10,
+            pane_command: "test".to_string(),
+            pane_observed_at: 45,
+            command_started_at: 1,
+            prompt_sent_at: Some(10),
+            prompt_acceptance_state: false,
+            trust_prompt_detected: false,
+            tool_permission_prompt_detected: false,
+            tool_permission_prompt_age_seconds: None,
+            tool_permission_allow_scope: None,
+            transport_healthy: true,
+            transport_health: StartupHealthSummary::observed("transport", true),
+            mcp_healthy: true,
+            mcp_health: StartupHealthSummary::observed("mcp", true),
+            elapsed_seconds: 31,
+        };
+
+        let classification = classify_startup_failure(&evidence);
+        assert_eq!(
+            classification,
+            StartupFailureClassification::PromptMisdelivery
+        );
+    }
+
+    #[test]
     fn classify_startup_failure_detects_worker_crashed() {
         // Worker crashed scenario: transport healthy but MCP unhealthy
         // Don't have prompt in flight (no prompt_sent_at) to avoid matching PromptAcceptanceTimeout
         let evidence = StartupEvidenceBundle {
             last_lifecycle_state: WorkerStatus::Spawning,
-            last_lifecycle_at: 1,
+            last_lifecycle_at: 10,
             pane_command: "test".to_string(),
-            pane_observed_at: 2,
-            command_started_at: 0,
+            pane_observed_at: 40,
+            command_started_at: 1,
             prompt_sent_at: None, // No prompt sent yet
             prompt_acceptance_state: false,
             trust_prompt_detected: false,
