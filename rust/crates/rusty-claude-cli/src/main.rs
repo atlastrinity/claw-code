@@ -3555,7 +3555,7 @@ fn build_boot_preflight_snapshot(
     let trust_gate_allowed = runtime_config.map(|_| {
         trusted_roots
             .iter()
-            .any(|root| path_matches_trusted_root_local(cwd, Path::new(root)))
+            .any(|root| path_matches_trusted_root_local(cwd, root))
     });
     let plugin_configured = runtime_config
         .map(|config| config.plugins().enabled_plugins().len())
@@ -3635,10 +3635,15 @@ fn last_failed_boot_reason(cwd: &Path) -> Option<String> {
         })
 }
 
-fn path_matches_trusted_root_local(cwd: &Path, trusted_root: &Path) -> bool {
+fn path_matches_trusted_root_local(cwd: &Path, trusted_root: &str) -> bool {
     let cwd = fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
-    let trusted_root =
-        fs::canonicalize(trusted_root).unwrap_or_else(|_| trusted_root.to_path_buf());
+    let trusted_root = Path::new(trusted_root);
+    let trusted_root = if trusted_root.is_absolute() {
+        trusted_root.to_path_buf()
+    } else {
+        cwd.join(trusted_root)
+    };
+    let trusted_root = fs::canonicalize(&trusted_root).unwrap_or(trusted_root);
     cwd == trusted_root || cwd.starts_with(trusted_root)
 }
 
@@ -12736,6 +12741,67 @@ mod tests {
             "claw"
         );
         assert_eq!(value["workspace"]["session_lifecycle"]["abandoned"], false);
+        assert_eq!(value["workspace"]["branch_freshness"]["fresh"], true);
+        assert_eq!(
+            value["workspace"]["boot_preflight"]["repo"]["worktree_exists"],
+            true
+        );
+        assert_eq!(
+            value["workspace"]["boot_preflight"]["mcp_startup"]["eligible"],
+            true
+        );
+        assert_eq!(
+            value["workspace"]["boot_preflight"]["last_failed_boot_reason"],
+            serde_json::Value::Null
+        );
+    }
+
+    #[test]
+    fn branch_freshness_parses_ahead_behind_status_header() {
+        let freshness = super::BranchFreshness::from_git_status(Some(
+            "## feature/boot...origin/feature/boot [ahead 2, behind 3]\n M src/main.rs",
+        ));
+
+        assert_eq!(freshness.upstream.as_deref(), Some("origin/feature/boot"));
+        assert_eq!(freshness.ahead, 2);
+        assert_eq!(freshness.behind, 3);
+        assert_eq!(freshness.fresh, Some(false));
+    }
+
+    #[test]
+    fn boot_preflight_snapshot_reports_machine_readable_contract_fields() {
+        let _guard = env_lock();
+        let workspace = temp_workspace("boot-preflight-json");
+        fs::create_dir_all(&workspace).expect("workspace should create");
+        git(&["init", "--quiet"], &workspace);
+        git(&["config", "user.email", "tests@example.com"], &workspace);
+        git(&["config", "user.name", "Rusty Claude Tests"], &workspace);
+        fs::write(workspace.join("tracked.txt"), "hello\n").expect("write tracked");
+        fs::write(workspace.join(".claw.json"), r#"{"trustedRoots": ["."]}"#)
+            .expect("write config");
+        git(&["add", "tracked.txt"], &workspace);
+        git(&["commit", "-m", "init", "--quiet"], &workspace);
+
+        let loader = ConfigLoader::default_for(&workspace);
+        let config = loader.load().expect("config should load");
+        let status = super::run_git_capture_in(&workspace, &["status", "--short", "--branch"]);
+        let snapshot = super::build_boot_preflight_snapshot(
+            &workspace,
+            Some(&workspace),
+            status.as_deref(),
+            Some(&config),
+            None,
+        );
+        let json = snapshot.json_value();
+
+        assert_eq!(json["repo"]["exists"], true);
+        assert_eq!(json["repo"]["worktree_exists"], true);
+        assert_eq!(json["trust_gate"]["allowlisted"], true);
+        assert_eq!(json["mcp_startup"]["eligible"], true);
+        assert!(json["required_binaries"]
+            .as_array()
+            .is_some_and(|items| { items.iter().any(|item| item["name"] == "git") }));
+        fs::remove_dir_all(workspace).expect("cleanup temp dir");
     }
 
     #[test]
