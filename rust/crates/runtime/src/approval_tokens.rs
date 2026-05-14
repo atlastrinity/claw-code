@@ -90,8 +90,8 @@ pub enum ApprovalTokenError {
     ApprovalRevoked,
     ApprovalAlreadyConsumed,
     ScopeMismatch {
-        expected: ApprovalScope,
-        actual: ApprovalScope,
+        expected: Box<ApprovalScope>,
+        actual: Box<ApprovalScope>,
     },
     UnauthorizedDelegate {
         expected: String,
@@ -296,8 +296,8 @@ impl ApprovalTokenLedger {
 
         if grant.scope != *scope {
             return Err(ApprovalTokenError::ScopeMismatch {
-                expected: grant.scope.clone(),
-                actual: scope.clone(),
+                expected: Box::new(grant.scope.clone()),
+                actual: Box::new(scope.clone()),
             });
         }
 
