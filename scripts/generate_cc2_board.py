@@ -6,6 +6,8 @@ import argparse
 import hashlib
 import json
 import re
+import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -503,10 +505,18 @@ def main() -> int:
     out_dir = args.out_dir or (repo_root / ".omx" / "cc2")
     out_dir.mkdir(parents=True, exist_ok=True)
     board = build_board(repo_root)
-    (out_dir / "board.json").write_text(json.dumps(board, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    (out_dir / "board.md").write_text(render_markdown(board) + "\n", encoding="utf-8")
-    print(f"wrote {out_dir / 'board.json'}")
-    print(f"wrote {out_dir / 'board.md'}")
+    board_json = out_dir / "board.json"
+    board_md = out_dir / "board.md"
+    board_json.write_text(json.dumps(board, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    renderer = repo_root / ".omx" / "cc2" / "render_board_md.py"
+    if renderer.exists():
+        subprocess.run([sys.executable, str(renderer), str(board_json), str(board_md)], check=True, cwd=str(repo_root))
+    else:
+        board_md.write_text(render_markdown(board) + "\n", encoding="utf-8")
+
+    print(f"wrote {board_json}")
+    print(f"wrote {board_md}")
     print(f"roadmap headings mapped: {board['coverage']['roadmap_headings_mapped']}/{board['coverage']['roadmap_headings_total']}")
     print(f"roadmap actions mapped: {board['coverage']['roadmap_actions_mapped']}/{board['coverage']['roadmap_actions_total']}")
     return 0
