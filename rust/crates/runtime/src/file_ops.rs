@@ -307,11 +307,23 @@ pub fn edit_file(
 
 /// Expands a glob pattern and returns matching filenames.
 pub fn glob_search(pattern: &str, path: Option<&str>) -> io::Result<GlobSearchOutput> {
+    glob_search_impl(pattern, path, None)
+}
+
+fn glob_search_impl(
+    pattern: &str,
+    path: Option<&str>,
+    workspace_root: Option<&Path>,
+) -> io::Result<GlobSearchOutput> {
     let started = Instant::now();
     let base_dir = path
         .map(normalize_path)
         .transpose()?
         .unwrap_or(std::env::current_dir()?);
+    let canonical_root = workspace_root.map(canonicalize_workspace_root);
+    if let Some(root) = canonical_root.as_deref() {
+        validate_workspace_boundary(&base_dir, root)?;
+    }
     let search_pattern = if Path::new(pattern).is_absolute() {
         pattern.to_owned()
     } else {
@@ -329,6 +341,12 @@ pub fn glob_search(pattern: &str, path: Option<&str>) -> io::Result<GlobSearchOu
         let compiled = Pattern::new(pat)
             .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
         let walk_root = derive_glob_walk_root(pat);
+        if let Some(root) = canonical_root.as_deref() {
+            let canonical_walk_root = walk_root
+                .canonicalize()
+                .unwrap_or_else(|_| walk_root.to_path_buf());
+            validate_workspace_boundary(&canonical_walk_root, root)?;
+        }
         let entries = WalkDir::new(&walk_root)
             .into_iter()
             .filter_entry(|entry| !should_skip_glob_dir(entry));
@@ -338,6 +356,10 @@ pub fn glob_search(pattern: &str, path: Option<&str>) -> io::Result<GlobSearchOu
                 && compiled.matches_path(candidate)
                 && seen.insert(candidate.to_path_buf())
             {
+                if let Some(root) = canonical_root.as_deref() {
+                    let canonical_candidate = candidate.canonicalize()?;
+                    validate_workspace_boundary(&canonical_candidate, root)?;
+                }
                 matches.push(candidate.to_path_buf());
             }
         }
@@ -367,12 +389,23 @@ pub fn glob_search(pattern: &str, path: Option<&str>) -> io::Result<GlobSearchOu
 
 /// Runs a regex search over workspace files with optional context lines.
 pub fn grep_search(input: &GrepSearchInput) -> io::Result<GrepSearchOutput> {
+    grep_search_impl(input, None)
+}
+
+fn grep_search_impl(
+    input: &GrepSearchInput,
+    workspace_root: Option<&Path>,
+) -> io::Result<GrepSearchOutput> {
     let base_path = input
         .path
         .as_deref()
         .map(normalize_path)
         .transpose()?
         .unwrap_or(std::env::current_dir()?);
+    let canonical_root = workspace_root.map(canonicalize_workspace_root);
+    if let Some(root) = canonical_root.as_deref() {
+        validate_workspace_boundary(&base_path, root)?;
+    }
 
     let regex = RegexBuilder::new(&input.pattern)
         .case_insensitive(input.case_insensitive.unwrap_or(false))
@@ -398,6 +431,10 @@ pub fn grep_search(input: &GrepSearchInput) -> io::Result<GrepSearchOutput> {
     let mut total_matches = 0usize;
 
     for file_path in collect_search_files(&base_path)? {
+        if let Some(root) = canonical_root.as_deref() {
+            let canonical_file = file_path.canonicalize()?;
+            validate_workspace_boundary(&canonical_file, root)?;
+        }
         if !matches_optional_filters(&file_path, glob_filter.as_ref(), file_type) {
             continue;
         }
@@ -473,6 +510,12 @@ pub fn grep_search(input: &GrepSearchInput) -> io::Result<GrepSearchOutput> {
         applied_limit,
         applied_offset,
     })
+}
+
+fn canonicalize_workspace_root(workspace_root: &Path) -> PathBuf {
+    workspace_root
+        .canonicalize()
+        .unwrap_or_else(|_| workspace_root.to_path_buf())
 }
 
 fn should_skip_glob_dir(entry: &DirEntry) -> bool {
@@ -625,9 +668,7 @@ pub fn read_file_in_workspace(
     workspace_root: &Path,
 ) -> io::Result<ReadFileOutput> {
     let absolute_path = normalize_path(path)?;
-    let canonical_root = workspace_root
-        .canonicalize()
-        .unwrap_or_else(|_| workspace_root.to_path_buf());
+    let canonical_root = canonicalize_workspace_root(workspace_root);
     validate_workspace_boundary(&absolute_path, &canonical_root)?;
     read_file(path, offset, limit)
 }
@@ -640,9 +681,7 @@ pub fn write_file_in_workspace(
     workspace_root: &Path,
 ) -> io::Result<WriteFileOutput> {
     let absolute_path = normalize_path_allow_missing(path)?;
-    let canonical_root = workspace_root
-        .canonicalize()
-        .unwrap_or_else(|_| workspace_root.to_path_buf());
+    let canonical_root = canonicalize_workspace_root(workspace_root);
     validate_workspace_boundary(&absolute_path, &canonical_root)?;
     write_file(path, content)
 }
@@ -657,11 +696,28 @@ pub fn edit_file_in_workspace(
     workspace_root: &Path,
 ) -> io::Result<EditFileOutput> {
     let absolute_path = normalize_path(path)?;
-    let canonical_root = workspace_root
-        .canonicalize()
-        .unwrap_or_else(|_| workspace_root.to_path_buf());
+    let canonical_root = canonicalize_workspace_root(workspace_root);
     validate_workspace_boundary(&absolute_path, &canonical_root)?;
     edit_file(path, old_string, new_string, replace_all)
+}
+
+/// Expand a glob pattern with workspace boundary enforcement.
+#[allow(dead_code)]
+pub fn glob_search_in_workspace(
+    pattern: &str,
+    path: Option<&str>,
+    workspace_root: &Path,
+) -> io::Result<GlobSearchOutput> {
+    glob_search_impl(pattern, path, Some(workspace_root))
+}
+
+/// Search file contents with workspace boundary enforcement.
+#[allow(dead_code)]
+pub fn grep_search_in_workspace(
+    input: &GrepSearchInput,
+    workspace_root: &Path,
+) -> io::Result<GrepSearchOutput> {
+    grep_search_impl(input, Some(workspace_root))
 }
 
 /// Check whether a path is a symlink that resolves outside the workspace.
