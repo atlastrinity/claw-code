@@ -144,8 +144,8 @@ pub use prompt::{
 };
 pub use recovery_recipes::{
     attempt_recovery, recipe_for, EscalationPolicy, FailureScenario, RecoveryAttemptState,
-    RecoveryContext, RecoveryEvent, RecoveryLedgerEntry, RecoveryRecipe, RecoveryResult,
-    RecoveryStep,
+    RecoveryAttemptType, RecoveryCommandResult, RecoveryContext, RecoveryEvent,
+    RecoveryLedgerEntry, RecoveryRecipe, RecoveryResult, RecoveryStatusReport, RecoveryStep,
 };
 pub use remote::{
     inherited_upstream_proxy_env, no_proxy_list, read_token, upstream_proxy_ws_url,
