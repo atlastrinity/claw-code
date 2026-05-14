@@ -177,33 +177,10 @@ async fn execute_bash_async(
     let mut command = prepare_tokio_command(&input.command, &cwd, &sandbox_status, true);
 
     let output_result = if let Some(timeout_ms) = input.timeout {
-        match timeout(Duration::from_millis(timeout_ms), command.output()).await {
-            Ok(result) => (result?, false),
-            Err(_) => {
-                let is_test = is_test_command(&input.command);
-                let return_code_interpretation = if is_test { "test.hung" } else { "timeout" };
-                return Ok(BashCommandOutput {
-                    stdout: String::new(),
-                    stderr: format!("Command exceeded timeout of {timeout_ms} ms"),
-                    raw_output_path: None,
-                    interrupted: true,
-                    is_image: None,
-                    background_task_id: None,
-                    backgrounded_by_user: None,
-                    assistant_auto_backgrounded: None,
-                    dangerously_disable_sandbox: input.dangerously_disable_sandbox,
-                    return_code_interpretation: Some(String::from(return_code_interpretation)),
-                    no_output_expected: Some(true),
-                    structured_content: Some(vec![test_timeout_provenance(
-                        &input.command,
-                        timeout_ms,
-                        is_test,
-                    )]),
-                    persisted_output_path: None,
-                    persisted_output_size: None,
-                    sandbox_status: Some(sandbox_status),
-                });
-            }
+        if let Ok(result) = timeout(Duration::from_millis(timeout_ms), command.output()).await {
+            (result?, false)
+        } else {
+            return Ok(timeout_output(&input, timeout_ms, sandbox_status));
         }
     } else {
         (command.output().await?, false)
@@ -238,6 +215,36 @@ async fn execute_bash_async(
         persisted_output_size: None,
         sandbox_status: Some(sandbox_status),
     })
+}
+
+fn timeout_output(
+    input: &BashCommandInput,
+    timeout_ms: u64,
+    sandbox_status: SandboxStatus,
+) -> BashCommandOutput {
+    let is_test = is_test_command(&input.command);
+    let return_code_interpretation = if is_test { "test.hung" } else { "timeout" };
+    BashCommandOutput {
+        stdout: String::new(),
+        stderr: format!("Command exceeded timeout of {timeout_ms} ms"),
+        raw_output_path: None,
+        interrupted: true,
+        is_image: None,
+        background_task_id: None,
+        backgrounded_by_user: None,
+        assistant_auto_backgrounded: None,
+        dangerously_disable_sandbox: input.dangerously_disable_sandbox,
+        return_code_interpretation: Some(String::from(return_code_interpretation)),
+        no_output_expected: Some(true),
+        structured_content: Some(vec![test_timeout_provenance(
+            &input.command,
+            timeout_ms,
+            is_test,
+        )]),
+        persisted_output_path: None,
+        persisted_output_size: None,
+        sandbox_status: Some(sandbox_status),
+    }
 }
 
 fn is_test_command(command: &str) -> bool {
