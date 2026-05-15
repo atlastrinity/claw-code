@@ -10186,7 +10186,7 @@ fn print_help(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::
 #[cfg(test)]
 mod tests {
     use super::{
-        build_runtime_plugin_state_with_loader, build_runtime_with_plugin_state,
+        acp_status_json, build_runtime_plugin_state_with_loader, build_runtime_with_plugin_state,
         classify_error_kind, classify_session_lifecycle_from_panes, collect_session_prompt_history,
         create_managed_session_handle, describe_tool_progress, filter_tool_specs,
         format_bughunter_report, format_commit_preflight_report, format_commit_skipped_report,
