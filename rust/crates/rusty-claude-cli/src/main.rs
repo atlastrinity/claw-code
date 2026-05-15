@@ -36,7 +36,8 @@ use commands::{
     handle_mcp_slash_command, handle_mcp_slash_command_json, handle_plugins_slash_command,
     handle_skills_slash_command, handle_skills_slash_command_json, render_slash_command_help,
     render_slash_command_help_filtered, resolve_skill_invocation, resume_supported_slash_commands,
-    slash_command_specs, validate_slash_command_input, SkillSlashDispatch, SlashCommand,
+    slash_command_specs, validate_slash_command_input, PluginsCommandResult, SkillSlashDispatch,
+    SlashCommand,
 };
 use compat_harness::{extract_manifest, UpstreamPaths};
 use init::initialize_repo;
@@ -5553,20 +5554,19 @@ impl LiveCli {
         output_format: CliOutputFormat,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let cwd = env::current_dir()?;
-        let loader = ConfigLoader::default_for(&cwd);
-        let runtime_config = loader.load()?;
-        let mut manager = build_plugin_manager(&cwd, &loader, &runtime_config);
-        let result = handle_plugins_slash_command(action, target, &mut manager)?;
+        let payload = plugins_command_payload_for(&cwd, action, target)?;
         match output_format {
-            CliOutputFormat::Text => println!("{}", result.message),
+            CliOutputFormat::Text => println!("{}", payload.message),
             CliOutputFormat::Json => println!(
                 "{}",
                 serde_json::to_string_pretty(&json!({
                     "kind": "plugin",
                     "action": action.unwrap_or("list"),
                     "target": target,
-                    "message": result.message,
-                    "reload_runtime": result.reload_runtime,
+                    "status": payload.status,
+                    "config_load_error": payload.config_load_error,
+                    "message": payload.message,
+                    "reload_runtime": payload.reload_runtime,
                 }))?
             ),
         }
@@ -5735,10 +5735,8 @@ impl LiveCli {
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let cwd = env::current_dir()?;
         let loader = ConfigLoader::default_for(&cwd);
-        let runtime_config = loader.load()?;
-        let mut manager = build_plugin_manager(&cwd, &loader, &runtime_config);
-        let result = handle_plugins_slash_command(action, target, &mut manager)?;
-        println!("{}", result.message);
+        let payload = plugins_command_payload_for(&cwd, action, target)?;
+        println!("{}", payload.message);
         if result.reload_runtime {
             self.reload_runtime_features()?;
         }
@@ -7686,6 +7684,55 @@ fn build_system_prompt(model: &str) -> Result<Vec<String>, Box<dyn std::error::E
         "unknown",
         model_family_identity_for(model),
     )?)
+}
+
+struct PluginsCommandPayload {
+    message: String,
+    reload_runtime: bool,
+    status: &'static str,
+    config_load_error: Option<String>,
+}
+
+fn plugins_command_payload_for(
+    cwd: &Path,
+    action: Option<&str>,
+    target: Option<&str>,
+) -> Result<PluginsCommandPayload, Box<dyn std::error::Error>> {
+    let loader = ConfigLoader::default_for(cwd);
+    let (runtime_config, config_load_error) = match loader.load() {
+        Ok(runtime_config) => (runtime_config, None),
+        Err(error) => (runtime::RuntimeConfig::empty(), Some(error.to_string())),
+    };
+    let mut manager = build_plugin_manager(cwd, &loader, &runtime_config);
+    let result = handle_plugins_slash_command(action, target, &mut manager)?;
+    Ok(plugins_command_payload_from_result(
+        result,
+        config_load_error,
+    ))
+}
+
+fn plugins_command_payload_from_result(
+    result: PluginsCommandResult,
+    config_load_error: Option<String>,
+) -> PluginsCommandPayload {
+    let status = if config_load_error.is_some() {
+        "degraded"
+    } else {
+        "ok"
+    };
+    let message = match config_load_error.as_deref() {
+        Some(error) => format!(
+            "Config load error\n  Status           fail\n  Summary          runtime config failed to load; reporting partial plugins view\n  Details          {error}\n  Hint             `claw doctor` classifies config parse errors; fix the listed field and rerun\n\n{}",
+            result.message
+        ),
+        None => result.message,
+    };
+    PluginsCommandPayload {
+        message,
+        reload_runtime: result.reload_runtime,
+        status,
+        config_load_error,
+    }
 }
 
 fn build_runtime_plugin_state() -> Result<RuntimePluginState, Box<dyn std::error::Error>> {
