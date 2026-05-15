@@ -3352,7 +3352,7 @@ mod tests {
             .iter()
             .find(|summary| summary.metadata.id == "installed-valid@external")
             .expect("valid plugin summary should be present");
-        assert!(valid.lifecycle_state() == "ready");
+        assert_eq!(valid.lifecycle_state(), "disabled");
         assert_eq!(valid.lifecycle.init.len(), 1);
         assert_eq!(valid.lifecycle.shutdown.len(), 1);
         assert_eq!(report.failures().len(), 1);
