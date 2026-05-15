@@ -26,16 +26,19 @@ cargo build --workspace --release
 
 ### Option B: use a release artifact
 
-Use this when a GitHub release publishes a Windows artifact. The exact asset name may include the version and architecture; prefer the `windows-x86_64` / `pc-windows-msvc` ZIP when available.
+Use this when a GitHub release publishes a Windows artifact. The release workflow publishes `claw-windows-x64.exe` plus `claw-windows-x64.exe.sha256`; if a future release wraps the binary in a ZIP, prefer the `windows-x86_64` / `pc-windows-msvc` asset and its matching checksum file.
 
 ```powershell
-$Version = "vX.Y.Z"
-$Asset = "claw-$Version-x86_64-pc-windows-msvc.zip"
+$Asset = "claw-windows-x64.exe"
 $InstallRoot = "$env:LOCALAPPDATA\Programs\claw"
 New-Item -ItemType Directory -Force $InstallRoot | Out-Null
 
-# Download the asset from the release page, then expand it:
-Expand-Archive -Path ".\$Asset" -DestinationPath $InstallRoot -Force
+# Download $Asset and $Asset.sha256 from the release page, then verify them:
+$Actual = (Get-FileHash ".\$Asset" -Algorithm SHA256).Hash.ToLowerInvariant()
+$Expected = (Get-Content ".\$Asset.sha256" | Select-Object -First 1).Split()[0].ToLowerInvariant()
+if ($Actual -ne $Expected) { throw "checksum mismatch for $Asset" }
+
+Copy-Item ".\$Asset" "$InstallRoot\claw.exe" -Force
 & "$InstallRoot\claw.exe" --help
 & "$InstallRoot\claw.exe" doctor
 ```
