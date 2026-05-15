@@ -151,11 +151,45 @@ def validate_command_examples(errors: list[str]) -> None:
                     )
 
 
+
+def validate_release_artifacts(errors: list[str]) -> None:
+    workflow = ROOT / ".github" / "workflows" / "release.yml"
+    release_doc = ROOT / "docs" / "windows-install-release.md"
+    if not workflow.is_file():
+        errors.append("missing release workflow: .github/workflows/release.yml")
+        return
+    workflow_text = workflow.read_text(encoding="utf-8")
+    required_workflow_terms = [
+        "windows-latest",
+        "claw.exe",
+        "claw-windows-x64.exe",
+        "sha256sum",
+        "${{ matrix.artifact_name }}.sha256",
+    ]
+    for term in required_workflow_terms:
+        if term not in workflow_text:
+            errors.append(f"release workflow missing Windows/checksum term: {term}")
+    if not release_doc.is_file():
+        errors.append("missing Windows release quickstart: docs/windows-install-release.md")
+        return
+    release_text = release_doc.read_text(encoding="utf-8")
+    required_doc_terms = [
+        "claw-windows-x64.exe",
+        "claw-windows-x64.exe.sha256",
+        "Get-FileHash",
+        "checksum mismatch",
+        "target\\release\\claw.exe",
+    ]
+    for term in required_doc_terms:
+        if term not in release_text:
+            errors.append(f"Windows release quickstart missing term: {term}")
+
 def main() -> int:
     errors: list[str] = []
     validate_policies(errors)
     validate_markdown_links(errors)
     validate_command_examples(errors)
+    validate_release_artifacts(errors)
     if errors:
         print("release-readiness check failed:", file=sys.stderr)
         for error in errors:
