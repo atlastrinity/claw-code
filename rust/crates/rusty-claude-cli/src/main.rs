@@ -5620,8 +5620,6 @@ impl LiveCli {
                     "config_load_error": payload.config_load_error,
                     "message": payload.message,
                     "reload_runtime": payload.reload_runtime,
-                    "plugins": payload.plugins,
-                    "load_failures": payload.load_failures,
                 }))?
             ),
         }
@@ -7746,8 +7744,6 @@ struct PluginsCommandPayload {
     reload_runtime: bool,
     status: &'static str,
     config_load_error: Option<String>,
-    plugins: Vec<Value>,
-    load_failures: Vec<Value>,
 }
 
 fn plugins_command_payload_for(
@@ -7762,30 +7758,17 @@ fn plugins_command_payload_for(
     };
     let mut manager = build_plugin_manager(cwd, &loader, &runtime_config);
     let result = handle_plugins_slash_command(action, target, &mut manager)?;
-    let report = manager.installed_plugin_registry_report()?;
     Ok(plugins_command_payload_from_result(
         result,
         config_load_error,
-        &report,
     ))
 }
 
 fn plugins_command_payload_from_result(
     result: PluginsCommandResult,
     config_load_error: Option<String>,
-    report: &plugins::PluginRegistryReport,
 ) -> PluginsCommandPayload {
-    let load_failures = report
-        .failures()
-        .iter()
-        .map(plugin_load_failure_json)
-        .collect::<Vec<_>>();
-    let plugins = report
-        .summaries()
-        .iter()
-        .map(plugin_summary_json)
-        .collect::<Vec<_>>();
-    let status = if config_load_error.is_some() || !load_failures.is_empty() {
+    let status = if config_load_error.is_some() {
         "degraded"
     } else {
         "ok"
@@ -7802,8 +7785,6 @@ fn plugins_command_payload_from_result(
         reload_runtime: result.reload_runtime,
         status,
         config_load_error,
-        plugins,
-        load_failures,
     }
 }
 
@@ -11325,6 +11306,52 @@ mod tests {
             value.get("message").is_none(),
             "export help json should be a bounded envelope, not plaintext help wrapped in json"
         );
+    }
+
+    #[test]
+    fn plugins_degrades_gracefully_on_malformed_mcp_config() {
+        // Keep the plugins surface consistent with status/doctor/mcp: a bad
+        // MCP entry should not make local plugin introspection unusable.
+        let _guard = env_lock();
+        let root = temp_dir();
+        let cwd = root.join("project-with-malformed-mcp-for-plugins");
+        let config_home = root.join("config-home");
+        std::fs::create_dir_all(&cwd).expect("project dir should exist");
+        std::fs::create_dir_all(&config_home).expect("config home should exist");
+        std::fs::write(
+            cwd.join(".claw.json"),
+            r#"{
+  "mcpServers": {
+    "missing-command": {"args": ["arg-only-no-command"]}
+  }
+}
+"#,
+        )
+        .expect("write malformed .claw.json");
+
+        let previous_config_home = std::env::var("CLAW_CONFIG_HOME").ok();
+        std::env::set_var("CLAW_CONFIG_HOME", &config_home);
+        let payload = super::plugins_command_payload_for(&cwd, None, None)
+            .expect("plugins list should not hard-fail on malformed MCP config");
+        match previous_config_home {
+            Some(value) => std::env::set_var("CLAW_CONFIG_HOME", value),
+            None => std::env::remove_var("CLAW_CONFIG_HOME"),
+        }
+
+        assert_eq!(payload.status, "degraded");
+        let err = payload
+            .config_load_error
+            .as_deref()
+            .expect("config_load_error should be populated");
+        assert!(
+            err.contains("mcpServers.missing-command"),
+            "config_load_error should name the malformed MCP field: {err}"
+        );
+        assert!(payload.message.contains("Config load error"));
+        assert!(payload.message.contains("partial plugins view"));
+        assert!(payload.message.contains("Plugins"));
+
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
