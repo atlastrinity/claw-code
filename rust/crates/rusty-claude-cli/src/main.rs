@@ -4067,6 +4067,8 @@ fn run_resume_command(
                     "cache_creation_input_tokens": usage.cache_creation_input_tokens,
                     "cache_read_input_tokens": usage.cache_read_input_tokens,
                     "total_tokens": usage.total_tokens(),
+                    "estimated_cost_usd": format_usd(usage.estimate_cost_usd().total_cost_usd()),
+                    "pricing": "estimated-default",
                 })),
             })
         }
