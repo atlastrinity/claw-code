@@ -331,6 +331,59 @@ fn merge_prompt_with_stdin(prompt: &str, stdin_content: Option<&str>) -> String 
     format!("{prompt}\n\n{trimmed}")
 }
 
+fn plugin_command_json(
+    action: &str,
+    target: Option<&str>,
+    result: &commands::PluginsCommandResult,
+    report: &plugins::PluginRegistryReport,
+) -> Value {
+    let failures = report.failures();
+    json!({
+        "kind": "plugin",
+        "action": action,
+        "target": target,
+        "status": if failures.is_empty() { "ok" } else { "degraded" },
+        "message": result.message,
+        "reload_runtime": result.reload_runtime,
+        "plugins": report.summaries().iter().map(plugin_summary_json).collect::<Vec<_>>(),
+        "load_failures": failures.iter().map(plugin_load_failure_json).collect::<Vec<_>>(),
+    })
+}
+
+fn plugin_summary_json(plugin: &plugins::PluginSummary) -> Value {
+    json!({
+        "id": &plugin.metadata.id,
+        "name": &plugin.metadata.name,
+        "version": &plugin.metadata.version,
+        "description": &plugin.metadata.description,
+        "kind": plugin.metadata.kind.to_string(),
+        "source": &plugin.metadata.source,
+        "enabled": plugin.enabled,
+        "lifecycle_state": plugin.lifecycle_state(),
+        "lifecycle": {
+            "configured": !plugin.lifecycle.is_empty(),
+            "init": {
+                "configured": !plugin.lifecycle.init.is_empty(),
+                "command_count": plugin.lifecycle.init.len(),
+            },
+            "shutdown": {
+                "configured": !plugin.lifecycle.shutdown.is_empty(),
+                "command_count": plugin.lifecycle.shutdown.len(),
+            },
+        },
+    })
+}
+
+fn plugin_load_failure_json(failure: &plugins::PluginLoadFailure) -> Value {
+    json!({
+        "plugin_root": failure.plugin_root.display().to_string(),
+        "kind": failure.kind.to_string(),
+        "source": &failure.source,
+        "lifecycle_state": "load_failed",
+        "error": failure.error().to_string(),
+    })
+}
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().skip(1).collect();
     match parse_args(&args)? {
@@ -5556,19 +5609,19 @@ impl LiveCli {
         let cwd = env::current_dir()?;
         let payload = plugins_command_payload_for(&cwd, action, target)?;
         match output_format {
-            CliOutputFormat::Text => println!("{}", payload.message),
-            CliOutputFormat::Json => println!(
-                "{}",
-                serde_json::to_string_pretty(&json!({
-                    "kind": "plugin",
-                    "action": action.unwrap_or("list"),
-                    "target": target,
-                    "status": payload.status,
-                    "config_load_error": payload.config_load_error,
-                    "message": payload.message,
-                    "reload_runtime": payload.reload_runtime,
-                }))?
-            ),
+            CliOutputFormat::Text => println!("{}", result.message),
+            CliOutputFormat::Json => {
+                let report = manager.installed_plugin_registry_report()?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&plugin_command_json(
+                        action.unwrap_or("list"),
+                        target,
+                        &result,
+                        &report,
+                    ))?
+                );
+            }
         }
         Ok(())
     }
