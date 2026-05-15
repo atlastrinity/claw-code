@@ -1617,7 +1617,8 @@ mod tests {
                 "stdio-server": {
                   "command": "uvx",
                   "args": ["mcp-server"],
-                  "env": {"TOKEN": "secret"}
+                  "env": {"TOKEN": "secret"},
+                  "required": true
                 },
                 "remote-server": {
                   "type": "http",
@@ -1666,6 +1667,7 @@ mod tests {
             .get("stdio-server")
             .expect("stdio server should exist");
         assert_eq!(stdio_server.scope, ConfigSource::User);
+        assert!(stdio_server.required);
         assert_eq!(stdio_server.transport(), McpTransport::Stdio);
 
         let remote_server = loaded
@@ -1673,6 +1675,7 @@ mod tests {
             .get("remote-server")
             .expect("remote server should exist");
         assert_eq!(remote_server.scope, ConfigSource::Local);
+        assert!(!remote_server.required);
         assert_eq!(remote_server.transport(), McpTransport::Ws);
         match &remote_server.config {
             McpServerConfig::Ws(config) => {

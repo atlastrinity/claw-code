@@ -2726,7 +2726,7 @@ mod tests {
                 (
                     "broken".to_string(),
                     ScopedMcpServerConfig {
-                        required: false,
+                        required: true,
                         scope: ConfigSource::Local,
                         config: McpServerConfig::Stdio(McpStdioServerConfig {
                             command: broken_script_path.display().to_string(),
@@ -2748,6 +2748,7 @@ mod tests {
             );
             assert_eq!(report.failed_servers.len(), 1);
             assert_eq!(report.failed_servers[0].server_name, "broken");
+            assert!(report.failed_servers[0].required);
             assert_eq!(
                 report.failed_servers[0].phase,
                 McpLifecyclePhase::InitializeHandshake
@@ -2768,6 +2769,14 @@ mod tests {
             assert_eq!(degraded.working_servers, vec!["alpha".to_string()]);
             assert_eq!(degraded.failed_servers.len(), 1);
             assert_eq!(degraded.failed_servers[0].server_name, "broken");
+            assert_eq!(
+                degraded.failed_servers[0]
+                    .error
+                    .context
+                    .get("required")
+                    .map(String::as_str),
+                Some("true")
+            );
             assert_eq!(
                 degraded.failed_servers[0].phase,
                 McpLifecyclePhase::InitializeHandshake
@@ -2803,7 +2812,7 @@ mod tests {
             (
                 "http".to_string(),
                 ScopedMcpServerConfig {
-                    required: false,
+                    required: true,
                     scope: ConfigSource::Local,
                     config: McpServerConfig::Http(McpRemoteServerConfig {
                         url: "https://example.test/mcp".to_string(),
@@ -2842,11 +2851,14 @@ mod tests {
 
         assert_eq!(unsupported.len(), 3);
         assert_eq!(unsupported[0].server_name, "http");
+        assert!(unsupported[0].required);
         assert_eq!(unsupported[1].server_name, "sdk");
         assert_eq!(unsupported[2].server_name, "ws");
+        let failed = unsupported_server_failed_server(&unsupported[0]);
+        assert_eq!(failed.phase, McpLifecyclePhase::ServerRegistration);
         assert_eq!(
-            unsupported_server_failed_server(&unsupported[0]).phase,
-            McpLifecyclePhase::ServerRegistration
+            failed.error.context.get("required").map(String::as_str),
+            Some("true")
         );
     }
 

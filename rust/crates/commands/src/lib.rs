@@ -3790,6 +3790,7 @@ fn render_mcp_server_report(
         format!("  Working directory {}", cwd.display()),
         format!("  Name              {server_name}"),
         format!("  Scope             {}", config_source_label(server.scope)),
+        format!("  Required          {}", server.required),
         format!(
             "  Transport         {}",
             mcp_transport_label(&server.config)
@@ -5584,6 +5585,7 @@ mod tests {
                   "command": "uvx",
                   "args": ["alpha-server"],
                   "env": {"ALPHA_TOKEN": "secret"},
+                  "required": true,
                   "toolCallTimeoutMs": 1200
                 },
                 "remote": {
@@ -5629,6 +5631,7 @@ mod tests {
         let show = super::render_mcp_report_for(&loader, &workspace, Some("show alpha"))
             .expect("mcp show report should render");
         assert!(show.contains("Name              alpha"));
+        assert!(show.contains("Required          true"));
         assert!(show.contains("Command           uvx"));
         assert!(show.contains("Args              alpha-server"));
         assert!(show.contains("Env keys          ALPHA_TOKEN"));
@@ -5661,6 +5664,7 @@ mod tests {
                   "command": "uvx",
                   "args": ["alpha-server"],
                   "env": {"ALPHA_TOKEN": "secret"},
+                  "required": true,
                   "toolCallTimeoutMs": 1200
                 },
                 "remote": {
@@ -5697,6 +5701,7 @@ mod tests {
         assert_eq!(list["action"], "list");
         assert_eq!(list["configured_servers"], 2);
         assert_eq!(list["servers"][0]["name"], "alpha");
+        assert_eq!(list["servers"][0]["required"], true);
         assert_eq!(list["servers"][0]["transport"]["id"], "stdio");
         assert_eq!(list["servers"][0]["details"]["command"], "uvx");
         assert_eq!(list["servers"][1]["name"], "remote");
@@ -5712,6 +5717,7 @@ mod tests {
         assert_eq!(show["action"], "show");
         assert_eq!(show["found"], true);
         assert_eq!(show["server"]["name"], "alpha");
+        assert_eq!(show["server"]["required"], true);
         assert_eq!(show["server"]["details"]["env_keys"][0], "ALPHA_TOKEN");
         assert_eq!(show["server"]["details"]["tool_call_timeout_ms"], 1200);
 

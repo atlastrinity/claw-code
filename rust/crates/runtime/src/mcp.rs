@@ -117,7 +117,7 @@ pub fn scoped_mcp_config_hash(config: &ScopedMcpServerConfig) -> String {
             format!("claudeai-proxy|{}|{}", proxy.url, proxy.id)
         }
     };
-    stable_hex_hash(&rendered)
+    stable_hex_hash(&format!("required:{}|{rendered}", config.required))
 }
 
 fn render_command_signature(command: &[String]) -> String {
