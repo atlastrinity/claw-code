@@ -225,7 +225,7 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
         argument_hint: Some(
             "[list|exists <session-id>|switch <session-id>|fork [branch-name]|delete <session-id> [--force]]",
         ),
-        resume_supported: false,
+        resume_supported: true,
     },
     SlashCommandSpec {
         name: "plugin",
@@ -4606,6 +4606,13 @@ mod tests {
             SlashCommand::parse("/session switch abc123"),
             Ok(Some(SlashCommand::Session {
                 action: Some("switch".to_string()),
+                target: Some("abc123".to_string())
+            }))
+        );
+        assert_eq!(
+            SlashCommand::parse("/session exists abc123"),
+            Ok(Some(SlashCommand::Session {
+                action: Some("exists".to_string()),
                 target: Some("abc123".to_string())
             }))
         );

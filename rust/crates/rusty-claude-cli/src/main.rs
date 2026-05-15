@@ -4157,7 +4157,6 @@ fn run_resume_command(
         | SlashCommand::Resume { .. }
         | SlashCommand::Model { .. }
         | SlashCommand::Permissions { .. }
-        | SlashCommand::Session { .. }
         | SlashCommand::Login
         | SlashCommand::Logout
         | SlashCommand::Vim
@@ -6100,6 +6099,134 @@ fn confirm_session_deletion(session_id: &str) -> bool {
         return false;
     }
     matches!(answer.trim(), "y" | "Y" | "yes" | "Yes" | "YES")
+}
+
+fn session_details_json(sessions: &[ManagedSessionSummary]) -> Vec<serde_json::Value> {
+    sessions
+        .iter()
+        .map(|session| {
+            serde_json::json!({
+                "id": session.id,
+                "path": session.path.display().to_string(),
+                "message_count": session.message_count,
+                "updated_at_ms": session.updated_at_ms,
+                "modified_epoch_millis": session.modified_epoch_millis,
+                "parent_session_id": session.parent_session_id,
+                "branch_name": session.branch_name,
+                "lifecycle": session.lifecycle.json_value(),
+            })
+        })
+        .collect()
+}
+
+fn session_exists_json(target: &str, active_session_id: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let handle = create_managed_session_handle(target)?;
+    let resolved = resolve_session_reference(target).ok();
+    let exists = resolved.is_some();
+    let resolved_id = resolved
+        .as_ref()
+        .map(|handle| handle.id.as_str())
+        .unwrap_or(target);
+    Ok(serde_json::json!({
+        "kind": "session_exists",
+        "session_id": resolved_id,
+        "requested": target,
+        "exists": exists,
+        "active": resolved_id == active_session_id,
+        "path": resolved
+            .as_ref()
+            .map(|handle| handle.path.display().to_string()),
+        "candidate_path": handle.path.display().to_string(),
+    }))
+}
+
+fn run_resumed_session_command(
+    session_path: &Path,
+    session: &Session,
+    action: Option<&str>,
+    target: Option<&str>,
+) -> Result<ResumeCommandOutcome, Box<dyn std::error::Error>> {
+    match action {
+        None | Some("list") => {
+            let sessions = list_managed_sessions().unwrap_or_default();
+            let session_ids: Vec<String> = sessions.iter().map(|s| s.id.clone()).collect();
+            let active_id = session.session_id.clone();
+            let text = render_session_list(&active_id).unwrap_or_else(|e| format!("error: {e}"));
+            Ok(ResumeCommandOutcome {
+                session: session.clone(),
+                message: Some(text),
+                json: Some(serde_json::json!({
+                    "kind": "session_list",
+                    "sessions": session_ids,
+                    "session_details": session_details_json(&sessions),
+                    "active": active_id,
+                })),
+            })
+        }
+        Some("exists") => {
+            let Some(target) = target else {
+                return Err("/session exists requires a session id".into());
+            };
+            let value = session_exists_json(target, &session.session_id)?;
+            let exists = value.get("exists").and_then(|v| v.as_bool()).unwrap_or(false);
+            Ok(ResumeCommandOutcome {
+                session: session.clone(),
+                message: Some(format!(
+                    "Session exists\n  Session          {}\n  Exists           {}",
+                    target,
+                    if exists { "yes" } else { "no" }
+                )),
+                json: Some(value),
+            })
+        }
+        Some("delete") => {
+            let Some(target) = target else {
+                return Err("/session delete requires a session id".into());
+            };
+            Ok(ResumeCommandOutcome {
+                session: session.clone(),
+                message: Some(format!(
+                    "delete: confirmation required; rerun with /session delete {target} --force"
+                )),
+                json: Some(serde_json::json!({
+                    "kind": "error",
+                    "error": "confirmation required",
+                    "hint": format!("rerun with /session delete {target} --force"),
+                    "session_id": target,
+                })),
+            })
+        }
+        Some("delete-force") => {
+            let Some(target) = target else {
+                return Err("/session delete requires a session id".into());
+            };
+            let handle = resolve_session_reference(target)?;
+            if handle.id == session.session_id || handle.path == session_path {
+                return Err(format!(
+                    "delete: refusing to delete the active session '{}'. Resume or switch to another session first.",
+                    handle.id
+                )
+                .into());
+            }
+            delete_managed_session(&handle.path)?;
+            Ok(ResumeCommandOutcome {
+                session: session.clone(),
+                message: Some(format!(
+                    "Session deleted\n  Deleted session  {}\n  File             {}",
+                    handle.id,
+                    handle.path.display(),
+                )),
+                json: Some(serde_json::json!({
+                    "kind": "session_delete",
+                    "deleted": true,
+                    "session_id": handle.id,
+                    "path": handle.path.display().to_string(),
+                })),
+            })
+        }
+        Some("switch" | "fork") => Err("unsupported resumed slash command".into()),
+        Some(other) => Err(format!("unsupported resumed /session action: {other}").into()),
+    }
 }
 
 fn render_session_list(active_session_id: &str) -> Result<String, Box<dyn std::error::Error>> {
