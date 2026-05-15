@@ -4121,12 +4121,35 @@ fn run_resume_command(
             })
         }
         SlashCommand::Unknown(name) => Err(format_unknown_slash_command(name).into()),
-        // /session list/exists/delete can be served from the managed sessions directory
-        // in resume mode without starting an interactive REPL. Mutating delete remains
-        // opt-in through /session delete <id> --force so JSON callers never hang on a prompt.
-        SlashCommand::Session { action, target } => {
-            run_resumed_session_command(session_path, session, action.as_deref(), target.as_deref())
+        SlashCommand::Session {
+            action: Some(ref act),
+            target: Some(ref target),
+        } if act == "exists" => {
+            let exists = session_reference_exists(target).unwrap_or(false);
+            let resolved = resolve_session_reference(target).ok();
+            Ok(ResumeCommandOutcome {
+                session: session.clone(),
+                message: Some(format!(
+                    "Session exists\n  Session          {target}\n  Exists           {exists}{}",
+                    resolved
+                        .as_ref()
+                        .map(|handle| format!("\n  File             {}", handle.path.display()))
+                        .unwrap_or_default()
+                )),
+                json: Some(serde_json::json!({
+                    "kind": "session_exists",
+                    "session": target,
+                    "exists": exists,
+                    "path": resolved.map(|handle| handle.path.display().to_string()),
+                })),
+            })
         }
+        // /session list can be served from the sessions directory without a live session.
+        SlashCommand::Session { action: None, .. } => session_list_outcome(),
+        SlashCommand::Session {
+            action: Some(ref act),
+            ..
+        } if act == "list" => session_list_outcome(),
         SlashCommand::Bughunter { .. }
         | SlashCommand::Commit { .. }
         | SlashCommand::Pr { .. }
@@ -4147,6 +4170,7 @@ fn run_resume_command(
         | SlashCommand::Fast
         | SlashCommand::Exit
         | SlashCommand::Summary
+        | SlashCommand::Session { .. }
         | SlashCommand::Desktop
         | SlashCommand::Brief
         | SlashCommand::Advisor
