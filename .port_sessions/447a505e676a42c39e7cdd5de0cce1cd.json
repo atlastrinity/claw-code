@@ -1,0 +1,9 @@
+{
+  "session_id": "447a505e676a42c39e7cdd5de0cce1cd",
+  "messages": [
+    "/plugin list",
+    "/plugin list"
+  ],
+  "input_tokens": 4,
+  "output_tokens": 30
+}
