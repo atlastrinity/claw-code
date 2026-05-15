@@ -5609,19 +5609,19 @@ impl LiveCli {
         let cwd = env::current_dir()?;
         let payload = plugins_command_payload_for(&cwd, action, target)?;
         match output_format {
-            CliOutputFormat::Text => println!("{}", result.message),
-            CliOutputFormat::Json => {
-                let report = manager.installed_plugin_registry_report()?;
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&plugin_command_json(
-                        action.unwrap_or("list"),
-                        target,
-                        &result,
-                        &report,
-                    ))?
-                );
-            }
+            CliOutputFormat::Text => println!("{}", payload.message),
+            CliOutputFormat::Json => println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "kind": "plugin",
+                    "action": action.unwrap_or("list"),
+                    "target": target,
+                    "status": payload.status,
+                    "config_load_error": payload.config_load_error,
+                    "message": payload.message,
+                    "reload_runtime": payload.reload_runtime,
+                }))?
+            ),
         }
         Ok(())
     }
@@ -5787,9 +5787,10 @@ impl LiveCli {
         target: Option<&str>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let cwd = env::current_dir()?;
+        let loader = ConfigLoader::default_for(&cwd);
         let payload = plugins_command_payload_for(&cwd, action, target)?;
         println!("{}", payload.message);
-        if payload.reload_runtime {
+        if result.reload_runtime {
             self.reload_runtime_features()?;
         }
         Ok(false)
