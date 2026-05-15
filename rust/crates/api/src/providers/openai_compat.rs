@@ -2054,6 +2054,39 @@ mod tests {
     }
 
     #[test]
+    fn extra_body_params_are_passed_through_without_overriding_core_fields() {
+        let mut extra_body = BTreeMap::new();
+        extra_body.insert(
+            "web_search_options".to_string(),
+            json!({"search_context_size": "medium"}),
+        );
+        extra_body.insert("parallel_tool_calls".to_string(), json!(false));
+        extra_body.insert("model".to_string(), json!("bad-override"));
+        extra_body.insert("messages".to_string(), json!([]));
+        extra_body.insert("max_tokens".to_string(), json!(1));
+
+        let payload = build_chat_completion_request(
+            &MessageRequest {
+                model: "gpt-4o".to_string(),
+                max_tokens: 1024,
+                messages: vec![InputMessage::user_text("hello")],
+                extra_body,
+                ..Default::default()
+            },
+            OpenAiCompatConfig::openai(),
+        );
+
+        assert_eq!(payload["model"], json!("gpt-4o"));
+        assert_eq!(payload["max_tokens"], json!(1024));
+        assert_eq!(payload["messages"].as_array().map(Vec::len), Some(1));
+        assert_eq!(
+            payload["web_search_options"],
+            json!({"search_context_size": "medium"})
+        );
+        assert_eq!(payload["parallel_tool_calls"], json!(false));
+    }
+
+    #[test]
     fn reasoning_model_strips_tuning_params() {
         let request = MessageRequest {
             model: "o1-mini".to_string(),

@@ -162,6 +162,59 @@ async fn send_message_preserves_deepseek_reasoning_content_before_text() {
 }
 
 #[tokio::test]
+async fn custom_openai_gateway_preserves_slash_model_ids_and_extra_body_params() {
+    let state = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
+    let body = concat!(
+        "{",
+        "\"id\":\"chatcmpl_slash_model\",",
+        "\"model\":\"openai/gpt-4.1-mini\",",
+        "\"choices\":[{",
+        "\"message\":{\"role\":\"assistant\",\"content\":\"Gateway accepted slug\",\"tool_calls\":[]},",
+        "\"finish_reason\":\"stop\"",
+        "}],",
+        "\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":2}",
+        "}"
+    );
+    let server = spawn_server(
+        state.clone(),
+        vec![http_response("200 OK", "application/json", body)],
+    )
+    .await;
+
+    let mut extra_body = std::collections::BTreeMap::new();
+    extra_body.insert(
+        "web_search_options".to_string(),
+        json!({"search_context_size": "low"}),
+    );
+    extra_body.insert("parallel_tool_calls".to_string(), json!(false));
+    extra_body.insert("model".to_string(), json!("malicious-override"));
+
+    let client = OpenAiCompatClient::new("openai-test-key", OpenAiCompatConfig::openai())
+        .with_base_url(server.base_url());
+    let response = client
+        .send_message(&MessageRequest {
+            model: "openai/gpt-4.1-mini".to_string(),
+            extra_body,
+            ..sample_request(false)
+        })
+        .await
+        .expect("gateway request should succeed");
+
+    assert_eq!(response.model, "openai/gpt-4.1-mini");
+    assert_eq!(response.total_tokens(), 5);
+
+    let captured = state.lock().await;
+    let request = captured.first().expect("captured request");
+    let body: serde_json::Value = serde_json::from_str(&request.body).expect("json body");
+    assert_eq!(body["model"], json!("openai/gpt-4.1-mini"));
+    assert_eq!(
+        body["web_search_options"],
+        json!({"search_context_size": "low"})
+    );
+    assert_eq!(body["parallel_tool_calls"], json!(false));
+}
+
+#[tokio::test]
 async fn send_message_blocks_oversized_xai_requests_before_the_http_call() {
     let state = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
     let server = spawn_server(
