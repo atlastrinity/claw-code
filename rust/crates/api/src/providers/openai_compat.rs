@@ -1608,6 +1608,7 @@ mod tests {
         ToolChoice, ToolDefinition, ToolResultContentBlock,
     };
     use serde_json::json;
+    use std::collections::BTreeMap;
     use std::sync::{Mutex, OnceLock};
 
     #[test]

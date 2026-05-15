@@ -851,7 +851,10 @@ mod tests {
     fn provider_capability_matrix_snapshots_openai_compat_differences() {
         let openai = provider_capabilities_for_model("openai/gpt-4.1-mini");
         assert_eq!(openai.provider, ProviderKind::OpenAi);
-        assert_eq!(openai.wire_protocol, ProviderWireProtocol::OpenAiChatCompletions);
+        assert_eq!(
+            openai.wire_protocol,
+            ProviderWireProtocol::OpenAiChatCompletions
+        );
         assert_eq!(openai.auth_env, "OPENAI_API_KEY");
         assert_eq!(openai.streaming_usage, ProviderFeatureSupport::Supported);
         assert_eq!(openai.reasoning_effort, ProviderFeatureSupport::Supported);
@@ -872,7 +875,10 @@ mod tests {
 
         let anthropic = provider_capabilities_for_model("claude-sonnet-4-6");
         assert_eq!(anthropic.provider, ProviderKind::Anthropic);
-        assert_eq!(anthropic.wire_protocol, ProviderWireProtocol::AnthropicMessages);
+        assert_eq!(
+            anthropic.wire_protocol,
+            ProviderWireProtocol::AnthropicMessages
+        );
         assert_eq!(anthropic.prompt_cache, ProviderFeatureSupport::Supported);
         assert_eq!(
             anthropic.custom_parameters,
@@ -911,9 +917,9 @@ mod tests {
         assert!(codes.contains(&"deepseek_v4_reasoning_history"));
         assert!(codes.contains(&"web_search_passthrough_tool"));
         assert!(codes.contains(&"web_fetch_passthrough_tool"));
-        assert!(diagnostics.iter().any(|diagnostic| diagnostic
-            .action
-            .contains("provider adapter")));
+        assert!(diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.action.contains("provider adapter")));
     }
 
     #[test]
