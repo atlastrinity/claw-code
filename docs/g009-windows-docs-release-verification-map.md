@@ -17,13 +17,13 @@ Stream 8 source requirement summary:
 
 | Acceptance area | Repository artifact(s) | Verification command(s) | Notes |
 |---|---|---|---|
-| PowerShell-first Windows install/run path | `README.md` (`Windows setup`, post-build binary location, PowerShell `.exe` examples) | `python .github/scripts/check_doc_source_of_truth.py`; `cargo run -p rusty-claude-cli -- --help` | Current docs explicitly present Windows as a supported PowerShell path and show `cargo build --workspace`, `.	arget\debug\claw.exe`, and `cargo run -- prompt ...` examples. |
+| PowerShell-first Windows install/run path | `README.md` (`Windows setup`, post-build binary location, PowerShell `.exe` examples); `install.sh` (Unix/WSL installer guard) | `python3 .github/scripts/check_doc_source_of_truth.py`; `cargo run -p rusty-claude-cli -- --help` | Current docs explicitly present Windows as a supported PowerShell path for source builds and `claw.exe`; `install.sh` is Linux/macOS/WSL-oriented, so native PowerShell binary usage and WSL installer usage must stay clearly separated. |
 | Safe provider switching examples | `USAGE.md` (`Auth`, `Local Models`, `Supported Providers & Models`); `docs/MODEL_COMPATIBILITY.md` | `cargo test -p api providers::`; `cargo test -p rusty-claude-cli --test output_format_contract provider_diagnostics_explain_openai_compatible_capabilities -- --nocapture` | Provider docs cover Anthropic API-key vs bearer-token shape, OpenAI-compatible routing, Ollama/OpenRouter/DashScope examples, and prefix routing to avoid ambient credential misrouting. |
-| Release artifact quickstart and staged packaging path | `README.md` (`Quick start`, `Post-build: locate the binary and verify`); `.github/workflows/release.yml` | `cargo build --release -p rusty-claude-cli`; `cargo run -p rusty-claude-cli -- version --output-format json` | Current release workflow packages Linux/macOS binaries. Stream 8 keeps source-build onboarding authoritative until Windows binary release assets are added by the release/CI lane. |
+| Release artifact quickstart and staged packaging path | `README.md` (`Quick start`, `Post-build: locate the binary and verify`); `.github/workflows/release.yml` | `cargo build --release -p rusty-claude-cli`; `cargo run -p rusty-claude-cli -- version --output-format json` | Current release workflow packages Linux/macOS binaries, while README remains source-build-first. Release docs should name supported release asset platforms explicitly until Windows binary assets are added by the release/CI lane. |
 | Windows smoke CI without live credentials | `.github/workflows/rust-ci.yml`; CLI local-only surfaces in `rust/crates/rusty-claude-cli/src/main.rs` (`help`, `doctor`, resumed `/config`, `status`) | `cargo run -p rusty-claude-cli -- --help`; `cargo run -p rusty-claude-cli -- doctor --output-format json`; `cargo run -p rusty-claude-cli -- status --output-format json`; `cargo run -p rusty-claude-cli -- config --output-format json` | The smoke target is local-only command execution with isolated config and no real provider credentials. If the Windows CI lane is not present in a branch, this map is the integration checklist for that lane. |
 | License metadata | `rust/Cargo.toml` (`workspace.package.license = "MIT"`) | `grep -n '^license = "MIT"' rust/Cargo.toml` | Cargo metadata declares MIT. A root `LICENSE` file remains the user-facing policy artifact to add if not already present in the policy lane. |
-| Contribution/security/support policies | Expected root policy docs: `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`; existing support links in `README.md` | `test -f CONTRIBUTING.md`; `test -f SECURITY.md`; `test -f SUPPORT.md`; `python .github/scripts/check_doc_source_of_truth.py` | These files are policy-lane outputs. This map records the exact release gate so missing files fail visibly instead of being inferred from README links. |
-| Command/link validation | `.github/scripts/check_doc_source_of_truth.py`; `README.md`; `USAGE.md`; `docs/**` | `python .github/scripts/check_doc_source_of_truth.py`; `python - <<'PY' ...` link/reference check listed below | Existing validation catches stale branding/assets/invites across adoption docs. The lightweight reference check below catches broken relative Markdown links without network access. |
+| Contribution/security/support policies | Expected root policy docs: `CONTRIBUTING.md`, `SECURITY.md`, `SUPPORT.md`; existing support links in `README.md` | `test -f CONTRIBUTING.md`; `test -f SECURITY.md`; `test -f SUPPORT.md`; `python3 .github/scripts/check_doc_source_of_truth.py` | These files are policy-lane outputs. This map records the exact release gate so missing files fail visibly instead of being inferred from README links. |
+| Command/link validation | `.github/scripts/check_doc_source_of_truth.py`; `README.md`; `USAGE.md`; `docs/**` | `python3 .github/scripts/check_doc_source_of_truth.py`; `python3 - <<'PY' ...` link/reference check listed below | Existing validation catches stale branding/assets/invites across adoption docs. The lightweight reference check below catches broken relative Markdown links without network access. |
 
 ## Windows/local smoke command contract
 
@@ -54,7 +54,7 @@ env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN -u OPENAI_API_KEY -u XAI_API_KE
 ## Offline Markdown reference check
 
 ```bash
-python - <<'PY'
+python3 - <<'PY'
 from pathlib import Path
 import re, sys
 root = Path.cwd()
@@ -82,8 +82,8 @@ PY
 A Stream 8 release candidate is ready when all of the following are true:
 
 1. PowerShell examples in `README.md` build and run `claw.exe` from a clean Windows checkout.
-2. Provider examples in `USAGE.md` show session-local/shell-local switching and never instruct users to paste secrets into persistent config by default.
-3. Windows smoke CI runs help/doctor/config/status without live credentials and archives JSON output on failure.
+2. Provider examples in `USAGE.md` show session-local/shell-local switching, include cleanup for conflicting ambient credentials (`unset` / `Remove-Item Env:`), and never instruct users to paste secrets into persistent config by default.
+3. Windows smoke CI runs help/doctor/config/status without live credentials, separates native PowerShell `claw.exe` smoke from WSL `install.sh` smoke, and archives JSON output on failure.
 4. Release artifacts include the documented platform matrix or the docs clearly state source-only alpha status.
 5. `LICENSE`, `CONTRIBUTING.md`, `SECURITY.md`, and `SUPPORT.md` exist or the policy lane records an explicit release-blocking exception.
 6. Doc source-of-truth and offline relative-link validation pass.
