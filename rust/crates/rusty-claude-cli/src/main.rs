@@ -4557,13 +4557,13 @@ impl RuntimeMcpState {
                             runtime::McpLifecyclePhase::ServerRegistration,
                             Some(server.server_name.clone()),
                             server.reason.clone(),
-                            std::collections::BTreeMap::from([(
-                                "transport".to_string(),
-                                format!("{:?}", server.transport).to_ascii_lowercase(),
-                            ), (
-                                "required".to_string(),
-                                server.required.to_string(),
-                            )]),
+                            std::collections::BTreeMap::from([
+                                (
+                                    "transport".to_string(),
+                                    format!("{:?}", server.transport).to_ascii_lowercase(),
+                                ),
+                                ("required".to_string(), server.required.to_string()),
+                            ]),
                             false,
                         ),
                     }
