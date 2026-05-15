@@ -147,6 +147,12 @@ impl OpenAiCompatClient {
     }
 
     #[must_use]
+    pub fn with_http_client(mut self, http: reqwest::Client) -> Self {
+        self.http = http;
+        self
+    }
+
+    #[must_use]
     pub fn with_retry_policy(
         mut self,
         max_retries: u32,

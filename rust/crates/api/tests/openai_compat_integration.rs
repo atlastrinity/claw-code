@@ -5,10 +5,10 @@ use std::sync::{Mutex as StdMutex, OnceLock};
 use std::time::Duration;
 
 use api::{
-    ApiError, ContentBlockDelta, ContentBlockDeltaEvent, ContentBlockStartEvent,
-    ContentBlockStopEvent, InputContentBlock, InputMessage, MessageDeltaEvent, MessageRequest,
-    OpenAiCompatClient, OpenAiCompatConfig, OutputContentBlock, ProviderClient, StreamEvent,
-    ToolChoice, ToolDefinition,
+    build_http_client_with, ApiError, ContentBlockDelta, ContentBlockDeltaEvent,
+    ContentBlockStartEvent, ContentBlockStopEvent, InputContentBlock, InputMessage,
+    MessageDeltaEvent, MessageRequest, OpenAiCompatClient, OpenAiCompatConfig, OutputContentBlock,
+    ProviderClient, ProxyConfig, StreamEvent, ToolChoice, ToolDefinition,
 };
 use serde_json::json;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -535,14 +535,11 @@ async fn openai_compatible_client_honors_http_proxy_for_requests() {
         )],
     )
     .await;
-    let _http_proxy = ScopedEnvVar::set("HTTP_PROXY", proxy.base_url());
-    let _https_proxy = ScopedEnvVar::unset("HTTPS_PROXY");
-    let _no_proxy = ScopedEnvVar::unset("NO_PROXY");
-    let _http_proxy_lower = ScopedEnvVar::unset("http_proxy");
-    let _https_proxy_lower = ScopedEnvVar::unset("https_proxy");
-    let _no_proxy_lower = ScopedEnvVar::unset("no_proxy");
+    let proxied_http = build_http_client_with(&ProxyConfig::from_proxy_url(proxy.base_url()))
+        .expect("proxy client should build");
 
     let client = OpenAiCompatClient::new("openai-test-key", OpenAiCompatConfig::openai())
+        .with_http_client(proxied_http)
         .with_base_url("http://origin.invalid/v1");
     let response = client
         .send_message(&MessageRequest {
