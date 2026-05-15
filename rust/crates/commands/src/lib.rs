@@ -4596,13 +4596,6 @@ mod tests {
             }))
         );
         assert_eq!(
-            SlashCommand::parse("/session exists abc123"),
-            Ok(Some(SlashCommand::Session {
-                action: Some("exists".to_string()),
-                target: Some("abc123".to_string())
-            }))
-        );
-        assert_eq!(
             SlashCommand::parse("/session switch abc123"),
             Ok(Some(SlashCommand::Session {
                 action: Some("switch".to_string()),

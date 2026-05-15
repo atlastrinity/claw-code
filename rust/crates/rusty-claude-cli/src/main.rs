@@ -6119,7 +6119,10 @@ fn session_details_json(sessions: &[ManagedSessionSummary]) -> Vec<serde_json::V
         .collect()
 }
 
-fn session_exists_json(target: &str, active_session_id: &str) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+fn session_exists_json(
+    target: &str,
+    active_session_id: &str,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let handle = create_managed_session_handle(target)?;
     let resolved = resolve_session_reference(target).ok();
     let exists = resolved.is_some();
@@ -6168,7 +6171,10 @@ fn run_resumed_session_command(
                 return Err("/session exists requires a session id".into());
             };
             let value = session_exists_json(target, &session.session_id)?;
-            let exists = value.get("exists").and_then(|v| v.as_bool()).unwrap_or(false);
+            let exists = value
+                .get("exists")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             Ok(ResumeCommandOutcome {
                 session: session.clone(),
                 message: Some(format!(
@@ -13687,6 +13693,68 @@ UU conflicted.rs",
                 .canonicalize()
                 .expect("legacy path should exist")
         );
+
+        std::env::set_current_dir(previous).expect("restore cwd");
+        std::fs::remove_dir_all(workspace).expect("workspace should clean up");
+    }
+
+    #[test]
+    fn resumed_session_exists_and_delete_have_json_contracts() {
+        let _guard = cwd_guard();
+        let workspace = temp_workspace("resume-session-json-contracts");
+        std::fs::create_dir_all(&workspace).expect("workspace should create");
+        let previous = std::env::current_dir().expect("cwd");
+        std::env::set_current_dir(&workspace).expect("switch cwd");
+
+        let active = create_managed_session_handle("session-active").expect("active handle");
+        let active_session = Session::new()
+            .with_workspace_root(workspace.clone())
+            .with_persistence_path(active.path.clone());
+        active_session
+            .save_to_path(&active.path)
+            .expect("active session should save");
+        let saved = create_managed_session_handle("session-saved").expect("saved handle");
+        Session::new()
+            .with_workspace_root(workspace.clone())
+            .with_persistence_path(saved.path.clone())
+            .save_to_path(&saved.path)
+            .expect("saved session should save");
+
+        let exists_command = SlashCommand::parse("/session exists session-saved")
+            .expect("parse should succeed")
+            .expect("command should exist");
+        let exists = run_resume_command(&active.path, &active_session, &exists_command)
+            .expect("exists should run")
+            .json
+            .expect("exists should return json");
+        assert_eq!(exists["kind"], "session_exists");
+        assert_eq!(exists["session_id"], "session-saved");
+        assert_eq!(exists["exists"], true);
+        assert_eq!(exists["active"], false);
+        assert!(exists["path"].as_str().is_some());
+
+        let missing_command = SlashCommand::parse("/session exists missing-session")
+            .expect("parse should succeed")
+            .expect("command should exist");
+        let missing = run_resume_command(&active.path, &active_session, &missing_command)
+            .expect("missing exists should run")
+            .json
+            .expect("missing exists should return json");
+        assert_eq!(missing["kind"], "session_exists");
+        assert_eq!(missing["exists"], false);
+        assert_eq!(missing["session_id"], "missing-session");
+        assert!(missing["candidate_path"].as_str().is_some());
+
+        let delete_command = SlashCommand::parse("/session delete session-saved --force")
+            .expect("parse should succeed")
+            .expect("command should exist");
+        let deleted = run_resume_command(&active.path, &active_session, &delete_command)
+            .expect("delete should run")
+            .json
+            .expect("delete should return json");
+        assert_eq!(deleted["kind"], "session_delete");
+        assert_eq!(deleted["deleted"], true);
+        assert!(!saved.path.exists(), "saved session should be deleted");
 
         std::env::set_current_dir(previous).expect("restore cwd");
         std::fs::remove_dir_all(workspace).expect("workspace should clean up");
