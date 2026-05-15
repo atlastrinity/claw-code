@@ -31,7 +31,7 @@ cd rust
 cargo build --workspace
 ```
 
-The CLI binary is available at `rust/target/debug/claw` after a debug build. Make the doctor check above your first post-build step.
+The CLI binary is available at `rust/target/debug/claw` after a debug build (`rust\target\debug\claw.exe` on Windows). Make the doctor check above your first post-build step. For PowerShell-first install, release ZIP, PATH, provider-switching, and Windows/WSL notification examples, see [`docs/windows-install-release.md`](./docs/windows-install-release.md).
 
 ## Quick start
 
@@ -229,6 +229,32 @@ export ANTHROPIC_AUTH_TOKEN="anthropic-oauth-or-proxy-bearer-token"
 **Why this matters:** if you paste an `sk-ant-*` key into `ANTHROPIC_AUTH_TOKEN`, Anthropic's API will return `401 Invalid bearer token` because `sk-ant-*` keys are rejected over the Bearer header. The fix is a one-line env var swap — move the key to `ANTHROPIC_API_KEY`. Recent `claw` builds detect this exact shape (401 + `sk-ant-*` in the Bearer slot) and append a hint to the error message pointing at the fix.
 
 **If you meant a different provider:** if `claw` reports missing Anthropic credentials but you already have `OPENAI_API_KEY`, `XAI_API_KEY`, or `DASHSCOPE_API_KEY` exported, you most likely forgot to prefix the model name with the provider's routing prefix. Use `--model openai/gpt-4.1-mini` (OpenAI-compat / OpenRouter / Ollama), `--model grok` (xAI), or `--model qwen-plus` (DashScope) and the prefix router will select the right backend regardless of the ambient credentials. The error message now includes a hint that names the detected env var.
+
+
+### Windows PowerShell provider switching
+
+The same provider rules work in PowerShell. Use placeholder values in docs and tests; put real keys only in your private environment. Remove unrelated provider env vars when validating a switch so failures are easy to diagnose.
+
+```powershell
+# Anthropic direct
+$env:ANTHROPIC_API_KEY = "sk-ant-REPLACE_ME"
+Remove-Item Env:\OPENAI_BASE_URL -ErrorAction SilentlyContinue
+Remove-Item Env:\OPENAI_API_KEY -ErrorAction SilentlyContinue
+.\target\debug\claw.exe --model "sonnet" prompt "reply with ready"
+
+# OpenAI-compatible gateway / OpenRouter
+Remove-Item Env:\ANTHROPIC_API_KEY -ErrorAction SilentlyContinue
+$env:OPENAI_BASE_URL = "https://openrouter.ai/api/v1"
+$env:OPENAI_API_KEY = "sk-or-v1-REPLACE_ME"
+.\target\debug\claw.exe --model "openai/gpt-4.1-mini" prompt "reply with ready"
+
+# Local OpenAI-compatible server
+$env:OPENAI_BASE_URL = "http://127.0.0.1:11434/v1"
+Remove-Item Env:\OPENAI_API_KEY -ErrorAction SilentlyContinue
+.\target\debug\claw.exe --model "llama3.2" prompt "reply with ready"
+```
+
+See the full [Windows install and release quickstart](./docs/windows-install-release.md) for release artifact setup, persistent `setx` usage, and WSL notes.
 
 ## Local Models
 
