@@ -184,8 +184,6 @@ fn inventory_commands_emit_structured_json_when_requested() {
     assert_eq!(plugins["action"], "list");
     assert_eq!(plugins["status"], "ok");
     assert!(plugins["config_load_error"].is_null());
-    assert_eq!(plugins["status"], "ok");
-    assert!(plugins["config_load_error"].is_null());
     assert!(
         plugins["reload_runtime"].is_boolean(),
         "plugins reload_runtime should be a boolean"
@@ -587,6 +585,8 @@ fn resumed_inventory_commands_emit_structured_json_when_requested() {
     );
     assert_eq!(plugins["kind"], "plugin");
     assert_eq!(plugins["action"], "list");
+    assert_eq!(plugins["status"], "ok");
+    assert!(plugins["config_load_error"].is_null());
     assert!(
         plugins["reload_runtime"].is_boolean(),
         "plugins reload_runtime should be a boolean"

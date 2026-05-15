@@ -4023,22 +4023,20 @@ fn run_resume_command(
                 _ => {}
             }
             let cwd = env::current_dir()?;
-            let loader = ConfigLoader::default_for(&cwd);
-            let runtime_config = loader.load()?;
-            let mut manager = build_plugin_manager(&cwd, &loader, &runtime_config);
-            let result =
-                handle_plugins_slash_command(action.as_deref(), target.as_deref(), &mut manager)?;
+            let payload = plugins_command_payload_for(&cwd, action.as_deref(), target.as_deref())?;
             let action_str = action.as_deref().unwrap_or("list");
             let json = serde_json::json!({
                 "kind": "plugin",
                 "action": action_str,
                 "target": target,
-                "message": &result.message,
-                "reload_runtime": result.reload_runtime,
+                "status": payload.status,
+                "config_load_error": payload.config_load_error,
+                "message": &payload.message,
+                "reload_runtime": payload.reload_runtime,
             });
             Ok(ResumeCommandOutcome {
                 session: session.clone(),
-                message: Some(result.message),
+                message: Some(payload.message),
                 json: Some(json),
             })
         }
