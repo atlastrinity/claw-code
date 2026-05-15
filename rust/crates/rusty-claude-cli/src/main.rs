@@ -5620,6 +5620,8 @@ impl LiveCli {
                     "config_load_error": payload.config_load_error,
                     "message": payload.message,
                     "reload_runtime": payload.reload_runtime,
+                    "plugins": payload.plugins,
+                    "load_failures": payload.load_failures,
                 }))?
             ),
         }
@@ -7744,6 +7746,8 @@ struct PluginsCommandPayload {
     reload_runtime: bool,
     status: &'static str,
     config_load_error: Option<String>,
+    plugins: Vec<Value>,
+    load_failures: Vec<Value>,
 }
 
 fn plugins_command_payload_for(
@@ -7758,17 +7762,30 @@ fn plugins_command_payload_for(
     };
     let mut manager = build_plugin_manager(cwd, &loader, &runtime_config);
     let result = handle_plugins_slash_command(action, target, &mut manager)?;
+    let report = manager.installed_plugin_registry_report()?;
     Ok(plugins_command_payload_from_result(
         result,
         config_load_error,
+        &report,
     ))
 }
 
 fn plugins_command_payload_from_result(
     result: PluginsCommandResult,
     config_load_error: Option<String>,
+    report: &plugins::PluginRegistryReport,
 ) -> PluginsCommandPayload {
-    let status = if config_load_error.is_some() {
+    let load_failures = report
+        .failures()
+        .iter()
+        .map(plugin_load_failure_json)
+        .collect::<Vec<_>>();
+    let plugins = report
+        .summaries()
+        .iter()
+        .map(plugin_summary_json)
+        .collect::<Vec<_>>();
+    let status = if config_load_error.is_some() || !load_failures.is_empty() {
         "degraded"
     } else {
         "ok"
@@ -7785,6 +7802,8 @@ fn plugins_command_payload_from_result(
         reload_runtime: result.reload_runtime,
         status,
         config_load_error,
+        plugins,
+        load_failures,
     }
 }
 

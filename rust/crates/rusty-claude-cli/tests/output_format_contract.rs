@@ -189,10 +189,13 @@ fn inventory_commands_emit_structured_json_when_requested() {
         "plugins target should be null when no plugin is targeted"
     );
     assert_eq!(plugins["status"], "ok");
-    assert!(plugins["plugins"]
-        .as_array()
-        .expect("plugins array")
-        .is_empty());
+    let plugin_entries = plugins["plugins"].as_array().expect("plugins array");
+    assert!(
+        plugin_entries.iter().all(|plugin| plugin["id"].is_string()
+            && plugin["lifecycle_state"].is_string()
+            && plugin["lifecycle"].is_object()),
+        "plugins JSON entries should carry lifecycle contract fields"
+    );
     assert!(plugins["load_failures"]
         .as_array()
         .expect("plugin load failures array")
