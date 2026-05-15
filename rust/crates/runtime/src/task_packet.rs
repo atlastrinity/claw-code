@@ -38,10 +38,38 @@ pub struct TaskPacket {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub worktree: Option<String>,
     pub branch_policy: String,
+    /// Legacy verification commands kept for compatibility with existing task packets.
+    #[serde(default)]
     pub acceptance_tests: Vec<String>,
+    /// Human-readable acceptance criteria for the task objective.
+    #[serde(default)]
+    pub acceptance_criteria: Vec<String>,
+    /// Files, directories, services, or other resources the task is allowed to touch.
+    #[serde(default)]
+    pub resources: Vec<TaskResource>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub permission_profile: Option<String>,
     pub commit_policy: String,
+    /// Legacy reporting contract kept for compatibility with existing task packets.
     pub reporting_contract: String,
+    #[serde(default)]
+    pub reporting_targets: Vec<String>,
+    /// Legacy escalation policy kept for compatibility with existing task packets.
     pub escalation_policy: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovery_policy: Option<String>,
+    #[serde(default)]
+    pub verification_plan: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskResource {
+    pub kind: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,20 +119,66 @@ pub fn validate_packet(packet: TaskPacket) -> Result<ValidatedPacket, TaskPacket
     validate_required("repo", &packet.repo, &mut errors);
     validate_required("branch_policy", &packet.branch_policy, &mut errors);
     validate_required("commit_policy", &packet.commit_policy, &mut errors);
-    validate_required(
-        "reporting_contract",
-        &packet.reporting_contract,
-        &mut errors,
-    );
-    validate_required("escalation_policy", &packet.escalation_policy, &mut errors);
+    if packet.reporting_contract.trim().is_empty() && packet.reporting_targets.is_empty() {
+        errors.push("reporting_contract or reporting_targets must not be empty".to_string());
+    }
+    if packet.escalation_policy.trim().is_empty()
+        && packet
+            .recovery_policy
+            .as_ref()
+            .is_none_or(|policy| policy.trim().is_empty())
+    {
+        errors.push("escalation_policy or recovery_policy must not be empty".to_string());
+    }
 
     // Validate scope-specific requirements
     validate_scope_requirements(&packet, &mut errors);
+
+    if packet.acceptance_tests.is_empty() && packet.acceptance_criteria.is_empty() {
+        errors.push("acceptance_tests or acceptance_criteria must not be empty".to_string());
+    }
 
     for (index, test) in packet.acceptance_tests.iter().enumerate() {
         if test.trim().is_empty() {
             errors.push(format!(
                 "acceptance_tests contains an empty value at index {index}"
+            ));
+        }
+    }
+
+    for (index, criterion) in packet.acceptance_criteria.iter().enumerate() {
+        if criterion.trim().is_empty() {
+            errors.push(format!(
+                "acceptance_criteria contains an empty value at index {index}"
+            ));
+        }
+    }
+
+    for (index, resource) in packet.resources.iter().enumerate() {
+        if resource.kind.trim().is_empty() || resource.value.trim().is_empty() {
+            errors.push(format!(
+                "resources contains an incomplete entry at index {index}"
+            ));
+        }
+    }
+
+    validate_optional("model", packet.model.as_deref(), &mut errors);
+    validate_optional("provider", packet.provider.as_deref(), &mut errors);
+    validate_optional(
+        "permission_profile",
+        packet.permission_profile.as_deref(),
+        &mut errors,
+    );
+    validate_optional(
+        "recovery_policy",
+        packet.recovery_policy.as_deref(),
+        &mut errors,
+    );
+
+    for (index, step) in packet.verification_plan.iter().enumerate() {
+        if step.trim().is_empty() {
+            errors.push(format!(
+                "verification_plan contains an empty value at index {index}"
             ));
         }
     }
@@ -142,6 +216,12 @@ fn validate_required(field: &str, value: &str, errors: &mut Vec<String>) {
     }
 }
 
+fn validate_optional(field: &str, value: Option<&str>, errors: &mut Vec<String>) {
+    if value.is_some_and(|value| value.trim().is_empty()) {
+        errors.push(format!("{field} must not be empty when present"));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -158,9 +238,20 @@ mod tests {
                 "cargo build --workspace".to_string(),
                 "cargo test --workspace".to_string(),
             ],
+            acceptance_criteria: vec!["packet can launch without pane scraping".to_string()],
+            resources: vec![TaskResource {
+                kind: "file".to_string(),
+                value: "rust/crates/runtime/src/task_packet.rs".to_string(),
+            }],
+            model: Some("gpt-5.5".to_string()),
+            provider: Some("openai".to_string()),
+            permission_profile: Some("workspace-write".to_string()),
             commit_policy: "single verified commit".to_string(),
             reporting_contract: "print build result, test result, commit sha".to_string(),
+            reporting_targets: vec!["leader".to_string()],
             escalation_policy: "stop only on destructive ambiguity".to_string(),
+            recovery_policy: Some("retry once then escalate".to_string()),
+            verification_plan: vec!["cargo test -p runtime task_packet".to_string()],
         }
     }
 
@@ -183,9 +274,20 @@ mod tests {
             repo: String::new(),
             branch_policy: "\t".to_string(),
             acceptance_tests: vec!["ok".to_string(), " ".to_string()],
+            acceptance_criteria: vec![" ".to_string()],
+            resources: vec![TaskResource {
+                kind: " ".to_string(),
+                value: "resource".to_string(),
+            }],
+            model: Some(" ".to_string()),
+            provider: Some("openai".to_string()),
+            permission_profile: Some("workspace-write".to_string()),
             commit_policy: String::new(),
             reporting_contract: String::new(),
+            reporting_targets: Vec::new(),
             escalation_policy: String::new(),
+            recovery_policy: None,
+            verification_plan: vec![" ".to_string()],
         };
 
         let error = validate_packet(packet).expect_err("packet should be rejected");
@@ -200,6 +302,51 @@ mod tests {
         assert!(error
             .errors()
             .contains(&"acceptance_tests contains an empty value at index 1".to_string()));
+    }
+
+    #[test]
+    fn legacy_packet_json_deserializes_with_defaulted_cc2_fields() {
+        let legacy = r#"{
+            "objective": "Legacy packet",
+            "scope": "workspace",
+            "repo": "claw-code",
+            "branch_policy": "origin/main only",
+            "acceptance_tests": ["cargo test"],
+            "commit_policy": "single commit",
+            "reporting_contract": "report sha",
+            "escalation_policy": "ask leader"
+        }"#;
+
+        let packet: TaskPacket = serde_json::from_str(legacy).expect("legacy packet should load");
+
+        assert_eq!(packet.objective, "Legacy packet");
+        assert!(packet.acceptance_criteria.is_empty());
+        assert!(packet.resources.is_empty());
+        assert_eq!(packet.model, None);
+        validate_packet(packet).expect("legacy packet remains valid through aliases");
+    }
+
+    #[test]
+    fn rich_cc2_packet_fields_roundtrip_and_validate() {
+        let packet = sample_packet();
+        let json = serde_json::to_value(&packet).expect("packet should serialize");
+
+        assert_eq!(
+            json["acceptance_criteria"][0],
+            "packet can launch without pane scraping"
+        );
+        assert_eq!(json["resources"][0]["kind"], "file");
+        assert_eq!(json["model"], "gpt-5.5");
+        assert_eq!(json["provider"], "openai");
+        assert_eq!(json["permission_profile"], "workspace-write");
+        assert_eq!(json["recovery_policy"], "retry once then escalate");
+        assert_eq!(
+            json["verification_plan"][0],
+            "cargo test -p runtime task_packet"
+        );
+
+        let roundtrip: TaskPacket = serde_json::from_value(json).expect("rich packet roundtrips");
+        validate_packet(roundtrip).expect("rich packet validates");
     }
 
     #[test]

@@ -6177,6 +6177,13 @@ fn status_json_value(
             "cumulative_total": usage.cumulative.total_tokens(),
             "estimated_tokens": usage.estimated_tokens,
         },
+        "lane_board": {
+            "schema": "task_registry_v1",
+            "status_json_supported": true,
+            "heartbeat_freshness_supported": true,
+            "states": ["active", "blocked", "finished"],
+            "freshness_states": ["healthy", "stalled", "transport_dead", "unknown"],
+        },
         "workspace": {
             "cwd": context.cwd,
             "project_root": context.project_root,
@@ -11252,6 +11259,18 @@ mod tests {
         assert!(
             json.get("workspace").is_some(),
             "workspace field still reported"
+        );
+        assert_eq!(
+            json.pointer("/lane_board/status_json_supported")
+                .and_then(|v| v.as_bool()),
+            Some(true),
+            "status JSON should advertise lane board support: {json}"
+        );
+        assert_eq!(
+            json.pointer("/lane_board/freshness_states/2")
+                .and_then(|v| v.as_str()),
+            Some("transport_dead"),
+            "status JSON should advertise transport-dead freshness: {json}"
         );
         assert!(
             json.get("sandbox").is_some(),
