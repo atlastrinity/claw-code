@@ -132,6 +132,18 @@ Test the binary directly using its path:
 .\rust\target\debug\claw.exe doctor
 ```
 
+PowerShell smoke commands that do not require live credentials:
+
+```powershell
+$env:CLAW_CONFIG_HOME = Join-Path $env:TEMP "claw config home"
+New-Item -ItemType Directory -Force -Path $env:CLAW_CONFIG_HOME | Out-Null
+Remove-Item Env:\ANTHROPIC_API_KEY, Env:\ANTHROPIC_AUTH_TOKEN, Env:\OPENAI_API_KEY -ErrorAction SilentlyContinue
+.\rust\target\debug\claw.exe help
+.\rust\target\debug\claw.exe status
+.\rust\target\debug\claw.exe config env
+.\rust\target\debug\claw.exe doctor
+```
+
 If these commands succeed, the build is working. `claw doctor` is your first health check — it validates your API key, model access, and tool configuration.
 
 ### Optional: Add to PATH
