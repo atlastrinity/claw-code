@@ -306,9 +306,7 @@ Reasoning variants (`qwen-qwq-*`, `qwq-*`, `*-thinking`) automatically strip `te
 
 The OpenAI-compatible backend also serves as the gateway for **OpenRouter**, **Ollama**, and any other service that speaks the OpenAI `/v1/chat/completions` wire format — just point `OPENAI_BASE_URL` at the service.
 
-**Model-name prefix routing:** If a model name starts with `openai/`, `gpt-`, `qwen/`, `qwen-`, `kimi/`, or `kimi-`, the provider is selected by the prefix regardless of which env vars are set. This prevents accidental misrouting to Anthropic when multiple credentials exist in the environment. Kimi and Qwen prefixes route to DashScope compatible mode; `openai/` is stripped before the Chat Completions request is sent.
-
-**Token and cost accounting:** Anthropic usage fields are recorded directly, including cache create/read tokens. OpenAI-compatible responses normalize `prompt_tokens` / `completion_tokens` into the same internal usage fields; when a provider reports `prompt_tokens_details.cached_tokens`, cached prompt tokens are counted as cache reads and subtracted from uncached input tokens so totals are not double-counted. `/status`, `/cost`, and `/usage` expose cumulative token totals and an estimated cost; unknown third-party prices use the built-in estimated-default pricing marker.
+**Model-name prefix routing:** If a model name starts with `openai/`, `gpt-`, `qwen/`, `qwen-`, `kimi/`, or `kimi-`, the provider is selected by the prefix regardless of which env vars are set. This prevents accidental misrouting to Anthropic when multiple credentials exist in the environment. For the default OpenAI API, `openai/` is a routing prefix and is stripped before the request hits the wire. For a custom `OPENAI_BASE_URL`, slash-containing OpenAI-compatible slugs (for example OpenRouter-style `openai/gpt-4.1-mini`) are preserved so the gateway receives the model ID it expects.
 
 ### Tested models and aliases
 
@@ -326,7 +324,7 @@ These are the models registered in the built-in alias table with known token lim
 | `gpt-4.1` / `gpt-4.1-mini` / `gpt-4.1-nano` | same | OpenAI-compatible | 32 768 | 1 047 576 |
 | `gpt-5.4` / `gpt-5.4-mini` / `gpt-5.4-nano` | same | OpenAI-compatible | 128 000 | 1 000 000 / 400 000 |
 
-Any model name that does not match an alias is passed through verbatim. This is how you use OpenRouter model slugs (`openai/gpt-4.1-mini`), Ollama tags (`llama3.2`), or full Anthropic model IDs (`claude-sonnet-4-20250514`).
+Any model name that does not match an alias is passed through verbatim after provider routing is resolved. This is how you use OpenRouter model slugs (`openai/gpt-4.1-mini` with a custom `OPENAI_BASE_URL`), Ollama tags (`llama3.2`), or full Anthropic model IDs (`claude-sonnet-4-20250514`).
 
 ### User-defined aliases
 
@@ -349,9 +347,17 @@ Local project settings override user-level settings. Aliases resolve through the
 1. If the resolved model name starts with `claude` → Anthropic.
 2. If it starts with `grok` → xAI.
 3. If it starts with `openai/` or `gpt-` → OpenAI-compatible.
-4. If it starts with `qwen/`, `qwen-`, `kimi/`, or `kimi-` → DashScope compatible mode.
-5. If `OPENAI_BASE_URL` is set with `OPENAI_API_KEY`, route unprefixed custom/local model names to OpenAI-compatible.
-6. Otherwise, `claw` checks which credential is set: Anthropic first, then OpenAI, then xAI; if nothing matches, it defaults to Anthropic.
+4. If it starts with `qwen/`, `qwen-`, `kimi/`, or `kimi-` → DashScope-compatible OpenAI wire format.
+5. If `OPENAI_BASE_URL` and `OPENAI_API_KEY` are set, unknown model names route to the OpenAI-compatible client for local/gateway servers.
+6. Otherwise, `claw` checks which credential is set: Anthropic first, then OpenAI, then xAI. If only `OPENAI_BASE_URL` is set, it still routes to OpenAI-compatible for authless local servers.
+7. If nothing matches, it defaults to Anthropic.
+
+
+### Provider diagnostics and custom OpenAI-compatible parameters
+
+The API layer exposes a provider diagnostics snapshot via `api::provider_diagnostics_for_model(model)`. It reports the resolved provider, auth/base-url environment variables, default base URL, whether the provider uses the OpenAI-compatible wire format, whether reasoning tuning parameters are stripped, whether DeepSeek V4 reasoning history is preserved, proxy support, extra-body support, and whether slash-containing model IDs are preserved for custom OpenAI-compatible gateways.
+
+For gateway features that are not first-class request fields yet, `MessageRequest::extra_body` passes through provider-specific JSON parameters such as `web_search_options` or `parallel_tool_calls`. Core protocol fields (`model`, `messages`, `stream`, `tools`, `tool_choice`, `max_tokens`, and `max_completion_tokens`) are protected and cannot be overridden through `extra_body`.
 
 ## FAQ
 
