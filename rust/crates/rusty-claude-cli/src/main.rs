@@ -4147,7 +4147,6 @@ fn run_resume_command(
         | SlashCommand::Fast
         | SlashCommand::Exit
         | SlashCommand::Summary
-        | SlashCommand::Session { .. }
         | SlashCommand::Desktop
         | SlashCommand::Brief
         | SlashCommand::Advisor
