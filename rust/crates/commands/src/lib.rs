@@ -4315,8 +4315,8 @@ mod tests {
         DefinitionSource, SkillOrigin, SkillRoot, SkillSlashDispatch, SlashCommand,
     };
     use plugins::{
-        PluginError, PluginKind, PluginLifecycle, PluginLoadFailure, PluginManager,
-        PluginManagerConfig, PluginMetadata, PluginSummary,
+        PluginError, PluginKind, PluginLoadFailure, PluginManager, PluginManagerConfig,
+        PluginLifecycle, PluginMetadata, PluginSummary,
     };
     use runtime::{
         CompactionConfig, ConfigLoader, ContentBlock, ConversationMessage, MessageRole, Session,
