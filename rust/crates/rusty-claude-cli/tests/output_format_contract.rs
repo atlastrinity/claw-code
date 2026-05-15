@@ -669,6 +669,141 @@ fn config_section_json_emits_section_and_value() {
     assert!(bad["section"].as_str().is_some());
 }
 
+#[test]
+fn mcp_json_reports_required_optional_and_redacts_secret_values() {
+    let root = unique_temp_dir("mcp-required-optional");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(root.join(".claw")).expect("workspace config should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+    fs::write(
+        root.join(".claw").join("settings.json"),
+        r#"{
+          "mcpServers": {
+            "required-stdio": {
+              "command": "python3",
+              "args": ["-c", "print('ready')"],
+              "env": {"TOKEN": "secret-token-value"},
+              "required": true
+            },
+            "optional-remote": {
+              "type": "http",
+              "url": "https://example.test/mcp",
+              "headers": {
+                "Authorization": "Bearer secret-header-value",
+                "X-Trace": "visible-key-only"
+              },
+              "required": false
+            }
+          }
+        }"#,
+    )
+    .expect("mcp config should write");
+
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("config home"),
+        ),
+        ("HOME", home.to_str().expect("home")),
+    ];
+    let list = assert_json_command_with_env(&root, &["--output-format", "json", "mcp"], &envs);
+
+    assert_eq!(list["kind"], "mcp");
+    assert_eq!(list["action"], "list");
+    assert_eq!(list["status"], "ok");
+    assert_eq!(list["configured_servers"], 2);
+    let servers = list["servers"].as_array().expect("servers array");
+    let required = servers
+        .iter()
+        .find(|server| server["name"] == "required-stdio")
+        .expect("required stdio server should be listed");
+    let optional = servers
+        .iter()
+        .find(|server| server["name"] == "optional-remote")
+        .expect("optional remote server should be listed");
+    assert_eq!(required["required"], true);
+    assert_eq!(optional["required"], false);
+    assert_eq!(required["details"]["env_keys"][0], "TOKEN");
+    assert_eq!(optional["details"]["header_keys"][0], "Authorization");
+    assert_eq!(optional["details"]["header_keys"][1], "X-Trace");
+
+    let list_text = serde_json::to_string(&list).expect("mcp list json should serialize");
+    assert!(!list_text.contains("secret-token-value"));
+    assert!(!list_text.contains("secret-header-value"));
+    assert!(!list_text.contains("visible-key-only"));
+
+    let show = assert_json_command_with_env(
+        &root,
+        &["--output-format", "json", "mcp", "show", "optional-remote"],
+        &envs,
+    );
+    assert_eq!(show["action"], "show");
+    assert_eq!(show["status"], "ok");
+    assert_eq!(show["server"]["required"], false);
+    assert_eq!(show["server"]["details"]["header_keys"][0], "Authorization");
+    let show_text = serde_json::to_string(&show).expect("mcp show json should serialize");
+    assert!(!show_text.contains("secret-header-value"));
+    assert!(!show_text.contains("visible-key-only"));
+}
+
+#[test]
+fn mcp_degraded_config_and_failed_usage_are_distinct_json_contracts() {
+    let root = unique_temp_dir("mcp-degraded-vs-failed");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(&root).expect("workspace should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+    fs::write(
+        root.join(".claw.json"),
+        r#"{
+          "mcpServers": {
+            "missing-command": {
+              "args": ["arg-only-no-command"],
+              "required": true
+            }
+          }
+        }"#,
+    )
+    .expect("malformed mcp config should write");
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("config home"),
+        ),
+        ("HOME", home.to_str().expect("home")),
+    ];
+
+    let degraded = assert_json_command_with_env(&root, &["--output-format", "json", "mcp"], &envs);
+    assert_eq!(degraded["kind"], "mcp");
+    assert_eq!(degraded["action"], "list");
+    assert_eq!(degraded["status"], "degraded");
+    assert!(degraded["config_load_error"]
+        .as_str()
+        .is_some_and(|error| error.contains("mcpServers.missing-command")));
+    assert_eq!(degraded["configured_servers"], 0);
+    assert!(degraded["servers"].as_array().expect("servers").is_empty());
+
+    let failed_output = run_claw(
+        &root,
+        &["--output-format", "json", "mcp", "list", "extra"],
+        &envs,
+    );
+    assert!(
+        !failed_output.status.success(),
+        "unsupported MCP action should exit non-zero"
+    );
+    let failed: Value =
+        serde_json::from_slice(&failed_output.stdout).expect("failed stdout should be json");
+    assert_eq!(failed["kind"], "mcp");
+    assert_eq!(failed["action"], "error");
+    assert_eq!(failed["ok"], false);
+    assert_eq!(failed["error_kind"], "unsupported_action");
+    assert!(failed.get("config_load_error").is_none());
+}
+
 fn assert_json_command(current_dir: &Path, args: &[&str]) -> Value {
     assert_json_command_with_env(current_dir, args, &[])
 }
