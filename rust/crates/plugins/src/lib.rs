@@ -3332,7 +3332,7 @@ mod tests {
         let config_home = temp_dir("installed-report-home");
         let bundled_root = temp_dir("installed-report-bundled");
         let install_root = config_home.join("plugins").join("installed");
-        write_external_plugin(&install_root.join("valid"), "installed-valid", "1.0.0");
+        write_lifecycle_plugin(&install_root.join("valid"), "installed-valid", "1.0.0");
         write_broken_plugin(&install_root.join("broken"), "installed-broken");
 
         let mut config = PluginManagerConfig::new(&config_home);
@@ -3347,6 +3347,14 @@ mod tests {
 
         // then
         assert!(report.registry().contains("installed-valid@external"));
+        let summaries = report.summaries();
+        let valid = summaries
+            .iter()
+            .find(|summary| summary.metadata.id == "installed-valid@external")
+            .expect("valid plugin summary should be present");
+        assert!(valid.lifecycle_state() == "ready");
+        assert_eq!(valid.lifecycle.init.len(), 1);
+        assert_eq!(valid.lifecycle.shutdown.len(), 1);
         assert_eq!(report.failures().len(), 1);
         assert!(report.failures()[0]
             .plugin_root
