@@ -188,6 +188,91 @@ fn inventory_commands_emit_structured_json_when_requested() {
         plugins["target"].is_null(),
         "plugins target should be null when no plugin is targeted"
     );
+    assert_eq!(plugins["status"], "ok");
+    assert!(plugins["plugins"]
+        .as_array()
+        .expect("plugins array")
+        .is_empty());
+    assert!(plugins["load_failures"]
+        .as_array()
+        .expect("plugin load failures array")
+        .is_empty());
+}
+
+#[test]
+fn plugins_json_surfaces_lifecycle_contract_when_plugin_is_installed() {
+    let root = unique_temp_dir("plugin-lifecycle-json");
+    let workspace = root.join("workspace");
+    let home = root.join("home");
+    let config_home = root.join("config-home");
+    let plugin_root = root.join("source-plugin");
+    fs::create_dir_all(&workspace).expect("workspace should exist");
+    fs::create_dir_all(plugin_root.join(".claude-plugin")).expect("manifest dir should exist");
+    fs::create_dir_all(plugin_root.join("lifecycle")).expect("lifecycle dir should exist");
+    fs::write(
+        plugin_root.join("lifecycle").join("init.sh"),
+        "#!/bin/sh\nexit 0\n",
+    )
+    .expect("init lifecycle script should write");
+    fs::write(
+        plugin_root.join("lifecycle").join("shutdown.sh"),
+        "#!/bin/sh\nexit 0\n",
+    )
+    .expect("shutdown lifecycle script should write");
+    fs::write(
+        plugin_root.join(".claude-plugin").join("plugin.json"),
+        r#"{
+  "name": "lifecycle-json",
+  "version": "1.0.0",
+  "description": "lifecycle JSON fixture",
+  "lifecycle": {
+    "Init": ["./lifecycle/init.sh"],
+    "Shutdown": ["./lifecycle/shutdown.sh"]
+  }
+}"#,
+    )
+    .expect("plugin manifest should write");
+
+    let parsed = assert_json_command_with_env(
+        &workspace,
+        &[
+            "--output-format",
+            "json",
+            "plugins",
+            "install",
+            plugin_root
+                .to_str()
+                .expect("plugin source path should be utf8"),
+        ],
+        &[
+            ("HOME", home.to_str().expect("home path should be utf8")),
+            (
+                "CLAW_CONFIG_HOME",
+                config_home.to_str().expect("config path should be utf8"),
+            ),
+        ],
+    );
+
+    assert_eq!(parsed["kind"], "plugin");
+    assert_eq!(parsed["action"], "install");
+    assert_eq!(parsed["status"], "ok");
+    assert_eq!(parsed["reload_runtime"], true);
+    assert!(parsed["load_failures"]
+        .as_array()
+        .expect("load_failures array")
+        .is_empty());
+    let plugins = parsed["plugins"].as_array().expect("plugins array");
+    let plugin = plugins
+        .iter()
+        .find(|plugin| plugin["id"] == "lifecycle-json@external")
+        .expect("installed plugin should be present");
+    assert_eq!(plugin["enabled"], true);
+    assert_eq!(plugin["lifecycle_state"], "ready");
+    assert_eq!(plugin["lifecycle"]["configured"], true);
+    assert_eq!(plugin["lifecycle"]["init"]["configured"], true);
+    assert_eq!(plugin["lifecycle"]["init"]["command_count"], 1);
+    assert_eq!(plugin["lifecycle"]["shutdown"]["configured"], true);
+    assert_eq!(plugin["lifecycle"]["shutdown"]["command_count"], 1);
 }
 
 #[test]
