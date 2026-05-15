@@ -4316,7 +4316,7 @@ mod tests {
     };
     use plugins::{
         PluginError, PluginKind, PluginLoadFailure, PluginManager, PluginManagerConfig,
-        PluginMetadata, PluginSummary,
+        PluginLifecycle, PluginMetadata, PluginSummary,
     };
     use runtime::{
         CompactionConfig, ConfigLoader, ContentBlock, ConversationMessage, MessageRole, Session,
@@ -5127,6 +5127,7 @@ mod tests {
                     root: None,
                 },
                 enabled: true,
+                lifecycle: PluginLifecycle::default(),
             },
             PluginSummary {
                 metadata: PluginMetadata {
@@ -5140,6 +5141,7 @@ mod tests {
                     root: None,
                 },
                 enabled: false,
+                lifecycle: PluginLifecycle::default(),
             },
         ]);
 
@@ -5166,6 +5168,7 @@ mod tests {
                     root: None,
                 },
                 enabled: true,
+                lifecycle: PluginLifecycle::default(),
             }],
             &[PluginLoadFailure::new(
                 PathBuf::from("/tmp/broken-plugin"),

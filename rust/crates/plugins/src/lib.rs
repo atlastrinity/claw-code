@@ -648,6 +648,7 @@ impl RegisteredPlugin {
         PluginSummary {
             metadata: self.metadata().clone(),
             enabled: self.enabled,
+            lifecycle: self.definition.lifecycle().clone(),
         }
     }
 }
@@ -656,6 +657,18 @@ impl RegisteredPlugin {
 pub struct PluginSummary {
     pub metadata: PluginMetadata,
     pub enabled: bool,
+    pub lifecycle: PluginLifecycle,
+}
+
+impl PluginSummary {
+    #[must_use]
+    pub fn lifecycle_state(&self) -> &'static str {
+        if self.enabled {
+            "ready"
+        } else {
+            "disabled"
+        }
+    }
 }
 
 #[derive(Debug)]
