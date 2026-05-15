@@ -1147,6 +1147,9 @@ fn bare_slash_command_guidance(command_name: &str) -> Option<String> {
             | "bootstrap-plan"
             | "agents"
             | "mcp"
+            | "plugin"
+            | "plugins"
+            | "marketplace"
             | "skills"
             | "system-prompt"
             | "init"
@@ -10875,6 +10878,41 @@ mod tests {
                 output_format: CliOutputFormat::Json,
             }
         );
+        for alias in ["plugin", "marketplace"] {
+            assert_eq!(
+                parse_args(&[alias.to_string()]).expect("plugin alias should parse"),
+                CliAction::Plugins {
+                    action: None,
+                    target: None,
+                    output_format: CliOutputFormat::Text,
+                },
+                "{alias} should route to local plugin handling, not Prompt"
+            );
+            assert_eq!(
+                parse_args(&[alias.to_string(), "list".to_string()])
+                    .expect("plugin alias list should parse"),
+                CliAction::Plugins {
+                    action: Some("list".to_string()),
+                    target: None,
+                    output_format: CliOutputFormat::Text,
+                },
+                "{alias} list should route to local plugin handling, not Prompt"
+            );
+            assert_eq!(
+                parse_args(&[
+                    alias.to_string(),
+                    "install".to_string(),
+                    "./fixtures/plugin-demo".to_string(),
+                ])
+                .expect("plugin alias install should parse"),
+                CliAction::Plugins {
+                    action: Some("install".to_string()),
+                    target: Some("./fixtures/plugin-demo".to_string()),
+                    output_format: CliOutputFormat::Text,
+                },
+                "{alias} install should route to local plugin handling, not Prompt"
+            );
+        }
         // #146: `config` and `diff` must parse as standalone CLI actions,
         // not fall through to the "is a slash command" error. Both are
         // pure-local read-only introspection.
@@ -11979,6 +12017,15 @@ mod tests {
         .expect_err("invalid /plugins list shape should be rejected");
         assert!(plugins_error.contains("Usage: /plugin list"));
         assert!(plugins_error.contains("Aliases          /plugins, /marketplace"));
+
+        for alias in ["/plugin", "/plugins", "/marketplace"] {
+            let error = parse_args(&[alias.to_string()])
+                .expect_err("valid plugin slash aliases are local/interactive, never prompts");
+            assert!(
+                error.contains("interactive-only"),
+                "{alias} should reject as an interactive plugin command outside the REPL, got: {error}"
+            );
+        }
     }
 
     #[test]
