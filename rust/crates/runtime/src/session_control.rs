@@ -606,8 +606,7 @@ mod tests {
         create_managed_session_handle_for, delete_managed_session_for, fork_managed_session_for,
         is_session_reference_alias, list_managed_sessions_for, load_managed_session_for,
         managed_session_exists_for, resolve_session_reference_for, workspace_fingerprint,
-        ManagedSessionSummary, SessionControlError, SessionStore,
-        LATEST_SESSION_REFERENCE,
+        ManagedSessionSummary, SessionControlError, SessionStore, LATEST_SESSION_REFERENCE,
     };
     use crate::session::Session;
     use std::fs;
@@ -1030,7 +1029,6 @@ mod tests {
         assert_eq!(handle.id, newer.session_id);
         fs::remove_dir_all(base).expect("temp dir should clean up");
     }
-
 
     #[test]
     fn session_exists_and_delete_are_scoped_to_workspace_store() {

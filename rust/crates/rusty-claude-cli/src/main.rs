@@ -3527,7 +3527,7 @@ fn render_resume_usage() -> String {
     format!(
         "Resume
   Usage            /resume <session-path|session-id|{LATEST_SESSION_REFERENCE}>
-  Auto-save        .claw/sessions/<session-id>.{PRIMARY_SESSION_EXTENSION}
+  Auto-save        .claw/sessions/<workspace-fingerprint>/<session-id>.{PRIMARY_SESSION_EXTENSION}
   Tip              use /session list to inspect saved sessions"
     )
 }
@@ -4092,6 +4092,29 @@ fn run_resume_command(
             })
         }
         SlashCommand::Unknown(name) => Err(format_unknown_slash_command(name).into()),
+        SlashCommand::Session {
+            action: Some(ref act),
+            target: Some(ref target),
+        } if act == "exists" => {
+            let exists = session_reference_exists(target).unwrap_or(false);
+            let resolved = resolve_session_reference(target).ok();
+            Ok(ResumeCommandOutcome {
+                session: session.clone(),
+                message: Some(format!(
+                    "Session exists\n  Session          {target}\n  Exists           {exists}{}",
+                    resolved
+                        .as_ref()
+                        .map(|handle| format!("\n  File             {}", handle.path.display()))
+                        .unwrap_or_default()
+                )),
+                json: Some(serde_json::json!({
+                    "kind": "session_exists",
+                    "session": target,
+                    "exists": exists,
+                    "path": resolved.map(|handle| handle.path.display().to_string()),
+                })),
+            })
+        }
         // /session list can be served from the sessions directory without a live session.
         SlashCommand::Session {
             action: Some(ref act),
@@ -5687,6 +5710,22 @@ impl LiveCli {
                 println!("{}", render_session_list(&self.session.id)?);
                 Ok(false)
             }
+            Some("exists") => {
+                let Some(target) = target else {
+                    println!("Usage: /session exists <session-id>");
+                    return Ok(false);
+                };
+                let exists = session_reference_exists(target)?;
+                let handle = resolve_session_reference(target).ok();
+                println!(
+                    "Session exists\n  Session          {target}\n  Exists           {exists}{}",
+                    handle
+                        .as_ref()
+                        .map(|handle| format!("\n  File             {}", handle.path.display()))
+                        .unwrap_or_default()
+                );
+                Ok(false)
+            }
             Some("switch") => {
                 let Some(target) = target else {
                     println!("Usage: /session switch <session-id>");
@@ -5801,7 +5840,7 @@ impl LiveCli {
             }
             Some(other) => {
                 println!(
-                    "Unknown /session action '{other}'. Use /session list, /session switch <session-id>, /session fork [branch-name], or /session delete <session-id> [--force]."
+                    "Unknown /session action '{other}'. Use /session list, /session exists <session-id>, /session switch <session-id>, /session fork [branch-name], or /session delete <session-id> [--force]."
                 );
                 Ok(false)
             }
@@ -5982,6 +6021,10 @@ fn resolve_session_reference(reference: &str) -> Result<SessionHandle, Box<dyn s
     })
 }
 
+fn session_reference_exists(reference: &str) -> Result<bool, Box<dyn std::error::Error>> {
+    Ok(current_session_store()?.session_exists(reference))
+}
+
 fn resolve_managed_session_path(session_id: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
     current_session_store()?
         .resolve_managed_path(session_id)
@@ -6148,7 +6191,8 @@ fn render_repl_help() -> String {
         "  Tab                  Complete commands, modes, and recent sessions".to_string(),
         "  Ctrl-C               Clear input (or exit on empty prompt)".to_string(),
         "  Shift+Enter/Ctrl+J   Insert a newline".to_string(),
-        "  Auto-save            .claw/sessions/<session-id>.jsonl".to_string(),
+        "  Auto-save            .claw/sessions/<workspace-fingerprint>/<session-id>.jsonl"
+            .to_string(),
         "  Resume latest        /resume latest".to_string(),
         "  Browse sessions      /session list".to_string(),
         "  Show prompt history  /history [count]".to_string(),
@@ -12561,7 +12605,8 @@ mod tests {
         assert!(help.contains("/export [file]"));
         // Batch 5 added `/session delete`; match on the stable core rather than
         // the trailing bracket so future additions don't re-break this.
-        assert!(help.contains("/session [list|switch <session-id>|fork [branch-name]"));
+        assert!(help
+            .contains("/session [list|exists <session-id>|switch <session-id>|fork [branch-name]"));
         assert!(help.contains(
             "/plugin [list|install <path>|enable <name>|disable <name>|uninstall <id>|update <id>]"
         ));
@@ -12569,7 +12614,9 @@ mod tests {
         assert!(help.contains("/agents"));
         assert!(help.contains("/skills"));
         assert!(help.contains("/exit"));
-        assert!(help.contains("Auto-save            .claw/sessions/<session-id>.jsonl"));
+        assert!(help.contains(
+            "Auto-save            .claw/sessions/<workspace-fingerprint>/<session-id>.jsonl"
+        ));
         assert!(help.contains("Resume latest        /resume latest"));
     }
 
@@ -12697,6 +12744,26 @@ mod tests {
         assert!(names.contains(&"help"));
         assert!(names.contains(&"status"));
         assert!(names.contains(&"compact"));
+    }
+
+    #[test]
+    fn session_exists_resume_command_reports_json_contract() {
+        let session = Session::new();
+        let path = PathBuf::from("missing-session.jsonl");
+        let outcome = run_resume_command(
+            &path,
+            &session,
+            &SlashCommand::Session {
+                action: Some("exists".to_string()),
+                target: Some("definitely-missing-session".to_string()),
+            },
+        )
+        .expect("exists command should not fail for missing sessions");
+
+        let json = outcome.json.expect("json contract");
+        assert_eq!(json["kind"], "session_exists");
+        assert_eq!(json["exists"], false);
+        assert_eq!(json["session"], "definitely-missing-session");
     }
 
     #[test]
