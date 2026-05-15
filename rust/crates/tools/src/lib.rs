@@ -10171,6 +10171,26 @@ printf 'pwsh:%s' "$1"
         assert_eq!(output["description"], "runtime/task system");
         assert_eq!(output["task_packet"]["repo"], "claw-code-parity");
         assert_eq!(
+            output["task_packet"]["files"][0],
+            "rust/crates/runtime/src/task_packet.rs"
+        );
+        assert_eq!(output["task_packet"]["resources"][0], "ROADMAP.md#phase-4");
+        assert_eq!(
+            output["task_packet"]["acceptance_criteria"][0],
+            "packet-backed task is created"
+        );
+        assert_eq!(output["task_packet"]["model"], "gpt-5.5");
+        assert_eq!(output["task_packet"]["provider"], "openai");
+        assert_eq!(
+            output["task_packet"]["permission_profile"],
+            "workspace_write"
+        );
+        assert_eq!(
+            output["task_packet"]["verification_plan"][0],
+            "cargo test -p tools run_task_packet"
+        );
+        assert_eq!(output["task_packet"]["reporting_targets"][0], "stdout json");
+        assert_eq!(
             output["task_packet"]["acceptance_tests"][1],
             "cargo test --workspace"
         );

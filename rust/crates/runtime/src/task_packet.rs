@@ -357,4 +357,101 @@ mod tests {
             serde_json::from_str(&serialized).expect("packet should deserialize");
         assert_eq!(deserialized, packet);
     }
+
+    #[test]
+    fn legacy_packet_json_deserializes_with_defaults() {
+        let legacy = r#"{
+            "objective": "Ship legacy task packet",
+            "scope": "module",
+            "scope_path": "runtime/task system",
+            "repo": "claw-code-parity",
+            "worktree": "/tmp/wt-legacy",
+            "branch_policy": "origin/main only",
+            "acceptance_tests": ["cargo test --workspace"],
+            "commit_policy": "single verified commit",
+            "reporting_contract": "print build result, test result, commit sha",
+            "escalation_policy": "manual escalation"
+        }"#;
+
+        let packet: TaskPacket = serde_json::from_str(legacy).expect("legacy packet should parse");
+
+        assert_eq!(packet.acceptance_criteria, Vec::<String>::new());
+        assert_eq!(
+            packet.permission_profile,
+            TaskPermissionProfile::WorkspaceWrite
+        );
+        assert_eq!(packet.model, None);
+        assert_eq!(packet.provider, None);
+        assert!(packet.recovery_policy.is_empty());
+        assert_eq!(packet.commit_policy, "single verified commit");
+        assert_eq!(
+            packet.reporting_contract,
+            "print build result, test result, commit sha"
+        );
+        assert_eq!(packet.escalation_policy, "manual escalation");
+        validate_packet(packet).expect("legacy packet should remain valid");
+    }
+
+    #[test]
+    fn new_schema_fields_validate_without_legacy_acceptance_tests() {
+        let mut packet = sample_packet();
+        packet.acceptance_tests.clear();
+        packet.commit_policy.clear();
+        packet.reporting_contract.clear();
+        packet.escalation_policy.clear();
+
+        validate_packet(packet).expect("new schema fields should be sufficient");
+    }
+
+    #[test]
+    fn scoped_packets_require_scope_path() {
+        for scope in [TaskScope::Module, TaskScope::SingleFile, TaskScope::Custom] {
+            let mut packet = sample_packet();
+            packet.scope = scope;
+            packet.scope_path = Some(" ".to_string());
+
+            let error = validate_packet(packet).expect_err("scoped packet should require path");
+            assert!(error
+                .errors()
+                .contains(&format!("scope_path is required for scope '{scope}'")));
+        }
+    }
+
+    #[test]
+    fn modern_required_groups_report_missing_fallbacks() {
+        let mut packet = sample_packet();
+        packet.acceptance_criteria.clear();
+        packet.acceptance_tests.clear();
+        packet.recovery_policy.clear();
+        packet.escalation_policy.clear();
+        packet.reporting_targets.clear();
+        packet.reporting_contract.clear();
+
+        let error = validate_packet(packet).expect_err("packet should require task policies");
+
+        for expected in [
+            "acceptance_criteria or legacy acceptance_tests must contain at least one value",
+            "recovery_policy or legacy escalation_policy must not be empty",
+            "reporting_targets or legacy reporting_contract must not be empty",
+        ] {
+            assert!(error.errors().contains(&expected.to_string()));
+        }
+    }
+
+    #[test]
+    fn permission_profile_variants_deserialize() {
+        for (raw, expected) in [
+            ("read_only", TaskPermissionProfile::ReadOnly),
+            ("workspace_write", TaskPermissionProfile::WorkspaceWrite),
+            (
+                "danger_full_access",
+                TaskPermissionProfile::DangerFullAccess,
+            ),
+        ] {
+            let value = format!(r#""{raw}""#);
+            let actual: TaskPermissionProfile =
+                serde_json::from_str(&value).expect("permission profile should parse");
+            assert_eq!(actual, expected);
+        }
+    }
 }
