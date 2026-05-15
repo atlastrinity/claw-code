@@ -376,13 +376,10 @@ mod tests {
         let packet: TaskPacket = serde_json::from_str(legacy).expect("legacy packet should parse");
 
         assert_eq!(packet.acceptance_criteria, Vec::<String>::new());
-        assert_eq!(
-            packet.permission_profile,
-            TaskPermissionProfile::WorkspaceWrite
-        );
+        assert_eq!(packet.permission_profile, None);
         assert_eq!(packet.model, None);
         assert_eq!(packet.provider, None);
-        assert!(packet.recovery_policy.is_empty());
+        assert_eq!(packet.recovery_policy, None);
         assert_eq!(packet.commit_policy, "single verified commit");
         assert_eq!(
             packet.reporting_contract,
@@ -396,7 +393,6 @@ mod tests {
     fn new_schema_fields_validate_without_legacy_acceptance_tests() {
         let mut packet = sample_packet();
         packet.acceptance_tests.clear();
-        packet.commit_policy.clear();
         packet.reporting_contract.clear();
         packet.escalation_policy.clear();
 
@@ -422,7 +418,7 @@ mod tests {
         let mut packet = sample_packet();
         packet.acceptance_criteria.clear();
         packet.acceptance_tests.clear();
-        packet.recovery_policy.clear();
+        packet.recovery_policy = None;
         packet.escalation_policy.clear();
         packet.reporting_targets.clear();
         packet.reporting_contract.clear();
@@ -430,28 +426,27 @@ mod tests {
         let error = validate_packet(packet).expect_err("packet should require task policies");
 
         for expected in [
-            "acceptance_criteria or legacy acceptance_tests must contain at least one value",
-            "recovery_policy or legacy escalation_policy must not be empty",
-            "reporting_targets or legacy reporting_contract must not be empty",
+            "acceptance_tests or acceptance_criteria must not be empty",
+            "escalation_policy or recovery_policy must not be empty",
+            "reporting_contract or reporting_targets must not be empty",
         ] {
             assert!(error.errors().contains(&expected.to_string()));
         }
     }
 
     #[test]
-    fn permission_profile_variants_deserialize() {
-        for (raw, expected) in [
-            ("read_only", TaskPermissionProfile::ReadOnly),
-            ("workspace_write", TaskPermissionProfile::WorkspaceWrite),
-            (
-                "danger_full_access",
-                TaskPermissionProfile::DangerFullAccess,
-            ),
-        ] {
-            let value = format!(r#""{raw}""#);
-            let actual: TaskPermissionProfile =
-                serde_json::from_str(&value).expect("permission profile should parse");
-            assert_eq!(actual, expected);
-        }
+    fn permission_profile_serializes_as_optional_string() {
+        let mut packet = sample_packet();
+        packet.permission_profile = Some("danger-full-access".to_string());
+
+        let json = serde_json::to_value(&packet).expect("packet should serialize");
+        assert_eq!(json["permission_profile"], "danger-full-access");
+
+        let roundtrip: TaskPacket =
+            serde_json::from_value(json).expect("packet should deserialize");
+        assert_eq!(
+            roundtrip.permission_profile.as_deref(),
+            Some("danger-full-access")
+        );
     }
 }
