@@ -6131,11 +6131,11 @@ fn session_exists_json(
     let exists = resolved.is_some();
     let resolved_id = resolved
         .as_ref()
-        .map(|handle| handle.id.as_str())
-        .unwrap_or(target);
+        .map_or(target, |handle| handle.id.as_str());
     Ok(serde_json::json!({
         "kind": "session_exists",
         "session_id": resolved_id,
+        "session": target,
         "requested": target,
         "exists": exists,
         "active": resolved_id == active_session_id,
@@ -6176,7 +6176,7 @@ fn run_resumed_session_command(
             let value = session_exists_json(target, &session.session_id)?;
             let exists = value
                 .get("exists")
-                .and_then(|v| v.as_bool())
+                .and_then(serde_json::Value::as_bool)
                 .unwrap_or(false);
             Ok(ResumeCommandOutcome {
                 session: session.clone(),
