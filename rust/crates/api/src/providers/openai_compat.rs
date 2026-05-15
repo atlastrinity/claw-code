@@ -931,7 +931,7 @@ fn wire_model_for_base_url<'a>(
     }
 
     if matches!(lowered_prefix.as_str(), "xai" | "grok" | "qwen" | "kimi") {
-        return Cow::Borrowed(&model[pos + 1..]);
+        return Cow::Borrowed(strip_routing_prefix(model));
     }
 
     Cow::Borrowed(model)
@@ -2042,6 +2042,7 @@ mod tests {
             presence_penalty: Some(0.3),
             stop: Some(vec!["\n".to_string()]),
             reasoning_effort: None,
+            extra_body: BTreeMap::new(),
         };
         let payload = build_chat_completion_request(&request, OpenAiCompatConfig::openai());
         assert_eq!(payload["temperature"], 0.7);
