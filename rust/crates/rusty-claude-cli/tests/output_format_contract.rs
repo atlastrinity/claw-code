@@ -536,6 +536,12 @@ fn doctor_and_resume_status_emit_json_when_requested() {
             assert!(check["status"].as_str().is_some());
             assert!(check["summary"].as_str().is_some());
             assert!(check["details"].is_array());
+            // #704: each check must have a stable snake_case id
+            assert!(
+                check["id"].as_str().is_some(),
+                "doctor check missing stable id field: {:?}",
+                check["name"]
+            );
             check["name"].as_str().expect("doctor check name")
         })
         .collect::<Vec<_>>();

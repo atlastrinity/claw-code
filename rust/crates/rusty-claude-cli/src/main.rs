@@ -2018,7 +2018,14 @@ impl DiagnosticCheck {
     }
 
     fn json_value(&self) -> Value {
+        // Derive a stable snake_case id from the check name for machine-readable keying (#704).
+        let id = self
+            .name
+            .to_ascii_lowercase()
+            .replace(' ', "_")
+            .replace('-', "_");
         let mut value = Map::from_iter([
+            ("id".to_string(), Value::String(id.clone())),
             (
                 "name".to_string(),
                 Value::String(self.name.to_ascii_lowercase()),
