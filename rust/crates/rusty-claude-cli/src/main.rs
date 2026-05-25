@@ -902,7 +902,10 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 _ => None,
             };
             if let Some(topic) = topic {
-                return Ok(CliAction::HelpTopic { topic, output_format });
+                return Ok(CliAction::HelpTopic {
+                    topic,
+                    output_format,
+                });
             }
         }
         return Ok(CliAction::Help { output_format });
