@@ -294,6 +294,10 @@ fn classify_error_kind(message: &str) -> &'static str {
         "empty_prompt"
     } else if message.starts_with("interactive_only:") || message.contains("stdin is not a TTY") {
         "interactive_only"
+    } else if message.starts_with("unknown agents subcommand:") {
+        "unknown_agents_subcommand"
+    } else if message.contains("is not installed") {
+        "plugin_not_found"
     } else {
         "unknown"
     }

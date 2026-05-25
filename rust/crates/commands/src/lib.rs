@@ -2260,7 +2260,7 @@ pub fn handle_plugins_slash_command(
                 reload_runtime: true,
             })
         }
-        Some("uninstall") => {
+        Some("remove") | Some("uninstall") => {
             let Some(target) = target else {
                 return Ok(PluginsCommandResult {
                     message: "Usage: /plugins uninstall <plugin-id>".to_string(),
@@ -2327,7 +2327,10 @@ pub fn handle_agents_slash_command(args: Option<&str>, cwd: &Path) -> std::io::R
             Ok(render_agents_report(&agents))
         }
         Some(args) if is_help_arg(args) => Ok(render_agents_usage(None)),
-        Some(args) => Ok(render_agents_usage(Some(args))),
+        Some(args) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("unknown agents subcommand: {args}. Supported: list, help"),
+        )),
     }
 }
 
@@ -2348,7 +2351,10 @@ pub fn handle_agents_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
             Ok(render_agents_report_json(cwd, &agents))
         }
         Some(args) if is_help_arg(args) => Ok(render_agents_usage_json(None)),
-        Some(args) => Ok(render_agents_usage_json(Some(args))),
+        Some(args) => Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("unknown agents subcommand: {args}. Supported: list, help"),
+        )),
     }
 }
 
