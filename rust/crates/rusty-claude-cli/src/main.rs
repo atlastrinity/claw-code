@@ -310,6 +310,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "unsupported_config_section"
     } else if message.contains("unknown_plugins_action") {
         "unknown_plugins_action"
+    } else if message.contains("is a slash command") || message.starts_with("interactive_only:") {
+        "interactive_only"
     } else {
         "unknown"
     }
