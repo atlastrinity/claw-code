@@ -5388,14 +5388,20 @@ impl LiveCli {
                 self.handle_plugins_command(action.as_deref(), target.as_deref())?
             }
             SlashCommand::Agents { args } => {
-                Self::print_agents(args.as_deref(), CliOutputFormat::Text)?;
+                if let Err(error) = Self::print_agents(args.as_deref(), CliOutputFormat::Text) {
+                    eprintln!("{error}");
+                }
                 false
             }
             SlashCommand::Skills { args } => {
                 match classify_skills_slash_command(args.as_deref()) {
                     SkillSlashDispatch::Invoke(prompt) => self.run_turn(&prompt)?,
                     SkillSlashDispatch::Local => {
-                        Self::print_skills(args.as_deref(), CliOutputFormat::Text)?;
+                        if let Err(error) =
+                            Self::print_skills(args.as_deref(), CliOutputFormat::Text)
+                        {
+                            eprintln!("{error}");
+                        }
                     }
                 }
                 false
