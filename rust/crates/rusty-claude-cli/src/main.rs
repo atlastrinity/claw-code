@@ -308,6 +308,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "skill_not_found"
     } else if message.contains("Unsupported config section") {
         "unsupported_config_section"
+    } else if message.contains("unknown_plugins_action") {
+        "unknown_plugins_action"
     } else {
         "unknown"
     }

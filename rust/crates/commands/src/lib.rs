@@ -2301,12 +2301,9 @@ pub fn handle_plugins_slash_command(
                 reload_runtime: true,
             })
         }
-        Some(other) => Ok(PluginsCommandResult {
-            message: format!(
-                "Unknown /plugins action '{other}'. Use list, install, enable, disable, uninstall, or update."
-            ),
-            reload_runtime: false,
-        }),
+        Some(other) => Err(PluginError::CommandFailed(format!(
+            "unknown_plugins_action: '{other}' is not a supported /plugins action. Use list, install, enable, disable, uninstall, or update."
+        ))),
     }
 }
 
