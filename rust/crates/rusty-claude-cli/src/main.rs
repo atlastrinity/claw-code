@@ -298,6 +298,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "unknown_agents_subcommand"
     } else if message.contains("is not installed") {
         "plugin_not_found"
+    } else if message.contains("skill source") && message.contains("not found") {
+        "skill_not_found"
     } else {
         "unknown"
     }

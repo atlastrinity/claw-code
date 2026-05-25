@@ -3240,7 +3240,12 @@ fn resolve_skill_install_source(source: &str, cwd: &Path) -> std::io::Result<Ski
     } else {
         cwd.join(candidate)
     };
-    let source = fs::canonicalize(&source)?;
+    let source = fs::canonicalize(&source).map_err(|e| {
+        std::io::Error::new(
+            e.kind(),
+            format!("skill source '{}' not found: {e}", source.display()),
+        )
+    })?;
 
     if source.is_dir() {
         let prompt_path = source.join("SKILL.md");
