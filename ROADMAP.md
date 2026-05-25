@@ -7534,3 +7534,13 @@ Original filing (2026-04-18): the session emitted `SessionStart hook (completed)
 **Required fix shape.** (a) Replace `.unwrap_or("unknown")` with an exhaustive match or typed `ParseError` that names the offending field and value; (b) add `kind:"unknown_bootstrap_phase"` with `received_value:string` to the structured error envelope; (c) add regression test asserting unrecognized phase emits a typed error, not silent `"unknown"` fallback.
 
 **Source.** Jobdori probe 2026-05-25 11:32 GMT+9 on main HEAD `c8b44878`. [SCOPE: ultraworkers/claw-code]
+
+## Pinpoint #694. No pre-push `cargo build` gate — stale field refs (`retry_after`, `Team` variant, `config_load_error_kind`) broke main build undetected until CI
+
+**Surface.** `rust/crates/api/src/providers/openai_compat.rs` referenced `ApiError::Api { retry_after: None }` (3 sites) after the field was removed from the enum. `rust/crates/commands/src/lib.rs:1475` emitted `SlashCommand::Team` after the variant was removed. `rusty-claude-cli/src/main.rs:2091` initialised `StatusContext` without `config_load_error_kind`. All three silently accumulated on `main` because (a) CI uses `cargo build` with `working-directory: rust` which was itself broken until `499125c9`, and (b) there is no local pre-push hook enforcing `cargo build --workspace`. Discovered 2026-05-25 during bulk rebase sweep.
+
+**Why it matters.** Any PR that rebases onto a broken `main` inherits the compile errors, causing CI to report unrelated failures on otherwise correct code. This is exactly what caused #3095/#3096/#3097 to appear broken when the real issue was in `main`.
+
+**Required fix shape.** (a) Add `.github/hooks/pre-push` or a `cargo-husky` / `lefthook` config running `cargo build --workspace` before any push to `main`; (b) add branch-protection rule requiring the `build` CI job to pass before merge; (c) consider adding `cargo clippy --workspace -- -D warnings` to the gate.
+
+**Source.** Jobdori probe 2026-05-25 12:00 GMT+9 on main HEAD `495e7a01`. [SCOPE: ultraworkers/claw-code]
