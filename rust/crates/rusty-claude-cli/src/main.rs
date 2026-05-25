@@ -882,7 +882,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         // #684: --help before subcommand should still route to subcommand-specific
         // help when the subcommand is one of the local-help-topic commands.
         if let Some(action) = parse_local_help_action(&rest, output_format) {
-            return action?;
+            return action;
         }
         // When --help was consumed before the subcommand, rest has no help flag.
         // If rest is a simple local-help subcommand with no extra args, route there.

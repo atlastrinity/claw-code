@@ -1857,6 +1857,7 @@ mod tests {
                     delta: super::ChunkDelta {
                         content: None,
                         reasoning_content: Some("think".to_string()),
+                        thinking: None,
                         tool_calls: Vec::new(),
                     },
                     finish_reason: None,
@@ -1873,6 +1874,7 @@ mod tests {
                         delta: super::ChunkDelta {
                             content: Some(" answer".to_string()),
                             reasoning_content: None,
+                            thinking: None,
                             tool_calls: Vec::new(),
                         },
                         finish_reason: Some("stop".to_string()),
