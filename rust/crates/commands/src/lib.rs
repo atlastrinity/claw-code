@@ -3743,6 +3743,7 @@ fn render_skill_install_report(skill: &InstalledSkill) -> String {
 fn render_skill_install_report_json(skill: &InstalledSkill) -> Value {
     json!({
         "kind": "skills",
+        "status": "ok",
         "action": "install",
         "result": "installed",
         "invocation_name": &skill.invocation_name,
