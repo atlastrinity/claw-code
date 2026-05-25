@@ -3026,6 +3026,8 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                 "{}",
                 serde_json::json!({
                     "kind": "restored",
+                    "action": "restore",
+                    "status": "ok",
                     "session_id": session.session_id,
                     "path": handle.path.display().to_string(),
                     "message_count": session.messages.len(),
@@ -4103,6 +4105,8 @@ fn run_resume_command(
                 message: Some(format_cost_report(usage)),
                 json: Some(serde_json::json!({
                     "kind": "cost",
+                    "action": "show",
+                    "status": "ok",
                     "input_tokens": usage.input_tokens,
                     "output_tokens": usage.output_tokens,
                     "cache_creation_input_tokens": usage.cache_creation_input_tokens,
@@ -4272,6 +4276,8 @@ fn run_resume_command(
                 message: Some(format_cost_report(usage)),
                 json: Some(serde_json::json!({
                     "kind": "stats",
+                    "action": "show",
+                    "status": "ok",
                     "input_tokens": usage.input_tokens,
                     "output_tokens": usage.output_tokens,
                     "cache_creation_input_tokens": usage.cache_creation_input_tokens,
@@ -4292,6 +4298,8 @@ fn run_resume_command(
                 message: Some(render_prompt_history_report(&entries, limit)),
                 json: Some(serde_json::json!({
                     "kind": "history",
+                    "action": "list",
+                    "status": "ok",
                     "total": entries.len(),
                     "showing": shown.len(),
                     "entries": shown.iter().map(|e| serde_json::json!({
@@ -6466,6 +6474,8 @@ fn session_exists_json(
         .map_or(target, |handle| handle.id.as_str());
     Ok(serde_json::json!({
         "kind": "session_exists",
+        "action": "exists",
+        "status": "ok",
         "session_id": resolved_id,
         "session": target,
         "requested": target,
@@ -6561,6 +6571,8 @@ fn run_resumed_session_command(
                 )),
                 json: Some(serde_json::json!({
                     "kind": "session_delete",
+                    "action": "delete",
+                    "status": "ok",
                     "deleted": true,
                     "session_id": handle.id,
                     "path": handle.path.display().to_string(),
@@ -7584,6 +7596,8 @@ fn render_memory_json() -> Result<serde_json::Value, Box<dyn std::error::Error>>
         .collect();
     Ok(json!({
         "kind": "memory",
+        "action": "list",
+        "status": "ok",
         "cwd": cwd.display().to_string(),
         "instruction_files": files.len(),
         "files": files,
