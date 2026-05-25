@@ -73,6 +73,10 @@ fn version_emits_json_when_requested() {
 
     let parsed = assert_json_command(&root, &["--output-format", "json", "version"]);
     assert_eq!(parsed["kind"], "version");
+    assert_eq!(
+        parsed["action"], "show",
+        "version JSON must have action:show (#711)"
+    );
     assert_eq!(parsed["version"], env!("CARGO_PKG_VERSION"));
     // Provenance fields must be present for binary identification (#507).
     assert!(
@@ -478,6 +482,10 @@ fn bootstrap_and_system_prompt_emit_json_when_requested() {
 
     let prompt = assert_json_command(&root, &["--output-format", "json", "system-prompt"]);
     assert_eq!(prompt["kind"], "system-prompt");
+    assert_eq!(
+        prompt["action"], "show",
+        "system-prompt JSON must have action:show (#711)"
+    );
     assert!(prompt["message"]
         .as_str()
         .expect("prompt text")
@@ -508,6 +516,10 @@ fn dump_manifests_and_init_emit_json_when_requested() {
     fs::create_dir_all(&workspace).expect("workspace should exist");
     let init = assert_json_command(&workspace, &["--output-format", "json", "init"]);
     assert_eq!(init["kind"], "init");
+    assert_eq!(
+        init["action"], "init",
+        "init JSON must have action:init (#711)"
+    );
     assert!(workspace.join("CLAUDE.md").exists());
 }
 

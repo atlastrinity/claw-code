@@ -2954,6 +2954,7 @@ fn print_system_prompt(
             "{}",
             serde_json::to_string_pretty(&json!({
                 "kind": "system-prompt",
+                "action": "show",
                 "status": "ok",
                 "message": message,
                 "sections": sections,
@@ -2977,6 +2978,7 @@ fn version_json_value() -> serde_json::Value {
     let executable_path = env::current_exe().ok().map(|p| p.display().to_string());
     json!({
         "kind": "version",
+        "action": "show",
         "status": "ok",
         "message": render_version_report(),
         "version": VERSION,
@@ -4174,6 +4176,7 @@ fn run_resume_command(
                 )),
                 json: Some(serde_json::json!({
                     "kind": "export",
+                    "action": "export",
                     "status": "ok",
                     "file": export_path.display().to_string(),
                     "message_count": msg_count,
@@ -7603,6 +7606,7 @@ fn init_json_value(report: &crate::init::InitReport, message: &str) -> serde_jso
     let status = "ok";
     json!({
         "kind": "init",
+        "action": "init",
         "status": status,
         "project_path": report.project_root.display().to_string(),
         "created": report.artifacts_with_status(InitStatus::Created),
@@ -8209,6 +8213,7 @@ fn run_export(
                 "{}",
                 serde_json::to_string_pretty(&json!({
                     "kind": "export",
+                    "action": "export",
                     "status": "ok",
                     "message": report,
                     "session_id": handle.id,
@@ -8231,6 +8236,7 @@ fn run_export(
             "{}",
             serde_json::to_string_pretty(&json!({
                 "kind": "export",
+                "action": "export",
                 "status": "ok",
                 "session_id": handle.id,
                 "file": handle.path.display().to_string(),
