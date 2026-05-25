@@ -6971,8 +6971,23 @@ fn print_sandbox_status_snapshot(
 }
 
 fn sandbox_json_value(status: &runtime::SandboxStatus) -> serde_json::Value {
+    // Derive top-level status so automation can do a single field check
+    // instead of combining enabled/active/supported booleans.
+    // ok  = not enabled (not requested), OR enabled and active
+    // warn = enabled and supported but not yet active (degraded)
+    // error = enabled but unsupported on this platform
+    let top_status = if !status.enabled {
+        "ok"
+    } else if status.active {
+        "ok"
+    } else if status.supported {
+        "warn"
+    } else {
+        "error"
+    };
     json!({
         "kind": "sandbox",
+        "status": top_status,
         "enabled": status.enabled,
         "active": status.active,
         "supported": status.supported,
