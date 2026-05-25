@@ -7645,9 +7645,17 @@ fn render_config_report(section: Option<&str>) -> Result<String, Box<dyn std::er
             "plugins" => runtime_config
                 .get("plugins")
                 .or_else(|| runtime_config.get("enabledPlugins")),
+            "mcp" | "mcp_servers" | "mcpServers" => runtime_config
+                .get("mcp")
+                .or_else(|| runtime_config.get("mcp_servers"))
+                .or_else(|| runtime_config.get("mcpServers")),
+            "sandbox" => runtime_config.get("sandbox"),
+            "permissions" => runtime_config.get("permissions"),
+            "skills" => runtime_config.get("skills"),
+            "agents" => runtime_config.get("agents"),
             other => {
                 lines.push(format!(
-                    "  Unsupported config section '{other}'. Use env, hooks, model, or plugins."
+                    "  Unsupported config section '{other}'. Use: env, hooks, model, plugins, mcp, sandbox, permissions, skills, or agents."
                 ));
                 return Ok(lines.join(
                     "
@@ -7729,6 +7737,17 @@ fn render_config_json(
                 .get("plugins")
                 .or_else(|| runtime_config.get("enabledPlugins"))
                 .map(|v| v.render()),
+            // These sections are structurally present in config files but may not have
+            // dedicated runtime_config keys yet; return null section_value rather than error.
+            "mcp" | "mcp_servers" | "mcpServers" => runtime_config
+                .get("mcp")
+                .or_else(|| runtime_config.get("mcp_servers"))
+                .or_else(|| runtime_config.get("mcpServers"))
+                .map(|v| v.render()),
+            "sandbox" => runtime_config.get("sandbox").map(|v| v.render()),
+            "permissions" => runtime_config.get("permissions").map(|v| v.render()),
+            "skills" => runtime_config.get("skills").map(|v| v.render()),
+            "agents" => runtime_config.get("agents").map(|v| v.render()),
             other => {
                 return Ok(serde_json::json!({
                     "kind": "config",
@@ -7737,7 +7756,8 @@ fn render_config_json(
                     "error_kind": "unsupported_config_section",
                     "section": other,
                     "ok": false,
-                    "error": format!("Unsupported config section '{other}'. Use env, hooks, model, or plugins."),
+                    "error": format!("Unsupported config section '{other}'. Use: env, hooks, model, plugins, mcp, sandbox, permissions, skills, or agents."),
+                    "supported_sections": ["env", "hooks", "model", "plugins", "mcp", "sandbox", "permissions", "skills", "agents"],
                     "cwd": cwd.display().to_string(),
                     "loaded_files": loaded_paths.len(),
                     "files": files,
