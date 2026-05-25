@@ -954,6 +954,124 @@ fn mcp_degraded_config_and_failed_usage_are_distinct_json_contracts() {
 }
 
 #[test]
+fn local_json_surfaces_have_non_empty_action_contract_714() {
+    let root = unique_temp_dir("json-action-sweep-714");
+    let workspace = root.join("workspace");
+    let init_workspace = root.join("init-workspace");
+    let git_workspace = root.join("git-workspace");
+    let home = root.join("home");
+    let config_home = root.join("config-home");
+    let codex_home = root.join("codex-home");
+    fs::create_dir_all(&workspace).expect("workspace should exist");
+    fs::create_dir_all(&init_workspace).expect("init workspace should exist");
+    fs::create_dir_all(&git_workspace).expect("git workspace should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&codex_home).expect("codex home should exist");
+
+    let session_path = write_session_fixture(&workspace, "action-sweep-export", Some("export me"));
+    let export_output = root.join("export.md");
+    let upstream = write_upstream_fixture(&root);
+    let git_init = Command::new("git")
+        .arg("init")
+        .current_dir(&git_workspace)
+        .output()
+        .expect("git init should launch");
+    assert!(
+        git_init.status.success(),
+        "git init stdout:\n{}\n\nstderr:\n{}",
+        String::from_utf8_lossy(&git_init.stdout),
+        String::from_utf8_lossy(&git_init.stderr)
+    );
+
+    let envs = [
+        ("HOME", home.to_str().expect("home utf8")),
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("config utf8"),
+        ),
+        ("CODEX_HOME", codex_home.to_str().expect("codex utf8")),
+    ];
+
+    let surfaces: Vec<(&Path, Vec<String>)> = vec![
+        (&workspace, strings(&["--output-format", "json", "help"])),
+        (&workspace, strings(&["--output-format", "json", "version"])),
+        (&workspace, strings(&["--output-format", "json", "doctor"])),
+        (&workspace, strings(&["--output-format", "json", "status"])),
+        (&workspace, strings(&["--output-format", "json", "sandbox"])),
+        (
+            &workspace,
+            strings(&["--output-format", "json", "bootstrap-plan"]),
+        ),
+        (
+            &workspace,
+            strings(&["--output-format", "json", "system-prompt"]),
+        ),
+        (
+            &workspace,
+            vec![
+                "--output-format".into(),
+                "json".into(),
+                "dump-manifests".into(),
+                "--manifests-dir".into(),
+                upstream.to_str().expect("upstream utf8").into(),
+            ],
+        ),
+        (
+            &workspace,
+            vec![
+                "--output-format".into(),
+                "json".into(),
+                "export".into(),
+                "--session".into(),
+                session_path.to_str().expect("session utf8").into(),
+            ],
+        ),
+        (
+            &workspace,
+            vec![
+                "--output-format".into(),
+                "json".into(),
+                "export".into(),
+                "--session".into(),
+                session_path.to_str().expect("session utf8").into(),
+                "--output".into(),
+                export_output.to_str().expect("export output utf8").into(),
+            ],
+        ),
+        (
+            &init_workspace,
+            strings(&["--output-format", "json", "init"]),
+        ),
+        (&workspace, strings(&["--output-format", "json", "diff"])),
+        (
+            &git_workspace,
+            strings(&["--output-format", "json", "diff"]),
+        ),
+        (&workspace, strings(&["--output-format", "json", "acp"])),
+        (&workspace, strings(&["--output-format", "json", "config"])),
+        (
+            &workspace,
+            strings(&["--output-format", "json", "config", "model"]),
+        ),
+        (
+            &workspace,
+            strings(&["--output-format", "json", "config", "unknown"]),
+        ),
+        (&workspace, strings(&["--output-format", "json", "skills"])),
+        (&workspace, strings(&["--output-format", "json", "agents"])),
+        (&workspace, strings(&["--output-format", "json", "plugins"])),
+        (&workspace, strings(&["--output-format", "json", "mcp"])),
+    ];
+
+    for (current_dir, args) in surfaces {
+        let arg_refs = args.iter().map(String::as_str).collect::<Vec<_>>();
+        let parsed = assert_json_command_with_env(current_dir, &arg_refs, &envs);
+        assert_non_empty_action(&parsed, &arg_refs);
+    }
+}
+
+#[test]
 fn inventory_commands_deduplicate_config_deprecation_warnings_per_process() {
     let root = unique_temp_dir("config-warning-dedup");
     let config_home = root.join("config-home");
@@ -1005,7 +1123,21 @@ fn assert_json_command_with_env(current_dir: &Path, args: &[&str], envs: &[(&str
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    serde_json::from_slice(&output.stdout).expect("stdout should be valid json")
+    let parsed: Value =
+        serde_json::from_slice(&output.stdout).expect("stdout should be valid json");
+    assert_non_empty_action(&parsed, args);
+    parsed
+}
+
+fn assert_non_empty_action(parsed: &Value, args: &[&str]) {
+    let action = parsed
+        .get("action")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    assert!(
+        !action.trim().is_empty(),
+        "JSON output for args={args:?} must include a non-empty stable action field: {parsed}"
+    );
 }
 
 fn run_claw(current_dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
@@ -1015,6 +1147,10 @@ fn run_claw(current_dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output 
         command.env(key, value);
     }
     command.output().expect("claw should launch")
+}
+
+fn strings(items: &[&str]) -> Vec<String> {
+    items.iter().map(|item| (*item).to_string()).collect()
 }
 
 fn write_upstream_fixture(root: &Path) -> PathBuf {
