@@ -292,6 +292,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "malformed_mcp_config"
     } else if message.starts_with("empty prompt") {
         "empty_prompt"
+    } else if message.starts_with("interactive_only:") || message.contains("stdin is not a TTY") {
+        "interactive_only"
     } else {
         "unknown"
     }
@@ -940,6 +942,12 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     allow_broad_cwd,
                 });
             }
+            // Non-TTY stdin with no piped content: refuse to start the interactive
+            // REPL (it would block forever waiting for input that will never arrive).
+            // (#696: emit a typed error instead of hanging indefinitely)
+            // Skip this guard in test builds (parse_args tests run in non-TTY context).
+            #[cfg(not(test))]
+            return Err("interactive_only: claw requires an interactive terminal (stdin is not a TTY and no prompt was provided — pipe a prompt or run in a TTY)".into());
         }
         return Ok(CliAction::Repl {
             model,

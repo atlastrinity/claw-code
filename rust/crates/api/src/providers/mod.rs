@@ -234,7 +234,7 @@ pub fn resolve_model_alias(model: &str) -> String {
 #[must_use]
 pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
     let canonical = resolve_model_alias(model);
-    if canonical.starts_with("claude") {
+    if canonical.starts_with("claude") || canonical.starts_with("anthropic/") {
         return Some(ProviderMetadata {
             provider: ProviderKind::Anthropic,
             auth_env: "ANTHROPIC_API_KEY",
