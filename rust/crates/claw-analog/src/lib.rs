@@ -1111,7 +1111,24 @@ enum BlockKind {
 
 pub(crate) fn format_rag_query_json_for_model(body: &str) -> Result<String, String> {
     let v: Value = serde_json::from_str(body).map_err(|e| format!("invalid JSON: {e}"))?;
-    let phase = v.get("phase").and_then(|x| x.as_str()).unwrap_or("unknown");
+    let phase = v.get("phase").and_then(|x| x.as_str()).ok_or_else(|| {
+        json!({
+            "kind": "unknown_bootstrap_phase",
+            "field": "phase",
+            "received_value": v.get("phase").cloned().unwrap_or(Value::Null),
+            "message": "RAG response is missing a string phase; refusing to silently render phase as unknown"
+        })
+        .to_string()
+    })?;
+    if phase.trim().is_empty() || phase == "unknown" {
+        return Err(json!({
+            "kind": "unknown_bootstrap_phase",
+            "field": "phase",
+            "received_value": phase,
+            "message": "RAG response phase must be a concrete phase name"
+        })
+        .to_string());
+    }
     let hits = v
         .get("hits")
         .and_then(|h| h.as_array())
@@ -2555,6 +2572,20 @@ mod tests {
         assert!(out.contains("a.rs"));
         assert!(out.contains("one"));
         assert!(out.contains("score="));
+    }
+
+    #[test]
+    fn rag_response_missing_phase_returns_typed_error() {
+        let err = format_rag_query_json_for_model(r#"{"hits":[]}"#).unwrap_err();
+        assert!(err.contains(r#""kind":"unknown_bootstrap_phase""#));
+        assert!(err.contains(r#""field":"phase""#));
+    }
+
+    #[test]
+    fn rag_response_unknown_phase_returns_typed_error() {
+        let err = format_rag_query_json_for_model(r#"{"hits":[],"phase":"unknown"}"#).unwrap_err();
+        assert!(err.contains(r#""kind":"unknown_bootstrap_phase""#));
+        assert!(err.contains(r#""received_value":"unknown""#));
     }
 
     #[test]
