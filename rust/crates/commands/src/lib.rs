@@ -3627,6 +3627,7 @@ fn render_agents_report_json(cwd: &Path, agents: &[AgentSummary]) -> Value {
         "kind": "agents",
         "status": "ok",
         "action": "list",
+        "status": "ok",
         "working_directory": cwd.display().to_string(),
         "count": agents.len(),
         "summary": {
@@ -3710,6 +3711,7 @@ fn render_skills_report_json(skills: &[SkillSummary]) -> Value {
         "kind": "skills",
         "status": "ok",
         "action": "list",
+        "status": "ok",
         "summary": {
             "total": skills.len(),
             "active": active,
@@ -3745,6 +3747,7 @@ fn render_skill_install_report_json(skill: &InstalledSkill) -> Value {
         "kind": "skills",
         "status": "ok",
         "action": "install",
+        "status": "ok",
         "result": "installed",
         "invocation_name": &skill.invocation_name,
         "invoke_as": format!("${}", skill.invocation_name),
@@ -5313,6 +5316,7 @@ mod tests {
 
         assert_eq!(report["kind"], "agents");
         assert_eq!(report["action"], "list");
+        assert_eq!(report["status"], "ok");
         assert_eq!(report["working_directory"], workspace.display().to_string());
         assert_eq!(report["count"], 3);
         assert_eq!(report["summary"]["active"], 2);
@@ -5328,6 +5332,7 @@ mod tests {
         let help = handle_agents_slash_command_json(Some("help"), &workspace).expect("agents help");
         assert_eq!(help["kind"], "agents");
         assert_eq!(help["action"], "help");
+        assert_eq!(help["status"], "ok");
         assert_eq!(help["usage"]["direct_cli"], "claw agents [list|help]");
 
         // Unknown agents subcommands now return Err so CLI layer can exit 1.
@@ -5442,6 +5447,7 @@ mod tests {
         );
         assert_eq!(report["kind"], "skills");
         assert_eq!(report["action"], "list");
+        assert_eq!(report["status"], "ok");
         assert_eq!(report["summary"]["active"], 3);
         assert_eq!(report["summary"]["shadowed"], 1);
         assert_eq!(report["skills"][0]["name"], "plan");
@@ -5453,6 +5459,7 @@ mod tests {
         let help = handle_skills_slash_command_json(Some("help"), &workspace).expect("skills help");
         assert_eq!(help["kind"], "skills");
         assert_eq!(help["action"], "help");
+        assert_eq!(help["status"], "ok");
         assert_eq!(help["usage"]["aliases"][0], "/skill");
         assert_eq!(
             help["usage"]["direct_cli"],
@@ -5517,6 +5524,7 @@ mod tests {
         let sources = skills_help_json["usage"]["sources"]
             .as_array()
             .expect("skills help sources");
+        assert_eq!(skills_help_json["status"], "ok");
         assert_eq!(skills_help_json["usage"]["aliases"][0], "/skill");
         assert!(sources.iter().any(|value| value == ".omc/skills"));
         assert!(sources.iter().any(|value| value == ".agents/skills"));
@@ -5901,6 +5909,13 @@ mod tests {
         assert!(report.contains("Result           installed help"));
         assert!(report.contains("Invoke as        $help"));
         assert!(report.contains(&install_root.display().to_string()));
+
+        let json_report = super::render_skill_install_report_json(&installed);
+        assert_eq!(json_report["kind"], "skills");
+        assert_eq!(json_report["action"], "install");
+        assert_eq!(json_report["status"], "ok");
+        assert_eq!(json_report["invocation_name"], "help");
+        assert_eq!(json_report["invoke_as"], "$help");
 
         let roots = vec![SkillRoot {
             source: DefinitionSource::UserCodexHome,
