@@ -3006,9 +3006,12 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                 eprintln!(
                     "{}",
                     serde_json::json!({
-                        "type": "error",
-                        "error": short_reason,
                         "kind": kind,
+                        "action": "restore",
+                        "status": "error",
+                        "error_kind": kind,
+                        "error": short_reason,
+                        "exit_code": 1,
                         "hint": hint,
                     })
                 );
@@ -3061,9 +3064,12 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                     eprintln!(
                         "{}",
                         serde_json::json!({
-                            "type": "error",
-                            "error": format!("/{cmd_root} is not yet implemented in this build"),
                             "kind": "unsupported_command",
+                            "action": "resume",
+                            "status": "error",
+                            "error_kind": "unsupported_command",
+                            "error": format!("/{cmd_root} is not yet implemented in this build"),
+                            "exit_code": 2,
                             "command": raw_command,
                         })
                     );
@@ -3080,9 +3086,12 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                     eprintln!(
                         "{}",
                         serde_json::json!({
-                            "type": "error",
-                            "error": format!("unsupported resumed command: {raw_command}"),
                             "kind": "unsupported_resumed_command",
+                            "action": "resume",
+                            "status": "error",
+                            "error_kind": "unsupported_resumed_command",
+                            "error": format!("unsupported resumed command: {raw_command}"),
+                            "exit_code": 2,
                             "command": raw_command,
                         })
                     );
@@ -3096,8 +3105,12 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                     eprintln!(
                         "{}",
                         serde_json::json!({
-                            "type": "error",
+                            "kind": "cli_parse",
+                            "action": "resume",
+                            "status": "error",
+                            "error_kind": "cli_parse",
                             "error": error.to_string(),
+                            "exit_code": 2,
                             "command": raw_command,
                         })
                     );
@@ -3133,8 +3146,12 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                     eprintln!(
                         "{}",
                         serde_json::json!({
-                            "type": "error",
+                            "kind": "resume_command_error",
+                            "action": "resume",
+                            "status": "error",
+                            "error_kind": "resume_command_error",
                             "error": error.to_string(),
+                            "exit_code": 2,
                             "command": raw_command,
                         })
                     );
@@ -4434,8 +4451,12 @@ fn enforce_broad_cwd_policy(
                 eprintln!(
                     "{}",
                     serde_json::json!({
-                        "type": "error",
+                        "kind": "broad_cwd",
+                        "action": "abort",
+                        "status": "error",
+                        "error_kind": "broad_cwd",
                         "error": message,
+                        "exit_code": 1,
                     })
                 );
             }

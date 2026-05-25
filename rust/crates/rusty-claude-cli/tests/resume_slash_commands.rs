@@ -523,7 +523,14 @@ fn resumed_stub_command_emits_not_implemented_json() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("utf8");
     let parsed: Value = serde_json::from_str(stderr.trim()).expect("should be json");
-    assert_eq!(parsed["type"], "error");
+    assert_eq!(
+        parsed["status"], "error",
+        "stub command should emit status:error"
+    );
+    assert_eq!(
+        parsed["kind"], "unsupported_command",
+        "stub command should emit kind:unsupported_command"
+    );
     assert!(
         parsed["error"]
             .as_str()
