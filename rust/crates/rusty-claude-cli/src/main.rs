@@ -7111,6 +7111,7 @@ fn sandbox_json_value(status: &runtime::SandboxStatus) -> serde_json::Value {
     };
     json!({
         "kind": "sandbox",
+        "action": "status",
         "status": top_status,
         "enabled": status.enabled,
         "active": status.active,
