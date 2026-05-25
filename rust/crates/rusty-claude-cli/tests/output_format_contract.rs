@@ -1114,6 +1114,18 @@ fn diff_json_has_status_and_result_field_702() {
         parsed.get("result").is_some(),
         "diff JSON must have result field"
     );
+    // #710: diff JSON must have action:diff and working_directory
+    assert_eq!(
+        parsed["action"], "diff",
+        "diff JSON must have action:diff (#710)"
+    );
+    assert!(
+        parsed
+            .get("working_directory")
+            .and_then(|v| v.as_str())
+            .is_some(),
+        "diff JSON must have working_directory field (#710)"
+    );
 }
 
 #[test]

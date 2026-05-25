@@ -7680,8 +7680,10 @@ fn render_diff_json_for(cwd: &Path) -> Result<serde_json::Value, Box<dyn std::er
     if !in_git_repo {
         return Ok(serde_json::json!({
             "kind": "diff",
+            "action": "diff",
             "status": "error",
             "result": "no_git_repo",
+            "working_directory": cwd.display().to_string(),
             "detail": format!("{} is not inside a git project", cwd.display()),
         }));
     }
@@ -7689,7 +7691,9 @@ fn render_diff_json_for(cwd: &Path) -> Result<serde_json::Value, Box<dyn std::er
     let unstaged = run_git_diff_command_in(cwd, &["diff"])?;
     Ok(serde_json::json!({
         "kind": "diff",
+        "action": "diff",
         "status": "ok",
+        "working_directory": cwd.display().to_string(),
         "result": if staged.trim().is_empty() && unstaged.trim().is_empty() { "clean" } else { "changes" },
         "staged": staged.trim(),
         "unstaged": unstaged.trim(),
