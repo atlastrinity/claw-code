@@ -4220,17 +4220,31 @@ fn run_resume_command(
             let cwd = env::current_dir()?;
             let payload = plugins_command_payload_for(&cwd, action.as_deref(), target.as_deref())?;
             let action_str = action.as_deref().unwrap_or("list");
-            let json = serde_json::json!({
+            let enabled_count = payload
+                .plugins
+                .iter()
+                .filter(|p| p.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false))
+                .count();
+            let disabled_count = payload.plugins.len().saturating_sub(enabled_count);
+            let mut json = serde_json::json!({
                 "kind": "plugin",
                 "action": action_str,
-                "target": target,
                 "status": payload.status,
+                "summary": {
+                    "total": payload.plugins.len(),
+                    "enabled": enabled_count,
+                    "disabled": disabled_count,
+                    "load_failures": payload.load_failures.len(),
+                },
                 "config_load_error": payload.config_load_error,
-                "message": &payload.message,
-                "reload_runtime": payload.reload_runtime,
                 "plugins": payload.plugins,
                 "load_failures": payload.load_failures,
             });
+            if action_str != "list" {
+                json["target"] = serde_json::json!(target);
+                json["reload_runtime"] = serde_json::json!(payload.reload_runtime);
+                json["message"] = serde_json::json!(&payload.message);
+            }
             Ok(ResumeCommandOutcome {
                 session: session.clone(),
                 message: Some(payload.message),
@@ -5936,20 +5950,36 @@ impl LiveCli {
         let payload = plugins_command_payload_for(&cwd, action, target)?;
         match output_format {
             CliOutputFormat::Text => println!("{}", payload.message),
-            CliOutputFormat::Json => println!(
-                "{}",
-                serde_json::to_string_pretty(&json!({
+            CliOutputFormat::Json => {
+                let action_str = action.unwrap_or("list");
+                let enabled_count = payload
+                    .plugins
+                    .iter()
+                    .filter(|p| p.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false))
+                    .count();
+                let disabled_count = payload.plugins.len().saturating_sub(enabled_count);
+                let mut obj = json!({
                     "kind": "plugin",
-                    "action": action.unwrap_or("list"),
-                    "target": target,
+                    "action": action_str,
                     "status": payload.status,
+                    "summary": {
+                        "total": payload.plugins.len(),
+                        "enabled": enabled_count,
+                        "disabled": disabled_count,
+                        "load_failures": payload.load_failures.len(),
+                    },
                     "config_load_error": payload.config_load_error,
-                    "message": payload.message,
-                    "reload_runtime": payload.reload_runtime,
                     "plugins": payload.plugins,
                     "load_failures": payload.load_failures,
-                }))?
-            ),
+                });
+                // Only include operation-result fields for mutating actions
+                if action_str != "list" {
+                    obj["target"] = json!(target);
+                    obj["reload_runtime"] = json!(payload.reload_runtime);
+                    obj["message"] = json!(payload.message);
+                }
+                println!("{}", serde_json::to_string_pretty(&obj)?);
+            }
         }
         Ok(())
     }

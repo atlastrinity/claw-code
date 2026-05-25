@@ -202,13 +202,31 @@ fn inventory_commands_emit_structured_json_when_requested() {
     assert_eq!(plugins["action"], "list");
     assert_eq!(plugins["status"], "ok");
     assert!(plugins["config_load_error"].is_null());
+    // reload_runtime and target are operation-result fields; list response omits them (#703)
     assert!(
-        plugins["reload_runtime"].is_boolean(),
-        "plugins reload_runtime should be a boolean"
+        !plugins
+            .as_object()
+            .map_or(false, |o| o.contains_key("reload_runtime")),
+        "plugins list should not include reload_runtime"
     );
     assert!(
-        plugins["target"].is_null(),
-        "plugins target should be null when no plugin is targeted"
+        !plugins
+            .as_object()
+            .map_or(false, |o| o.contains_key("target")),
+        "plugins list should not include target"
+    );
+    // #703: structured summary replaces prose message
+    assert!(
+        plugins["summary"]["total"].is_number(),
+        "plugins list should have summary.total"
+    );
+    assert!(
+        plugins["summary"]["enabled"].is_number(),
+        "plugins list should have summary.enabled"
+    );
+    assert!(
+        plugins["summary"]["disabled"].is_number(),
+        "plugins list should have summary.disabled"
     );
     assert_eq!(plugins["status"], "ok");
     let plugin_entries = plugins["plugins"].as_array().expect("plugins array");
@@ -691,13 +709,22 @@ fn resumed_inventory_commands_emit_structured_json_when_requested() {
     assert_eq!(plugins["action"], "list");
     assert_eq!(plugins["status"], "ok");
     assert!(plugins["config_load_error"].is_null());
+    // reload_runtime and target are operation-result fields; list response omits them (#703)
     assert!(
-        plugins["reload_runtime"].is_boolean(),
-        "plugins reload_runtime should be a boolean"
+        !plugins
+            .as_object()
+            .map_or(false, |o| o.contains_key("reload_runtime")),
+        "plugins list should not include reload_runtime"
     );
     assert!(
-        plugins["target"].is_null(),
-        "plugins target should be null when no plugin is targeted"
+        !plugins
+            .as_object()
+            .map_or(false, |o| o.contains_key("target")),
+        "plugins list should not include target"
+    );
+    assert!(
+        plugins["summary"]["total"].is_number(),
+        "plugins list should have summary.total"
     );
 }
 
