@@ -2201,8 +2201,16 @@ fn check_auth_health() -> DiagnosticCheck {
     let env_details = format!(
         "Environment       api_key={} auth_token={} openai_key={}",
         if api_key_present { "present" } else { "absent" },
-        if auth_token_present { "present" } else { "absent" },
-        if openai_key_present { "present" } else { "absent" }
+        if auth_token_present {
+            "present"
+        } else {
+            "absent"
+        },
+        if openai_key_present {
+            "present"
+        } else {
+            "absent"
+        }
     );
 
     match load_oauth_credentials() {
@@ -5047,7 +5055,7 @@ impl LiveCli {
                     TerminalRenderer::new().color_theme(),
                     &mut stdout,
                 )?;
-                
+
                 // ============================================================================
                 // Auto-compact retry on context window errors
                 // ============================================================================
@@ -5066,7 +5074,7 @@ impl LiveCli {
                 // - "Context window blocked"
                 // - "This model's maximum context length is X tokens..."
                 // ============================================================================
-                
+
                 let error_str = error.to_string();
                 // Detect context window overflow. Some providers (e.g. OpenAI-compat backends)
                 // return 400 with "no parseable body" instead of a proper context_length_exceeded
@@ -5074,7 +5082,7 @@ impl LiveCli {
                 let is_context_window = error_str.contains("context_window")
                     || error_str.contains("Context window")
                     || error_str.contains("no parseable body");
-                
+
                 if is_context_window {
                     // A single compaction pass may not free enough context space.
                     // Progressive retry: each round preserves fewer recent messages (4→2→1→0),
@@ -5082,7 +5090,7 @@ impl LiveCli {
                     // Max 4 rounds before giving up and surfacing the error to the user.
                     let max_compact_rounds = 4;
                     let preserve_schedule = [4, 2, 1, 0];
-                    
+
                     for round in 0..max_compact_rounds {
                         let preserve = preserve_schedule[round];
                         println!(
@@ -5091,7 +5099,7 @@ impl LiveCli {
                             max_compact_rounds,
                             preserve
                         );
-                        
+
                         // Run Trident pipeline then summary-based compaction
                         let result = runtime::trident::trident_compact_session(
                             runtime.session(),
@@ -5102,38 +5110,53 @@ impl LiveCli {
                             &runtime::trident::TridentConfig::default(),
                         );
                         let removed = result.removed_message_count;
-                        
+
                         if removed == 0 && round > 0 {
                             // No more messages to compact — further rounds won't help
                             println!("  No further compaction possible.");
                             break;
                         }
-                        
+
                         if removed > 0 {
-                            println!("{}", format_compact_report(removed, result.compacted_session.messages.len(), false));
+                            println!(
+                                "{}",
+                                format_compact_report(
+                                    removed,
+                                    result.compacted_session.messages.len(),
+                                    false
+                                )
+                            );
                         }
-                        
+
                         // Without this, prepare_turn_runtime() reads from self.runtime.session()
                         // which still holds the ORIGINAL un-compacted session, so every retry round
                         // would send the same bloated request — compaction was wasted.
                         *self.runtime.session_mut() = result.compacted_session.clone();
-                        
+
                         // Build a new runtime with the compacted session and retry
-                        let (mut new_runtime, hook_abort_monitor) = self.prepare_turn_runtime(true)?;
+                        let (mut new_runtime, hook_abort_monitor) =
+                            self.prepare_turn_runtime(true)?;
                         drop(hook_abort_monitor);
-                        
+
                         let mut rp = CliPermissionPrompter::new(self.permission_mode);
                         match new_runtime.run_turn(input, Some(&mut rp)) {
                             Ok(summary) => {
                                 self.replace_runtime(new_runtime)?;
                                 spinner.finish(
-                                    if round == 0 { "✨ Done (after auto-compact)" } else { "✨ Done (after aggressive auto-compact)" },
+                                    if round == 0 {
+                                        "✨ Done (after auto-compact)"
+                                    } else {
+                                        "✨ Done (after aggressive auto-compact)"
+                                    },
                                     TerminalRenderer::new().color_theme(),
                                     &mut stdout,
                                 )?;
                                 println!();
                                 if let Some(event) = summary.auto_compaction {
-                                    println!("{}", format_auto_compaction_notice(event.removed_message_count));
+                                    println!(
+                                        "{}",
+                                        format_auto_compaction_notice(event.removed_message_count)
+                                    );
                                 }
                                 self.persist_session()?;
                                 return Ok(());
@@ -5143,7 +5166,7 @@ impl LiveCli {
                                 let still_context_window = retry_str.contains("context_window")
                                     || retry_str.contains("Context window")
                                     || retry_str.contains("no parseable body");
-                                
+
                                 if still_context_window && round + 1 < max_compact_rounds {
                                     // The compacted session was still too large for the model's context.
                                     // Shut down the old runtime, adopt the partially-compacted one,
@@ -5152,14 +5175,14 @@ impl LiveCli {
                                     runtime = new_runtime;
                                     continue;
                                 }
-                                
+
                                 // Not a context window error, or out of rounds
                                 return Err(Box::new(retry_error));
                             }
                         }
                     }
                 }
-                
+
                 // If not a context window error, return original error
                 Err(Box::new(error))
             }
@@ -8942,7 +8965,11 @@ impl AnthropicRuntimeClient {
                 }
                 ApiStreamEvent::ContentBlockStart(start) => {
                     // 特判 Thinking 块：初始化 pending_thinking（用于累积后续 ThinkingDelta）
-                    if let OutputContentBlock::Thinking { thinking, signature } = &start.content_block {
+                    if let OutputContentBlock::Thinking {
+                        thinking,
+                        signature,
+                    } = &start.content_block
+                    {
                         pending_thinking = Some((thinking.clone(), signature.clone()));
                     }
                     push_output_block(
@@ -8999,7 +9026,10 @@ impl AnthropicRuntimeClient {
                     }
                     // 把累积的 thinking 转成 AssistantEvent::Thinking（让 build_assistant_message 写入 session）
                     if let Some((thinking, signature)) = pending_thinking.take() {
-                        events.push(AssistantEvent::Thinking { thinking, signature });
+                        events.push(AssistantEvent::Thinking {
+                            thinking,
+                            signature,
+                        });
                     }
                     if let Some((id, name, input)) = pending_tool.take() {
                         if let Some(progress_reporter) = &self.progress_reporter {
@@ -10137,7 +10167,10 @@ fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
                     ContentBlock::Text { text } => {
                         Some(InputContentBlock::Text { text: text.clone() })
                     }
-                    ContentBlock::Thinking { thinking, signature } => {
+                    ContentBlock::Thinking {
+                        thinking,
+                        signature,
+                    } => {
                         // 保留 Thinking 块：OpenAI 兼容协议会把它转成 reasoning_content 字段
                         // 回传给 DeepSeek V4（避免 400 "reasoning_content must be passed back" 错误）
                         Some(InputContentBlock::Thinking {
@@ -11024,7 +11057,10 @@ mod tests {
     fn resolves_known_model_aliases() {
         assert_eq!(resolve_model_alias("opus"), "anthropic/claude-opus-4-6");
         assert_eq!(resolve_model_alias("sonnet"), "anthropic/claude-sonnet-4-6");
-        assert_eq!(resolve_model_alias("haiku"), "anthropic/claude-haiku-4-5-20251213");
+        assert_eq!(
+            resolve_model_alias("haiku"),
+            "anthropic/claude-haiku-4-5-20251213"
+        );
         assert_eq!(resolve_model_alias("claude-opus"), "claude-opus");
     }
 
@@ -11498,7 +11534,10 @@ mod tests {
                 model_flag_raw,
                 ..
             } => {
-                assert_eq!(model, "anthropic/claude-sonnet-4-6", "sonnet alias should resolve");
+                assert_eq!(
+                    model, "anthropic/claude-sonnet-4-6",
+                    "sonnet alias should resolve"
+                );
                 assert_eq!(
                     model_flag_raw.as_deref(),
                     Some("sonnet"),
@@ -15220,9 +15259,18 @@ mod alias_resolution_tests {
     #[test]
     fn test_alias_resolution_builtin() {
         // Built-in aliases should resolve to their full IDs
-        assert_eq!(resolve_model_alias_with_config("opus"), "anthropic/claude-opus-4-6");
-        assert_eq!(resolve_model_alias_with_config("sonnet"), "anthropic/claude-sonnet-4-6");
-        assert_eq!(resolve_model_alias_with_config("haiku"), "anthropic/claude-haiku-4-5-20251213");
+        assert_eq!(
+            resolve_model_alias_with_config("opus"),
+            "anthropic/claude-opus-4-6"
+        );
+        assert_eq!(
+            resolve_model_alias_with_config("sonnet"),
+            "anthropic/claude-sonnet-4-6"
+        );
+        assert_eq!(
+            resolve_model_alias_with_config("haiku"),
+            "anthropic/claude-haiku-4-5-20251213"
+        );
     }
 
     #[test]

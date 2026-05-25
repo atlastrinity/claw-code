@@ -608,16 +608,28 @@ pub fn save_user_provider_settings(
     let mut root = read_settings_root(&settings_path);
 
     let mut provider = serde_json::Map::new();
-    provider.insert("kind".to_string(), serde_json::Value::String(kind.to_string()));
-    provider.insert("apiKey".to_string(), serde_json::Value::String(api_key.to_string()));
+    provider.insert(
+        "kind".to_string(),
+        serde_json::Value::String(kind.to_string()),
+    );
+    provider.insert(
+        "apiKey".to_string(),
+        serde_json::Value::String(api_key.to_string()),
+    );
     if let Some(base_url) = base_url {
-        provider.insert("baseUrl".to_string(), serde_json::Value::String(base_url.to_string()));
+        provider.insert(
+            "baseUrl".to_string(),
+            serde_json::Value::String(base_url.to_string()),
+        );
     } else {
         provider.remove("baseUrl");
     }
     root.insert("provider".to_string(), serde_json::Value::Object(provider));
     if let Some(model) = model {
-        root.insert("model".to_string(), serde_json::Value::String(model.to_string()));
+        root.insert(
+            "model".to_string(),
+            serde_json::Value::String(model.to_string()),
+        );
     } else {
         root.remove("model");
     }

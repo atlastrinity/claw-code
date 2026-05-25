@@ -1937,7 +1937,10 @@ fn run_git_status(input: GitStatusInput) -> Result<String, String> {
         Some(output) => to_pretty_json(json!({
             "output": output
         })),
-        None => Err("git status failed. Ensure the current directory is inside a git repository.".to_string()),
+        None => Err(
+            "git status failed. Ensure the current directory is inside a git repository."
+                .to_string(),
+        ),
     }
 }
 
@@ -1965,7 +1968,9 @@ fn run_git_diff(input: GitDiffInput) -> Result<String, String> {
         Some(output) => to_pretty_json(json!({
             "output": output
         })),
-        None => Err("git diff failed. Ensure the current directory is inside a git repository.".to_string()),
+        None => Err(
+            "git diff failed. Ensure the current directory is inside a git repository.".to_string(),
+        ),
     }
 }
 
@@ -1997,7 +2002,9 @@ fn run_git_log(input: GitLogInput) -> Result<String, String> {
         Some(output) => to_pretty_json(json!({
             "output": output
         })),
-        None => Err("git log failed. Ensure the current directory is inside a git repository.".to_string()),
+        None => Err(
+            "git log failed. Ensure the current directory is inside a git repository.".to_string(),
+        ),
     }
 }
 
@@ -2019,7 +2026,10 @@ fn run_git_show(input: GitShowInput) -> Result<String, String> {
         Some(output) => to_pretty_json(json!({
             "output": output
         })),
-        None => Err(format!("git show {} failed. Ensure the commit exists.", input.commit)),
+        None => Err(format!(
+            "git show {} failed. Ensure the commit exists.",
+            input.commit
+        )),
     }
 }
 

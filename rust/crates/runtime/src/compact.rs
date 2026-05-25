@@ -115,7 +115,10 @@ pub fn compact_session(session: &Session, config: CompactionConfig) -> Compactio
     let raw_keep_from = if config.preserve_recent_messages == 0 {
         session.messages.len()
     } else {
-        session.messages.len().saturating_sub(config.preserve_recent_messages)
+        session
+            .messages
+            .len()
+            .saturating_sub(config.preserve_recent_messages)
     };
     // Ensure we do not split a tool-use / tool-result pair at the compaction
     // boundary. If the first preserved message is a user message whose first
@@ -300,7 +303,11 @@ fn merge_compact_summaries(existing_summary: Option<&str>, new_summary: &str) ->
     // "- Previously compacted context:" or the nesting compounds with each
     // compaction cycle, inflating the summary by ~depth * overhead per turn.
     if !previous_highlights.is_empty() {
-        lines.extend(previous_highlights.into_iter().map(|line| format!("- {line}")));
+        lines.extend(
+            previous_highlights
+                .into_iter()
+                .map(|line| format!("- {line}")),
+        );
     }
 
     if !new_highlights.is_empty() {

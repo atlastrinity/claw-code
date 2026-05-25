@@ -510,7 +510,11 @@ impl StreamState {
                 .delta
                 .reasoning_content
                 .filter(|value| !value.is_empty())
-                .or(choice.delta.thinking.and_then(|t| t.content).filter(|value| !value.is_empty()))
+                .or(choice
+                    .delta
+                    .thinking
+                    .and_then(|t| t.content)
+                    .filter(|value| !value.is_empty()))
             {
                 if !self.thinking_started {
                     self.thinking_started = true;
@@ -942,7 +946,10 @@ fn wire_model_for_base_url<'a>(
     if lowered_prefix == "openai" {
         let trimmed_base_url = base_url.trim_end_matches('/');
         let default_openai = DEFAULT_OPENAI_BASE_URL.trim_end_matches('/');
-        if matches!(lowered_prefix.as_str(), "xai" | "grok" | "kimi" | "gemini" | "gemma") {
+        if matches!(
+            lowered_prefix.as_str(),
+            "xai" | "grok" | "kimi" | "gemini" | "gemma"
+        ) {
             return Cow::Borrowed(&model[pos + 1..]);
         }
         if config.provider_name == "OpenAI" && trimmed_base_url != default_openai {
@@ -1505,7 +1512,9 @@ fn parse_sse_frame(
             return Err(ApiError::Api {
                 status: reqwest::StatusCode::BAD_REQUEST,
                 error_type: Some("invalid_response".to_string()),
-                message: Some("provider returned HTML instead of JSON (check endpoint URL)".to_string()),
+                message: Some(
+                    "provider returned HTML instead of JSON (check endpoint URL)".to_string(),
+                ),
                 request_id: None,
                 body: trimmed.chars().take(200).collect(),
                 retryable: false,
@@ -1555,7 +1564,9 @@ fn parse_sse_frame(
         return Err(ApiError::Api {
             status: reqwest::StatusCode::BAD_REQUEST,
             error_type: Some("invalid_response".to_string()),
-            message: Some("provider returned HTML instead of JSON (check endpoint URL)".to_string()),
+            message: Some(
+                "provider returned HTML instead of JSON (check endpoint URL)".to_string(),
+            ),
             request_id: None,
             body: payload.chars().take(200).collect(),
             retryable: false,
