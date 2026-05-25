@@ -7544,3 +7544,11 @@ Original filing (2026-04-18): the session emitted `SessionStart hook (completed)
 **Required fix shape.** (a) Add `.github/hooks/pre-push` or a `cargo-husky` / `lefthook` config running `cargo build --workspace` before any push to `main`; (b) add branch-protection rule requiring the `build` CI job to pass before merge; (c) consider adding `cargo clippy --workspace -- -D warnings` to the gate.
 
 **Source.** Jobdori probe 2026-05-25 12:00 GMT+9 on main HEAD `495e7a01`. [SCOPE: ultraworkers/claw-code]
+
+## Pinpoint #695. Agent starts in stale/wrong worktree and burns a full turn before noticing — no pre-flight check for "file exists on current branch" or "this .git is writable from sandbox"
+
+**Surface.** When a Codex/claw-code session is spawned with a task that references a specific file (e.g., `rust/crates/runtime/src/trident.rs`), the agent silently starts in a stale local `main` clone where the file does not yet exist (the file was only added on a later commit, or only exists on a feature branch). The agent burns a full exploration turn searching for the file before realising it is in the wrong tree. Secondary friction: if the corrective prompt is accidentally sent to the host shell instead of the agent, the shell gets `zsh: command not found: Do` and the agent receives nothing, requiring another manual retry. Third layer: detached worktrees in `/tmp` may have `.git` pointing to a shared repo path outside the sandbox writable boundary, blocking `git commit`/`push` after the code fix is already done.
+
+**Required fix shape.** (a) Add a startup pre-flight in `worker_boot.rs` that, for any task mentioning a file path, checks `git ls-files --error-unmatch <path>` and emits a structured `kind:"file_absent_on_branch"` warning before the first LLM call; (b) surface `.git` writability check at sandbox init time and emit `kind:"git_metadata_not_writable"` with the path if commits would fail; (c) add a "current worktree" breadcrumb to the session startup log so agents and operators can confirm the correct tree before work begins.
+
+**Source.** Gaebal probe 2026-05-25 12:02 GMT+9; confirmed during #3097 trident.rs fix attempt. [SCOPE: ultraworkers/claw-code]
