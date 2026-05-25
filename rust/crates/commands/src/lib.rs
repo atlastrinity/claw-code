@@ -2451,7 +2451,7 @@ pub fn handle_skills_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
         None | Some("list") => {
             let roots = discover_skill_roots(cwd);
             let skills = load_skills_from_roots(&roots)?;
-            Ok(render_skills_report_json(&skills))
+            Ok(render_skills_report_json_with_action(&skills, "list"))
         }
         Some(args) if args.starts_with("list ") => {
             let filter = args["list ".len()..].trim().to_lowercase();
@@ -2461,12 +2461,12 @@ pub fn handle_skills_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
                 .into_iter()
                 .filter(|s| s.name.to_lowercase().contains(&filter))
                 .collect();
-            Ok(render_skills_report_json(&filtered))
+            Ok(render_skills_report_json_with_action(&filtered, "list"))
         }
         Some("show" | "info" | "describe") => {
             let roots = discover_skill_roots(cwd);
             let skills = load_skills_from_roots(&roots)?;
-            Ok(render_skills_report_json(&skills))
+            Ok(render_skills_report_json_with_action(&skills, "show"))
         }
         Some(args)
             if args.starts_with("show ")
@@ -2496,7 +2496,7 @@ pub fn handle_skills_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
                     "requested": name,
                 }));
             }
-            Ok(render_skills_report_json(&matched))
+            Ok(render_skills_report_json_with_action(&matched, "show"))
         }
         Some("install") => Ok(render_skills_usage_json(Some("install"))),
         Some(args) if args.starts_with("install ") => {
@@ -3719,7 +3719,7 @@ fn render_skills_report(skills: &[SkillSummary]) -> String {
     lines.join("\n").trim_end().to_string()
 }
 
-fn render_skills_report_json(skills: &[SkillSummary]) -> Value {
+fn render_skills_report_json_with_action(skills: &[SkillSummary], action: &str) -> Value {
     let active = skills
         .iter()
         .filter(|skill| skill.shadowed_by.is_none())
@@ -3727,8 +3727,7 @@ fn render_skills_report_json(skills: &[SkillSummary]) -> Value {
     json!({
         "kind": "skills",
         "status": "ok",
-        "action": "list",
-        "status": "ok",
+        "action": action,
         "summary": {
             "total": skills.len(),
             "active": active,
@@ -5470,8 +5469,9 @@ mod tests {
                 origin: SkillOrigin::SkillsDir,
             },
         ];
-        let report = super::render_skills_report_json(
+        let report = super::render_skills_report_json_with_action(
             &load_skills_from_roots(&roots).expect("skills should load"),
+            "list",
         );
         assert_eq!(report["kind"], "skills");
         assert_eq!(report["action"], "list");
