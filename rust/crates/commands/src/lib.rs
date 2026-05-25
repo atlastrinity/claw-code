@@ -3930,6 +3930,8 @@ fn render_agents_usage_json(unexpected: Option<&str>) -> Value {
     json!({
         "kind": "agents",
         "action": "help",
+        "ok": unexpected.is_none(),
+        "status": if unexpected.is_some() { "error" } else { "ok" },
         "usage": {
             "slash_command": "/agents [list|help]",
             "direct_cli": "claw agents [list|help]",
@@ -3959,6 +3961,8 @@ fn render_skills_usage_json(unexpected: Option<&str>) -> Value {
     json!({
         "kind": "skills",
         "action": "help",
+        "ok": unexpected.is_none(),
+        "status": if unexpected.is_some() { "error" } else { "ok" },
         "usage": {
             "slash_command": "/skills [list|install <path>|help|<skill> [args]]",
             "aliases": ["/skill"],
@@ -4001,6 +4005,8 @@ fn render_mcp_usage_json(unexpected: Option<&str>) -> Value {
     json!({
         "kind": "mcp",
         "action": "help",
+        "ok": unexpected.is_none(),
+        "status": if unexpected.is_some() { "error" } else { "ok" },
         "usage": {
             "slash_command": "/mcp [list|show <server>|help]",
             "direct_cli": "claw mcp [list|show <server>|help]",
@@ -5321,10 +5327,13 @@ mod tests {
         assert_eq!(help["action"], "help");
         assert_eq!(help["usage"]["direct_cli"], "claw agents [list|help]");
 
-        let unexpected = handle_agents_slash_command_json(Some("show planner"), &workspace)
-            .expect("agents usage");
-        assert_eq!(unexpected["action"], "help");
-        assert_eq!(unexpected["unexpected"], "show planner");
+        // Unknown agents subcommands now return Err so CLI layer can exit 1.
+        let unexpected_err = handle_agents_slash_command_json(Some("show planner"), &workspace);
+        assert!(unexpected_err.is_err());
+        assert!(unexpected_err
+            .unwrap_err()
+            .to_string()
+            .contains("show planner"));
 
         let _ = fs::remove_dir_all(workspace);
         let _ = fs::remove_dir_all(user_home);
@@ -5462,9 +5471,14 @@ mod tests {
         assert!(agents_help
             .contains("Sources          .claw/agents, ~/.claw/agents, $CLAW_CONFIG_HOME/agents"));
 
-        let agents_unexpected =
-            super::handle_agents_slash_command(Some("show planner"), &cwd).expect("agents usage");
-        assert!(agents_unexpected.contains("Unexpected       show planner"));
+        // Unknown agents subcommands now return Err (typed error) instead of Ok+help text
+        // so that the CLI layer can exit 1. The error message names the unexpected input.
+        let agents_unexpected_err = super::handle_agents_slash_command(Some("show planner"), &cwd);
+        assert!(agents_unexpected_err.is_err());
+        assert!(agents_unexpected_err
+            .unwrap_err()
+            .to_string()
+            .contains("show planner"));
 
         let skills_help =
             super::handle_skills_slash_command(Some("--help"), &cwd).expect("skills help");
