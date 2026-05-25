@@ -191,6 +191,72 @@ fn inventory_commands_emit_structured_json_when_requested() {
         .expect("agents array")
         .is_empty());
 
+    // #717: agents show <name> and agents list <filter> should be valid subcommands
+    let agents_show_env = [
+        ("HOME", isolated_home.to_str().expect("utf8 home")),
+        (
+            "CLAW_CONFIG_HOME",
+            isolated_config.to_str().expect("utf8 config home"),
+        ),
+        (
+            "CODEX_HOME",
+            isolated_codex.to_str().expect("utf8 codex home"),
+        ),
+    ];
+    let agents_show_missing = assert_json_command_with_env(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "agents",
+            "show",
+            "nonexistent-xyz",
+        ],
+        &agents_show_env,
+    );
+    assert_eq!(agents_show_missing["kind"], "agents", "agents show kind");
+    assert_eq!(agents_show_missing["action"], "show", "agents show action");
+    assert_eq!(
+        agents_show_missing["status"], "error",
+        "agents show not-found status"
+    );
+    assert_eq!(
+        agents_show_missing["error_kind"], "agent_not_found",
+        "agents show error_kind"
+    );
+    assert_eq!(
+        agents_show_missing["requested"], "nonexistent-xyz",
+        "agents show requested"
+    );
+
+    let agents_list_filtered = assert_json_command_with_env(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "agents",
+            "list",
+            "nonexistent-filter-xyz",
+        ],
+        &agents_show_env,
+    );
+    assert_eq!(
+        agents_list_filtered["kind"], "agents",
+        "agents list filter kind"
+    );
+    assert_eq!(
+        agents_list_filtered["action"], "list",
+        "agents list filter action"
+    );
+    assert_eq!(
+        agents_list_filtered["status"], "ok",
+        "agents list filter status"
+    );
+    assert!(agents_list_filtered["agents"]
+        .as_array()
+        .expect("agents array")
+        .is_empty());
+
     let mcp = assert_json_command(&root, &["--output-format", "json", "mcp"]);
     assert_eq!(mcp["kind"], "mcp");
     assert_eq!(mcp["action"], "list");
