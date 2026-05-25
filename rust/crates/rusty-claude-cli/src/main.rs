@@ -690,6 +690,13 @@ enum LocalHelpTopic {
     SystemPrompt,
     DumpManifests,
     BootstrapPlan,
+    // #720: subsystem help topics so `claw help agents` etc. route to usage JSON
+    Agents,
+    Skills,
+    Plugins,
+    Mcp,
+    Config,
+    Diff,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -923,6 +930,12 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 "system-prompt" => Some(LocalHelpTopic::SystemPrompt),
                 "dump-manifests" => Some(LocalHelpTopic::DumpManifests),
                 "bootstrap-plan" => Some(LocalHelpTopic::BootstrapPlan),
+                "agents" | "agent" => Some(LocalHelpTopic::Agents),
+                "skills" | "skill" => Some(LocalHelpTopic::Skills),
+                "plugins" | "plugin" | "marketplace" => Some(LocalHelpTopic::Plugins),
+                "mcp" => Some(LocalHelpTopic::Mcp),
+                "config" => Some(LocalHelpTopic::Config),
+                "diff" => Some(LocalHelpTopic::Diff),
                 _ => None,
             };
             if let Some(topic) = topic {
@@ -1259,6 +1272,39 @@ fn parse_single_word_command_alias(
             // "doctor --help -h" is valid, routed to parse_local_help_action() instead
             return None;
         }
+        // #720: `claw help <topic>` — when the verb is "help" and exactly one
+        // non-flag argument follows, try to route to the topic's handler.
+        if verb == "help" && rest.len() == 2 {
+            let topic_name = rest[1].as_str();
+            let topic = match topic_name {
+                "status" => Some(LocalHelpTopic::Status),
+                "sandbox" => Some(LocalHelpTopic::Sandbox),
+                "doctor" => Some(LocalHelpTopic::Doctor),
+                "acp" => Some(LocalHelpTopic::Acp),
+                "init" => Some(LocalHelpTopic::Init),
+                "state" => Some(LocalHelpTopic::State),
+                "export" => Some(LocalHelpTopic::Export),
+                "version" => Some(LocalHelpTopic::Version),
+                "system-prompt" => Some(LocalHelpTopic::SystemPrompt),
+                "dump-manifests" => Some(LocalHelpTopic::DumpManifests),
+                "bootstrap-plan" => Some(LocalHelpTopic::BootstrapPlan),
+                "agents" | "agent" => Some(LocalHelpTopic::Agents),
+                "skills" | "skill" => Some(LocalHelpTopic::Skills),
+                "plugins" | "plugin" | "marketplace" => Some(LocalHelpTopic::Plugins),
+                "mcp" => Some(LocalHelpTopic::Mcp),
+                "config" => Some(LocalHelpTopic::Config),
+                "diff" => Some(LocalHelpTopic::Diff),
+                _ => None,
+            };
+            if let Some(t) = topic {
+                return Some(Ok(CliAction::HelpTopic {
+                    topic: t,
+                    output_format,
+                }));
+            }
+            // Unknown topic: fall through to generic help.
+            return Some(Ok(CliAction::Help { output_format }));
+        }
         // Unrecognized suffix like "--json"
         let mut msg = format!(
             "unrecognized argument `{}` for subcommand `{}`",
@@ -1270,6 +1316,40 @@ fn parse_single_word_command_alias(
             msg.push_str("\nDid you mean `--output-format json`?");
         }
         return Some(Err(msg));
+    }
+
+    // #720: `claw help <topic>` — when `help` is the verb and a topic follows,
+    // try to route to the topic's help handler instead of erroring.
+    if rest.len() == 2 && rest[0] == "help" {
+        let topic_name = rest[1].as_str();
+        let topic = match topic_name {
+            "status" => Some(LocalHelpTopic::Status),
+            "sandbox" => Some(LocalHelpTopic::Sandbox),
+            "doctor" => Some(LocalHelpTopic::Doctor),
+            "acp" => Some(LocalHelpTopic::Acp),
+            "init" => Some(LocalHelpTopic::Init),
+            "state" => Some(LocalHelpTopic::State),
+            "export" => Some(LocalHelpTopic::Export),
+            "version" => Some(LocalHelpTopic::Version),
+            "system-prompt" => Some(LocalHelpTopic::SystemPrompt),
+            "dump-manifests" => Some(LocalHelpTopic::DumpManifests),
+            "bootstrap-plan" => Some(LocalHelpTopic::BootstrapPlan),
+            "agents" | "agent" => Some(LocalHelpTopic::Agents),
+            "skills" | "skill" => Some(LocalHelpTopic::Skills),
+            "plugins" | "plugin" | "marketplace" => Some(LocalHelpTopic::Plugins),
+            "mcp" => Some(LocalHelpTopic::Mcp),
+            "config" => Some(LocalHelpTopic::Config),
+            "diff" => Some(LocalHelpTopic::Diff),
+            _ => None,
+        };
+        if let Some(t) = topic {
+            return Some(Ok(CliAction::HelpTopic {
+                topic: t,
+                output_format,
+            }));
+        }
+        // Unknown topic falls through to the generic help action.
+        return Some(Ok(CliAction::Help { output_format }));
     }
 
     if rest.len() != 1 {
@@ -7303,6 +7383,40 @@ fn render_help_topic(topic: LocalHelpTopic) -> String {
   Formats          text (default), json
   Related          claw doctor · claw status"
             .to_string(),
+        LocalHelpTopic::Agents => commands::handle_agents_slash_command(
+            Some("--help"),
+            &env::current_dir().unwrap_or_default(),
+        )
+        .unwrap_or_else(|_| "agents help unavailable".to_string()),
+        LocalHelpTopic::Skills => commands::handle_skills_slash_command(
+            Some("--help"),
+            &env::current_dir().unwrap_or_default(),
+        )
+        .unwrap_or_else(|_| "skills help unavailable".to_string()),
+        LocalHelpTopic::Plugins => "Plugins
+  Usage            claw plugins [list|show <name>|install <path>|enable <name>|disable <name>|uninstall <name>]
+  Purpose          manage lifecycle of plugins that extend tool and hook capabilities
+  Formats          text (default), json
+  Related          /plugins · claw plugins --help"
+            .to_string(),
+        LocalHelpTopic::Mcp => "MCP Servers
+  Usage            claw mcp [list|show <server>] [--output-format <format>]
+  Purpose          inspect configured MCP servers and their connection status
+  Formats          text (default), json
+  Related          /mcp · claw mcp list"
+            .to_string(),
+        LocalHelpTopic::Config => "Config
+  Usage            claw config [section] [--output-format <format>]
+  Purpose          show effective runtime configuration (model, hooks, plugins, env)
+  Formats          text (default), json
+  Related          /config · claw doctor"
+            .to_string(),
+        LocalHelpTopic::Diff => "Diff
+  Usage            claw diff [--output-format <format>]
+  Purpose          show the diff of changes relative to the expected base commit
+  Formats          text (default), json
+  Related          /diff · ROADMAP #148"
+            .to_string(),
     }
 }
 
@@ -7319,6 +7433,12 @@ fn local_help_topic_command(topic: LocalHelpTopic) -> &'static str {
         LocalHelpTopic::SystemPrompt => "system-prompt",
         LocalHelpTopic::DumpManifests => "dump-manifests",
         LocalHelpTopic::BootstrapPlan => "bootstrap-plan",
+        LocalHelpTopic::Agents => "agents",
+        LocalHelpTopic::Skills => "skills",
+        LocalHelpTopic::Plugins => "plugins",
+        LocalHelpTopic::Mcp => "mcp",
+        LocalHelpTopic::Config => "config",
+        LocalHelpTopic::Diff => "diff",
     }
 }
 
@@ -7386,6 +7506,29 @@ fn print_help_topic(
     topic: LocalHelpTopic,
     output_format: CliOutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let cwd = env::current_dir().unwrap_or_default();
+    // For subsystem topics in JSON mode, delegate to the subsystem's usage JSON.
+    if output_format == CliOutputFormat::Json {
+        match topic {
+            LocalHelpTopic::Agents => {
+                let json = commands::handle_agents_slash_command_json(Some("--help"), &cwd)
+                    .unwrap_or_else(
+                        |_| serde_json::json!({"kind":"agents","action":"help","status":"error"}),
+                    );
+                println!("{}", serde_json::to_string_pretty(&json)?);
+                return Ok(());
+            }
+            LocalHelpTopic::Skills => {
+                let json = commands::handle_skills_slash_command_json(Some("--help"), &cwd)
+                    .unwrap_or_else(
+                        |_| serde_json::json!({"kind":"skills","action":"help","status":"error"}),
+                    );
+                println!("{}", serde_json::to_string_pretty(&json)?);
+                return Ok(());
+            }
+            _ => {}
+        }
+    }
     match output_format {
         CliOutputFormat::Text => println!("{}", render_help_topic(topic)),
         CliOutputFormat::Json => println!(
