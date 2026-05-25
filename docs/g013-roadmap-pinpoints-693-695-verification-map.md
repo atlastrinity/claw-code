@@ -17,7 +17,8 @@ covered by the Claw Code 2.0 board.
 
 - Hook: `.github/hooks/pre-push`
 - Install command: `git config core.hooksPath .github/hooks`
-- Gate: `cargo build --manifest-path rust/Cargo.toml --workspace`
+- Gate: `cargo build --manifest-path rust/Cargo.toml --workspace --locked`
+- Escape hatch: `SKIP_CLAW_PRE_PUSH_BUILD=1` prints an explicit skip message.
 - Purpose: mirror the CI build job locally so stale field/variant references are
   caught before push.
 
@@ -43,5 +44,5 @@ bash -n .github/hooks/pre-push
 cargo fmt --manifest-path rust/Cargo.toml --all -- --check
 cargo test --manifest-path rust/Cargo.toml -p claw-analog rag_response_ -- --nocapture
 cargo test --manifest-path rust/Cargo.toml -p runtime startup_preflight -- --nocapture
-cargo build --manifest-path rust/Cargo.toml --workspace
+cargo build --manifest-path rust/Cargo.toml --workspace --locked
 ```

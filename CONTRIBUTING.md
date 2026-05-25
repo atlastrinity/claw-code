@@ -33,6 +33,20 @@ cargo build --workspace
 .\target\debug\claw.exe --help
 ```
 
+## Local pre-push build gate
+
+Install the repository-local hook to catch stale compile errors before pushing:
+
+```bash
+git config core.hooksPath .github/hooks
+```
+
+This sets the repo's Git hook directory to `.github/hooks`; if you already use a
+custom `core.hooksPath`, copy or chain `.github/hooks/pre-push` instead. The hook
+runs `cargo build --manifest-path rust/Cargo.toml --workspace --locked` from the
+repository root. If you must bypass it for a non-code/docs-only push, set
+`SKIP_CLAW_PRE_PUSH_BUILD=1`; the hook prints when that escape hatch is used.
+
 ## Checks before opening a pull request
 
 Run the smallest relevant tests for your change, then the broader checks when
