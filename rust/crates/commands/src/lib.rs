@@ -3625,6 +3625,7 @@ fn render_agents_report_json(cwd: &Path, agents: &[AgentSummary]) -> Value {
         .count();
     json!({
         "kind": "agents",
+        "status": "ok",
         "action": "list",
         "working_directory": cwd.display().to_string(),
         "count": agents.len(),
@@ -3707,6 +3708,7 @@ fn render_skills_report_json(skills: &[SkillSummary]) -> Value {
         .count();
     json!({
         "kind": "skills",
+        "status": "ok",
         "action": "list",
         "summary": {
             "total": skills.len(),
