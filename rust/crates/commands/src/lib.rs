@@ -3644,7 +3644,6 @@ fn render_agents_report_json(cwd: &Path, agents: &[AgentSummary]) -> Value {
         "kind": "agents",
         "status": "ok",
         "action": "list",
-        "status": "ok",
         "working_directory": cwd.display().to_string(),
         "count": agents.len(),
         "summary": {
@@ -3763,7 +3762,6 @@ fn render_skill_install_report_json(skill: &InstalledSkill) -> Value {
         "kind": "skills",
         "status": "ok",
         "action": "install",
-        "status": "ok",
         "result": "installed",
         "invocation_name": &skill.invocation_name,
         "invoke_as": format!("${}", skill.invocation_name),
