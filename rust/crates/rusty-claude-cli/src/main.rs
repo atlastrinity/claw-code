@@ -7308,6 +7308,7 @@ fn acp_status_json() -> serde_json::Value {
     json!({
         "schema_version": "1.0",
         "kind": "acp",
+        "action": "status",
         "status": "unsupported",
         "phase": "discoverability_only",
         "supported": false,
@@ -7472,6 +7473,7 @@ fn render_config_json(
 
     let base = serde_json::json!({
         "kind": "config",
+        "action": if section.is_some() { "show" } else { "list" },
         "status": "ok",
         "cwd": cwd.display().to_string(),
         "loaded_files": loaded_paths.len(),
@@ -7491,6 +7493,7 @@ fn render_config_json(
             other => {
                 return Ok(serde_json::json!({
                     "kind": "config",
+                    "action": "show",
                     "status": "error",
                     "error_kind": "unsupported_config_section",
                     "section": other,
