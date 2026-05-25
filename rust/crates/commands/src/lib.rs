@@ -2806,7 +2806,11 @@ fn render_mcp_report_json_for(
                         runtime_config.mcp().get(server_name),
                     );
                     if let Some(map) = value.as_object_mut() {
-                        map.insert("status".to_string(), Value::String("ok".to_string()));
+                        // Only override status to "ok" if the server was found;
+                        // render_mcp_server_report_json already sets status:"error" for not-found.
+                        if map.get("found") == Some(&Value::Bool(true)) {
+                            map.insert("status".to_string(), Value::String("ok".to_string()));
+                        }
                         map.insert("config_load_error".to_string(), Value::Null);
                     }
                     Ok(value)
@@ -3890,6 +3894,7 @@ fn render_mcp_server_report_json(
         Some(server) => json!({
             "kind": "mcp",
             "action": "show",
+            "status": "ok",
             "working_directory": cwd.display().to_string(),
             "found": true,
             "server": mcp_server_json(server_name, server),
@@ -3897,6 +3902,8 @@ fn render_mcp_server_report_json(
         None => json!({
             "kind": "mcp",
             "action": "show",
+            "status": "error",
+            "error_kind": "server_not_found",
             "working_directory": cwd.display().to_string(),
             "found": false,
             "server_name": server_name,
