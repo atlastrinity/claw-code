@@ -6465,3 +6465,1060 @@ Original filing (2026-04-18): the session emitted `SessionStart hook (completed)
     **Why this matters:** `dump-manifests` is a resolver/debugging preflight for skills, agents, and tools. It often runs in installed binaries where upstream TypeScript source files are absent, so the normal failure is `missing_manifests`. A claw should be able to read help JSON and learn the required files, env override, `--manifests-dir` semantics, output fields, and possible `missing_manifests` shape before deciding whether to run or how to repair. Today the repair recipe is only in a human `hint` string after failure.
 
     **Required fix shape:** (a) Extend `dump-manifests --help --output-format json` with structured fields: `usage:"claw dump-manifests [--manifests-dir <path>] [--output-format <format>]"`, `formats:["text","json"]`, `related:["claw skills","claw agents","claw doctor"]`, `local_only:true`, `requires_credentials:false`, `requires_provider_request:false`, `mutates_workspace:false`, `options:[{name:"--manifests-dir", value_name:"PATH", type:"directory", required:false, default:"repo root or CLAUDE_CODE_UPSTREAM", validation:["exists","is_directory"]},{name:"--output-format", values:["text","json"]}]`, `required_source_files:["src/commands.ts","src/tools.ts","src/entrypoints/cli.tsx"]`, `environment_overrides:["CLAUDE_CODE_UPSTREAM"]`, `output_fields:[...]`, and `error_kinds:["missing_manifests","missing_manifest_dir",...]`. (b) Add structured `missing_manifests_context` metadata in help documenting `repo_root`, `missing[]`, and `repair_options[]`. (c) Derive required files and env names from the same resolver used by the command. (d) Keep `message` as human summary only. **Acceptance check:** `claw dump-manifests --help --output-format json | jq -e '.command=="dump-manifests" and .local_only==true and .requires_credentials==false and ([.options[].name] | index("--manifests-dir")) and ([.required_source_files[]] | index("src/commands.ts")) and ([.environment_overrides[]] | index("CLAUDE_CODE_UPSTREAM"))'` should pass; currently those structured fields are absent. Source: gaebal-gajae dogfood for the 2026-05-25 01:30 Clawhip nudge.
+
+451. **Top-level `models list --output-format json` and `models --help --output-format json` hang with zero stdout/stderr instead of returning bounded model inventory or help JSON** — dogfooded 2026-05-24 for the 04:00 Clawhip pinpoint nudge at message `1507956340130316460`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main was `f8e1bb72`; the `models` dispatch path is not touched in commits `63ce483c..f8e1bb72`, which are docs-only ROADMAP additions, so the failure mode is expected to reproduce on a fresh main build). Repeated bounded runs of `timeout 6 ./rust/target/debug/claw models list --output-format json` and `timeout 6 ./rust/target/debug/claw models --help --output-format json` exited `124` with `stdout=0` and `stderr=0` (or only the `enabledPlugins` deprecation warning on stderr, distinct from the zero-byte stdout symptom). Positive controls in the same binary: `version --output-format json` and `doctor --output-format json` returned promptly with valid JSON, proving the JSON output path itself is reachable. The hang also reproduces in a clean isolated HOME (`{}` settings, no plugins) — so it is not caused by deprecated config fields, host plugin leakage, or the broader stderr-warning class already tracked by #322. This is distinct from #355 (session list/help JSON hang) and the auth provider-help hang cluster (#382–407 in the parallel dirty cluster) because the surface here is the **model provider/registry discovery** path, which automation must walk before choosing a provider, validating a `--model <alias>` flag, or estimating cost/token budgets — none of which it can do if even the inventory and help paths silently deadlock at zero bytes. **Required fix shape:** (a) make `models list --output-format json` and `models --help --output-format json` return bounded stdout JSON without waiting on remote API/auth/provider availability; the list response should carry `kind:"models"`, `action:"list"`, `status`, `models[]` with per-model `name`, `provider`, `alias`, `available`, `requires_credentials`, `source` (`builtin`/`profile`/`alias`), and counts/truncation metadata, and the help response should carry static `kind:"help"` or `kind:"models"` with `action:"help"`, usage, options, supported output formats, and related slash/direct commands; (b) render both responses from a static local registry + already-loaded settings only — no provider network probes, OAuth flows, or credential validation during help/list; (c) when a provider-specific availability check cannot complete quickly, emit a typed `status:"unavailable"` / `code` entry per affected model rather than dropping the entire response into a zero-byte timeout; (d) add regression coverage proving both `models list --output-format json` and `models --help --output-format json` terminate within a deterministic budget with and without provider credentials in env, on at least Anthropic + one OpenAI-compatible profile. **Why this matters:** model registry inspection is a preflight clawability surface. Before invoking `prompt`, claws must resolve `--model <alias>` to a concrete provider, decide which credential env var to ask for, and present a model menu to the user. If `models list` and `models --help` silently deadlock with zero stdout, automation cannot distinguish "no models configured", "provider discovery slow", "missing credentials", "deprecated config blocking load", or "dispatch deadlock", and the only working preflight is `doctor` — which reports configuration health but not the model inventory. Without bounded model discovery, every routing/auth/cost decision either falls back to hardcoded defaults or to a human pane-scraping interactively. Source: gaebal-gajae dogfood follow-up for the 2026-05-24 04:00 Clawhip pinpoint nudge at message `1507956340130316460`.
+
+452. **`claw models`, `claw models list`, `claw models help`, and `claw models --help` are not wired as a `CliAction` at all — every spelling falls through to `CliAction::Prompt` and is sent verbatim to the Anthropic API as a user prompt; with credentials the CLI spins on the LLM "Thinking…" spinner forever, without credentials it errors with `missing_credentials` from the provider path. Direct sibling of #78 (`claw plugins` had the same prompt-misdelivery failure mode) for an additional discovery surface that operators and claws naturally try first when they need a model registry/alias/provider list before invoking `--model <alias> prompt …`** — dogfooded 2026-05-24 for the 05:00 Clawhip pinpoint nudge at message `1507971434704797716`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`; `models` dispatch is grep-clean across `rust/crates/` — `git grep -nE 'CliAction::Models|"/models"|"models"' rust/` returns 0 hits, while `CliAction::Plugins` is wired at `rust/crates/rusty-claude-cli/src/main.rs:356,891,10153,10158,10167,10180,10193`, so `models` is the analogous unrouted command exactly the way `plugins` was before #78 landed). Repros in a fully clean isolated environment (`HOME=/tmp/iso2/home` with `{"}` settings, fresh `/tmp/iso2/proj` git-init'd workspace, `stdin=/dev/null`): `timeout 8 claw models list` exits `1` with `stderr=490` carrying the **Anthropic provider** `missing_credentials` envelope when `ANTHROPIC_*` env vars are unset, proving the command was dispatched to the LLM rather than handled locally; with `ANTHROPIC_API_KEY` set, every spelling (`models list`, `models`, `models help`, `models --help`) shows the spinner ANSI sequence (`\x1b[38;5;12m⠋ 🦀 Thinking…\x1b[0m`) on stdout and never returns inside the 6–8s bounded budget. **Why this is distinct from #78 / #145 / the help-JSON cluster:** #78 covered `claw plugins` only; #145 added the regression for `Plugins` parsing; #451 covers `models` in `--output-format json` mode where the failure surface is the silent zero-byte JSON deadlock. This pinpoint is the **plain-text prompt-misdelivery path** for `models`, with three behavioral consequences not covered above: (1) operators get the wrong-shaped error (`missing_credentials` for an Anthropic prompt) when they meant to inspect the model registry; (2) with credentials, expensive token burn on a meaningless `"models list"` LLM completion; (3) no slash-command-vs-direct-command parity — there is also no `/models` REPL command, so claws have no recovery path either. **Required fix shape:** (a) add `CliAction::Models { action: ModelsAction }` with `List`, `Show { name }`, `Help` variants wired in `parse_args` next to the existing `CliAction::Plugins` arm, never falling through to `CliAction::Prompt` for any `models*` spelling; (b) implement `models list` to return the resolved provider registry merged from built-ins (`anthropic`, `openai`, `xai`) plus any `modelProviders.*` profiles in settings, with per-model `name`, `provider`, `aliases[]`, `available`, `requires_credentials`, `source`; (c) implement `models --help` / `models help` as a static bounded help renderer (text + JSON envelopes) that does not touch provider runtime; (d) mirror the slash surface (`/models` REPL command) to match the existing `/agents`, `/mcp`, `/skills`, `/config` pattern; (e) add regression coverage in `parses_models_subcommand`-style tests proving every `models*` spelling resolves to `CliAction::Models` (no LLM dispatch), AND that the action returns within a deterministic budget without provider credentials. **Why this matters:** `models list` is the canonical model-registry discovery spelling across competing CLIs (`gh models list`, `openai api models.list`, `codex models`, the Anthropic Console UI). A claw or operator who reaches for it before deciding `--model <alias>` cannot discover what models exist, cannot validate an alias before paying for a prompt, and — worst case — burns provider tokens sending the string `"models list"` to Claude on a credentialed setup. The cost-of-doing-nothing here is real spend, not just opacity, which is why the prompt-misdelivery class deserves its own surface entry beyond #78/#145's `plugins` precedent. Source: gaebal-gajae dogfood follow-up for the 2026-05-24 05:00 Clawhip pinpoint nudge at message `1507971434704797716`.
+
+453. **`bare_slash_command_guidance` (the "is a slash command" guard) only fires for `command_name` matched as a single bare token at `rust/crates/rusty-claude-cli/src/main.rs:1100-1149` — as soon as ANY positional argument follows a slash-command-named first token, the parser falls through to `CliAction::Prompt` and ships the entire argv string to Claude as a user prompt. The guard catches `claw cost`, `claw tokens`, `claw model`, `claw permissions`, `claw context`, `claw providers`, `claw history`, `claw release-notes`, `claw review`, `claw compact`, `claw cache` — but misses `claw cost list`, `claw tokens list`, `claw model openai/gpt-4`, `claw model list`, `claw permissions show`, `claw context show`, `claw providers list`, `claw history list`, `claw cache list`. Same pattern bites unrouted command shapes: `claw aliases`, `claw aliases list`, `claw profiles list`, `claw logs`, `claw settings` all fall through, even though they are obvious CLI discovery spellings** — dogfooded 2026-05-24 for the 06:00 Clawhip pinpoint nudge at message `1507986539538419863`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`; the guard logic in `bare_slash_command_guidance` was last touched by the `#146` `config`/`diff` carve-out and is unchanged in `63ce483c..f8e1bb72` which are docs-only ROADMAP additions). Repros in a fully clean isolated environment (`HOME=/tmp/iso3/home` with `{}` settings, fresh `/tmp/iso3/proj` git-init'd workspace, `stdin=/dev/null`, `ANTHROPIC_*` env vars unset): bare `claw cost </dev/null` exits `1` with `[error-kind: unknown] error: `claw cost` is a slash command. …`; adding a single argument `claw cost list </dev/null` exits `1` with `[error-kind: missing_credentials] error: missing Anthropic credentials; …` — i.e. the **Anthropic provider** path is invoked because `"cost list"` was sent as a user prompt instead of being caught by the guard. Same observation for `claw model openai/gpt-4` (operator-natural typo for setting a model), `claw permissions show`, `claw context show`, and all the unrouted plural-noun spellings above. This is materially broader than #78/#145/#452: those filed `plugins` and `models` as **single missing `CliAction` variants**; the pinpoint here is the **guard itself** being shape-blind to subcommand args, so even commands whose bare form *is* correctly handled regress to prompt misdelivery the moment an operator types one more word — including `--model <alias>` confusion (`claw model openai/gpt-4`) which is an extremely natural typo given the existing `claw --model openai/gpt-4 prompt …` flag shape. **Why this is distinct from existing items:** #78/#145 covered `claw plugins` only; #452 covered `claw models*` only. #357 / #322 cover JSON envelope/stderr-prefix issues, not argv classification. The guard surface lives in `parse_subcommand` and `bare_slash_command_guidance` (`rust/crates/rusty-claude-cli/src/main.rs:1100-1149`) — no existing ROADMAP entry tracks the shape-blindness regression class across the guard. **Why it matters:** prompt misdelivery is the Clawhip top-of-list category. With credentials set, every operator/claw typo in this cluster burns provider tokens on a meaningless completion (e.g., sending `"cost list"` to Claude). Without credentials, the wrong-shaped `missing_credentials` envelope is even more confusing — operators see `missing Anthropic credentials` when they meant local cost inspection, and assume an auth bug rather than a CLI dispatch bug. The fix is also extremely localized: it lives in a single guard function. **Required fix shape:** (a) widen `bare_slash_command_guidance` to also fire from the subcommand-args parse arm: when the first positional token matches a known slash-command name and any additional args follow, emit a typed guard error (`"`claw cost list` is a slash command — `claw cost` does not accept extra arguments; use `claw --resume SESSION.jsonl /cost` instead"`) before falling through to `CliAction::Prompt`; (b) extend the guard's known-slash-command set to include the natural CLI discovery spellings that currently fall through entirely (`models`, `model`, `aliases`, `profiles`, `providers list`, `logs`, `settings`), even when there is no corresponding slash command — emit a typed `"unknown CLI subcommand"` error with `did_you_mean` suggestions (`--model <alias> prompt …`, `/models`, `/providers`, `claw config plugins list`) rather than dispatching to LLM prompt; (c) add a structured `kind:"argv_misroute_prevented"` JSON envelope so automation can distinguish guard rejection from auth failure; (d) add regression coverage in `parses_*` test family covering at least one extra-arg case per existing slash-command guard (`cost list`, `tokens list`, `model list`, `model openai/gpt-4`, `permissions show`, `context show`, `cache list`) plus the unrouted-noun cluster (`models list`, `aliases`, `profiles list`, `logs`), asserting every spelling resolves to a typed guard error and **never** to `CliAction::Prompt`. **Acceptance check (one-liner):** `env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN claw model openai/gpt-4` should NOT exit with `missing_credentials`; it should exit with a typed CLI dispatch error mentioning `--model openai/gpt-4 prompt …` or `/model`. Source: gaebal-gajae dogfood follow-up for the 2026-05-24 06:00 Clawhip pinpoint nudge at message `1507986539538419863`.
+
+454. **`claw ls` is caught as a typo with `Did you mean skills` because `"skills".contains("ls") == true`, but the obvious sibling `claw list` falls through to `CliAction::Prompt` and gets shipped to Claude as a user prompt — `suggest_similar_subcommand` at `rust/crates/rusty-claude-cli/src/main.rs:1324-1364` has a 17-entry `KNOWN_SUBCOMMANDS` list, and `list` has Levenshtein distance ≥ 3 from every entry, prefix-match < 4 with every entry, and no substring overlap with any entry, so it returns `None` and the typo-guard arm at `:983-994` is skipped entirely** — dogfooded 2026-05-24 for the 06:30 Clawhip pinpoint nudge at message `1507994083769974825`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`; the `suggest_similar_subcommand` body is unchanged in `63ce483c..f8e1bb72` which are docs-only ROADMAP additions). Repros in a fully clean isolated environment (`HOME=/tmp/iso4/home` with `{}` settings, fresh `/tmp/iso4/proj` git-init'd workspace, `stdin=/dev/null`, `ANTHROPIC_*` env vars unset): `claw ls </dev/null` exits `1` with `[error-kind: unknown] error: unknown subcommand: ls.\n  Did you mean     skills` (good typed error), while `claw list </dev/null` exits `1` with `[error-kind: missing_credentials] error: missing Anthropic credentials; …` — i.e. the **Anthropic provider** path is invoked because `"list"` was sent as a user prompt instead of being matched by typo suggestion. Adjacent natural CLI-discovery spellings show the same asymmetry: `claw run hello` → prompt dispatch; `claw exec hello` → prompt dispatch; `claw ask what` → prompt dispatch; `claw ls` → typed typo error. The current `KNOWN_SUBCOMMANDS` set (`help`, `version`, `status`, `sandbox`, `doctor`, `state`, `dump-manifests`, `bootstrap-plan`, `agents`, `mcp`, `skills`, `system-prompt`, `acp`, `init`, `export`, `prompt`) is too narrow to catch typos toward CLI discovery shapes that operators reach for from other tools (`ls`, `list`, `run`, `exec`, `ask`, `chat`). The `ls` case only succeeds by coincidence (`"skills".contains("ls")`) — small refactors to the suggestion candidate list could silently regress that and remove the only working typed-error path for the `ls` spelling too. **Why this is distinct from existing items:** #78/#145/#452 each filed a single missing `CliAction` variant (`plugins`, `models`); #453 (PR #3066) filed the slash-command guard being shape-blind to subcommand args. This pinpoint is the **typo-suggestion candidate list** being too narrow to cover natural cross-tool CLI shapes — even spellings that have no corresponding command should at least be caught as typed `unknown subcommand` errors with `did_you_mean` suggestions rather than shipped to the LLM. **Why it matters:** prompt misdelivery is the Clawhip top-of-list category. Operators coming from `gh`, `kubectl`, `ls`, `npm list`, `pip list`, `git log`, `aws ec2 run-instances`, `openai api models.list` will naturally try `claw list`, `claw run …`, `claw exec …`, `claw ask …`. Today, the operator sees `missing_credentials` for an Anthropic prompt when they meant CLI discovery (without creds), or burns provider tokens on a meaningless `"list"`/`"run hello"`/`"ask what"` completion (with creds). The current `ls`→`skills` substring hack is good, but the obvious literal `list` spelling is worse than the typo. **Required fix shape:** (a) extend `KNOWN_SUBCOMMANDS` in `suggest_similar_subcommand` to include natural CLI-discovery shapes that should always be classified as typos: at minimum `list`, `ls`, `models`, `providers`, `profiles`, `aliases`, `logs`, `settings`, `run`, `exec`, `ask`, `chat`, `auth`, `login`, `logout`, `help`, with explicit `did_you_mean` mappings to existing commands or slash commands when applicable (`list`→`skills list` / `mcp list` / `agents list`, `models`→`--model <alias> prompt …` / `/models` once #452 lands, `run`/`exec`→`prompt`, `ask`/`chat`→`prompt`/REPL); (b) keep `looks_like_subcommand_typo` permissive (alphabetic + dash), but for the extended set, attach explicit did-you-mean targets instead of relying on Levenshtein/prefix/substring heuristics that produce coincidental matches like `ls`→`skills`; (c) emit a structured `kind:"unknown_subcommand"` JSON envelope with `input`, `suggestions[]`, and a `prompt_dispatch_blocked:true` flag so automation can distinguish guard rejection from auth failure (mirrors the #453 `argv_misroute_prevented` shape); (d) add regression coverage in `parses_*` test family covering at least `list`, `run`, `exec`, `ask`, `chat`, `models`, `providers`, `profiles`, `aliases`, `logs`, `settings`, asserting every spelling resolves to a typed typo/unknown-subcommand error and **never** to `CliAction::Prompt`. **Acceptance check (one-liner):** `env -u ANTHROPIC_API_KEY -u ANTHROPIC_AUTH_TOKEN claw list` should NOT exit with `missing_credentials`; it should exit with a typed `unknown subcommand: list` error with `Did you mean skills list / mcp list / agents list?`. Source: gaebal-gajae dogfood follow-up for the 2026-05-24 06:30 Clawhip pinpoint nudge at message `1507994083769974825`.
+
+455. **`missing_credentials` JSON envelope serializes the provider-detection hint as a literal ` — hint: …` prose suffix appended to the `error` field, while the structured `hint` field always renders as `null` — automation that wants to read the adjacent-provider hint must regex the `error` prose string instead of reading `hint`** — dogfooded 2026-05-24 for the 07:00 Clawhip pinpoint nudge at message `1508001633416777778`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`; the `MissingCredentials` Display impl in `rust/crates/api/src/error.rs:243-275` is unchanged in `63ce483c..f8e1bb72` which are docs-only ROADMAP additions). Repros in a fully clean isolated environment (`HOME=/tmp/iso5/home` with `{}` settings, fresh `/tmp/iso5/proj` git-init'd workspace, `stdin=/dev/null`, `ANTHROPIC_API_KEY` unset, `OPENAI_API_KEY` set): `claw -p 'hi' --output-format json` exits `1` with stderr JSON: `{"error":"missing Anthropic credentials; export ANTHROPIC_AUTH_TOKEN or ANTHROPIC_API_KEY before calling the Anthropic API — hint: I see OPENAI_API_KEY is set — if you meant to use the OpenAI-compat provider, prefix your model name with `openai/` (e.g. `--model openai/gpt-4.1-mini`) so prefix routing selects the OpenAI-compatible provider, and set `OPENAI_BASE_URL` if you are pointing at OpenRouter/Ollama/a local server.","hint":null,"kind":"missing_credentials","type":"error"}`. Same shape with `XAI_API_KEY` set, suggesting an xAI model alias. With NO adjacent provider env set, `error` is short and `hint` is still `null` (consistent). The structured `hint` field is therefore **always `null`**, and the actual hint payload — which `ApiError::missing_credentials_with_hint` deliberately attaches — is only available via the `Display` impl's ` — hint: {hint}` suffix at `rust/crates/api/src/error.rs:269-272`, never serialized as a structured field. **Root cause (traced):** `MissingCredentials` carries `hint: Option<String>` and the `Display` impl writes ` — hint: {hint}` into the same string the JSON serializer uses as `error`, instead of routing the hint into a dedicated structured field. The existing JSON envelope already has a `hint` slot — but it is wired to a different (null) source, so the structured field never reflects the actual hint that the provider resolver computed. **Why this is distinct from existing items:** #322 (deprecation warnings on stderr breaking JSON parse), #340 (`/session help` JSON `type` vs `kind` vocabulary mismatch), #447 (all JSON error envelopes go to stderr not stdout), #450 (`prompt` missing_credentials JSON on stderr): those track envelope **transport** (stderr vs stdout) and **vocabulary** issues. This pinpoint is the **internal shape** of an existing envelope — even when transport and vocabulary are correct, the `hint` field is structurally dead because the hint is duplicated into the `error` prose. `ApiError`'s `missing_credentials_with_hint` constructor explicitly takes a hint argument, the unit tests at `error.rs:572-599` assert it ends with ` — hint: …`, and the JSON contract still emits `"hint":null`. **Why it matters:** the whole point of structured error envelopes is that automation can branch on `code`/`hint`/`kind` without scraping prose. Today, a claw that wants to detect "Anthropic missing but OpenAI key present → switch to `--model openai/...`" must regex the `error` string for ` — hint: I see OPENAI_API_KEY` instead of reading a typed `hint:{adjacent_provider:"openai", suggested_model_prefix:"openai/", suggested_base_url_env:"OPENAI_BASE_URL"}`. That regex is brittle: any future hint wording change silently breaks downstream automation. The prose hint also bloats the human-facing message; a structured field would let the human formatter and the machine consumer diverge cleanly. **Required fix shape:** (a) keep `Display` rendering for text mode (humans need the prose hint), but stop using `Display` as the JSON `error` field source — serialize a base `error` message (the canonical "missing X credentials" line without the appended hint prose) plus a structured `hint` object; (b) structure the hint as a typed enum/object such as `{kind:"adjacent_provider_detected", provider:"openai"|"xai"|"dashscope"|…, suggested_model_prefix, suggested_env_vars[], suggested_base_url_env}` so callers can branch on `hint.kind`; (c) keep `hint:null` only when there is genuinely no hint; (d) add regression coverage proving the JSON envelope has both a base `error` line and a non-null structured `hint` when `missing_credentials_with_hint` is constructed, and that the prose ` — hint: …` suffix does NOT appear inside the JSON `error` field; (e) add a parity test asserting that for every adjacent-provider hint path (OpenAI, xAI, DashScope, …) the structured `hint.kind` is set correctly. **Acceptance check (one-liner):** `claw -p 'hi' --output-format json 2>&1 | jq -e '.hint != null and (.error | test(" — hint: ") | not)'` should pass when an adjacent provider env var is set. Source: gaebal-gajae dogfood follow-up for the 2026-05-24 07:00 Clawhip pinpoint nudge at message `1508001633416777778`.
+
+456. **`claw doctor` reports the same fact ("how many config files were discovered") under two semantically-identical JSON keys with *different definitions and different counts* — `config.discovered_files_count` filters to paths that exist on disk, while `workspace.discovered_config_files` returns the raw candidate-search-path list including paths that do not exist, so the same envelope contradicts itself** — dogfooded 2026-05-24 for the 07:30 Clawhip pinpoint nudge at message `1508009183260442777`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`). Repro in a clean isolated environment (`HOME=/tmp/iso6/home` with no `.claw.json`, fresh `/tmp/iso6/proj` git-init'd workspace): `claw doctor --output-format json` returns `config.discovered_files_count = 0`, `config.discovered_files = []`, summary `"no config files present; defaults are active"`, **and at the same time** `workspace.discovered_config_files = 5`, summary `"project root detected on branch master"`. In the real repo where one `.claw.json` exists, the same command returns `config.discovered_files_count = 1` and `workspace.discovered_config_files = 5`. The human-facing text envelope leaks the same contradiction: the Config section says `Config files loaded 0/0` and `Discovered files <none> (defaults active)`, while the Workspace section says `Memory files 0 · config files loaded 0/5` — three different values for the same fact in one report. **Root cause (traced):** the `config` check (`rust/crates/rusty-claude-cli/src/main.rs:2180-2202`) does `let discovered = config_loader.discover();` then `let present_paths = discovered.iter().filter(|e| e.path.exists()).collect();` and emits `discovered_files_count = present_paths.len()`, deliberately hiding non-existent candidate paths (a comment at lines 2183-2186 says `"Showing non-existent paths as 'Discovered file' implies they loaded but something went wrong, which is confusing. We only surface paths that exist on disk as discovered; non-existent ones are silently omitted from the display"`). The `workspace`/`status_context` builder (`rust/crates/rusty-claude-cli/src/main.rs:5759-5764`) does `let discovered_config_files = loader.discover().len();` — **same `discover()` API, no `.exists()` filter** — and emits that raw candidate count as `workspace.discovered_config_files`. Both numbers flow into the same JSON envelope under near-identical key names. **Why distinct from existing items:** #143 (degrade-not-hard-fail on config parse failure) covers transport behaviour; #322/#447/#450 cover stderr-vs-stdout transport; #340 covers `type`/`kind` vocabulary; #449/#454/#451/#452/#453/#455 cover prompt-misdelivery and `missing_credentials` envelope shape. This pinpoint is **internal envelope self-consistency**: two checks in the same `doctor` invocation publish two different numbers for the same concept ("how many config files were discovered") under semantically-identical keys, using opposite definitions of the same `discover()` API. **Why it matters:** `doctor` is the structured health surface other claws/scripts/UI panels read to decide whether a workspace is "ready". A script that branches on `workspace.discovered_config_files > 0` (because that key name is the most obvious) will believe the workspace has 5 config files when it actually has 0 — false positive on "configured workspace" detection. Conversely, a script that branches on `config.discovered_files_count` correctly sees 0 — so two equally reasonable claws produce opposite decisions reading the same envelope. The contradiction also undermines `doctor` as a debugging tool: humans see `Discovered files <none>` and `config files loaded 0/5` in the same report and lose trust in every number it prints. **Required fix shape:** (a) pick **one** definition of "discovered config files" — strongly prefer "paths that exist on disk" (the user-meaningful number), since "candidate search paths" is an implementation detail of the loader; (b) rename the loader's raw candidate count to something explicit like `workspace.config_search_paths_count` and keep `discovered_config_files` aligned with `config.discovered_files_count`; (c) consolidate both checks to read the same `present_paths` computation rather than calling `discover()` twice with different filters — single source of truth; (d) regression coverage that the two values are equal across (i) empty workspace, (ii) workspace with one config file, (iii) workspace with a malformed config file (parse-failure path), and (iv) a parity test asserting `doctor` JSON has no two keys reporting different counts for the same concept; (e) fix the human text section so `Config files loaded N/M` uses the same `M` in both the Config and Workspace sections. **Acceptance check (one-liner):** `claw doctor --output-format json | jq -e '([.checks[] | select(.name=="config")][0].discovered_files_count) == ([.checks[] | select(.name=="workspace")][0].discovered_config_files)'` should pass on any workspace. Source: gaebal-gajae dogfood follow-up for the 2026-05-24 07:30 Clawhip pinpoint nudge at message `1508009183260442777`.
+
+457. **`claw --resume --help` and `claw --resume --version` disagree by parser asymmetry: `--version` has no rest-emptiness guard so it short-circuits before resume dispatch (prints version, exit 0), but `--help` is guarded by `rest.is_empty()` plus a hardcoded 4-subcommand allowlist, so after `--resume` is appended to `rest` the `--help` token falls through to the catch-all and is consumed as the session-id literal — `failed to restore session: session not found: --help`, exit 1. Help is inaccessible from any `claw --resume …` invocation, while version is freely accessible from the same invocation. Sibling: every other discovery verb the user would intuit (`claw --resume help`, `claw --resume list`, `claw --resume ls`, `claw --resume show`) lands in the same trap, and the hint text in those error messages directs users to `/session list` which only works in the REPL** — dogfooded 2026-05-24 for the 08:00 Clawhip pinpoint nudge at message `1508016732986408983`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`). Clean repro in an isolated environment (`HOME=/tmp/iso7/home` with no claw config, fresh `/tmp/iso7/proj` git-init'd workspace, separated stdout/stderr/exit):
+
+    | Invocation | stdout | stderr | exit |
+    |---|---|---|---|
+    | `claw --resume --version` | (version banner) | _empty_ | **0** |
+    | `claw --resume --help` | _empty_ | `failed to restore session: session not found: --help…` | **1** |
+    | `claw --resume version` | _empty_ | `failed to restore session: session not found: version…` | 1 |
+    | `claw --resume help` | _empty_ | `failed to restore session: session not found: help…` | 1 |
+    | `claw --resume list` | _empty_ | `failed to restore session: session not found: list…` | 1 |
+    | `claw --resume ls` | _empty_ | `failed to restore session: session not found: ls…` | 1 |
+    | `claw --resume show` | _empty_ | `failed to restore session: session not found: show…` | 1 |
+
+    Same parser, same `--resume <ARG>` shape, **only `--version` short-circuits**. **Root cause (traced):** `parse_args` in `rust/crates/rusty-claude-cli/src/main.rs:630-654` has asymmetric `--help`/`--version` arms. `"--help" | "-h" if rest.is_empty() => { wants_help = true; index += 1; }` at line 632, plus a second `--help` arm at lines 636-650 gated by `if !rest.is_empty() && matches!(rest[0].as_str(), "prompt" | "commit" | "pr" | "issue")` — both guards exclude `rest[0] == "--resume"`. Meanwhile `"--version" | "-V" => { wants_version = true; index += 1; }` at lines 651-654 has **no guard at all** — version always captures regardless of `rest` state. The `--resume` arm at line 762 (`"--resume" if rest.is_empty() => { rest.push("--resume".to_string()); index += 1; }`) pushes `"--resume"` into `rest` and advances by ONE, so the parser continues. On the next iteration with `rest = ["--resume"]`: `--help` fails both guards → falls through to the catch-all `other => { rest.push(other.to_string()); index += 1; }` at lines 793-796 → `rest = ["--resume", "--help"]` → resume dispatch later treats `--help` as the session-id positional argument → `session not found: --help` → exit 1. `--version` instead matches its unguarded arm → `wants_version = true` → the final `if wants_version { return Ok(CliAction::Version { ... }); }` at lines 803-805 short-circuits before resume dispatch ever runs. **Why distinct from existing items:** #117 (lines 3911-3913 in ROADMAP) covers `claw -p "test" --help` → `-p` swallows everything via greedy `args[index + 1..].join(" ")` and a hardcoded `return` from inside `-p`'s arm; that's a `-p`-specific greedy-swallow bug. This pinpoint is the **opposite asymmetry**: `--resume` is *not* greedy — it correctly advances by one and lets the parser continue — but the `--help` arm's `rest.is_empty()` guard plus the 4-name allowlist (`prompt|commit|pr|issue`) excludes `--resume` from the allowlist while `--version` has no such guard. The result: under `--resume`, version still works but help is unreachable. #2186 (existing `--help` Resume-safe block) tracks the inverse — `claw --help` itself lying about which resume-safe commands work — not "you cannot get to `--help` from a `--resume` line at all." #21/#55/#113 cover REPL-only session verbs (`/session list`/`/session switch`/etc.), not the CLI-side `--help` accessibility on a `--resume` line. #117's fix is "make `-p` non-greedy"; this fix is "give `--help` the same unguarded short-circuit as `--version`, OR add `--resume` to the help allowlist." **Why it matters:** (a) **Help discoverability is broken for the most common entry point.** A user typing `claw --resume <tab><tab>` is exploring; the next muscle-memory step is `claw --resume --help` to see "what's the resume subcommand syntax?" Instead they get `session not found: --help` with no indication that `--help` is a flag, not a session id. The hint text even directs them to `/session list` which they have no way to invoke from the same `--help`-blocked CLI. (b) **CLI/version parity contract violated.** Every other `claw <verb> --version` and `claw <verb> --help` pair returns the corresponding help/version page. `--resume` uniquely breaks the `--help` half of that contract while preserving the `--version` half — there's no documentation anywhere that `--resume` swallows `--help`. (c) **The "session not found: --help" message is actively misleading.** It implies the user provided a malformed session id, not that they tried to read documentation. A claw orchestrator that parses this error envelope (`kind:"session_not_found"`, `error:"…session not found: --help…"`) will not realize the human typed `--help`. (d) **Sibling clawability gap.** The same arm-structure means `help`, `list`, `ls`, `show` are all silently absorbed as session-id literals. There is no CLI way to enumerate sessions — `/session list` (REPL-only, called out in the hint!) is the only path. A non-interactive claw cannot ask "what sessions exist?" without either parsing `.claw/sessions/<fingerprint>/` directly (bypasses claw bookkeeping) or spawning a TTY (#113 already covers the broader REPL-only session-verb gap, but this pinpoint shows the CLI-side hint message itself is recommending a command the CLI cannot run). **Required fix shape:** (a) **make `--help` short-circuit unconditionally**, matching `--version` — remove the `if rest.is_empty()` and the 4-name allowlist guards on the top-level `--help` arms in `parse_args`; let every `--help` anywhere in argv return `CliAction::Help { output_format }`. The reason for the original guards (per the comment at lines 638-647: "Subcommands that consume their own args (agents, mcp, plugins, skills) and local help-topic subcommands … must NOT be intercepted here — they handle --help in their own dispatch paths via parse_local_help_action()") is to let subcommand-local help win over global help. But `--resume` is **not** a subcommand-local-help path — it's a top-level flag whose `<ARG>` consumes positional input, and its dispatch has no `parse_local_help_action()` analogue. Either add `--resume` to the allowlist `matches!(rest[0].as_str(), "prompt" | "commit" | "pr" | "issue" | "--resume")` so `--help` after `--resume` triggers top-level help, OR (simpler) drop the global `--help` guards entirely and let any `parse_local_help_action()` path do its own dispatch before `parse_args` runs. (b) **CLI-side session enumeration.** Add a `claw session list` / `claw sessions` top-level subcommand (or an explicit `claw --list-sessions` flag) that emits the same `{kind:"session_list", sessions:[…], active:<id>}` JSON envelope as the REPL `/session list`, so the hint text in every session-not-found error has an actually-callable CLI parallel. Sibling of #113's broader session-verb gap but distinct: this is the minimum-viable list capability, not the full switch/fork/delete matrix. (c) **Better error wording when the "session id" looks like a flag.** When the resume-dispatch session-id resolver receives a string that starts with `-` (e.g. `--help`, `-h`, `--version`, `--output-format`), emit `kind:"flag_swallowed_as_session_id"` with `flag:"--help"`, `hint:"--help must appear before --resume or use claw --help on its own; --resume <ID> takes a session id literal, not a flag"`. Same for `latest`-adjacent typos: `list`, `ls`, `show`, `help` could carry `hint:"did you mean to call /session list? CLI equivalent is claw session list"`. (d) **Regression coverage.** Property test asserting `claw --resume --help`, `claw --resume -h`, `claw --resume --help --output-format json`, `claw --resume foo --help`, and `claw --help --resume foo` ALL produce `CliAction::Help { … }` exit 0; assert `claw --resume help`, `claw --resume list`, `claw --resume ls`, `claw --resume show` produce a structured `flag_swallowed_as_session_id` or `unsupported_session_alias` envelope with `kind` set, never the catch-all `session_not_found` bucket. **Acceptance check (one-liner):** `claw --resume --help >/dev/null 2>&1; test $? -eq 0` should pass (and stdout should contain the resume help text). Source: gaebal-gajae dogfood follow-up for the 2026-05-24 08:00 Clawhip pinpoint nudge at message `1508016732986408983`.
+
+458. **There is no portable success-detection field across `claw <subcommand> --output-format json` envelopes — only `kind` is universal; `status`, `action`, `summary`, `message`, and `report` are present on different subsets, so a claw that writes `if response["status"] == "ok"` silently breaks on 7 of the 9 standard subcommands** — dogfooded 2026-05-24 for the 09:00 Clawhip pinpoint nudge at message `1508031832669814834`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`). Catalog of top-level fields in successful `--output-format json` envelopes for the nine standard subcommands (clean isolated env, no `.claw.json`, fresh git-init workspace):
+
+    | Subcommand | `kind` | `status` | `action` | `summary` | `message` | `report` |
+    |---|---|---|---|---|---|---|
+    | `status` | ✅ `"status"` | ✅ `"ok"` | – | – | – | – |
+    | `mcp` | ✅ `"mcp"` | ✅ `"ok"` | ✅ `"list"` | – | – | – |
+    | `skills` | ✅ `"skills"` | – | ✅ `"list"` | ✅ | – | – |
+    | `agents` | ✅ `"agents"` | – | ✅ `"list"` | ✅ | – | – |
+    | `doctor` | ✅ `"doctor"` | – | – | ✅ | ✅ | ✅ |
+    | `sandbox` | ✅ `"sandbox"` | – | – | – | – | – |
+    | `init` | ✅ `"init"` | – | – | – | ✅ | – |
+    | `system-prompt` | ✅ `"system-prompt"` | – | – | – | ✅ | – |
+    | `version` | ✅ `"version"` | – | – | – | ✅ | – |
+
+    **Only `kind` is universal.** Every other top-level discriminator is present on some envelopes and missing on others. A claw orchestrator that does `if json.status == "ok"` works for exactly 2 of 9 subcommands (`status`, `mcp`) and **silently returns `false`/`None` for the other 7 because the field doesn't exist**. A claw that does `if json.action == "list"` works for 3 of 9 (`mcp`, `skills`, `agents`) and breaks for the rest. There is **no single field a claw can read to determine "did this subcommand succeed?"** other than parsing stdout-vs-stderr routing (broken by #447/#450/#340/#341) or checking process exit code (broken by #435/#444). **Why distinct from existing items:** #90/#91/#92/#110/#115/#116/#130 cover **error envelope** shape asymmetry (the `{error, type}` shape vs `{kind, error}` shape); #340/#341/#347/#349/#350 cover specific subcommand envelopes where a not-found/unsupported state is shaped wrong; #121 covers the `doctor` `message`/`report` byte-duplication. **This pinpoint is the cross-subcommand catalog of success envelopes** — the structural fact that no single top-level field is present on every success envelope means **no portable success detection is possible** across the catalog without per-subcommand special-casing. It is the meta-pattern that the per-subcommand bugs above are individual instances of. **Trace:** every envelope is emitted from a separate code path with no shared envelope constructor. `status` JSON at `rust/crates/rusty-claude-cli/src/main.rs:5738` emits `"status": "ok"` directly. `mcp` JSON elsewhere emits both `status:"ok"` and `action:"list"`. `skills`/`agents` emit `action:"list"` and `summary` but no `status`. `doctor` JSON at `main.rs:1905-1923` emits `kind`/`message`/`report`/`has_failures`/`summary{ok,warn,fail,total}`/`checks[]` — no `status` field at all, while every `checks[i]` has its own `status`. `sandbox`/`init`/`system-prompt`/`version` each emit different ad-hoc shapes. There is no `EnvelopeBuilder` / `BaseEnvelope` shared struct that guarantees a uniform success/error discriminator across subcommands. **Why it matters:** structured JSON output exists precisely so claws can write generic dispatch logic. With the current catalog: (a) a claw that wants a single "is this OK?" predicate has to memorize 9 different rules — `status == "ok"` for two, `has_failures == false` for `doctor`, no field at all for `sandbox`/`init`/`system-prompt`/`version`. (b) A claw that wants to lift the human-readable summary has to check `message` for 4 commands, `report` for 1 (`doctor`, where `message == report` byte-for-byte per #121), `summary` for 3, and "no human summary at all" for 2. (c) A generic "render any claw JSON response" UI cannot exist — the consumer must implement a per-`kind` template. (d) New subcommands inherit the chaos: when a contributor adds `claw foo --output-format json`, there is no shared envelope they must conform to, so they invent another shape. The 458 entry locks in the cross-envelope catalog before more subcommands ship. **Required fix shape:** (a) **define a single shared `BaseEnvelope` for all `--output-format json` success responses**: `{kind: "<subcommand>", status: "ok"|"warn"|"error", action: "<verb>"|null, summary: "<one-line>", details: <command-specific-payload>}`. The two universal fields are `kind` + `status`; `action` and `summary` are optional-but-encouraged. (b) **Drop ad-hoc `message`/`report` fields** in favor of putting prose in a documented `summary` (one line) + optional `text_render` (full prose, only if a human-text rendering is genuinely needed in JSON mode, with a clear note that machines should not parse it). (c) **`doctor` rollup**: top-level `status` derived from `has_failures` and `summary.warnings` (`"ok"` when both zero, `"warn"` when warnings>0 and failures=0, `"error"` when failures>0); de-duplicate `message`/`report` (per #121). (d) **Regression coverage**: a single contract test that parses every `claw <subcommand> --output-format json` output, asserts `kind` is the subcommand name and `status ∈ {"ok","warn","error"}`, and rejects any envelope that omits either. (e) **Doc the envelope** in a new `docs/json-envelope-contract.md` so new subcommands have a single template to copy from. **Acceptance check (one-liner):** `for c in status mcp skills agents doctor sandbox init system-prompt version; do claw $c --output-format json 2>&1 | jq -e '.kind and (.status | IN("ok","warn","error"))' || echo "FAIL: $c"; done` should print no FAILs. Source: gaebal-gajae dogfood follow-up for the 2026-05-24 09:00 Clawhip pinpoint nudge at message `1508031832669814834`.
+
+459. **Memory file discovery is hardcoded to literal `CLAUDE.md` / `CLAUDE.local.md` / `.claw/CLAUDE.md` / `.claw/instructions.md` with no case-folding and no cross-tool aliases — `claw.md`, `CLAW.md`, `AGENTS.md` (the cross-tool industry standard used by Codex, OpenAI Agents, GitHub Copilot Agents), `claude.md` (lowercase), `CLAUDE.MD` (uppercase ext), `.claude/CLAUDE.md` (the Claude Code documented subdir location), `GEMINI.md`, and `memory.md` are all invisible, AND `status --output-format json` exposes only an opaque `memory_file_count: N` integer with no `memory_files: [{path, source}]` structured field, so a claw cannot tell WHICH files were picked up or WHY their memory file is being ignored** — dogfooded 2026-05-24 for the 10:00 Clawhip pinpoint nudge at message `1508046936177901639`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`). Discovery matrix in a clean isolated env (`HOME=/tmp/iso10/home`, fresh `/tmp/iso10/proj` git-init, `claw status --output-format json | jq .workspace.memory_file_count` after creating each file in turn):
+
+    | File | `memory_file_count` |
+    |---|---|
+    | `CLAUDE.md` | **1** ✅ |
+    | `CLAUDE.local.md` | **1** ✅ (per source) |
+    | `.claw/CLAUDE.md` | **1** ✅ |
+    | `.claw/instructions.md` | **1** ✅ (per source) |
+    | `claude.md` (lowercase) | 0 ❌ |
+    | `Claude.md` (mixed case) | 0 ❌ |
+    | `CLAUDE.MD` (uppercase ext) | 0 ❌ |
+    | `CLAW.md` (the product's own name) | 0 ❌ |
+    | `claw.md` | 0 ❌ |
+    | `AGENTS.md` (Codex / OpenAI Agents / Copilot Agents standard) | 0 ❌ |
+    | `agents.md` | 0 ❌ |
+    | `AGENT.md` (singular) | 0 ❌ |
+    | `GEMINI.md` (Google's tool convention) | 0 ❌ |
+    | `CONTEXT.md` | 0 ❌ |
+    | `memory.md` | 0 ❌ |
+    | `.claude/CLAUDE.md` (the documented Claude Code subdir location) | 0 ❌ |
+
+    **Root cause (traced):** `rust/crates/runtime/src/prompt.rs:203-223`:
+
+    ```rust
+    fn discover_instruction_files(cwd: &Path) -> std::io::Result<Vec<ContextFile>> {
+        let mut directories = Vec::new();
+        let mut cursor = Some(cwd);
+        while let Some(dir) = cursor {
+            directories.push(dir.to_path_buf());
+            cursor = dir.parent();
+        }
+        directories.reverse();
+
+        let mut files = Vec::new();
+        for dir in directories {
+            for candidate in [
+                dir.join("CLAUDE.md"),
+                dir.join("CLAUDE.local.md"),
+                dir.join(".claw").join("CLAUDE.md"),
+                dir.join(".claw").join("instructions.md"),
+            ] {
+                push_context_file(&mut files, candidate)?;
+            }
+        }
+        Ok(dedupe_instruction_files(files))
+    }
+    ```
+
+    Four hardcoded literal `PathBuf::join` calls. No case-folding, no extension variants, no cross-tool alias table, no `.claude/CLAUDE.md` (the official Claude Code documented subdir at `https://docs.anthropic.com/en/docs/claude-code/memory`). The ancestor-walk logic IS present (good — `cursor = dir.parent()`), but it walks looking for these four exact names only. **Status JSON drops the path list:** `rust/crates/rusty-claude-cli/src/main.rs` builds `StatusContext { …, memory_file_count: project_context.instruction_files.len(), … }` (taking only the count), then serializes that field as `workspace.memory_file_count` in the JSON envelope. The original `Vec<ContextFile>` with full paths and content is **discarded before reaching the JSON envelope**. **Why distinct from existing items:** ROADMAP mentions `AGENTS.md` 5 times (#215, #216, #225, #231, etc.) but **only as a config-mutation target** ("installer changes AGENTS.md", "AGENTS.md orchestration brain is loaded automatically" — that's the installer/onboarding noise, not the runtime memory loader). Nothing in ROADMAP says "claw-code does not actually read AGENTS.md as a memory file at runtime." #84 covers the dump-manifests `repo root: /Users/...` build-host leak (a different name-identity bug). #1756 mentions ancestor `CLAUDE.md` for worker safety (different concern). No entry documents the discovery name set or the `.claude/CLAUDE.md` blind spot. **Why this matters:** (a) **Cross-tool migration silently breaks.** A user with an existing `AGENTS.md` workflow (Codex, OpenAI Agents, GitHub Copilot Agents — `AGENTS.md` is the de-facto cross-tool standard) installs `claw`, runs it in their existing project, and `status` reports `memory_file_count: 0`. There is **no warning** that `AGENTS.md` was found-but-ignored, no doctor check, no hint. They think claw has no memory of their project rules — claw silently has zero context. (b) **Product-name divergence.** The binary is called `claw`. The discovered file is `CLAUDE.md`. A user typing `CLAW.md` (matching the tool they actually invoked) gets silently zero memory. Same identity-leak pattern as #84 (build-host paths in error messages) — the marketing/binary name diverges from the runtime-effective file name. (c) **Claude Code documented subdir location ignored.** The Claude Code docs at `https://docs.anthropic.com/en/docs/claude-code/memory` document `.claude/CLAUDE.md` as a memory-file location. claw-code (which advertises Claude Code parity throughout `--help` and README) **does not read it**. A user migrating from Claude Code with their memory file at `.claude/CLAUDE.md` gets silently zero memory pickup. (d) **Case-sensitivity is OS-leaky.** On macOS with case-insensitive HFS+/APFS, `claude.md` and `CLAUDE.md` are the same file — discovery happens to work. On Linux/Windows with case-sensitive filesystems, `claude.md` is invisible. Cross-platform users get different memory behavior from the same repo layout. (e) **`memory_file_count: 0` with no `memory_files: []` field means a claw cannot debug "why is my memory not loading?"** without re-implementing the discovery walk itself. (f) The four candidates include `CLAUDE.local.md` and `.claw/instructions.md` — these aren't documented in README or `--help`, and the discovery list itself is a hidden contract. **Required fix shape:** (a) **Extend the discovery name set** to a documented union: `CLAUDE.md`, `CLAUDE.local.md`, `CLAW.md`, `CLAW.local.md`, `AGENTS.md`, `AGENTS.local.md`, plus `.claude/CLAUDE.md` and `.claw/CLAUDE.md`. Optionally allow user-configured extras via `.claw.json` `memory.discoveryNames: ["GEMINI.md", "CONTEXT.md"]`. (b) **Case-fold the comparison** on case-sensitive filesystems — when walking directory entries, match case-insensitively against the discovery name set, so `claude.md` / `CLAUDE.MD` / `Claude.md` all resolve to the same memory file. Document this as the contract. (c) **Expose the full `memory_files[]` array in status JSON**: `workspace.memory_files: [{path: "/abs/CLAUDE.md", source: "project", bytes: 1234}, {path: "/abs/.claw/CLAUDE.md", source: "project_subdir", bytes: 200}]`. Keep `memory_file_count` for back-compat but make the array the source of truth. (d) **Add a `doctor` check `memory_files` that lists discovered files AND files that were skipped because they were in a non-discovered name** (e.g., "found `AGENTS.md` at repo root but not loaded — claw memory discovery uses `CLAUDE.md`; rename or add `memory.discoveryNames` to `.claw.json`"). This turns "silent zero memory" into a visible diagnostic. (e) **Update README and `--help`** to list the discovery name set explicitly. (f) **Regression coverage** for each name in the matrix above, asserting the file is discovered (or, for explicitly-excluded names, that `doctor` produces a "found-but-skipped" hint). **Acceptance check (one-liner):** `for n in CLAUDE.md CLAW.md AGENTS.md .claude/CLAUDE.md; do mkdir -p $(dirname /tmp/cmp/$n); echo test > /tmp/cmp/$n; ( cd /tmp/cmp && claw status --output-format json | jq -e --arg path "/tmp/cmp/$n" '.workspace.memory_files | map(.path) | index($path)' ) || echo "MISS: $n"; rm /tmp/cmp/$n; done` should print no MISS lines. Source: gaebal-gajae dogfood follow-up for the 2026-05-24 10:00 Clawhip pinpoint nudge at message `1508046936177901639`.
+
+460. **`bare_slash_command_guidance` looks up the bare-verb argument against `slash_command_specs().iter().find(|spec| spec.name == command_name)` but never checks `spec.aliases`, so every documented slash-command alias — `skill` (alias of `/skills`), `marketplace` (alias of `/plugin`), `yes`/`y` (aliases of `/approve`), `no`/`n` (aliases of `/deny`), `cwd` (alias of `/workspace`), `plugins` (alias of `/plugin`) — fails the alias lookup and falls into either (a) the "Did you mean" typo path with nonsensical adjacent-prefix suggestions, or (b) the silent fallthrough to LLM Prompt dispatch that demands credentials and burns billable tokens. The canonical names (`skills`, `plugin`, `approve`, `deny`, `workspace`) correctly emit `"\`claw <verb>\` is a slash command. … run \`/<verb>\` inside the REPL."` guidance** — dogfooded 2026-05-24 for the 10:30 Clawhip pinpoint nudge at message `1508054486134947951`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`). Triage matrix in clean isolated env (`HOME=/tmp/iso11/home`, fresh `/tmp/iso11/proj` git-init, `claw <verb> --output-format json </dev/null`):
+
+    | Verb | Spec relationship | Expected | Actual | Bug class |
+    |---|---|---|---|---|
+    | `skills` | spec name | `is a slash command. /skills` | ✅ correct | — |
+    | `skill` | alias of `/skills` | `is a slash command. /skills` | ❌ `unknown subcommand. Did you mean skills` | wrong guidance class |
+    | `plugin` | spec name | `is a slash command. /plugin` | ✅ correct | — |
+    | `plugins` | alias of `/plugin` | `is a slash command. /plugin` | ✅ correct (CliAction::Status returned — `plugins` matches a DIFFERENT command branch first) | masked by other dispatch |
+    | `marketplace` | alias of `/plugin` | `is a slash command. /plugin` | ❌ **`missing_credentials`** — billable token burn | silent LLM fallthrough |
+    | `approve` | spec name | `is a slash command. /approve` | ✅ correct | — |
+    | `yes` | alias of `/approve` | `is a slash command. /approve` | ❌ **`missing_credentials`** — billable token burn | silent LLM fallthrough |
+    | `y` | alias of `/approve` | `is a slash command. /approve` | ❌ `unknown subcommand. Did you mean system-prompt` | nonsense suggestion |
+    | `deny` | spec name | `is a slash command. /deny` | ✅ correct | — |
+    | `no` | alias of `/deny` | `is a slash command. /deny` | ❌ **`missing_credentials`** — billable token burn | silent LLM fallthrough |
+    | `n` | alias of `/deny` | `is a slash command. /deny` | ❌ `unknown subcommand. Did you mean init, agents, sandbox` | nonsense suggestion |
+    | `workspace` | spec name | `is a slash command. /workspace` | ✅ correct | — |
+    | `cwd` | alias of `/workspace` | `is a slash command. /workspace` | ❌ **`missing_credentials`** — billable token burn | silent LLM fallthrough |
+
+    **Root cause (traced):** `rust/crates/rusty-claude-cli/src/main.rs:1135-1137` (the entire alias-blind lookup):
+
+    ```rust
+    fn bare_slash_command_guidance(command_name: &str) -> Option<String> {
+        if matches!(command_name, "dump-manifests" | "bootstrap-plan" | "agents" | "mcp"
+                                 | "skills" | "system-prompt" | "init" | "prompt" | "export") {
+            return None;
+        }
+        let slash_command = slash_command_specs()
+            .iter()
+            .find(|spec| spec.name == command_name)?;  // ← only checks spec.name
+        let guidance = if slash_command.resume_supported { … } else { … };
+        Some(guidance)
+    }
+    ```
+
+    Five-line fix: change `spec.name == command_name` to `spec.name == command_name || spec.aliases.contains(&command_name)`, and use `spec.name` (not `command_name`) when formatting the guidance string so the suggestion always points at the canonical command. Source spec data already exists in `rust/crates/commands/src/lib.rs` — line 248 (`SlashCommandSpec { name: "skills", aliases: &["skill"], … }`), line 232 (`name: "plugin", aliases: &["plugins", "marketplace"]`), line 535 (`name: "approve", aliases: &["yes", "y"]`), line 542 (`name: "deny", aliases: &["no", "n"]`), line 689 (`name: "workspace", aliases: &["cwd"]`). The data is correct; only the lookup helper is wrong. **Why distinct from #119, #127, #117, #108:** #119 covers `claw hooks --help` (bare verb + extra-arg → billable) — `rest.len() != 1` gating. #127 covers `claw <verb> <ANY-EXTRA-ARG>` falling through to Prompt for diagnostic verbs (`doctor`, `status`, `sandbox`) — also extra-arg corruption. #117 covers `-p` greedy positional swallow. #108 covers subcommand typos falling through (`claw doctorr`). **None of these cover slash-command ALIAS lookup failing the canonical-name comparison.** The bug here is even worse than #108: in #108 the unknown verb is genuinely unknown to the system; in #460 the verb IS known (it's a documented alias listed in `--help` as `aliases: /yes, /y` for `/approve`) but the lookup helper for the bare-verb-on-CLI path doesn't consult the alias field. So **the system silently disagrees with itself**: `--help` advertises `/yes` as a valid approval slash command, but `claw yes` (the obvious "use that command from CLI" attempt) burns LLM tokens with no warning. **Why this matters:** (1) **`claw yes`, `claw no`, `claw cwd`, `claw marketplace` burn billable tokens with provider keys configured.** Same silent-token-burn pathology as #108 and #117, but specifically for documented slash-command aliases. (2) **`/help` output explicitly advertises these aliases:** `/skills [list|install <path>|help|<skill> [args]]  List, install, or invoke available skills (aliases: /skill)` — and `/approve  Approve a pending tool execution (aliases: /yes, /y)` and `/deny  Deny a pending tool execution (aliases: /no, /n)`. A user reads `--help`, sees `/yes` exists, types `claw yes` to try the CLI invocation, and gets a credentials error or token burn. **Documentation contract violated.** (3) **The "did you mean" suggestions for the alias-fallthrough cases (`y`/`n`) are nonsense.** `claw y` suggests `system-prompt` (no relationship). `claw n` suggests `init, agents, sandbox` (no relationship). The levenshtein-style ranker is matching prefix/substring with no understanding that `y` is an `/approve` alias. (4) **System self-inconsistency:** REPL slash dispatch correctly resolves `/skill → /skills` via the alias field at `commands/src/lib.rs:248`. Tab-completion (`slash_command_completion_candidates_with_sessions` at `main.rs:8256-8267`) correctly enumerates aliases. Only the **CLI bare-verb-to-slash-guidance helper** misses the alias field — the singular violator in a system that otherwise honors aliases consistently. (5) **`marketplace` is the worst case:** it's neither a typo of any subcommand nor a common shell word — it's specifically a documented `/plugin` alias, and `claw marketplace` is exactly what someone exploring "is there a marketplace command?" would type. Silent token burn with provider keys. **Required fix shape:** (a) **At `main.rs:1135`, extend the lookup:** `slash_command_specs().iter().find(|spec| spec.name == command_name || spec.aliases.contains(&command_name))`. (b) **When formatting the guidance string**, use `spec.name` for the `/<canonical>` suggestion (not the alias), so users are pointed at the canonical form: `"\`claw yes\` is a slash command. Start \`claw\` and run \`/approve\` inside the REPL."`. (c) **Optionally include the alias in the message** for clarity: `"\`claw yes\` is the \`/approve\` slash command alias. Start \`claw\` and run \`/approve\` inside the REPL."`. (d) **Add a `claw doctor` self-check** that enumerates `slash_command_specs()`, walks every `aliases[]` entry, and asserts that `bare_slash_command_guidance(alias)` returns `Some(_)` for each. This is a one-loop regression catch that prevents future alias additions from silently regressing. (e) **Regression coverage**: matrix table above as a parameterized test — for each row marked ❌, assert the actual response includes `"is a slash command"` and references the canonical command name. **Acceptance check (one-liner):** `for v in skill marketplace yes y no n cwd; do out=$(claw $v --output-format json </dev/null 2>&1 | head -1); echo "$out" | grep -q 'is a slash command' || echo "MISS: $v → $out"; done` should print no MISS lines. Source: gaebal-gajae dogfood follow-up for the 2026-05-24 10:30 Clawhip pinpoint nudge at message `1508054486134947951`.
+
+461. **`.claw.json` / `.claw/settings.json` unknown-key validator uses pure-edit-distance ranking with threshold ≤3, which actively misleads users away from the canonical `mcpServers` key — `{ "mcp": { "servers": {} } }` (the VS Code MCP convention, also used by hermes_cli and many other tools) produces `unknown key "mcp" (line 2). Did you mean "env"?`. Edit-distance(`mcp`, `mcpServers`) = 7 (exceeds threshold), edit-distance(`mcp`, `env`) = 3 (at threshold), so the validator hands the user a "go configure environment variables" hint instead of "you wrote the VS Code-style nested form, write the flat `mcpServers` form instead." User follows the suggestion → no MCP servers configured → no warning that MCP was their actual intent → silent loss of functionality with an actively wrong remediation path** — dogfooded 2026-05-24 for the 12:00 Clawhip pinpoint nudge at message `1508077133459751073` (also covers the 11:30 nudge `1508069585461706783`), reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`). Suggestion-quality matrix in clean isolated env (`HOME=/tmp/iso15/home`, fresh `/tmp/iso15/proj` git-init, `.claw/settings.json` with one top-level typo each):
+
+    | Input | Edit distance to `mcpServers` | Edit distance to `env` | Actual suggestion | Correct? |
+    |---|---|---|---|---|
+    | `mcp` (VS Code nested form) | 7 | **3** | `env` | ❌ **opposite intent** |
+    | `mcpServer` (singular camelCase) | 1 | 7 | `mcpServers` | ✅ |
+    | `mcpserver` (singular lowercase) | 2 | 6 | `mcpServers` | ✅ |
+    | `mcpServrs` (typo) | 1 | 8 | `mcpServers` | ✅ |
+    | `MCPServers` (case variant) | 3 | 8 | `mcpServers` | ✅ |
+    | `mcp_servers` (snake_case) | 2 | 7 | `mcpServers` | ✅ |
+    | `servers` (just servers) | 3 | 5 | `mcpServers` | ✅ |
+    | `mcp` ← **the actual VS Code convention** | 7 | 3 | `env` | ❌ |
+
+    **Root cause (traced):** `rust/crates/runtime/src/config_validate.rs:396-407`:
+
+    ```rust
+    fn suggest_field(input: &str, candidates: &[&str]) -> Option<String> {
+        let input_lower = input.to_ascii_lowercase();
+        candidates
+            .iter()
+            .filter_map(|candidate| {
+                let distance = simple_edit_distance(&input_lower, &candidate.to_ascii_lowercase());
+                (distance <= 3).then_some((distance, *candidate))
+            })
+            .min_by_key(|(distance, _)| *distance)
+            .map(|(_, name)| name.to_string())
+    }
+    ```
+
+    Pure Levenshtein, threshold-3 filter, no prefix awareness, no semantic awareness. The candidate set is the 14 top-level field names registered in `FIELD_SPECS` (`config_validate.rs:144-200`): `$schema`, `model`, `hooks`, `permissions`, `permissionMode`, `mcpServers`, `oauth`, `enabledPlugins`, `plugins`, `sandbox`, `env`, `aliases`, `providerFallbacks`, `trustedRoots`. For input `"mcp"` (length 3):
+
+    - distance to `mcpServers` = 7 (insertions of `Servers`) — filtered out by threshold
+    - distance to `env` = 3 (full substitution) — at threshold, wins by `.min_by_key()`
+    - distance to `oauth`/`model`/`hooks` = 5 — filtered out
+    - distance to `$schema` = 6 — filtered out
+
+    So `env` is structurally the ONLY survivor of the threshold for short inputs that happen to share zero characters with their actual intended target. **`mcp` is a 3-character prefix of `mcpServers` and shares 100% of its characters with the intended key**, but edit-distance has no way to express that — every additional character in the longer candidate counts as a +1 insertion penalty. **Why distinct from existing items:** ROADMAP #110 covers `ConfigLoader::discover` ancestor-walk under-discovery (config files invisible from subdirs). ROADMAP #28 covers `MissingCredentials` error-copy improvements (adjacent-provider env-var hints). ROADMAP #108 covers CLI subcommand typo fallthrough (no levenshtein for subcommands). **None** address the config-key validator's suggestion-ranking algorithm itself producing actively wrong suggestions for prefix-substring inputs. The "unknown key" diagnostic was added to be helpful — but for the most common real-world miss (`mcp` from users following VS Code convention or from MCP docs that use nested form), it points at the wrong remediation. This is **worse than no suggestion** because users following a bad suggestion lose more time than users getting "unknown key" with no hint and going to read the docs. **Why this matters:** (1) **The VS Code MCP convention is widespread.** VS Code's settings.json uses `"mcp": { "servers": { ... } }`. Cursor uses `mcpServers` flat. Claude Desktop uses `mcpServers` flat. A user who has been configuring MCP servers in VS Code naturally writes the nested form. claw advertises MCP support ("Claude Code parity") but rejects the most-common convention with an **actively misleading remediation**. (2) **Hermes CLI** (in `external/hermes-agent/hermes_cli/config.py:478`) uses `"mcp": { ... }` nested. Any user copying from hermes config will hit this. (3) **`env` is the absolute worst possible suggestion** — it's a completely different concept (environment variables for the CLI) with zero overlap with MCP server registration. A user who follows the suggestion will add an `env` block, fail to register their server, and have no signal that MCP was their actual intent. (4) **Silent functionality loss:** the MCP-related work the user intended is silently dropped (configured_servers: 0 in `mcp list`). No `doctor` check warns "your config has an `mcp` block that probably should have been `mcpServers`." (5) **The bug class is general** — any short input that is a strict prefix of a long canonical key, where the long key edit-distance exceeds 3, will fall through to whatever happens to be within edit-distance-3 of the input. Edge cases for other current top-level keys: `auth` → suggests `env` (distance 3, vs `oauth` distance 1 — but `oauth` wins because distance 1, OK by luck); `plugin` → distance 1 to `plugins`, fine; `perms` → distance 6 to `permissions`, no suggestion. Future schema additions could create more `mcp`-like edge cases silently. (6) **The `--help` text and docs say `.claw/settings.json` accepts MCP config**, and any user reading the JSON Schema for `mcpServers` and naturally writing the nested form gets pointed at `env`. Documentation/validator divergence. **Required fix shape:** (a) **Add prefix-match as a higher-priority signal than edit-distance.** In `suggest_field`, before computing edit-distance, check if `input` is a prefix of any candidate (case-insensitive) AND that candidate's length ≤ `input.len() * 4` (sanity bound). If yes, return that candidate immediately. Specifically: `if input.len() >= 2 && input is a strict prefix of candidate`, that candidate gets priority over edit-distance matches. This makes `mcp` → `mcpServers` (prefix match wins) instead of `mcp` → `env` (edit-distance match wins). (b) **Add nested-key awareness for known scoped patterns.** When the unknown key is the parent of a known-nested form (e.g. `mcp.servers` would be valid under VS Code convention), emit a specific diagnostic: `"unknown key 'mcp' — claw uses the flat camelCase form 'mcpServers' instead of the VS Code-style 'mcp.servers' nested block. Rewrite as: { \"mcpServers\": { ... } }"`. Hardcode this for `mcp` initially; generalize if other nested-vs-flat divergences appear. (c) **Add a `claw doctor` check `mcp_config_form_drift`** that detects `mcp` keys at the top level of `.claw.json` / `.claw/settings.json` and warns: `WARN: .claw/settings.json contains a top-level "mcp" block (VS Code convention). claw uses "mcpServers" (flat). Migrate to: { "mcpServers": <inner.servers> }`. (d) **Update README and `--help`** to document the canonical `mcpServers` key and explicitly call out that `mcp.servers` (VS Code style) is NOT accepted. (e) **Regression coverage:** add a test for `suggest_field("mcp", FIELD_SPECS)` that asserts the result is `Some("mcpServers")` (not `Some("env")`). Add the full suggestion matrix above as parameterized tests. **Acceptance check (one-liner):** `cd /tmp/test && mkdir -p .claw && echo '{"mcp":{"servers":{"a":{"command":"x"}}}}' > .claw/settings.json && claw mcp list --output-format json | jq -r '.config_load_error' | grep -E '"mcpServers"|VS Code|migrate'` should match (it currently outputs `Did you mean "env"?`). Source: gaebal-gajae dogfood follow-up spanning two consecutive Clawhip pinpoint nudges (2026-05-24 11:30 message `1508069585461706783` triggered the MCP investigation; 12:00 message `1508077133459751073` triggered finishing it; matrix completed and root-cause traced between the two).
+
+462. **`claw version --output-format json` envelope is missing the `build_date` structured field even though all four other fields the human prose displays ARE structured (`version`, `git_sha`, `target`, `kind`) AND ROADMAP #79's "contrast" claim at line 1380 explicitly cites version as exemplary by listing `{kind, message, version, git_sha, target, build_date}` — the documentation says "structured", the code emits four fields out of five, and the string `"build_date"` literally does not appear anywhere in `rust/crates/rusty-claude-cli/` (zero hits across src/ and tests/). This is both a missing-field bug AND a 40-day-old ROADMAP self-contradiction: the entry filed 2026-04-17 to argue init should match version's structure cited a field that was never there** — dogfooded 2026-05-24 for the 13:00 Clawhip pinpoint nudge at message `1508092230261539039`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`). Live envelope from clean isolated env (`HOME=/tmp/iso16/home`, fresh `/tmp/iso16/proj`):
+
+    ```bash
+    $ env -i HOME=/tmp/iso16/home PATH=/usr/bin:/bin TERM=dumb claw version --output-format json
+    {
+      "git_sha": "003b739d",
+      "kind": "version",
+      "message": "Claw Code\n  Version          0.1.0\n  Git SHA          003b739d\n  Target           x86_64-unknown-linux-gnu\n  Build date       2026-05-04",
+      "target": "x86_64-unknown-linux-gnu",
+      "version": "0.1.0"
+    }
+    ```
+
+    Field parity audit:
+
+    | Field shown in `message` prose | Structured envelope field | Source constant |
+    |---|---|---|
+    | `Version 0.1.0` | ✅ `version` | `VERSION = env!("CARGO_PKG_VERSION")` |
+    | `Git SHA 003b739d` | ✅ `git_sha` | `GIT_SHA = option_env!("GIT_SHA")` |
+    | `Target x86_64-unknown-linux-gnu` | ✅ `target` | `BUILD_TARGET = option_env!("TARGET")` |
+    | `Build date 2026-05-04` | ❌ **MISSING** | `DEFAULT_DATE = option_env!("BUILD_DATE")` exists |
+
+    **Root cause (traced):** `rust/crates/rusty-claude-cli/src/main.rs:2629-2637`:
+
+    ```rust
+    fn version_json_value() -> serde_json::Value {
+        json!({
+            "kind": "version",
+            "message": render_version_report(),
+            "version": VERSION,
+            "git_sha": GIT_SHA,
+            "target": BUILD_TARGET,
+        })
+    }
+    ```
+
+    The function consumes the prose via `render_version_report()` for `message`, then re-extracts three of the four structured values from compile-time constants — but skips `DEFAULT_DATE` (the BUILD_DATE constant defined at `main.rs:159-162`). The fourth structured field is just missing from the json! macro. One-line fix: add `"build_date": DEFAULT_DATE,`. Verification: `grep -rnE '"build_date"|build_date' rust/crates/rusty-claude-cli/{src,tests}/ --include='*.rs'` returns **zero hits** — the field name has never appeared in either source or test code. **ROADMAP self-contradiction:** ROADMAP entry #79 at line 1380 contrasts `init`'s prose-only envelope against `version` as exemplary: `"claw --output-format json version → {kind, message, version, git_sha, target, build_date} — structured."` This claim was filed 2026-04-17 and has been wrong ever since — the actual envelope is `{kind, message, version, git_sha, target}` (5 fields, not 6). The contrast argument for #79 stands because version IS more structured than init, but the specific field list is incorrect. The pre-grep gate caught this near-miss: I almost wrote up "version envelope missing build_date" as a brand-new pinpoint, then grepped ROADMAP for `build_date.*version`, found line 1380, realized it was a documentation-vs-implementation drift instead of a brand-new symptom. **Why distinct from existing items:** ROADMAP #324 covers the broader binary-provenance freshness problem (compare embedded git_sha vs workspace HEAD, emit `stale_binary` boolean) across `version`/`status`/`doctor`. #324 mentions `binary_provenance`/`workspace_head`/`stale_binary` as proposed structured fields but does NOT itemize the existing-field gap on `build_date`. #79 cites version as exemplary structured (the contrast direction) but never re-verified the cited field set. #83 covers BUILD_DATE leaking into the system prompt as "today's date" (the wrong-place-for-build-date problem). **None** document the simple fact that `version`'s ONE legitimate place to display build_date (the `version` JSON envelope) just doesn't expose it as a structured field. **Why this matters:** (1) **Bug reports and CI fingerprinting need machine-readable build_date.** A claw producing a bug report wants `{"version": "0.1.0", "git_sha": "003b739d", "build_date": "2026-05-04"}` as a self-describing provenance triple. Today it must regex `/Build date\s+(\S+)/` against the `message` prose — the same anti-pattern ROADMAP #79 was filed against for `init`. (2) **The fix is one line.** `"build_date": DEFAULT_DATE,` in `version_json_value()`. There is no architectural cost, no breakage risk, no behavior change beyond adding the field. (3) **Self-fulfilling documentation drift:** future ROADMAP entries (#324 already does this) cite the `version` envelope as the reference shape for binary-provenance JSON. Each new entry that propagates the wrong field list makes the drift harder to detect because the documented shape now disagrees with itself across multiple ROADMAP entries. Catching this at #462 prevents further drift accumulation. (4) **Cross-envelope inconsistency:** if `version` had `build_date` as a structured field, `status`/`doctor` could legitimately reference it as a precedent for #324's `binary_provenance` work. Without it, every related entry must re-justify the structured-field principle. (5) **Aligns with #459 (memory_files[] absent), #455 (missing_credentials hint shape), #79 (init artifacts[]), #326 (status panes[])** — the pattern is: a prose surface emits a value derived from an in-process structured source, but the JSON envelope discards the structure. Per-entry one-line fixes accumulate; together they define a "structured-envelope completeness" doctrine. **Required fix shape:** (a) **At `main.rs:2636`**, add `"build_date": DEFAULT_DATE,` to the `version_json_value()` json! macro. (b) **Fix ROADMAP #79 line 1380** in the same commit: keep the contrast point (version is more structured than init) but make the field-list accurate. (c) **Regression coverage:** add an `output_format_contract.rs` assertion that `claw version --output-format json | jq -e '.build_date'` returns a non-null string matching `/^\d{4}-\d{2}-\d{2}$|^unknown$/`. (d) **Optional, related to #324:** while in this file, consider adding `build_date` to `doctor` and `status` envelopes so binary-provenance fields cluster naturally for the #324 work. (e) **Optional, related to #83:** add a `today_date` field that uses `chrono::Utc::today()` so the difference between BUILD_DATE and runtime today is observable from one envelope alone. **Acceptance check (one-liner):** `claw version --output-format json | jq -e '.build_date | type == "string"'` should print `true` (currently returns `null` → exit 1). Source: gaebal-gajae dogfood follow-up for the 2026-05-24 13:00 Clawhip pinpoint nudge at message `1508092230261539039`. Triple-grep gate caught one near-miss on ROADMAP #83 (BUILD_DATE in system prompt — same root constant, different surface) before reproduction; pre-grep gate then caught the documentation-vs-implementation drift at ROADMAP #79 line 1380 before filing as a brand-new envelope pinpoint, refining the writeup into the self-contradiction angle.
+
+463. **Removed subcommands (`claw login`, `claw logout`) emit a hard-coded error sentinel that `classify_error_kind` then mis-buckets as `kind: "unknown"` instead of a typed `removed_subcommand` (or equivalent) kind, AND the `hint` field is `null` while the actual hint (`Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead`) is jammed into the same single-line `error` string — so a CI claw that branches on `kind` cannot distinguish "you typed a removed command" from "we have no idea what happened," and a claw that reads `hint` to suggest remediation gets `null` even though the remediation text exists verbatim in the same envelope** — dogfooded 2026-05-24 for the 13:30 Clawhip pinpoint nudge at message `1508099780230906027`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`). Live envelope from clean isolated env (`HOME=/tmp/iso19/home`, fresh `/tmp/iso19/proj` git init):
+
+    ```bash
+    $ env -i HOME=/tmp/iso19/home PATH=/usr/bin:/bin TERM=dumb claw login --output-format json
+    {"error":"`claw login` has been removed. Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead.","hint":null,"kind":"unknown","type":"error"}
+
+    $ env -i HOME=/tmp/iso19/home PATH=/usr/bin:/bin TERM=dumb claw logout --output-format json
+    {"error":"`claw logout` has been removed. Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead.","hint":null,"kind":"unknown","type":"error"}
+    ```
+
+    Cross-input comparison (the classifier triple-inconsistency):
+
+    | Input | exit | `kind` | `hint` | What actually happened |
+    |---|---|---|---|---|
+    | `xyznotreal` (truly unknown) | 1 | `missing_credentials` | null | **Fell through to LLM-prompt path, billed-token risk** (covered by #108) |
+    | `totally-fake-cmd` | 1 | `missing_credentials` | null | Same fallthrough as above |
+    | `login` (removed) | 1 | **`unknown`** | **null** | Intercepted (good), wrong-kinded + hint discarded (this pinpoint) |
+    | `logout` (removed) | 1 | **`unknown`** | **null** | Same as login |
+    | `plugins` (formerly #78) | 0 | (works now) | — | Pre-grep confirmed #78 has been wired |
+
+    **Root cause traced:** `rust/crates/rusty-claude-cli/src/main.rs:951` returns the sentinel string from `removed_auth_surface_error()`:
+
+    ```rust
+    "login" | "logout" => Err(removed_auth_surface_error(rest[0].as_str())),
+    ```
+
+    Where `removed_auth_surface_error` at `main.rs:1150-1154` is:
+
+    ```rust
+    fn removed_auth_surface_error(command_name: &str) -> String {
+        format!(
+            "`claw {command_name}` has been removed. Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead."
+        )
+    }
+    ```
+
+    The single-line string then flows through `classify_error_kind` at `main.rs:253-286`:
+
+    ```rust
+    fn classify_error_kind(message: &str) -> &'static str {
+        if message.contains("missing Anthropic credentials") { "missing_credentials" }
+        else if message.contains("Manifest source files are missing") { "missing_manifests" }
+        // ... 11 more specific patterns ...
+        else { "unknown" }
+    }
+    ```
+
+    The classifier has 13 explicit kinds; `has been removed` matches none → falls to `"unknown"`. And `split_error_hint` at `main.rs:290-295` splits on `\n` only — since the sentinel is one line, `hint` is always `None` even though everything after the first sentence IS the hint.
+
+    **Verification grep:** `grep -nE 'removed_subcommand|"removed"' rust/crates/rusty-claude-cli/src/main.rs` returns zero hits. The only test coverage for the removed subcommands is `main.rs:11793-11794`:
+
+    ```rust
+    assert!(!help.contains("claw login"));
+    assert!(!help.contains("claw logout"));
+    ```
+
+    Both assertions test `--help` text negative-presence only. No test asserts the error-envelope shape on actual `claw login` / `claw logout` invocation.
+
+    **Why distinct from existing items:** ROADMAP **#37** (DONE) covered the removal POLICY (Claude-subscription login flow taken out, OAuth fallback ignored, slash commands removed, docs updated). #37 explicitly does NOT discuss the *error envelope shape* of the sentinel — only that the surface is removed. ROADMAP **#108** covers truly-unknown subcommand typos falling through to LLM-prompt dispatch with `kind:missing_credentials` — different code path (`_other => CliAction::Prompt`), different misclassification, different fix. ROADMAP **#109** covers config-loader warnings flattened to stderr prose (loader-side prose-vs-structure gap). ROADMAP **#77** introduced `classify_error_kind` and `split_error_hint` (the very functions this entry pinpoints) — and added 13 specific kinds for THEN-existing error sentinels, but the `removed_auth_surface_error` sentinel added under #37 was never registered with the classifier #77 built. **None** of these existing entries address the specific "removed subcommand sentinel + classifier inconsistency + hint field discarded" triple. **Why this matters:** (1) **CI fingerprinting breakage.** A claw that runs `if claw $cmd --output-format json | jq -e '.kind == "unknown"'` to decide "unrecoverable, escalate to human" treats `claw login` typos identically to genuine internal errors — bad escalation triage. A claw that branches on `kind == "removed_subcommand"` for a graceful migration prompt has no way to distinguish today. (2) **Hint field discarded** is the same anti-pattern as `build_date` (#462), `memory_files[]` (#459), `missing_credentials.hint` (#455), `init.artifacts[]` (#79), `status.panes[]` (#326), `version.build_date` (#462). The structured field exists, the data exists, the wiring is one line, the envelope drops it. (3) **Classifier completeness debt.** The `classify_error_kind` function is the authoritative `kind` taxonomy. Every new error sentinel added anywhere in the codebase must register here or fall to `"unknown"`. There is no compile-time check enforcing this. A grep against new `Err(format!(...))` and `Err("...".into())` sites would surface the gap. **#37 + #77 is the first known instance of the orphan-sentinel pattern;** the same drift likely affects newer sentinels too (e.g., ACP unsupported invocation, MCP unsupported config-key, etc. — none verified yet, but worth a sweep). (4) **Asymmetric remediation guidance.** The error string DOES contain the remediation. A human reading prose sees it. A machine reading the dedicated `hint` field gets `null`. The information exists; the envelope just discards it. **Required fix shape:** (a) **Introduce structured sentinel emission for removed subcommands.** Replace `Err(removed_auth_surface_error(...))` at `main.rs:951` with a typed error variant carrying `kind: RemovedSubcommand { name, replacement_env_vars: Vec<&str> }` so the JSON layer can serialize a structured `{"kind": "removed_subcommand", "subcommand": "login", "replacement": "Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead.", "hint": "Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead.", ...}` envelope without relying on string-contains classification. (b) **Add `"removed_subcommand"` to `classify_error_kind` taxonomy** as a defensive fallback for any other code path that may surface the sentinel as a String; key on `"has been removed"` substring. (c) **Make `removed_auth_surface_error` emit a two-line string** with the actionable advice on line 2 so `split_error_hint` populates `hint` non-null even on the string-only path. (d) **Add envelope-shape regression tests:** `output_format_contract.rs` should assert `claw login --output-format json` produces `{"kind": "removed_subcommand", "hint": <non-null string>, ...}` and `claw logout --output-format json` mirrors it; current asserts only test `--help` text. (e) **Sweep for other orphan sentinels.** Run `grep -rnE 'Err\(format!|Err\("' rust/crates/rusty-claude-cli/src/` and cross-check every match against `classify_error_kind` — file follow-up entries for any sentinel that lands in `"unknown"`. **Acceptance check (one-liner):** `claw login --output-format json 2>&1 | jq -e '.kind == "removed_subcommand" and (.hint | type == "string")'` should print `true` (currently `.kind == "unknown"` and `.hint == null` → exit 1). Source: gaebal-gajae dogfood for the 2026-05-24 13:30 Clawhip pinpoint nudge at message `1508099780230906027`. Pre-grep gate filtered 9 hypotheses down to 3 fresh (E=login/logout envelope, F=CLAW_CONFIG_HOME validation, G=skills empty envelope); F deferred to a later tick because it spans 5 distinct silent-failure modes that warrant their own consolidated entry; G confirmed working correctly (no pinpoint). E selected as the tightest single-function fix with the most concrete CI-impact angle.
+
+464. **`--output-format` value parsing is strict-equal-only on `"text"`/`"json"` with five compounding gaps in `CliOutputFormat::parse` (`main.rs:600-611`): (1) **case-hostile** — `JSON`/`Json` rejected even though every UNIX enum-flag convention accepts both; (2) **whitespace-hostile** — `'json '` and `' json'` rejected, a known shell-interpolation footgun; (3) **no "Did you mean?" suggestion** for obvious near-matches like `JSON`/`json5`/`Json`; (4) **error format is always text-mode prose** — even when the operator is explicitly requesting JSON output (`--output-format=xml` → user clearly wanted machine-readable, gets text-prose error to stderr, chicken-and-egg bootstrap problem); (5) **classifier orphan** — the sentinel `"unsupported value for --output-format: ..."` is not registered in `classify_error_kind` so JSON-mode invocations would land with `kind: "unknown"` if it could ever reach that path. This is the second confirmed instance of the `#37×#77 classifier-orphan pattern` documented in #463 — features added without taxonomy registration silently degrade envelope quality** — dogfooded 2026-05-24 for the 14:30 Clawhip pinpoint nudge at message `1508114879985356992`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`). Live matrix from clean isolated env (`env -i HOME=/tmp/iso21/home PATH=/usr/bin:/bin TERM=dumb`):
+
+    ```bash
+    $ for fmt in "xml" "JSON" "Json" "" "json5" "yaml" "json " " json" "JSON-LD"; do
+        printf -- '--- --output-format=%q ---\n' "$fmt"
+        claw --output-format "$fmt" status </dev/null 2>&1
+        echo "exit=$?"
+      done
+    ```
+
+    Every one of those 9 inputs produces identical-shape text-mode stderr prose:
+
+    ```
+    [error-kind: unknown]
+    error: unsupported value for --output-format: <VALUE> (expected text or json)
+
+    Run `claw --help` for usage.
+    ```
+
+    Note `[error-kind: unknown]` literally leaks into the user-facing prose — a fragment of the classifier debug output, not a friendly hint. The same `[error-kind: unknown]` prefix shows up on `claw login` per #463 — confirming the orphan-sentinel pattern crosses surfaces.
+
+    **Per-input failure-mode breakdown:**
+
+    | Input | Why it's a real bug class |
+    |---|---|
+    | `JSON` | UNIX convention: enum flags are case-insensitive (`curl --request POST`/`post`; `git --color always`/`ALWAYS`; `cargo --color=always`/`Always`). Claw is in a tiny minority of case-hostile parsers. |
+    | `Json` | Same as above; mixed-case is common in TitleCase environments. |
+    | `'json '` / `' json'` | Standard shell-interpolation footgun: `OUTPUT_FORMAT=$(some-cmd)` may include trailing newline; `--output-format "$OUTPUT_FORMAT"` then injects whitespace. `.trim()` is one line of defense. |
+    | `''` | Empty value from unset env var: `--output-format "$UNSET_VAR"`. Specialized error ("empty value supplied for --output-format") would clarify. |
+    | `json5` / `yaml` / `xml` / `JSON-LD` | No "Did you mean: json?" suggestion. Slash commands have this; subcommand parser has this (now); enum-value parser does not. Asymmetric quality. |
+
+    **Root cause traced:** `rust/crates/rusty-claude-cli/src/main.rs:600-611`:
+
+    ```rust
+    impl CliOutputFormat {
+        fn parse(value: &str) -> Result<Self, String> {
+            match value {
+                "text" => Ok(Self::Text),
+                "json" => Ok(Self::Json),
+                other => Err(format!(
+                    "unsupported value for --output-format: {other} (expected text or json)"
+                )),
+            }
+        }
+    }
+    ```
+
+    Five obvious enrichments missing: (a) `value.trim()` before match; (b) `value.to_lowercase()` before match; (c) levenshtein/prefix near-match suggestion; (d) specialized empty-value branch; (e) explicit `kind` discrimination so downstream classifier doesn't have to substring-match.
+
+    **The chicken-and-egg sub-bug (most severe):** A claw running `claw --output-format json status` to get structured output gets text-prose to stderr when the flag value is invalid. The very flag whose purpose is to request JSON cannot itself produce a JSON error envelope. The minimum fix is: if `--output-format` parsing fails AND any earlier argv contained `--output-format=json` OR `--output-format` with `json` as next arg (i.e., the operator's intent is clearly JSON), THEN emit the parse error as a JSON envelope on stderr instead of text prose. Bootstrap problem solved.
+
+    **Why distinct from existing items:** Surfaces a different facet of the broader **classifier-orphan / sentinel-not-typed pattern** documented in #463 (login/logout) and #455 (missing_credentials hint shape) and #449 (prompt JSON error routed to stderr). #463 covered the SAME root function (`classify_error_kind`) for a DIFFERENT sentinel ("has been removed"). This entry covers a DIFFERENT sentinel ("unsupported value for --output-format") with the SAME root, plus FOUR additional concerns specific to enum-value parsing (case, whitespace, near-match, empty). #109 covers config-loader warnings flattened to stderr prose (loader-side, not CLI-flag-side). #108 covers subcommand typos with no "Did you mean?" — analogous design pattern but different parser layer (subcommand name vs flag-value). **None** of these existing entries document the `CliOutputFormat::parse` strict-match-with-five-gaps surface. **Why this matters:** (1) **CI/automation reliability** — every CI step that constructs `--output-format $VAR` with VAR from another tool's output (Make, Justfile, shell completion, env file) is one trailing-newline or one casing mismatch away from text-prose-to-stderr instead of structured JSON. (2) **Bootstrap chicken-and-egg** is the worst flavor: the flag exists specifically to enable machine parsing, and the flag's own error path bypasses that machine parsing. (3) **Cross-surface asymmetry erodes trust** — slash commands suggest, subcommand parser now suggests (per #108 fix), but flag-enum parser doesn't. A claw learning the CLI grammar by trial-and-error gets contradictory teaching about the quality of suggestions. (4) **Same classifier-orphan pattern as #463** — `[error-kind: unknown]` text leakage proves the classifier-string roundtrip is happening even on simple flag-parse failures. The taxonomy gap from #77 is structurally chronic; per-instance fixes alone won't resolve it. (5) **Discovery method itself is a signal** — a 30-second hypothesis sweep covering 9 inputs caught 5 distinct bug classes. Strict-match parsers without trim+case+near-match+empty handling have a high latent-bug density per LoC. The classifier should ship as a typed result with structured envelope from day one. **Required fix shape:** (a) **`CliOutputFormat::parse` enrichments:** trim input; lowercase before match; explicit empty-value branch with specialized error; levenshtein-based "Did you mean?" suggestion (reuse the slash-command suggester from `commands::resolve_skill_invocation` or the subcommand suggester being added for #108). (b) **Bootstrap fix:** when `--output-format` parsing fails AND the operator's argv contains the literal token `json` adjacent to `--output-format`, emit the parse error as a JSON envelope to stderr so JSON-requesting consumers can decode it. (c) **Classifier registration:** add `"output_format_invalid"` to `classify_error_kind`, keyed on `"unsupported value for --output-format"`. (d) **Strip `[error-kind: ...]` debug prefix from text-mode user-facing output** — it's classifier internals leaking into the UX (also fixes #463's same complaint). (e) **Regression coverage in `output_format_contract.rs`:** parameterized test asserting 9 invalid inputs each produce the expected enriched behavior (case-normalized acceptance, trimmed acceptance, near-match suggestion, empty-value error, JSON-envelope bootstrap output when intent is JSON). **Acceptance check (one-liner):** `claw --output-format JSON status 2>&1 | jq -e '.kind == "output_format_invalid"'` should print `true` for the bootstrap-fix path; `claw --output-format JSON status; echo $?` should exit 0 after the case-normalization fix; `claw --output-format json5 status 2>&1 | grep -q "Did you mean: json"` should pass after the suggester fix. Source: gaebal-gajae dogfood for the 2026-05-24 14:30 Clawhip pinpoint nudge at message `1508114879985356992`. Pre-grep gate filtered 9 hypotheses → 2 fresh (W=`--output-format` value handling, Y=base URL validation); W selected because failures reproduce in credential-free path with multiple distinct sub-issues. Y deferred to a future tick because it requires actual HTTP-send path to surface failure, and the BASE_URL pinpoint is more about the `status`/`doctor` envelope failing to surface "configured to talk to malformed URL" warnings — different fix shape, different code path. Coordination note: Jobdori took #469 (`/compact` slash divergence) this tick and acknowledged F (CLAW_CONFIG_HOME validation, 5-mode silent failure surfaced in #463 tick) as "next confirmed but unfiled," so F is intentionally NOT covered here to avoid duplicate filing.
+
+465. **`claw doctor` / `claw status` auth diagnostics report only `api_key_present` and `auth_token_present` booleans, but omit the *effective auth source* / header behavior when BOTH `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are set. The runtime resolves this state to `AuthSource::ApiKeyAndBearer` and sends both `x-api-key` and `Authorization: Bearer`, while the health surface simply says `status: ok` / `supported auth env vars are configured` with no `effective_auth_source`, no `headers_sent`, no precedence warning, and no “both configured” diagnostic. This reopens the exact auth-intent ambiguity #28 fixed for single-wrong-env cases, but in the mixed-env case where the request path is now different and the doctor surface is silent** — dogfooded 2026-05-24 across the 15:00–16:30 Clawhip nudge window (finalized for message `1508145078760378418`), reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`) in a clean isolated env.
+
+    Reproduction:
+
+    ```bash
+    $ env -i HOME=/tmp/iso23/home \
+        ANTHROPIC_API_KEY=sk-ant-fake-apikey-BOTH \
+        ANTHROPIC_AUTH_TOKEN=oauth-fake-bearer-BOTH \
+        PATH=/usr/bin:/bin TERM=dumb \
+        claw doctor --output-format json | jq '.checks[] | select(.name=="auth")'
+    {
+      "api_key_present": true,
+      "auth_token_present": true,
+      "details": [
+        "Environment       api_key=present auth_token=present"
+      ],
+      "legacy_refresh_token_present": false,
+      "legacy_saved_oauth_expires_at": null,
+      "legacy_saved_oauth_present": false,
+      "legacy_scopes": [],
+      "name": "auth",
+      "status": "ok",
+      "summary": "supported auth env vars are configured"
+    }
+    ```
+
+    Text mode says the same thing:
+
+    ```
+    Auth
+      Status           ok
+      Summary          supported auth env vars are configured
+      Details
+        - Environment       api_key=present auth_token=present
+    ```
+
+    No field answers the operational question: **what auth mode will the actual request use?** The answer exists in runtime code but is not surfaced.
+
+    **Root cause traced:** `rust/crates/api/src/providers/anthropic.rs:656-666`:
+
+    ```rust
+    pub fn resolve_startup_auth_source<F>(load_oauth_config: F) -> Result<AuthSource, ApiError>
+    where
+        F: FnOnce() -> Result<Option<OAuthConfig>, ApiError>,
+    {
+        let _ = load_oauth_config;
+        if let Some(api_key) = read_env_non_empty("ANTHROPIC_API_KEY")? {
+            return match read_env_non_empty("ANTHROPIC_AUTH_TOKEN")? {
+                Some(bearer_token) => Ok(AuthSource::ApiKeyAndBearer {
+                    api_key,
+                    bearer_token,
+                }),
+                None => Ok(AuthSource::ApiKey(api_key)),
+            };
+        }
+        if let Some(bearer_token) = read_env_non_empty("ANTHROPIC_AUTH_TOKEN")? {
+            return Ok(AuthSource::BearerToken(bearer_token));
+        }
+        Err(anthropic_missing_credentials())
+    }
+    ```
+
+    And `anthropic.rs:952-954` documents the wire behavior in the 401 hint logic:
+
+    ```rust
+    // Only append the hint when the AuthSource is pure BearerToken. If both
+    // api_key and bearer_token are present (`ApiKeyAndBearer`), the x-api-key
+    // header is already being sent alongside the Bearer header ...
+    ```
+
+    So the actual effective runtime state is **not** merely “two booleans true.” It is a third mode: `ApiKeyAndBearer`, with two headers sent. But `check_auth_health()` in `rust/crates/rusty-claude-cli/src/main.rs:2071-2150` only computes:
+
+    ```rust
+    let api_key_present = env::var("ANTHROPIC_API_KEY").ok().is_some_and(|value| !value.trim().is_empty());
+    let auth_token_present = env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some_and(|value| !value.trim().is_empty());
+    // ... summary = "supported auth env vars are configured"
+    .with_data(Map::from_iter([
+        ("api_key_present".to_string(), json!(api_key_present)),
+        ("auth_token_present".to_string(), json!(auth_token_present)),
+        ...
+    ]))
+    ```
+
+    It never calls or mirrors `resolve_startup_auth_source`, never emits `effective_auth_source`, and never warns when both mutually-confusing auth knobs are present.
+
+    **Why distinct from existing items:** ROADMAP **#28** fixed single-env-var auth copy: adjacent provider hints, `sk-ant-*` in `ANTHROPIC_AUTH_TOKEN` correction, and docs explaining `x-api-key` vs `Authorization: Bearer`. This pinpoint is the **mixed-env state** after #28: both env vars present, runtime sends both headers, and the doctor/status surface does not tell operators that a combined mode exists. ROADMAP **#37** removed `claw login` / `logout` and told users to set env vars instead; this entry shows the two official env vars can now be set together with no health warning or effective-source disclosure. ROADMAP **#463** covers removed-subcommand envelope kind/hint shape; same auth area but different surface. ROADMAP **#248** asks prompt lifecycle events to include auth source category during non-interactive runs; this entry is the local preflight counterpart: doctor/status should expose auth source before any prompt/API call. **None** of those items record that `doctor` reports “ok” for both official auth vars while hiding the `ApiKeyAndBearer` runtime mode.
+
+    **Why this matters:** (1) **Real users already confuse these two env vars.** #28 was filed because `sk-ant-*` keys in `ANTHROPIC_AUTH_TOKEN` produce bearer-header 401s. The mixed state (`ANTHROPIC_API_KEY` + stale/wrong `ANTHROPIC_AUTH_TOKEN`) is the natural next failure mode after users “try both.” (2) **The request sends both headers.** Whether Anthropic prioritizes `x-api-key`, bearer token, or rejects/confuses the pair is provider behavior; claw should not leave this invisible. (3) **`doctor` is supposed to be preflight truth.** It currently says `ok` and “supported auth env vars are configured,” which sounds healthier than the simpler single-key case, even though the operator may have two conflicting credentials. (4) **Automation cannot decide remediation.** A claw reading booleans cannot know whether to ask the user to unset `ANTHROPIC_AUTH_TOKEN`, unset `ANTHROPIC_API_KEY`, or leave both. A field like `effective_auth_source: "api_key_and_bearer"` plus `headers: ["x-api-key", "authorization_bearer"]` would make that deterministic. (5) **The runtime truth already exists.** `resolve_startup_auth_source` computes the exact enum; the diagnostic layer just reimplements a weaker boolean-only approximation.
+
+    **Required fix shape:** (a) Make `check_auth_health()` call the same auth-source resolver (or a shared redaction-safe helper) used by runtime startup, so diagnostics cannot drift from actual request behavior. (b) Add structured fields to the auth check JSON: `effective_auth_source: "api_key" | "bearer_token" | "api_key_and_bearer" | "none"`, `headers_sent: ["x-api-key", "authorization_bearer"]` (names only, no secrets), and `both_anthropic_auth_env_vars_present: bool`. (c) When both are present, downgrade auth check from `ok` to at least `warn` unless product policy explicitly supports sending both; summary should say `both ANTHROPIC_API_KEY and ANTHROPIC_AUTH_TOKEN are set; requests will send both x-api-key and bearer headers` with a hint to unset the stale/wrong one. (d) Mirror these fields into `status --output-format json`, not only `doctor`, because status is the lightweight preflight surface. (e) Add regression coverage for four states: none, API key only, bearer only, both. Assert the “both” state is not boolean-only and carries the combined-mode warning. **Acceptance check:** with both env vars set, `claw doctor --output-format json | jq -e '.checks[] | select(.name=="auth") | .effective_auth_source == "api_key_and_bearer" and (.headers_sent | index("x-api-key") and index("authorization_bearer")) and .status == "warn"'` should pass. Source: gaebal-gajae dogfood for 2026-05-24 15:00–16:30 Clawhip nudges; investigation was interrupted by subsequent nudge ticks, then finalized at 16:30 with code trace and ROADMAP entry. Coordination note: intentionally avoided F/CLAW_CONFIG_HOME because Jobdori publicly queued it as “next confirmed but unfiled”; this auth-precedence surface is orthogonal.
+
+466. **Provider `*_BASE_URL` env vars are accepted as routing/transport configuration but `doctor` / `status` do zero validation and surface zero provenance: 24 malformed/unsupported values across `ANTHROPIC_BASE_URL`, `OPENAI_BASE_URL`, `XAI_BASE_URL`, and `DASHSCOPE_BASE_URL` all return `doctor_exit=0`, `has_failures=false`, `auth ok`, `config ok`, and `system ok`, even for `not-a-url`, `ftp://example.com`, `http://`, `http://localhost:99999`, `javascript:alert(1)`, and empty string. This makes the preflight surface say “green” while the next prompt call will fail later in the HTTP client / URL parser / provider edge, with no machine-readable clue which base URL env var poisoned the lane** — dogfooded 2026-05-24 for the 17:00–17:30 Clawhip nudge window (finalized for message `1508160182386167961`), reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`) in a clean isolated env.
+
+    Reproduction matrix (credential-free except fake API key env vars so auth check passes):
+
+    ```bash
+    for var in ANTHROPIC_BASE_URL OPENAI_BASE_URL XAI_BASE_URL DASHSCOPE_BASE_URL; do
+      for url in 'not-a-url' 'ftp://example.com' 'http://' 'http://localhost:99999' 'javascript:alert(1)' ''; do
+        env -i HOME=/tmp/iso24/home ANTHROPIC_API_KEY=sk-ant-fake OPENAI_API_KEY=sk-openai-fake \
+          "$var=$url" PATH=/usr/bin:/bin TERM=dumb \
+          claw doctor --output-format json
+      done
+    done
+    ```
+
+    Every row produced the same health shape:
+
+    ```text
+    doctor_exit=0 stderr_bytes=0
+    has_failures false
+    auth ok 'supported auth env vars are configured'
+    config ok 'no config files present; defaults are active'
+    system ok 'captured local runtime metadata'
+    ```
+
+    No diagnostic says the lane is configured to talk to `javascript:alert(1)`, `ftp://example.com`, `http://`, or an invalid port `99999`.
+
+    **Root cause traced:** provider metadata knows which env var controls each provider's base URL (`rust/crates/api/src/providers/mod.rs:42-43`, with `base_url_env` / `default_base_url` fields), and the Anthropic client reads `ANTHROPIC_BASE_URL` directly in `anthropic.rs:765-766`:
+
+    ```rust
+    pub fn read_base_url() -> String {
+        std::env::var("ANTHROPIC_BASE_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string())
+    }
+    ```
+
+    OpenAI-compat providers carry the same metadata in `openai_compat.rs` (`XAI_BASE_URL`, `OPENAI_BASE_URL`, `DASHSCOPE_BASE_URL`). But `check_auth_health()` only checks auth booleans, `check_config_health()` only checks config files/MCP counts, and `check_system_health()` only reports local runtime metadata. There is no provider-endpoint check and no `base_url_source` field in `status`. The runtime will later concatenate/parse/use these env vars as actual URLs (`anthropic.rs:470` builds `{base_url}/v1/messages`), but the preflight surfaces do not validate scheme, host, parseability, or port range.
+
+    **Why distinct from existing items:** ROADMAP #28/#29 cover provider routing and auth-copy issues, including OpenRouter guidance and prefix routing, but not malformed base URL validation. ROADMAP #248 asks non-interactive prompt lifecycle events to include provider/model/base-url identity after a prompt starts; this entry is the *preflight* counterpart: `doctor` / `status` should surface bad base URLs before any prompt/API call. ROADMAP #465 covers effective auth source when both Anthropic auth env vars are set; this entry covers endpoint configuration across all provider env vars. ROADMAP #111 says `/providers` should list providers/base URLs/reachability, but `/providers` is a slash-command spec mismatch; this entry is specifically about the existing `doctor`/`status` green-light surfaces ignoring base URL env vars. No existing entry documents that every malformed `*_BASE_URL` value tested leaves doctor green.
+
+    **Why this matters:** (1) **Startup friction:** users configuring OpenRouter/Ollama/local proxy inevitably touch `OPENAI_BASE_URL`. A one-character typo (`http://`, trailing junk, unsupported scheme) currently passes doctor and fails only during a live prompt. (2) **Automation cannot preflight lanes.** Clawhip wants to know whether a lane is safe before spending tokens / starting a long prompt. Green doctor with poisoned base URL is false confidence. (3) **Security posture:** accepting `javascript:` / `ftp:` / empty string as silently “configured” is not just UX badness; provider clients should only ever use HTTP(S) URLs, and diagnostics should reject or warn on anything else. (4) **The metadata already exists.** Provider metadata names every env var and default URL; the missing layer is just validation and redaction-safe surfacing. (5) **Base URL is provider identity.** Status currently reports model and permission mode, but not where requests will be sent. For OpenAI-compatible providers especially, `OPENAI_BASE_URL` is the difference between OpenAI, OpenRouter, Ollama, local proxy, or malicious typo.
+
+    **Required fix shape:** (a) Add a provider endpoint diagnostics check to `doctor` that iterates provider metadata, reads each `*_BASE_URL` env var if present, trims it, parses it with `Url`, and validates `scheme in {http, https}`, non-empty host, valid port, and no unsupported schemes. Empty string should be treated as unset or explicit invalid with a dedicated warning, not silent ok. (b) Add redaction-safe fields to `status --output-format json`: active provider, `base_url_env`, `base_url_source: "default" | "env"`, `base_url_valid`, `base_url_scheme`, `base_url_host`, and `base_url_error` if invalid. Do not include credentials or path secrets; host/scheme are enough. (c) When the selected model/provider is affected by an invalid base URL, `doctor` should be `warn` or `fail` and `status.status` should be `degraded`, not `ok`. (d) Add tests for the 24-row matrix above plus a valid local URL (`http://127.0.0.1:11434/v1`) and valid HTTPS URL. (e) Optional: `/providers` (when fixed from #111) should reuse the same endpoint validation so base URL truth has one source. **Acceptance check:** `env OPENAI_API_KEY=sk-test OPENAI_BASE_URL=javascript:alert\(1\) claw doctor --output-format json | jq -e '.checks[] | select(.name=="providers" or .name=="provider_endpoints") | .status != "ok" and (.details[]? | test("OPENAI_BASE_URL"))'` should pass; currently there is no such check and doctor is green. Source: gaebal-gajae dogfood for the 2026-05-24 17:00/17:30 Clawhip nudges. Coordination note: still avoided F/CLAW_CONFIG_HOME because Jobdori publicly queued it; this endpoint-validation surface is orthogonal and credential-free.
+
+467. **`claw doctor` auth preflight is Anthropic-only even when the selected model/provider is OpenAI-compatible: `claw --model openai/gpt-4 doctor --output-format json` with `OPENAI_API_KEY` set reports auth `warn` / `no supported auth env vars were found`, while `status` in the same invocation reports `model: "openai/gpt-4"`, `model_source: "flag"`, and `status: "ok"`. Conversely, if both `OPENAI_API_KEY` and `ANTHROPIC_API_KEY` are set with `--model openai/gpt-4`, doctor reports auth `ok` because the irrelevant Anthropic key exists, not because the selected OpenAI provider is authenticated. The preflight auth check is hardcoded to Anthropic env vars and ignores provider metadata (`api_key_env`, `base_url_env`) that runtime routing already uses** — dogfooded 2026-05-24 for the 18:00 Clawhip nudge at message `1508167732355530752`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`) in a clean isolated env.
+
+    Reproduction matrix:
+
+    ```bash
+    # A. default Anthropic model + only OPENAI_API_KEY
+    env -i HOME=/tmp/iso26/home OPENAI_API_KEY=sk-openai-fake PATH=/usr/bin:/bin TERM=dumb \
+      claw --output-format json doctor | jq '.checks[] | select(.name=="auth")'
+    # => warn: no supported auth env vars were found
+
+    # B. selected OpenAI provider + only OPENAI_API_KEY
+    env -i HOME=/tmp/iso26/home OPENAI_API_KEY=sk-openai-fake PATH=/usr/bin:/bin TERM=dumb \
+      claw --output-format json --model openai/gpt-4 doctor | jq '.checks[] | select(.name=="auth")'
+    # => SAME warn: no supported auth env vars were found  ❌ wrong provider/auth preflight
+
+    # status in the same env knows the selected model is OpenAI:
+    env -i HOME=/tmp/iso26/home OPENAI_API_KEY=sk-openai-fake PATH=/usr/bin:/bin TERM=dumb \
+      claw --output-format json --model openai/gpt-4 status | jq '{status,model,model_raw,model_source}'
+    # => {"status":"ok","model":"openai/gpt-4","model_raw":"openai/gpt-4","model_source":"flag"}
+
+    # C. selected OpenAI provider + both OpenAI and Anthropic keys
+    env -i HOME=/tmp/iso26/home OPENAI_API_KEY=sk-openai-fake ANTHROPIC_API_KEY=sk-ant-fake PATH=/usr/bin:/bin TERM=dumb \
+      claw --output-format json --model openai/gpt-4 doctor | jq '.checks[] | select(.name=="auth")'
+    # => ok because ANTHROPIC_API_KEY is present, even though selected provider is OpenAI ❌
+    ```
+
+    Observed auth payloads:
+
+    ```json
+    // --model openai/gpt-4 + only OPENAI_API_KEY
+    {
+      "api_key_present": false,
+      "auth_token_present": false,
+      "details": ["Environment       api_key=absent auth_token=absent"],
+      "name": "auth",
+      "status": "warn",
+      "summary": "no supported auth env vars were found"
+    }
+
+    // --model openai/gpt-4 + OPENAI_API_KEY + ANTHROPIC_API_KEY
+    {
+      "api_key_present": true,
+      "auth_token_present": false,
+      "details": ["Environment       api_key=present auth_token=absent"],
+      "name": "auth",
+      "status": "ok",
+      "summary": "supported auth env vars are configured"
+    }
+    ```
+
+    **Root cause traced:** `rust/crates/rusty-claude-cli/src/main.rs:2071-2150` `check_auth_health()` hardcodes only Anthropic env vars:
+
+    ```rust
+    let api_key_present = env::var("ANTHROPIC_API_KEY").ok().is_some_and(|value| !value.trim().is_empty());
+    let auth_token_present = env::var("ANTHROPIC_AUTH_TOKEN").ok().is_some_and(|value| !value.trim().is_empty());
+    // summary = "supported auth env vars are configured" iff either Anthropic var exists
+    ```
+
+    But provider routing metadata already exists in `rust/crates/api/src/providers/mod.rs`: `ProviderMetadata` includes `provider`, `api_key_env`, `base_url_env`, `default_base_url`, and model-prefix detection. Runtime dispatch uses `detect_provider_kind(&model)` / metadata to route OpenAI-compatible models; doctor/auth preflight ignores it and evaluates Anthropic only. This creates a split-brain preflight: `status` sees the OpenAI model flag, runtime would use OpenAI-compatible auth, but `doctor` audits Anthropic env vars.
+
+    **Why distinct from existing items:** ROADMAP **#28** improved auth error copy when users set adjacent provider env vars or put `sk-ant-*` in the wrong Anthropic var. This pinpoint is not error copy during a failed API call; it is local `doctor` preflight using the wrong provider's auth rules. ROADMAP **#29** fixed CLI runtime dispatch so `openai/...` uses OpenAI-compatible client; this entry shows the preflight health check did not follow that routing fix. ROADMAP **#465** covers Anthropic-only mixed env vars (`ANTHROPIC_API_KEY` + `ANTHROPIC_AUTH_TOKEN`) and missing `effective_auth_source`; this entry covers cross-provider model-selected auth (`OPENAI_API_KEY` should be considered when selected provider is OpenAI). ROADMAP **#466** covers provider base URL validation; this covers provider auth env validation. ROADMAP **#248** asks runtime lifecycle events to expose provider/auth source after prompt starts; this is the local doctor/status preflight counterpart before prompt starts.
+
+    **Why this matters:** (1) **False warning:** OpenAI users following documented prefix routing (`--model openai/gpt-4` + `OPENAI_API_KEY`) get `doctor` auth warn, even though the selected provider has the expected key. That makes doctor untrustworthy for non-Anthropic lanes. (2) **False ok:** If a stale Anthropic key exists in the environment, doctor reports auth ok for an OpenAI model even if `OPENAI_API_KEY` is missing. That is worse than no check because it green-lights a lane that will fail with missing OpenAI credentials. (3) **Routing and preflight drift:** #29 fixed runtime dispatch, but doctor still reasons as if claw is Anthropic-only. Every new provider added to metadata will inherit this preflight false-negative/false-positive unless doctor keys off provider metadata. (4) **Automation cannot trust auth preflight.** A clawhip lane planner checking `doctor` before starting an OpenAI-compatible prompt cannot tell whether the lane is actually authenticated for the selected provider. (5) **The data model already exists.** Provider metadata carries the exact env var names; the diagnostic layer just needs to use it.
+
+    **Required fix shape:** (a) Thread the selected model/provider into `check_auth_health()` (or add a `check_provider_auth_health(model)` helper) and resolve `ProviderMetadata` with the same function runtime dispatch uses. (b) Emit structured fields: `selected_provider`, `required_api_key_env`, `required_auth_envs`, `selected_provider_api_key_present`, `anthropic_api_key_present`, `openai_api_key_present`, `xai_api_key_present`, `dashscope_api_key_present`, and `effective_auth_source` where applicable. (c) For OpenAI-compatible selected providers, auth status should be `ok` when the provider's own key is present, regardless of Anthropic vars; warn/fail when it is absent even if Anthropic keys exist. (d) Mirror provider-auth summary into `status --output-format json`, since status is the lightweight preflight surface. (e) Regression matrix: default Anthropic + Anthropic key; OpenAI model + OpenAI key; OpenAI model + only Anthropic key (should warn/fail); OpenAI model + both keys (should ok with selected_provider=`openai`, not because Anthropic exists); XAI/DashScope equivalents. **Acceptance check:** `env -i HOME=$TMP OPENAI_API_KEY=sk-test PATH=$PATH claw --model openai/gpt-4 doctor --output-format json | jq -e '.checks[] | select(.name=="auth") | .status == "ok" and .selected_provider == "openai" and .required_api_key_env == "OPENAI_API_KEY"'` should pass; currently it warns that no supported auth env vars were found. Source: gaebal-gajae dogfood for the 2026-05-24 18:00 Clawhip nudge. Coordination note: still avoided F/CLAW_CONFIG_HOME due to Jobdori public claim; this provider-auth-preflight mismatch is orthogonal and credential-free.
+
+468. **Repeated global flags silently apply inconsistent merge semantics with no duplicate/provenance signal: `--model` and `--permission-mode` are last-write-wins, `--allowedTools` unions every occurrence, and `--output-format` is last-write-wins even when the first occurrence requested JSON. A wrapper can invoke `claw --output-format json --output-format text status` and receive plain text with exit 0, while `claw --model openai/gpt-4 --model opus status` silently runs Anthropic Opus instead of OpenAI. `status` exposes only the final value (`model_raw`, `permission_mode`, `allowed_tools.entries`) and never reports `duplicate_flags`, `flag_occurrences`, or overwritten values, so automation cannot tell whether a launcher accidentally supplied conflicting global flags** — dogfooded 2026-05-24 for the 18:30–19:00 Clawhip nudge window (finalized for message `1508182831573110904`), reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`) in a clean isolated env.
+
+    Reproduction matrix:
+
+    ```bash
+    # Last --model wins silently
+    claw --output-format json --model openai/gpt-4 --model opus status
+    # => {"model":"claude-opus-4-6","model_raw":"opus","model_source":"flag", ...}
+
+    claw --output-format json --model opus --model openai/gpt-4 status
+    # => {"model":"openai/gpt-4","model_raw":"openai/gpt-4","model_source":"flag", ...}
+
+    # Last --output-format wins silently, even overriding machine-readable intent
+    claw --output-format json --output-format text status
+    # => text prose on stdout, exit 0  ❌ no JSON envelope, no warning
+
+    claw --output-format text --output-format json status
+    # => JSON, exit 0
+
+    # Last permission mode wins silently
+    claw --output-format json --permission-mode read-only --permission-mode danger-full-access status
+    # => "permission_mode":"danger-full-access"
+
+    claw --output-format json --permission-mode danger-full-access --permission-mode read-only status
+    # => "permission_mode":"read-only"
+
+    # allowedTools does NOT last-win; it unions occurrences
+    claw --output-format json --allowedTools Bash --allowedTools Read status
+    # => "allowed_tools":{"entries":["bash","read_file"],"restricted":true,"source":"flag"}
+
+    claw --output-format json --allowedTools Read,Bash --allowedTools Edit status
+    # => entries ["bash","edit_file","read_file"]
+    ```
+
+    **Root cause traced:** `rust/crates/rusty-claude-cli/src/main.rs:617-694` has mutable parser state for scalar globals:
+
+    ```rust
+    let mut model = DEFAULT_MODEL.to_string();
+    let mut model_flag_raw: Option<String> = None;
+    let mut output_format = CliOutputFormat::Text;
+    let mut permission_mode_override = None;
+
+    // every occurrence overwrites previous value
+    model = resolve_model_alias_with_config(value);
+    model_flag_raw = Some(value.clone());
+    output_format = CliOutputFormat::parse(value)?;
+    permission_mode_override = Some(parse_permission_mode_arg(value)?);
+    ```
+
+    But `--allowedTools` stores all occurrences in `allowed_tool_values` and normalizes the whole list later (`main.rs:808`):
+
+    ```rust
+    let allowed_tools = normalize_allowed_tools(&allowed_tool_values)?;
+    ```
+
+    So the same parser layer applies two different duplicate semantics: scalar globals overwrite silently; tool allow-list accumulates silently. Neither path emits provenance beyond `source:"flag"`.
+
+    **Why distinct from existing items:** ROADMAP #464 covers invalid `--output-format` values (case/whitespace/Did-you-mean/bootstrap JSON error). This entry covers *valid duplicate* `--output-format` values, especially `json` being overwritten by later `text` with exit 0. ROADMAP #117 covers `-p` greedily swallowing flags into prompt text; this entry covers normal global flags parsed before subcommand. ROADMAP #122 covers `--base-commit` greedily accepting values and swallowing subsequent args; this entry covers duplicate flags that parse successfully. ROADMAP #97 covers `--allowedTools ""` empty allow-set and invisibility; this entry notes `--allowedTools` uses accumulation semantics while adjacent scalar globals use last-wins semantics. ROADMAP #124 covers `--model` accepting unvalidated garbage; this entry uses valid model values and focuses on duplicate/conflict invisibility.
+
+    **Why this matters:** (1) **Automation wrappers commonly append flags.** A user may set `CLAW_ARGS="--output-format json"` and a wrapper may append `--output-format text`; current behavior silently changes the output contract from JSON to text. (2) **Security posture drift:** `--permission-mode read-only --permission-mode danger-full-access` silently escalates to danger-full-access if the unsafe flag appears later. (3) **Provider routing drift:** `--model openai/gpt-4 --model opus` silently flips the selected provider from OpenAI to Anthropic; with #467, doctor/status preflight can then reason about the wrong provider without exposing that an earlier provider flag was overwritten. (4) **Inconsistent semantics are not discoverable.** Why does duplicate `--allowedTools` union but duplicate `--permission-mode` overwrite? Both can be reasonable, but the CLI never states which happened. (5) **No structured provenance.** `status` cannot tell a claw whether a value came from one flag or from conflicting duplicate flags; it only reports the final state.
+
+    **Required fix shape:** (a) Track occurrences for every global flag during parse (`--model`, `--output-format`, `--permission-mode`, `--allowedTools`, `--base-commit`, `--reasoning-effort`, `--max-turns`, etc.) with raw values and argv positions. (b) For scalar flags, either reject duplicates with a structured `duplicate_flag` parse error or allow last-wins but emit `duplicate_flags` / `overwritten_flags` provenance in `status` and `doctor`. For machine-output flags, prefer reject: `--output-format json --output-format text` should not silently break JSON consumers. (c) For `--allowedTools`, document and expose accumulation semantics explicitly (`allowed_tools.source:"flag_accumulated"`, `occurrences:2`) or require comma-list single occurrence. (d) Add JSON/text warnings for duplicate scalar flags in diagnostic subcommands, with redaction-safe values. (e) Regression matrix covering the eight examples above plus valid repeated `--reasoning-effort` / `--base-commit`. **Acceptance check:** `claw --output-format json --output-format text status` should either fail with `kind:"duplicate_flag"` in a JSON error envelope or return JSON containing `duplicate_flags:[{"flag":"--output-format","values":["json","text"],"effective":"text"}]`; current behavior emits plain text and exit 0. Source: gaebal-gajae dogfood for the 2026-05-24 18:30/19:00 Clawhip nudges. Note: an initial repeated-flag probe was contaminated by zsh scalar splitting (whole arg string passed as one token); evidence above was re-run with `eval` and separate stdout/stderr capture before filing.
+
+470. **`--reasoning-effort` is accepted by local diagnostic subcommands (`status`, `doctor`, `version`, etc.) even though it is a prompt/API-request knob, then disappears from every diagnostic JSON surface; valid values (`low|medium|high`) parse and exit 0 on `status` / `doctor` with no `reasoning_effort` field, no `ignored_flags` warning, and no indication that the flag will only affect future prompt turns. Invalid values have their own strict parser (`LOW`, `Low`, `low `, ` low`, empty, `extreme`, `1`) but that error sentinel is another `classify_error_kind` orphan (`kind:"unknown"`, `hint:null`), repeating the #463/#464 pattern on a third flag-value parser** — dogfooded 2026-05-24 for the 19:30 Clawhip nudge at message `1508190377130197222`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`) in a clean isolated env.
+
+    Reproduction:
+
+    ```bash
+    $ claw --output-format json --reasoning-effort high status | jq 'keys'
+    ["allowed_tools","config_load_error","kind","model","model_raw","model_source","permission_mode","sandbox","status","usage","workspace"]
+    # no reasoning_effort, no ignored_flags, no active_request_options
+
+    $ claw --output-format json --reasoning-effort high doctor | jq '.checks[].name'
+    "auth" "config" "install_source" "workspace" "sandbox" "system"
+    # no reasoning/model/request-options check carrying reasoning_effort
+
+    $ claw --output-format json --reasoning-effort LOW status
+    {"error":"invalid value for --reasoning-effort: 'LOW'; must be low, medium, or high","hint":null,"kind":"unknown","type":"error"}
+
+    $ claw --output-format json --reasoning-effort 'low ' status
+    {"error":"invalid value for --reasoning-effort: 'low '; must be low, medium, or high","hint":null,"kind":"unknown","type":"error"}
+    ```
+
+    Valid matrix: `low`, `medium`, `high` all exit 0 on `status` and `doctor` but are invisible. Invalid matrix: `LOW`, `Low`, `low `, ` low`, empty string, `extreme`, `1` all exit 1 with `kind:"unknown"` and `hint:null`.
+
+    **Root cause traced:** `rust/crates/rusty-claude-cli/src/main.rs:712-731` validates `--reasoning-effort` as a global flag and stores `reasoning_effort = Some(value)`, but the local diagnostic renderers never receive or serialize it. `status_json_value()` around `main.rs:5688-5714` exposes model, permission mode, allowed tools, workspace, sandbox, config load error, and usage — not request options. `doctor` builds fixed checks (`auth`, `config`, `install_source`, `workspace`, `sandbox`, `system`) and has no request-options check. The invalid-value error string is:
+
+    ```rust
+    "invalid value for --reasoning-effort: '{value}'; must be low, medium, or high"
+    ```
+
+    but `classify_error_kind()` has no branch for it, so every invalid reasoning-effort parse error becomes `kind:"unknown"`.
+
+    **Why distinct from existing items:** ROADMAP #98 covers `--compact` silently ignored outside prompt/text output. This entry covers `--reasoning-effort`, a different prompt/API knob with different parser and provider semantics. ROADMAP #464 covers invalid `--output-format` enum parsing; this entry covers `--reasoning-effort` enum parsing plus valid-value invisibility. ROADMAP #468 covers duplicate global flags; this entry covers single valid flag accepted by diagnostic subcommands with no visible effect. ROADMAP #34/#35 cover OpenAI-compat reasoning-effort transport support; this entry is about CLI diagnostic surfaces accepting the knob without exposing whether it is active. No existing entry documents `--reasoning-effort high status` being a successful no-op/invisible state.
+
+    **Why this matters:** (1) **Prompt/API knobs on diagnostic commands are misleading.** A launcher may run `claw --reasoning-effort high status` to verify a lane is configured for high reasoning; status says ok but never confirms the knob. (2) **Automation cannot audit request options.** `status` is the lightweight preflight surface; if reasoning effort affects cost/latency/model behavior, claws need to know its active value before prompt execution. (3) **Same enum-parser quality gap repeats.** `LOW` and trailing whitespace are common wrapper/env-file outputs; the parser rejects them with `kind:"unknown"` instead of `kind:"invalid_reasoning_effort"`, no suggestion, no trim/case handling. (4) **Silent successful no-op and loud unknown invalid are both bad.** Valid values disappear; invalid values are misclassified. Together they make the knob hard to reason about programmatically. (5) **Regression tests are too shallow.** Existing tests around `rejects_invalid_reasoning_effort_value` assert the substring exists, and `accepts_valid_reasoning_effort_values` asserts parse state only. They do not assert JSON envelope kind/hint, diagnostic-surface visibility, or prompt-vs-diagnostic applicability.
+
+    **Required fix shape:** (a) Decide contract: either reject prompt/API-only knobs (`--reasoning-effort`, maybe future `--max-output-tokens`) on local diagnostic subcommands with a structured `unsupported_flag_for_subcommand` error, or expose them in `status`/`doctor` as `request_options.reasoning_effort` / `active_request_options`. (b) If accepted, add `reasoning_effort` to `status --output-format json` and a `request_options` doctor check so preflight can verify it. (c) Register `invalid_reasoning_effort` in `classify_error_kind` and split a real `hint` field (valid values: `low`, `medium`, `high`). (d) Normalize or suggest common variants: trim whitespace, lower-case `LOW`/`Low`, or produce `Did you mean: low?`. (e) Add regression coverage for valid visibility on `status`/`doctor`, invalid-value JSON kind/hint, and prompt-path preservation. **Acceptance check:** `claw --output-format json --reasoning-effort high status | jq -e '.request_options.reasoning_effort == "high" or .ignored_flags[]?.flag == "--reasoning-effort"'` should pass; current output has neither. `claw --output-format json --reasoning-effort LOW status 2>&1 | jq -e '.kind == "invalid_reasoning_effort"'` should pass; current kind is `unknown`. Source: gaebal-gajae dogfood for the 2026-05-24 19:30 Clawhip nudge. Number intentionally skips #469 because Jobdori publicly reported a local #469 (`/compact` slash divergence) not yet pushed; this avoids collision.
+
+681. **Unsupported `claw mcp` mutation verbs (`add`, `remove`, `delete`, `enable`, `disable`) return a help payload with `exit=0` instead of a typed unsupported/not-implemented error: `claw mcp add demo -- /bin/echo hi --output-format json` emits `{kind:"mcp", action:"help", unexpected:"add demo -- /bin/echo hi", usage:{...}}` on stdout, no stderr, and no file changes. The command clearly did not add anything, but shell/CI sees success; `unexpected` is the only clue, and it is embedded in a help object rather than a `status:"unsupported"` / `kind:"error"` envelope** — dogfooded 2026-05-24 for the 20:00 Clawhip nudge at message `1508197932497899740`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`) in a clean isolated env. Number intentionally jumps to #681 because Jobdori publicly filed/announced ROADMAP #680 in this channel; avoiding distributed queue collision.
+
+    Reproduction:
+
+    ```bash
+    $ env -i HOME=/tmp/iso29/home PATH=/usr/bin:/bin TERM=dumb \
+        claw mcp add demo -- /bin/echo hi --output-format json
+    {
+      "action": "help",
+      "kind": "mcp",
+      "unexpected": "add demo -- /bin/echo hi",
+      "usage": {
+        "direct_cli": "claw mcp [list|show <server>|help]",
+        "slash_command": "/mcp [list|show <server>|help]",
+        "sources": [".claw/settings.json", ".claw/settings.local.json"]
+      }
+    }
+    # exit 0, stderr empty, no .claw/settings.json written
+    ```
+
+    Same shape for:
+
+    ```bash
+    claw mcp add demo /bin/echo hi --output-format json
+    claw mcp remove demo --output-format json
+    claw mcp delete demo --output-format json
+    claw mcp disable demo --output-format json
+    claw mcp enable demo --output-format json
+    ```
+
+    All return `exit=0`, `kind:"mcp"`, `action:"help"`, `unexpected:"<verb ...>"` and no stderr. The supported action list in `mcp help --output-format json` is only `list|show <server>|help`, so these mutation verbs are unsupported by contract, but the failure mode is success/help.
+
+    **Root cause shape:** the MCP command parser treats unknown sub-actions as a help-topic request and preserves the raw tail in `unexpected`, but does not convert that branch into a command failure. The help JSON schema has no `status`, `ok`, `error_kind`, `exit_ok`, or `unsupported_action` field, so automation must special-case `action:"help" && unexpected != null` to detect that a requested operation did not run.
+
+    **Why distinct from existing items:** ROADMAP #327 covers `mcp help` source-list mismatch (`.claw.json` omitted while accepted). This entry covers unsupported mutation verbs returning success. ROADMAP #347 covers `mcp show <missing>` returning `status:"ok"` with `found:false`; this entry is broader/different: unsupported *verbs* (`add/remove/enable/disable/delete`) return help with exit 0 and no command-status field. ROADMAP #102/#129 cover MCP server liveness/runtime startup; this is control-plane mutation command semantics. ROADMAP #78 covered `plugins` route falling through to prompt; this is the `mcp` route resolving locally but reporting failed mutation as successful help. No existing entry found for `mcp add/remove` write-target or unsupported mutation verbs.
+
+    **Why this matters:** (1) **Automation false success.** A setup script can run `claw mcp add demo ...` and proceed because exit code is 0, even though no server was added. (2) **Mutation verbs are common user expectation.** MCP CLIs often support `add`/`remove`; users will try them. If not implemented, fail closed with a clear typed error. (3) **No write-target clarity.** Since help claims sources `.claw/settings.json` / `.claw/settings.local.json`, a user may reasonably expect `add` to write one. Returning success/help leaves them guessing. (4) **Machine contract ambiguity.** `unexpected` inside help is not an error field; claws should not have to infer failure from a non-null optional help attribute. (5) **Compounds #327.** The help object shown in the failure path also repeats the stale source-list problem, so the unsupported-action error points at incomplete config-source docs.
+
+    **Required fix shape:** (a) For unsupported MCP sub-actions, return a typed JSON error such as `{type:"error", kind:"unsupported_mcp_action", action:"add", supported_actions:["list","show","help"], hint:"MCP mutation commands are not implemented; edit .claw/settings.json manually or use ..."}` and exit non-zero. (b) Preserve a human help fallback only for explicit `mcp help` / `mcp --help`, not for attempted mutations. (c) If mutation verbs are intended roadmap features, add `not_implemented` status with non-zero exit and no file writes. (d) Add tests for `add/remove/enable/disable/delete` proving they are distinguishable from successful help and successful list/show. (e) When mutation support lands, include explicit write-target/source-layer semantics (`project`, `local`, `user`) instead of guessing. **Acceptance check:** `claw mcp add demo -- /bin/echo hi --output-format json >/tmp/out 2>/tmp/err; test $? -ne 0 && jq -e '.kind == "unsupported_mcp_action" and .action == "add"' /tmp/err` should pass; currently exit is 0 and stdout is a help object. Source: gaebal-gajae dogfood for the 2026-05-24 20:00 Clawhip nudge. Coordination note: avoided Jobdori-claimed #680/session-sort and F/CLAW_CONFIG_HOME; targeted MCP mutation semantics after pre-grep showed common MCP lifecycle gaps already covered.
+
+682. **Unsupported native-agent mutation verbs (`claw agents add/remove/enable`) return generic help JSON with `exit=0` instead of a typed unsupported/not-implemented error, so automation can treat a failed staffing/control-plane mutation as success** — dogfooded 2026-05-24 for the 20:30 Clawhip nudge at message `1508205480818774086`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`) in a clean isolated env. This was found by carrying forward #681's “help + unexpected + exit 0” stealth-success pattern from `mcp` to sibling local route helpers. Number intentionally follows #681 and avoids Jobdori-announced #680.
+
+    Reproduction:
+
+    ```bash
+    $ env -i HOME=/tmp/iso30/home PATH=/usr/bin:/bin TERM=dumb \
+        claw agents add demo -- /bin/echo hi --output-format json
+    {
+      "action": "help",
+      "kind": "agents",
+      "unexpected": "add demo -- /bin/echo hi",
+      "usage": {
+        "direct_cli": "claw agents [list|help]",
+        "slash_command": "/agents [list|help]",
+        "sources": [".claw/agents", "~/.claw/agents", "$CLAW_CONFIG_HOME/agents"]
+      }
+    }
+    # exit 0, stderr empty, no agent created/registered
+    ```
+
+    Same shape for:
+
+    ```bash
+    claw agents remove demo --output-format json
+    claw agents enable demo --output-format json
+    ```
+
+    All return `exit=0`, `kind:"agents"`, `action:"help"`, `unexpected:"<verb ...>"` and no stderr. The supported contract in the returned help object is only `list|help`, so these mutation verbs are unsupported by contract, but the command-level outcome is success.
+
+    **Root cause shape:** the agents command parser shares the same “unknown tail becomes help with `unexpected`” pattern as MCP. It preserves the unrecognized verb in a decorative help field but does not set an error status, code, nonzero exit, or structured `unsupported_action` metadata. The result is neither a successful mutation nor a machine-classifiable failure.
+
+    **Why distinct from existing items:** ROADMAP #328 covers agent source-root/provenance mismatch. #329 covers resume-safe slash `/agents` flattening structured inventory to prose. #346 covers natural `agents show <name>` detail inspection collapsing to help-success. This entry covers unsupported *mutation/control-plane verbs* (`add/remove/enable`) returning success, which matters for setup/staffing automation and not just detail lookup. #681 covers the same failure class for `mcp`; #682 documents the native-agent subsystem's separate route and required regression coverage.
+
+    **Why this matters:** (1) **Automation false success.** A bootstrap script can run `claw agents add reviewer ...` and continue because exit code is 0, even though no agent exists. (2) **Staffing state becomes unverifiable.** Native-agent availability controls delegation; a failed add/enable/remove must not look like successful help. (3) **Mutation verbs are natural expectations.** Users will try `agents add/remove/enable` after seeing agent inventory, and the CLI should fail closed if those mutations are intentionally unsupported. (4) **`unexpected` is not an error contract.** Claws should not have to infer failure from an optional field inside an otherwise successful help object. (5) **The bug is reusable.** #681 proved the pattern in MCP; this sibling route shows the parser/helper abstraction likely needs a shared unsupported-subaction contract across local route helpers.
+
+    **Required fix shape:** (a) Unsupported agents sub-actions should return a typed JSON error or explicit non-ok status such as `{type:"error", kind:"unsupported_agents_action", requested_action:"add", supported_actions:["list","help"], hint:"Native-agent mutation commands are not implemented; add agent files under a documented agents root or use ..."}` and exit non-zero. (b) Keep help fallback only for explicit `agents help` / `agents --help`; attempted mutations must not be reported as successful help. (c) If `add/remove/enable` are planned features, return `not_implemented` with nonzero exit and no file writes until the write-target/source-layer semantics exist. (d) Add parser/output tests for `agents add`, `agents remove`, and `agents enable` proving they are distinguishable from successful help and successful list. (e) Consider a shared helper for local route families (`agents`, `mcp`, maybe `skills`/`plugins`) so `unexpected` can never be the sole machine signal for unsupported actions. **Acceptance check:** `claw agents add demo -- /bin/echo hi --output-format json >/tmp/out 2>/tmp/err; test $? -ne 0 && jq -e '.kind == "unsupported_agents_action" and .requested_action == "add"' /tmp/err` should pass; currently exit is 0 and stdout is a help object. Source: gaebal-gajae dogfood for the 2026-05-24 20:30 Clawhip nudge. Coordination note: avoided Jobdori #680/session-sort, F/CLAW_CONFIG_HOME, already-covered MCP items, and prior agent items #328/#329/#346; targeted mutation semantics after route-sibling probe.
+
+683. **Top-level `sandbox --help --output-format json` exits successfully but emits plain text help instead of JSON, so automation cannot discover sandbox isolation semantics without scraping prose** — dogfooded 2026-05-24 for the 21:00 Clawhip nudge at message `1508213026480849056`, reproduced on local `./rust/target/debug/claw` `git_sha 003b739d` (origin/main `f8e1bb72`) in a clean isolated env. This continues the command-help JSON parity audit while avoiding already-filed #356 (`status --help --output-format json`) and #357 (`doctor --help --output-format json`).
+
+    Reproduction:
+
+    ```bash
+    $ env -i HOME=/tmp/iso34/home PATH=/usr/bin:/bin TERM=dumb \
+        claw sandbox --help --output-format json
+    Sandbox
+      Usage            claw sandbox [--output-format <format>]
+      Purpose          inspect the resolved sandbox and isolation state for the current directory
+      Output           namespace, network, filesystem, and fallback details
+      Formats          text (default), json
+      Related          /sandbox · claw status
+    # exit 0, stderr empty, stdout is not JSON
+    ```
+
+    In the same clean environment, the normal command is machine-readable:
+
+    ```bash
+    claw sandbox --output-format json
+    # => {"kind":"sandbox", ...}
+    ```
+
+    And global flag order is not the issue: corrected argv probes confirm both `claw sandbox --output-format json` and `claw --output-format json sandbox` work. The failure is specifically the help path accepting `--output-format json` while rendering text.
+
+    **Why distinct from existing items:** #356 covers `status --help --output-format json` returning plain text. #357 covers `doctor --help --output-format json` returning plain text. #325 covers top-level `help --output-format json` being prose wrapped in JSON. #683 is the sandbox command's own help path: it returns no JSON envelope at all even though `sandbox` is a core preflight/isolation control-plane surface and its non-help JSON command already exists. It is also distinct from #381/cache and #358/#380 cost/tokens hangs: sandbox help returns promptly, but ignores the requested machine format.
+
+    **Why this matters:** (1) Sandbox state gates whether a claw can safely run filesystem/network actions; the help surface is where automation learns the fields and related slash command. (2) Returning plain text with exit 0 after `--output-format json` forces claws to parse human alignment columns or special-case sandbox help. (3) This weakens the preflight contract: `sandbox` itself is machine-readable, but the discovery path for its schema/options is not. (4) The bug likely shares the same help-rendering branch as status/doctor, but sandbox needs its own regression because the command-specific help body and accepted options differ.
+
+    **Required fix shape:** (a) Make `sandbox --help --output-format json` emit valid stdout JSON such as `{kind:"help", command:"sandbox", action:"help", usage:"claw sandbox [--output-format <format>]", purpose:"...", output_fields:[...], formats:["text","json"], related:["/sandbox","claw status"]}`. (b) Preserve the current aligned text only for text/default mode. (c) Add a `format:"json"` or schema/version field so callers can assert the help contract without parsing prose. (d) Add regression coverage proving sandbox help with JSON format parses as JSON and that normal `sandbox --output-format json` remains unchanged. (e) Consider sharing the fix with status/doctor (#356/#357), but keep sandbox covered explicitly to prevent partial help parity. **Acceptance check:** `claw sandbox --help --output-format json | jq -e '.kind == "help" and .command == "sandbox" and (.formats | index("json"))'` should pass; currently `jq` fails immediately because stdout begins with `Sandbox`. Source: gaebal-gajae dogfood for the 2026-05-24 21:00 Clawhip nudge. Coordination note: avoided Jobdori #680/session-sort, #681/#682 help-success mutation cluster, and existing help JSON items #325/#356/#357/#358/#380/#381; filed a fresh sandbox-specific preflight help parity gap.
+
+684. **`init --help --output-format json` returns parseable JSON but keeps the init contract inside a prose `message`, unlike `export` help which exposes structured defaults/options; automation cannot discover which artifacts `init` creates, idempotency semantics, or next-step/recovery fields without scraping aligned text** — dogfooded 2026-05-24 for the 21:30 Clawhip nudge at message `1508220580053389436`, reproduced on a freshly rebuilt current `origin/main` binary (`git_sha f8e1bb726`) from `/tmp/cc-probe-main-2130`, after discarding stale-debug-binary observations from `003b739d`/`e939777f`.
+
+    Reproduction:
+
+    ```bash
+    $ env -i HOME=/tmp/iso38/home PATH=/usr/bin:/bin TERM=dumb \
+        claw init --help --output-format json
+    {
+      "command": "init",
+      "kind": "help",
+      "message": "Init\n  Usage            claw init [--output-format <format>]\n  Purpose          create .claw/, .claw.json, .gitignore, and CLAUDE.md in the current project\n  Output           list of created vs. skipped files (idempotent: safe to re-run)\n  Formats          text (default), json\n  Related          claw status · claw doctor",
+      "topic": "init"
+    }
+    ```
+
+    The command returns valid JSON, but every init-specific contract is embedded in the human `message` string. There are no structured fields for `usage`, `purpose`, `creates`, `idempotent`, `output_shape`, `formats`, `related`, `side_effects`, `requires_confirmation`, or `next_step`.
+
+    Contrast with the same current-main binary's actual init output:
+
+    ```bash
+    $ claw init --output-format json
+    {
+      "kind": "init",
+      "artifacts": [
+        {"name":".claw/", "status":"created"},
+        {"name":".claw.json", "status":"created"},
+        {"name":".gitignore", "status":"created"},
+        {"name":"CLAUDE.md", "status":"created"}
+      ],
+      "created": [".claw/", ".claw.json", ".gitignore", "CLAUDE.md"],
+      "skipped": [],
+      "updated": [],
+      "next_step": "Review and tailor the generated guidance",
+      ...
+    }
+    ```
+
+    And contrast with `export --help --output-format json` on the same binary, which already exposes structured fields beyond `message` such as `defaults`, `formats`, `kind`, and `options[]` with `name`, `value`, `description`, aliases, and defaults. The init help surface is therefore a schema-quality outlier among local command help surfaces: parseable JSON exists, but not the machine-readable contract that a claw needs before running a side-effectful initializer.
+
+    **Why distinct from existing items:** #325 covers top-level `help --output-format json` being prose wrapped in JSON. #356/#357/#683 cover status/doctor/sandbox help returning plain text or command-specific help-format gaps. #358/#380/#381 cover hanging help surfaces. #420 covers `plugins help` mutation-envelope drift. #684 is narrower: current-main `init` help is valid JSON but under-structured for a side-effectful project initializer, while sibling `export` help already demonstrates the richer command-help schema pattern. This is not a stale-binary finding; the binary under test reports `git_sha f8e1bb726` matching `origin/main`.
+
+    **Why this matters:** `init` is side-effectful: it creates `.claw/`, `.claw.json`, `.gitignore`, and `CLAUDE.md`. A wrapper or onboarding claw should be able to discover these writes, idempotency guarantees, and follow-up expectations before executing the command. Today it must scrape the aligned prose in `message`, then separately infer the actual artifact list from a dry-run-less real invocation. That is backwards for safe automation: help should expose side effects before mutation.
+
+    **Required fix shape:** (a) Extend `init --help --output-format json` with structured fields mirroring its real output and side-effect contract: `usage`, `purpose`, `formats:["text","json"]`, `creates:[{"name":".claw/","kind":"directory"}, ...]`, `idempotent:true`, `mutates_workspace:true`, `requires_confirmation:false`, `output_fields:["artifacts","created","skipped","updated","next_step","project_path"]`, `related:["claw status","claw doctor"]`, and optional `dry_run_available:false` until such a flag exists. (b) Keep `message` as human summary only. (c) Align command-help JSON schemas so side-effectful commands expose side-effect metadata consistently; `export` already proves richer help JSON is acceptable. (d) Add regression coverage proving `claw init --help --output-format json | jq '.creates[]?.name'` contains `.claw/`, `.claw.json`, `.gitignore`, and `CLAUDE.md`, and that it declares `idempotent:true` / `mutates_workspace:true`. **Acceptance check:** `claw init --help --output-format json | jq -e '.command=="init" and .mutates_workspace==true and .idempotent==true and ([.creates[].name] | index(".claw.json")) and ([.output_fields[]] | index("artifacts"))'` should pass; currently `.creates`, `.idempotent`, `.mutates_workspace`, and `.output_fields` are absent. Source: gaebal-gajae dogfood for the 2026-05-24 21:30 Clawhip nudge. Coordination note: avoided #420 after pre-grep showed Jobdori already tracked `plugins help`; avoided stale-binary candidates by rebuilding current `origin/main` before filing.
+
+685. **`version --help --output-format json` returns only `{kind, command, topic, message}` and does not expose the provenance fields its actual `version --output-format json` command emits (`version`, `git_sha`, `target`, `build_date`) as structured `output_fields` / schema metadata, forcing dogfooders and wrappers to scrape prose before knowing which build-identity fields are available** — dogfooded 2026-05-24 for the 22:00 Clawhip nudge at message `1508228126088626216`, reproduced on a freshly rebuilt current `origin/main` binary (`git_sha f8e1bb726`) from `/tmp/cc-probe-main-2130`. This was checked after correcting an argv-loop mistake and verifying `claw version --output-format json | jq -r .git_sha` matched the intended source revision.
+
+    Reproduction:
+
+    ```bash
+    $ env -i HOME=/tmp/iso40/home PATH=/usr/bin:/bin TERM=dumb \
+        claw version --help --output-format json
+    {
+      "command": "version",
+      "kind": "help",
+      "message": "Version\n  Usage            claw version [--output-format <format>]\n  Aliases          claw --version · claw -V\n  Purpose          print the claw CLI version and build metadata\n  Formats          text (default), json\n  Related          claw doctor (full build/auth/config diagnostic)",
+      "topic": "version"
+    }
+    ```
+
+    The command returns valid JSON, but all actionable contract details are embedded in prose. There is no structured `usage`, `aliases`, `purpose`, `formats`, `related`, `output_fields`, `provenance_fields`, `local_only`, or `requires_credentials:false` field.
+
+    Contrast with the real command on the same binary:
+
+    ```bash
+    $ claw version --output-format json
+    {
+      "kind": "version",
+      "version": "0.1.0",
+      "git_sha": "f8e1bb726",
+      "target": "x86_64-unknown-linux-gnu",
+      "build_date": "2026-05-24",
+      "message": "Claw Code\n  Version ..."
+    }
+    ```
+
+    **Why distinct from existing items:** #325 covers top-level `help --output-format json` being prose wrapped in JSON. #356/#357/#683 covered status/doctor/sandbox help-format gaps; on current main these now return parseable command-help JSON, but still largely prose-only. #684 covers `init` specifically because it is side-effectful and lacks structured write/idempotency metadata. #685 is version-specific: `version` is the build-provenance surface dogfooders use to prove whether a finding is from current code or a stale debug binary (see #324 stale-binary provenance). Its help JSON should say, machine-readably, which provenance fields exist.
+
+    **Why this matters:** Build identity is the first trust check for every dogfood report. A wrapper should be able to discover from help that `version --output-format json` includes `git_sha`, `target`, `build_date`, and `version`, and that it is local-only / credential-free. Today it must either scrape the aligned `message` string or blindly invoke `version` and reverse-engineer the schema. That weakens exactly the stale-binary guard used to avoid false ROADMAP entries.
+
+    **Required fix shape:** (a) Extend `version --help --output-format json` with structured fields such as `usage:"claw version [--output-format <format>]"`, `aliases:["claw --version","claw -V"]`, `purpose:"print build metadata"`, `formats:["text","json"]`, `output_fields:["kind","version","git_sha","target","build_date","message"]`, `provenance_fields:["git_sha","target","build_date"]`, `local_only:true`, `requires_credentials:false`, `mutates_workspace:false`, and `related:["claw doctor"]`. (b) Keep `message` as human summary only. (c) Add regression coverage proving `claw version --help --output-format json | jq '.output_fields'` includes `git_sha`, `target`, and `build_date`, and that `requires_credentials` is false. (d) Consider sharing this command-help schema pattern with status/doctor/sandbox/init/acp, but keep `version` covered explicitly because stale-binary checks depend on it. **Acceptance check:** `claw version --help --output-format json | jq -e '.command=="version" and .local_only==true and .requires_credentials==false and ([.output_fields[]] | index("git_sha") and index("target") and index("build_date"))'` should pass; currently `.local_only`, `.requires_credentials`, and `.output_fields` are absent. Source: gaebal-gajae dogfood for the 2026-05-24 22:00 Clawhip nudge.
+
+686. **`doctor --help --output-format json` now returns parseable JSON on current main, but it is still message-only (`{kind, command, topic, message}`) and does not expose the diagnostic check schema, local-only/no-provider contract, or expected output fields (`checks[]`, check names, levels/statuses), so wrappers cannot discover how to consume the primary preflight surface without scraping prose or running the command first** — dogfooded 2026-05-24 for the 22:30 Clawhip nudge at message `1508235675546419210`, reproduced on a freshly rebuilt current `origin/main` binary (`git_sha f8e1bb726`) from `/tmp/cc-probe-main-2130`. Active claw-code sessions: none.
+
+    Reproduction:
+
+    ```bash
+    $ env -i HOME=/tmp/iso41/home PATH=/usr/bin:/bin TERM=dumb \
+        claw doctor --help --output-format json
+    {
+      "command": "doctor",
+      "kind": "help",
+      "message": "Doctor\n  Usage            claw doctor [--output-format <format>]\n  Purpose          diagnose local auth, config, workspace, sandbox, and build metadata\n  Output           local-only health report; no provider request or session resume required\n  Formats          text (default), json\n  Related          /doctor · claw --resume latest /doctor",
+      "topic": "doctor"
+    }
+    ```
+
+    The help object is valid JSON, but all actionable metadata is trapped in `message`. There are no structured `usage`, `purpose`, `formats`, `related`, `local_only`, `requires_credentials:false`, `requires_provider_request:false`, `output_fields`, `check_names`, `status_values`, or `failure_contract` fields.
+
+    Contrast with the actual doctor JSON surface (same command family):
+
+    ```bash
+    $ claw doctor --output-format json
+    {
+      "kind": "doctor",
+      "status": "...",
+      "checks": [
+        {"name":"auth", ...},
+        {"name":"config", ...},
+        {"name":"install_source", ...},
+        {"name":"workspace", ...},
+        {"name":"sandbox", ...},
+        {"name":"system", ...}
+      ],
+      ...
+    }
+    ```
+
+    And contrast with `export --help --output-format json` on the same rebuilt binary, which already exposes structured `usage`, `purpose`, `formats`, `related`, `defaults`, and `options[]`. The doctor help surface therefore satisfies JSON validity but not schema discoverability for the most important local preflight command.
+
+    **Why distinct from existing items:** #357 originally covered `doctor --help --output-format json` returning plain text. Current main no longer reproduces that exact failure: it returns JSON. #686 covers the next-layer contract gap: JSON is message-only and does not describe the doctor schema. #325 is the broad top-level help prose-wrapper problem; #684 and #685 are command-specific schema-depth gaps for `init` and `version`. This entry is doctor-specific because `doctor` is the primary automation preflight and its check schema is what claws branch on before running work. It also complements #100/#102/#107 style doctor-coverage gaps: before adding checks, help should expose which checks and status vocabulary are available.
+
+    **Why this matters:** `doctor` is the command operators and claws run when setup is broken. A wrapper should be able to learn from help, without running health checks yet, that `doctor` is local-only, credential-free, produces `checks[]`, and uses check/status levels suitable for gating. Today it must scrape prose or run `doctor` and reverse-engineer the response. That makes preflight adapters brittle and hides schema changes from automation.
+
+    **Required fix shape:** (a) Extend `doctor --help --output-format json` with structured fields such as `usage:"claw doctor [--output-format <format>]"`, `purpose`, `formats:["text","json"]`, `related:["/doctor","claw --resume latest /doctor"]`, `local_only:true`, `requires_credentials:false`, `requires_provider_request:false`, `mutates_workspace:false`, `output_fields:["kind","status","checks","message"]`, `check_names:["auth","config","install_source","workspace","sandbox","system"]` (or a versioned stable/default list), `status_values:["ok","warn","fail"]`, and optional `schema_version`. (b) Keep `message` as human summary only. (c) Add regression coverage proving `claw doctor --help --output-format json | jq '.output_fields'` includes `checks`, and that `.requires_credentials == false`. (d) When new doctor checks land, update the help schema from the same registry/source used to build the report so help/check output cannot drift. **Acceptance check:** `claw doctor --help --output-format json | jq -e '.command=="doctor" and .local_only==true and .requires_credentials==false and ([.output_fields[]] | index("checks")) and ([.status_values[]] | index("warn"))'` should pass; currently those structured fields are absent. Source: gaebal-gajae dogfood for the 2026-05-24 22:30 Clawhip nudge.
+
+687. **`status --help --output-format json` is JSON-valid on current main but message-only (`{kind, command, topic, message}`), while actual `status --output-format json` exposes a large preflight schema (`workspace`, `sandbox`, `allowed_tools`, `lane_board`, `model_source`, `usage`, etc.) that help does not describe; wrappers cannot discover status output fields or local/auth semantics without invoking status and reverse-engineering the payload** — dogfooded 2026-05-24 for the 23:00 Clawhip nudge at message `1508243229626204292`, reproduced on a freshly rebuilt current `origin/main` binary (`git_sha f8e1bb726`) from `/tmp/cc-probe-main-2130`. Active claw-code sessions: none.
+
+    Reproduction:
+
+    ```bash
+    $ env -i HOME=/tmp/iso42/home PATH=/usr/bin:/bin TERM=dumb \
+        claw status --help --output-format json
+    {
+      "command": "status",
+      "kind": "help",
+      "message": "Status\n  Usage            claw status [--output-format <format>]\n  Purpose          show the local workspace snapshot without entering the REPL\n  Output           model, permissions, git state, config files, and sandbox status\n  Formats          text (default), json\n  Related          /status · claw --resume latest /status",
+      "topic": "status"
+    }
+    ```
+
+    Actual status JSON on the same binary exposes many structured fields:
+
+    ```bash
+    $ claw status --output-format json | jq 'keys'
+    ["allowed_tools", "config_load_error", "kind", "lane_board", "model", "model_raw", "model_source", "permission_mode", "sandbox", "status", "usage", "workspace"]
+
+    $ claw status --output-format json | jq '.workspace | keys'
+    ["boot_preflight", "branch_freshness", "changed_files", "cwd", "discovered_config_files", "git_branch", "git_state", "loaded_config_files", "memory_file_count", "project_root", "session", "session_id", "session_lifecycle", "staged_files", "unstaged_files", "untracked_files"]
+
+    $ claw status --output-format json | jq '.sandbox | keys'
+    ["active", "active_namespace", "active_network", "allowed_mounts", "enabled", "fallback_reason", "filesystem_active", "filesystem_mode", "in_container", "markers", "requested_namespace", "requested_network", "supported"]
+    ```
+
+    None of this is described as structured help metadata. There is no `output_fields`, `workspace_fields`, `sandbox_fields`, `status_values`, `local_only`, `requires_credentials:false`, `requires_provider_request:false`, `mutates_workspace:false`, or `related` array.
+
+    **Why distinct from existing items:** #356 covered `status --help --output-format json` returning plain text; current main no longer reproduces that exact issue because it returns valid JSON. #687 covers the next-layer schema-depth gap: status help is message-only and does not describe the actual status output schema. #325 is broad top-level help prose-wrapper. #686 is doctor-specific check-schema help. #326/#448 cover specific status/sandbox payload correctness problems; #687 is the discoverability contract for status as a whole.
+
+    **Why this matters:** `status` is the lightweight lane truth surface. Claws use it to decide model/provenance, permission mode, workspace git state, sandbox state, active session lifecycle, and lane board state before choosing work. A wrapper should not need to run status and reverse-engineer keys before it knows whether `workspace.branch_freshness`, `sandbox.filesystem_active`, or `allowed_tools.restricted` exist. Help JSON should declare the output schema and local/auth semantics.
+
+    **Required fix shape:** (a) Extend `status --help --output-format json` with structured fields: `usage:"claw status [--output-format <format>]"`, `formats:["text","json"]`, `related:["/status","claw --resume latest /status"]`, `local_only:true`, `requires_credentials:false`, `requires_provider_request:false`, `mutates_workspace:false`, `output_fields:["kind","status","model","model_raw","model_source","permission_mode","allowed_tools","workspace","sandbox","usage","lane_board","config_load_error"]`, `workspace_fields:[...]`, `sandbox_fields:[...]`, `status_values:["ok","degraded",...]` or equivalent documented vocabulary, and `schema_version`. (b) Keep `message` as human summary only. (c) Derive help schema from the same status renderer structs/registry so newly added status fields do not drift from help. (d) Add regression coverage proving `claw status --help --output-format json | jq '.output_fields'` contains `workspace`, `sandbox`, `allowed_tools`, and that `workspace_fields` contains `branch_freshness` / `session_lifecycle`. **Acceptance check:** `claw status --help --output-format json | jq -e '.command=="status" and .local_only==true and .requires_credentials==false and ([.output_fields[]] | index("workspace") and index("sandbox") and index("allowed_tools")) and ([.workspace_fields[]] | index("branch_freshness"))'` should pass; currently those fields are absent. Source: gaebal-gajae dogfood for the 2026-05-24 23:00 Clawhip nudge.
+
+688. **`sandbox --help --output-format json` is JSON-valid on current main but message-only (`{kind, command, topic, message}`), while actual `sandbox --output-format json` exposes the safety/trust schema (`active`, `supported`, `enabled`, namespace/network/filesystem flags, `allowed_mounts`, `fallback_reason`, markers) that help does not describe; automation cannot discover sandbox-state fields or their intended semantics without invoking sandbox and reverse-engineering the payload** — dogfooded 2026-05-24 for the 23:30 Clawhip nudge at message `1508250775162196070`, reproduced on a freshly rebuilt current `origin/main` binary (`git_sha f8e1bb726`) from `/tmp/cc-probe-main-2130`. Active claw-code sessions: none.
+
+    Reproduction:
+
+    ```bash
+    $ env -i HOME=/tmp/iso43/home PATH=/usr/bin:/bin TERM=dumb \
+        claw sandbox --help --output-format json
+    {
+      "command": "sandbox",
+      "kind": "help",
+      "message": "Sandbox\n  Usage            claw sandbox [--output-format <format>]\n  Purpose          inspect the resolved sandbox and isolation state for the current directory\n  Output           namespace, network, filesystem, and fallback details\n  Formats          text (default), json\n  Related          /sandbox · claw status",
+      "topic": "sandbox"
+    }
+    ```
+
+    Actual sandbox JSON on the same binary exposes the trust-state fields:
+
+    ```bash
+    $ claw sandbox --output-format json | jq 'keys'
+    [
+      "active",
+      "active_namespace",
+      "active_network",
+      "allowed_mounts",
+      "enabled",
+      "fallback_reason",
+      "filesystem_active",
+      "filesystem_mode",
+      "in_container",
+      "kind",
+      "markers",
+      "requested_namespace",
+      "requested_network",
+      "supported"
+    ]
+    ```
+
+    Help does not expose any structured `output_fields`, `component_fields`, `mode_fields`, `local_only`, `requires_credentials:false`, `requires_provider_request:false`, `mutates_workspace:false`, or documented `active` aggregation semantics. This matters even more because #448 already shows the sandbox payload can carry confusing combinations such as `active:false` with `filesystem_active:true`; help should be the place where those fields are machine-described.
+
+    **Why distinct from existing items:** #448 is about contradictory sandbox state values and missing/implicit mount semantics in the actual payload. #688 is about help-schema discoverability: even if the payload values are corrected, `sandbox --help --output-format json` still gives automation only a prose `message` and no field contract. #325 is broad top-level help prose-wrapper; #687 is status schema help; #686 is doctor check-schema help. This one is sandbox-specific because sandbox is the safety/trust surface and its component-state vocabulary needs to be discoverable before callers trust a run.
+
+    **Why this matters:** claws and wrappers gate risky prompt execution on sandbox state. They need to know, from help or schema metadata, which fields exist (`active_namespace`, `filesystem_active`, `allowed_mounts`, `fallback_reason`), whether the command is local-only and credential-free, and how to interpret the aggregate `active` versus component-active fields. Today they must invoke sandbox, inspect an example response, and guess the semantics.
+
+    **Required fix shape:** (a) Extend `sandbox --help --output-format json` with structured fields: `usage:"claw sandbox [--output-format <format>]"`, `formats:["text","json"]`, `related:["/sandbox","claw status"]`, `local_only:true`, `requires_credentials:false`, `requires_provider_request:false`, `mutates_workspace:false`, `output_fields:["kind","active","supported","enabled","requested_namespace","active_namespace","requested_network","active_network","filesystem_active","filesystem_mode","allowed_mounts","fallback_reason","in_container","markers"]`, `component_fields:["namespace","network","filesystem"]`, `filesystem_modes:[...]`, and `schema_version`. (b) Add a machine-readable `active_semantics` field, e.g. `"all_requested_components_active"` or `"any_component_active"`, matching the eventual #448 fix. (c) Keep `message` as human summary only. (d) Derive the help schema from the same sandbox report struct/registry used to render the payload so added sandbox fields cannot drift from help. **Acceptance check:** `claw sandbox --help --output-format json | jq -e '.command=="sandbox" and .local_only==true and .requires_credentials==false and ([.output_fields[]] | index("filesystem_active") and index("allowed_mounts") and index("fallback_reason")) and (.active_semantics | type == "string")'` should pass; currently those structured fields are absent. Source: gaebal-gajae dogfood for the 2026-05-24 23:30 Clawhip nudge.
+
+689. **`acp --help --output-format json` is JSON-valid but message-only (`{kind, command, topic, message}`), even though the actual ACP discoverability surface (`claw --output-format json acp`, `acp serve`, `--acp`, `-acp`) already exposes a rich structured status contract (`supported:false`, `phase`, `protocol`, `serve_alias_only`, `contracts`, `recommended_workflows`, `schema_version`, tracking IDs); editor wrappers cannot discover the ACP/Zed non-daemon contract from help without invoking ACP status and reverse-engineering the payload** — dogfooded 2026-05-25 for the 00:00 Clawhip nudge at message `1508258328189472908`, reproduced on a freshly rebuilt current `origin/main` binary (`git_sha f8e1bb726`) from `/tmp/cc-probe-main-2130`. Active claw-code sessions: none.
+
+    Reproduction:
+
+    ```bash
+    $ env -i HOME=/tmp/iso44/home PATH=/usr/bin:/bin TERM=dumb \
+        claw acp --help --output-format json
+    {
+      "command": "acp",
+      "kind": "help",
+      "message": "ACP / Zed\n  Usage            claw acp [serve] [--output-format <format>]\n  Aliases          claw --acp · claw -acp\n  Purpose          explain the current editor-facing ACP/Zed launch contract without starting the runtime\n  Status           discoverability only; `serve` is a status alias and does not launch a daemon yet\n  Formats          text (default), json\n  Related          ROADMAP #64a (discoverability) · ROADMAP #76 (real ACP support) · claw --help",
+      "topic": "acp"
+    }
+    ```
+
+    Actual ACP status JSON on the same binary is much richer and already structured:
+
+    ```bash
+    $ claw --output-format json acp | jq '{kind,status,supported,phase,serve_alias_only,schema_version,protocol,contracts,recommended_workflows,tracking}'
+    {
+      "kind": "acp",
+      "status": "unsupported",
+      "supported": false,
+      "phase": "discoverability_only",
+      "serve_alias_only": true,
+      "schema_version": "1.0",
+      "protocol": {
+        "daemon": false,
+        "endpoint": null,
+        "json_rpc": false,
+        "name": "ACP/Zed",
+        "serve_starts_daemon": false
+      },
+      "contracts": {
+        "blocking_gates": ["task_packet_schema", "session_control_schema", "event_report_schema"],
+        "stable_status_surface": "claw acp [serve] --output-format json",
+        "unsupported_invocation_kind": "unsupported_acp_invocation"
+      },
+      "recommended_workflows": ["claw prompt TEXT", "claw", "claw doctor"],
+      "tracking": "ROADMAP #76 / #3033 / #3004"
+    }
+    ```
+
+    All aliases (`claw --output-format json acp`, `acp serve`, `--acp`, `-acp`) return the same structured status payload. Help, however, omits structured `aliases`, `output_fields`, `status_values`, `phase_values`, `protocol_fields`, `contract_fields`, `local_only`, `requires_credentials:false`, `requires_provider_request:false`, `mutates_workspace:false`, and `serve_starts_daemon:false` metadata.
+
+    **Why distinct from existing items:** #64a verified that ACP discoverability exists and returns a structured status payload; #76 tracks real ACP/Zed daemon implementation. #689 is narrower: the help JSON for the existing ACP discoverability command does not expose the same schema/contract fields that the status payload already has. #325 is broad top-level help prose-wrapper; #686–#688 cover doctor/status/sandbox help-schema depth. This one is ACP-specific because editor integrations are likely to query help before deciding whether `serve` launches a process, and here `serve` intentionally does not.
+
+    **Why this matters:** an editor wrapper or installer asking “can I launch claw as an ACP daemon?” should be able to answer from `acp --help --output-format json` without accidentally invoking the status path or parsing a prose sentence. The critical contract is negative capability: `supported:false`, `serve_alias_only:true`, `protocol.daemon:false`, `protocol.json_rpc:false`, `protocol.serve_starts_daemon:false`, and the blocking gates for real support. Keeping those only in runtime status makes help less useful than the command it documents.
+
+    **Required fix shape:** (a) Extend `acp --help --output-format json` with structured fields mirroring the ACP status contract: `usage:"claw acp [serve] [--output-format <format>]"`, `aliases:["acp","--acp","-acp"]`, `formats:["text","json"]`, `related:["ROADMAP #64a","ROADMAP #76","claw --help"]`, `local_only:true`, `requires_credentials:false`, `requires_provider_request:false`, `mutates_workspace:false`, `serve_starts_daemon:false`, `output_fields:["kind","status","supported","phase","protocol","contracts","recommended_workflows","schema_version"]`, `status_values:["unsupported"]`, `phase_values:["discoverability_only"]`, and `protocol_fields:["daemon","endpoint","json_rpc","name","serve_starts_daemon"]`. (b) Derive help metadata from the same ACP status struct/registry so help and status cannot drift. (c) Keep `message` as the human summary only. **Acceptance check:** `claw acp --help --output-format json | jq -e '.command=="acp" and .local_only==true and .requires_credentials==false and .serve_starts_daemon==false and ([.output_fields[]] | index("protocol") and index("contracts")) and ([.aliases[]] | index("--acp"))'` should pass; currently those fields are absent. Source: gaebal-gajae dogfood for the 2026-05-25 00:00 Clawhip nudge.
+
+690. **`bootstrap-plan --help --output-format json` is now correctly intercepted as help on current main, but the JSON help is message-only (`{kind, command, topic, message}`) while actual `bootstrap-plan --output-format json` exposes the ordered startup phase contract in `phases[]`; startup wrappers cannot discover phase names, ordering semantics, or local/auth behavior from help without invoking the plan and reverse-engineering the payload** — dogfooded 2026-05-25 for the 00:30 Clawhip nudge at message `1508265874824626176`, reproduced on a freshly rebuilt current `origin/main` binary (`git_sha f8e1bb726`) from `/tmp/cc-probe-main-2130`. Active claw-code sessions: none.
+
+    Reproduction:
+
+    ```bash
+    $ env -i HOME=/tmp/iso45/home PATH=/usr/bin:/bin TERM=dumb \
+        claw bootstrap-plan --help --output-format json
+    {
+      "command": "bootstrap-plan",
+      "kind": "help",
+      "message": "Bootstrap Plan\n  Usage            claw bootstrap-plan [--output-format <format>]\n  Purpose          list the ordered startup phases the CLI would execute before dispatch\n  Output           phase names (text) or structured phase list (json) — primary output is the plan itself\n  Formats          text (default), json\n  Related          claw doctor · claw status",
+      "topic": "bootstrap-plan"
+    }
+    ```
+
+    Actual bootstrap-plan JSON on the same binary is a structured startup ordering surface:
+
+    ```bash
+    $ claw bootstrap-plan --output-format json
+    {
+      "kind": "bootstrap-plan",
+      "phases": [
+        "CliEntry",
+        "FastPathVersion",
+        "StartupProfiler",
+        "SystemPromptFastPath",
+        "ChromeMcpFastPath",
+        "DaemonWorkerFastPath",
+        "BridgeFastPath",
+        "DaemonFastPath",
+        "BackgroundSessionFastPath",
+        "TemplateFastPath",
+        "EnvironmentRunnerFastPath",
+        "MainRuntime"
+      ]
+    }
+    ```
+
+    Help does not expose structured `output_fields`, `phase_order`, `phase_count`, `phase_values`, `ordering_semantics`, `local_only`, `requires_credentials:false`, `requires_provider_request:false`, or `mutates_workspace:false` fields.
+
+    **Why distinct from existing items:** #141 covered inconsistent `<subcommand> --help` behavior and specifically noted old `bootstrap-plan --help` printed phases instead of help. Current main has fixed that parser-level behavior: `bootstrap-plan --help --output-format json` returns a help object. #690 covers the next-layer schema-depth gap: the help object is prose-only and does not describe the startup phase contract. #325 is broad top-level help prose-wrapper; #686–#689 are sibling help-schema depth gaps for doctor/status/sandbox/ACP.
+
+    **Why this matters:** `bootstrap-plan` is a startup-order introspection command. Claws use it to reason about what can run before credentials, MCP, daemon/bridge startup, or prompt dispatch. The phase list is a contract: ordering and phase names must be discoverable without running the command first and treating one sample output as the schema. If a new phase is inserted, help/schema should make the change visible to wrappers.
+
+    **Required fix shape:** (a) Extend `bootstrap-plan --help --output-format json` with structured fields: `usage:"claw bootstrap-plan [--output-format <format>]"`, `formats:["text","json"]`, `related:["claw doctor","claw status"]`, `local_only:true`, `requires_credentials:false`, `requires_provider_request:false`, `mutates_workspace:false`, `output_fields:["kind","phases"]`, `phase_order:["CliEntry","FastPathVersion","StartupProfiler","SystemPromptFastPath","ChromeMcpFastPath","DaemonWorkerFastPath","BridgeFastPath","DaemonFastPath","BackgroundSessionFastPath","TemplateFastPath","EnvironmentRunnerFastPath","MainRuntime"]`, `phase_count:12`, `ordering_semantics:"execution_order_before_main_runtime"`, and `schema_version`. (b) Derive help phase metadata from the same phase registry/vector used by `bootstrap-plan` output so additions cannot drift. (c) Keep `message` as human summary only. **Acceptance check:** `claw bootstrap-plan --help --output-format json | jq -e '.command=="bootstrap-plan" and .local_only==true and .requires_credentials==false and ([.output_fields[]] | index("phases")) and (.phase_order[0] == "CliEntry") and (.ordering_semantics | type == "string")'` should pass; currently those structured fields are absent. Source: gaebal-gajae dogfood for the 2026-05-25 00:30 Clawhip nudge.
+
+691. **`system-prompt --help --output-format json` is now correctly intercepted as help on current main, but the JSON help is message-only (`{kind, command, topic, message}`) and does not expose the dangerous option contract (`--cwd`, `--date`), validation expectations, or actual output schema (`kind`, `message`, `sections`); wrappers cannot safely discover how to render deterministic system prompts or validate tainted inputs without parsing prose or invoking the prompt renderer** — dogfooded 2026-05-25 for the 01:00 Clawhip nudge at message `1508273429000880210`, reproduced on a freshly rebuilt current `origin/main` binary (`git_sha f8e1bb726`) from `/tmp/cc-probe-main-2130`. Active claw-code sessions: none.
+
+    Reproduction:
+
+    ```bash
+    $ env -i HOME=/tmp/iso46/home PATH=/usr/bin:/bin TERM=dumb \
+        claw system-prompt --help --output-format json
+    {
+      "command": "system-prompt",
+      "kind": "help",
+      "message": "System Prompt\n  Usage            claw system-prompt [--cwd <path>] [--date YYYY-MM-DD] [--output-format <format>]\n  Purpose          render the resolved system prompt that `claw` would send for the given cwd + date\n  Options          --cwd overrides the workspace dir · --date injects a deterministic date stamp\n  Formats          text (default), json\n  Related          claw doctor · claw dump-manifests",
+      "topic": "system-prompt"
+    }
+    ```
+
+    Actual JSON output on the same binary exposes structured fields:
+
+    ```bash
+    $ claw system-prompt --cwd /tmp/iso46/proj --date 2026-05-25 --output-format json | jq 'keys'
+    ["kind", "message", "sections"]
+    ```
+
+    Help does not expose structured `options[]`, `output_fields`, `sections_schema`, `date_format`, `cwd_semantics`, `local_only`, `requires_credentials:false`, `requires_provider_request:false`, or `mutates_workspace:false`. It also does not expose whether `--cwd` must exist/be a directory or whether `--date` is validated as ISO-8601 — which is exactly the high-risk surface from #99.
+
+    **Why distinct from existing items:** #99 covers missing validation for `--cwd` and `--date` values (including prompt-injection/newline risks). #141 covered old parser behavior where `system-prompt --help` errored as an unknown option. Current main fixed the parser-level help interception: it now returns a help object. #691 is the next-layer help-schema gap: the help object is prose-only and does not describe option/output contracts in a machine-readable way. #325 is broad top-level help prose-wrapper; #690 covers bootstrap-plan phase schema; #686–#689 cover other local help-schema depth siblings.
+
+    **Why this matters:** `system-prompt` is a prompt-materialization and debugging surface. Wrappers use it to render deterministic prompts for a specific repo/date. The options are tainted-input sensitive: `--cwd` and `--date` are injected into system prompt text. Help JSON should tell automation how to validate those options and what fields (`message`, `sections`) will be returned without requiring a renderer invocation that may already embed bad inputs.
+
+    **Required fix shape:** (a) Extend `system-prompt --help --output-format json` with structured fields: `usage:"claw system-prompt [--cwd <path>] [--date YYYY-MM-DD] [--output-format <format>]"`, `formats:["text","json"]`, `related:["claw doctor","claw dump-manifests"]`, `local_only:true`, `requires_credentials:false`, `requires_provider_request:false`, `mutates_workspace:false`, `output_fields:["kind","message","sections"]`, and `options:[{name:"--cwd", value_name:"PATH", type:"directory", required:false, validation:["exists","is_directory","no_newlines"], default:"current working directory"},{name:"--date", value_name:"YYYY-MM-DD", type:"date", required:false, validation:["iso8601_date","valid_calendar_date","no_newlines"], default:"current date"},{name:"--output-format", values:["text","json"]}]`. (b) Add `sections_schema` or at least `sections_field_semantics` so callers know whether `sections` is ordered and what each entry contains. (c) Derive option metadata from the parser/validator used by #99's eventual fix so help cannot claim validation that code does not enforce. (d) Keep `message` as human summary only. **Acceptance check:** `claw system-prompt --help --output-format json | jq -e '.command=="system-prompt" and .local_only==true and .requires_credentials==false and ([.output_fields[]] | index("message") and index("sections")) and ([.options[].name] | index("--cwd") and index("--date"))'` should pass; currently those structured fields are absent. Source: gaebal-gajae dogfood for the 2026-05-25 01:00 Clawhip nudge.
