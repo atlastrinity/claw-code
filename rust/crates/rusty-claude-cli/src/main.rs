@@ -286,6 +286,10 @@ fn classify_error_kind(message: &str) -> &'static str {
         "confirmation_required"
     } else if message.contains("api failed") || message.contains("api returned") {
         "api_http_error"
+    } else if message.contains("mcpServers") {
+        "malformed_mcp_config"
+    } else if message.starts_with("empty prompt") {
+        "empty_prompt"
     } else {
         "unknown"
     }
@@ -2084,6 +2088,7 @@ fn render_doctor_report() -> Result<DoctorReport, Box<dyn std::error::Error>> {
         // Doctor path has its own config check; StatusContext here is only
         // fed into health renderers that don't read config_load_error.
         config_load_error: config.as_ref().err().map(ToString::to_string),
+        config_load_error_kind: None,
     };
     Ok(DoctorReport {
         checks: vec![
@@ -3032,6 +3037,11 @@ struct StatusContext {
     /// `status: "degraded"` so claws can distinguish "status ran but config
     /// is broken" from "status ran cleanly".
     config_load_error: Option<String>,
+    /// #143: machine-readable kind for the config load error, derived from
+    /// `classify_error_kind`. Included in JSON output alongside the human
+    /// readable string so downstream claws can switch on the kind token
+    /// instead of regex-scraping the prose.
+    config_load_error_kind: Option<&'static str>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -6549,6 +6559,8 @@ fn status_json_value(
     // are still populated). `config_load_error` carries the parse-error string
     // when present; it's a string rather than a typed object in Phase 1 and
     // will join the typed-error taxonomy in Phase 2 (ROADMAP §4.44).
+    // `config_load_error_kind` is the machine-readable kind token derived from
+    // `classify_error_kind` so downstream claws can switch on it directly.
     let degraded = context.config_load_error.is_some();
     let model_source = provenance.map(|p| p.source.as_str());
     let model_raw = provenance.and_then(|p| p.raw.clone());
@@ -6557,6 +6569,7 @@ fn status_json_value(
         "kind": "status",
         "status": if degraded { "degraded" } else { "ok" },
         "config_load_error": context.config_load_error,
+        "config_load_error_kind": context.config_load_error_kind,
         "model": model,
         "model_source": model_source,
         "model_raw": model_raw,
@@ -6642,23 +6655,30 @@ fn status_context(
     // health surface (workspace, git, model, permission, sandbox can still be
     // reported independently).
     let runtime_config = loader.load();
-    let (loaded_config_files, sandbox_status, config_load_error) = match runtime_config.as_ref() {
-        Ok(runtime_config) => (
-            runtime_config.loaded_entries().len(),
-            resolve_sandbox_status(runtime_config.sandbox(), &cwd),
-            None,
-        ),
-        Err(err) => (
-            0,
-            // Fall back to defaults for sandbox resolution so claws still see
-            // a populated sandbox section instead of a missing field. Defaults
-            // produce the same output as a runtime config with no sandbox
-            // overrides, which is the right degraded-mode shape: we cannot
-            // report what the user *intended*, only what is actually in effect.
-            resolve_sandbox_status(&runtime::SandboxConfig::default(), &cwd),
-            Some(err.to_string()),
-        ),
-    };
+    let (loaded_config_files, sandbox_status, config_load_error, config_load_error_kind) =
+        match runtime_config.as_ref() {
+            Ok(cfg) => (
+                cfg.loaded_entries().len(),
+                resolve_sandbox_status(cfg.sandbox(), &cwd),
+                None,
+                None,
+            ),
+            Err(err) => {
+                let err_string = err.to_string();
+                let err_kind = classify_error_kind(&err_string);
+                (
+                    0,
+                    // Fall back to defaults for sandbox resolution so claws still see
+                    // a populated sandbox section instead of a missing field. Defaults
+                    // produce the same output as a runtime config with no sandbox
+                    // overrides, which is the right degraded-mode shape: we cannot
+                    // report what the user *intended*, only what is actually in effect.
+                    resolve_sandbox_status(&runtime::SandboxConfig::default(), &cwd),
+                    Some(err_string),
+                    Some(err_kind),
+                )
+            }
+        };
     let project_context = ProjectContext::discover_with_git(&cwd, DEFAULT_DATE)?;
     let (project_root, git_branch) =
         parse_git_status_metadata(project_context.git_status.as_deref());
@@ -6687,6 +6707,7 @@ fn status_context(
         boot_preflight,
         sandbox_status,
         config_load_error,
+        config_load_error_kind,
     })
 }
 
@@ -12170,6 +12191,18 @@ mod tests {
         assert_eq!(
             classify_error_kind("api failed after 3 attempts: ..."),
             "api_http_error"
+        );
+        assert_eq!(
+            classify_error_kind("/tmp/settings.json: mcpServers.foo: expected JSON object"),
+            "malformed_mcp_config"
+        );
+        assert_eq!(
+            classify_error_kind("settings.json: mcpServers: field must be an object"),
+            "malformed_mcp_config"
+        );
+        assert_eq!(
+            classify_error_kind("empty prompt: provide a subcommand or a non-empty prompt string"),
+            "empty_prompt"
         );
         assert_eq!(
             classify_error_kind("something completely unknown"),

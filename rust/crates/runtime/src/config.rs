@@ -90,6 +90,10 @@ pub struct RuntimePermissionRuleConfig {
     allow: Vec<String>,
     deny: Vec<String>,
     ask: Vec<String>,
+    /// #159: simple tool-name denials parsed from the `deniedTools` config field.
+    /// Unlike the `deny` rules (pattern-based), `denied_tools` is a flat list of
+    /// tool names that are unconditionally denied regardless of permission mode.
+    denied_tools: Vec<String>,
 }
 
 /// Collection of configured MCP servers after scope-aware merging.
@@ -738,8 +742,18 @@ impl RuntimeHookConfig {
 
 impl RuntimePermissionRuleConfig {
     #[must_use]
-    pub fn new(allow: Vec<String>, deny: Vec<String>, ask: Vec<String>) -> Self {
-        Self { allow, deny, ask }
+    pub fn new(
+        allow: Vec<String>,
+        deny: Vec<String>,
+        ask: Vec<String>,
+        denied_tools: Vec<String>,
+    ) -> Self {
+        Self {
+            allow,
+            deny,
+            ask,
+            denied_tools,
+        }
     }
 
     #[must_use]
@@ -755,6 +769,11 @@ impl RuntimePermissionRuleConfig {
     #[must_use]
     pub fn ask(&self) -> &[String] {
         &self.ask
+    }
+
+    #[must_use]
+    pub fn denied_tools(&self) -> &[String] {
+        &self.denied_tools
     }
 }
 
@@ -926,6 +945,12 @@ fn parse_optional_permission_rules(
             .unwrap_or_default(),
         ask: optional_string_array(permissions, "ask", "merged settings.permissions")?
             .unwrap_or_default(),
+        denied_tools: optional_string_array(
+            permissions,
+            "deniedTools",
+            "merged settings.permissions",
+        )?
+        .unwrap_or_default(),
     })
 }
 

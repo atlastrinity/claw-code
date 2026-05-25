@@ -228,6 +228,10 @@ const PERMISSIONS_FIELDS: &[FieldSpec] = &[
         expected: FieldType::StringArray,
     },
     FieldSpec {
+        name: "deniedTools",
+        expected: FieldType::StringArray,
+    },
+    FieldSpec {
         name: "deny",
         expected: FieldType::StringArray,
     },
