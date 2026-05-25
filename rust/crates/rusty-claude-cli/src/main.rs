@@ -217,16 +217,22 @@ fn main() {
             .any(|w| w[0] == "--output-format" && w[1] == "json")
             || argv.iter().any(|a| a == "--output-format=json");
         if json_output {
-            // #77: classify error by prefix so downstream claws can route without
-            // regex-scraping the prose. Split short-reason from hint-runbook.
+            // #77/#696: classify error by prefix so downstream claws can route
+            // without regex-scraping prose. Keep the legacy `type`/`kind`
+            // fields and add the stable status/error_kind/action contract used
+            // by non-interactive command guards.
             let kind = classify_error_kind(&message);
             let (short_reason, hint) = split_error_hint(&message);
             eprintln!(
                 "{}",
                 serde_json::json!({
                     "type": "error",
-                    "error": short_reason,
                     "kind": kind,
+                    "status": "error",
+                    "error_kind": kind,
+                    "error": short_reason,
+                    "message": short_reason,
+                    "action": "abort",
                     "hint": hint,
                     "exit_code": 1,
                 })
@@ -968,6 +974,16 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     if let Some(action) = parse_local_help_action(&rest, output_format) {
         return action;
     }
+    // #696: `claw compact` is the bare name of the interactive `/compact`
+    // slash command, not a prompt. When extra args such as `--help` appear
+    // after the word `compact`, the generic prompt fallback used to send
+    // `compact --help` to provider startup and could hang under closed stdin /
+    // JSON output. Fail closed before any provider, prompt, TUI, or spinner
+    // startup. `claw --resume SESSION.jsonl /compact` remains the supported
+    // non-interactive session compaction path.
+    if rest.first().map(String::as_str) == Some("compact") {
+        return Err(compact_interactive_only_error());
+    }
     if let Some(action) = parse_single_word_command_alias(
         &rest,
         &model,
@@ -1301,6 +1317,11 @@ fn bare_slash_command_guidance(command_name: &str) -> Option<String> {
         )
     };
     Some(guidance)
+}
+
+fn compact_interactive_only_error() -> String {
+    "interactive_only: `claw compact` is an interactive/session command. Start `claw` and run `/compact`, or use `claw --resume SESSION.jsonl /compact` to compact an existing session."
+        .to_string()
 }
 
 fn removed_auth_surface_error(command_name: &str) -> String {
