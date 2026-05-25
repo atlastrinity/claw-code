@@ -16,6 +16,10 @@ fn help_emits_json_when_requested() {
 
     let parsed = assert_json_command(&root, &["--output-format", "json", "help"]);
     assert_eq!(parsed["kind"], "help");
+    assert_eq!(
+        parsed["status"], "ok",
+        "help JSON must have status:ok (#700)"
+    );
     assert!(parsed["message"]
         .as_str()
         .expect("help text")
@@ -29,6 +33,10 @@ fn export_help_emits_bounded_json_when_requested_384() {
 
     let parsed = assert_json_command(&root, &["export", "--help", "--output-format", "json"]);
     assert_eq!(parsed["kind"], "help");
+    assert_eq!(
+        parsed["status"], "ok",
+        "export help JSON must have status:ok (#700)"
+    );
     assert_eq!(parsed["topic"], "export");
     assert_eq!(parsed["command"], "export");
     assert_eq!(
@@ -365,6 +373,10 @@ fn bootstrap_and_system_prompt_emit_json_when_requested() {
 
     let plan = assert_json_command(&root, &["--output-format", "json", "bootstrap-plan"]);
     assert_eq!(plan["kind"], "bootstrap-plan");
+    assert_eq!(
+        plan["status"], "ok",
+        "bootstrap-plan JSON must have status:ok (#458)"
+    );
     assert!(plan["phases"].as_array().expect("phases").len() > 1);
 
     let prompt = assert_json_command(&root, &["--output-format", "json", "system-prompt"]);
@@ -903,4 +915,88 @@ fn unique_temp_dir(label: &str) -> PathBuf {
         "claw-output-format-{label}-{}-{millis}-{counter}",
         std::process::id()
     ))
+}
+
+#[test]
+fn diff_json_has_status_and_result_field_702() {
+    // #458/#702: `claw diff --output-format json` must have status ∈ {ok,error}
+    // and a `result` field to distinguish clean/changes/no-repo states.
+    let root = unique_temp_dir("diff-json-status");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+
+    // In a non-git directory, diff should report status:ok + result:no_git_repo
+    // or status:error; in a git repo it should report ok + result:clean|changes.
+    // We only assert the shape, not the value, to avoid flakiness.
+    let parsed = assert_json_command(&root, &["--output-format", "json", "diff"]);
+    assert_eq!(
+        parsed["kind"], "diff",
+        "diff JSON must have kind:diff (#458)"
+    );
+    let status = parsed["status"]
+        .as_str()
+        .expect("diff JSON must have status field (#458/#702)");
+    assert!(
+        matches!(status, "ok" | "error"),
+        "diff status must be ok or error, got {status:?}"
+    );
+    assert!(
+        parsed.get("result").is_some(),
+        "diff JSON must have result field"
+    );
+}
+
+#[test]
+fn export_json_has_kind_702() {
+    // #458/#702: `claw export --output-format json` must emit kind:export.
+    // We check only the kind field to avoid flakiness from session-store state.
+    // A success path with an actual session would also carry status:ok.
+    let root = unique_temp_dir("export-json-kind");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+
+    // Run without asserting exit code — may fail with no sessions or legacy sessions.
+    use std::process::Command;
+    let bin = env!("CARGO_BIN_EXE_claw");
+    let output = Command::new(bin)
+        .current_dir(&root)
+        .args(["--output-format", "json", "export"])
+        .env("ANTHROPIC_API_KEY", "test")
+        .output()
+        .expect("claw binary should run");
+
+    // On success stdout has kind:export; on failure stderr has type:error.
+    // Either way, both envelopes must be valid JSON.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .filter(|l| l.starts_with('{'))
+        .collect::<Vec<_>>()
+        .join("");
+
+    if output.status.success() {
+        let parsed: serde_json::Value =
+            serde_json::from_str(&stdout).expect("export success stdout must be valid JSON");
+        assert_eq!(
+            parsed["kind"], "export",
+            "export JSON must have kind:export (#458)"
+        );
+        let status = parsed["status"]
+            .as_str()
+            .expect("export JSON must have status");
+        assert!(
+            matches!(status, "ok" | "error"),
+            "export status must be ok or error"
+        );
+    } else {
+        // Error envelope on stderr must be parseable JSON.
+        assert!(
+            !stderr.is_empty(),
+            "export failure must emit JSON to stderr"
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_str(&stderr).expect("export error stderr must be valid JSON");
+        assert_eq!(
+            parsed["type"], "error",
+            "export error envelope must have type:error"
+        );
+    }
 }
