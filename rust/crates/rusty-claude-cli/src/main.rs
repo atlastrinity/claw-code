@@ -5999,28 +5999,65 @@ impl LiveCli {
             CliOutputFormat::Text => println!("{}", payload.message),
             CliOutputFormat::Json => {
                 let action_str = action.unwrap_or("list");
-                let enabled_count = payload
-                    .plugins
+                // For show/info/describe, filter to the named plugin.
+                let is_show_action = matches!(action_str, "show" | "info" | "describe");
+                let filtered_plugins: Vec<_> = if is_show_action {
+                    if let Some(name) = target {
+                        let needle = name.to_lowercase();
+                        payload
+                            .plugins
+                            .iter()
+                            .filter(|p| {
+                                p.get("id")
+                                    .and_then(|v| v.as_str())
+                                    .map(|id| id.to_lowercase() == needle)
+                                    .unwrap_or(false)
+                            })
+                            .cloned()
+                            .collect()
+                    } else {
+                        payload.plugins.clone()
+                    }
+                } else {
+                    payload.plugins.clone()
+                };
+                // Return not-found error for show with missing target.
+                if is_show_action {
+                    if let Some(name) = target {
+                        if filtered_plugins.is_empty() {
+                            let obj = json!({
+                                "kind": "plugin",
+                                "action": action_str,
+                                "status": "error",
+                                "error_kind": "plugin_not_found",
+                                "requested": name,
+                            });
+                            println!("{}", serde_json::to_string_pretty(&obj)?);
+                            return Ok(());
+                        }
+                    }
+                }
+                let enabled_count = filtered_plugins
                     .iter()
                     .filter(|p| p.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false))
                     .count();
-                let disabled_count = payload.plugins.len().saturating_sub(enabled_count);
+                let disabled_count = filtered_plugins.len().saturating_sub(enabled_count);
                 let mut obj = json!({
                     "kind": "plugin",
                     "action": action_str,
                     "status": payload.status,
                     "summary": {
-                        "total": payload.plugins.len(),
+                        "total": filtered_plugins.len(),
                         "enabled": enabled_count,
                         "disabled": disabled_count,
                         "load_failures": payload.load_failures.len(),
                     },
                     "config_load_error": payload.config_load_error,
-                    "plugins": payload.plugins,
+                    "plugins": filtered_plugins,
                     "load_failures": payload.load_failures,
                 });
-                // Only include operation-result fields for mutating actions
-                if action_str != "list" {
+                // Only include operation-result fields for mutating actions (not list/show)
+                if action_str != "list" && !is_show_action {
                     obj["target"] = json!(target);
                     obj["reload_runtime"] = json!(payload.reload_runtime);
                     obj["message"] = json!(payload.message);

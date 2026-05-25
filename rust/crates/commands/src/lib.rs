@@ -2301,8 +2301,28 @@ pub fn handle_plugins_slash_command(
                 reload_runtime: true,
             })
         }
+        Some("show" | "info" | "describe") => {
+            // Show a named plugin by filtering the installed registry.
+            // Without a target, shows all (same as list).
+            let report = manager.installed_plugin_registry_report()?;
+            let plugins: Vec<_> = if let Some(name) = target {
+                let needle = name.to_lowercase();
+                report
+                    .summaries()
+                    .into_iter()
+                    .filter(|p| p.metadata.id.to_lowercase() == needle)
+                    .collect()
+            } else {
+                report.summaries().into_iter().collect()
+            };
+            let failures = report.failures();
+            Ok(PluginsCommandResult {
+                message: render_plugins_report_with_failures(&plugins, failures),
+                reload_runtime: false,
+            })
+        }
         Some(other) => Err(PluginError::CommandFailed(format!(
-            "unknown_plugins_action: '{other}' is not a supported /plugins action. Use list, install, enable, disable, uninstall, or update."
+            "unknown_plugins_action: '{other}' is not a supported /plugins action. Use list, show, install, enable, disable, uninstall, or update."
         ))),
     }
 }
