@@ -13361,6 +13361,7 @@ mod tests {
                 boot_preflight: test_boot_preflight(),
                 sandbox_status: runtime::SandboxStatus::default(),
                 config_load_error: None,
+                config_load_error_kind: None,
             },
             None, // #148
         );
@@ -13505,6 +13506,7 @@ mod tests {
             boot_preflight: test_boot_preflight(),
             sandbox_status: runtime::SandboxStatus::default(),
             config_load_error: None,
+            config_load_error_kind: None,
         };
 
         let check = super::check_workspace_health(&context);
@@ -13542,6 +13544,7 @@ mod tests {
             boot_preflight: test_boot_preflight(),
             sandbox_status: runtime::SandboxStatus::default(),
             config_load_error: None,
+            config_load_error_kind: None,
         };
 
         let value = status_json_value(
