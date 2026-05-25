@@ -1589,6 +1589,12 @@ fn output_to_input_blocks(blocks: &[OutputContentBlock]) -> Vec<InputContentBloc
 }
 
 pub fn validate_rel_path(rel: &str) -> Result<(), String> {
+    // Reject Windows-style backslash paths that may contain dotdot traversal
+    // (on Unix, Path::components does not split on backslash, so "..\\x" parses
+    // as a single Normal component and evades the ParentDir check).
+    if rel.contains('\\') {
+        return Err("path must not contain backslashes".into());
+    }
     let p = Path::new(rel);
     for c in p.components() {
         match c {
