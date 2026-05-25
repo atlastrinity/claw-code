@@ -3960,18 +3960,7 @@ fn run_resume_command(
     let session_list_outcome = || -> Result<ResumeCommandOutcome, Box<dyn std::error::Error>> {
         let sessions = list_managed_sessions().unwrap_or_default();
         let session_ids: Vec<String> = sessions.iter().map(|s| s.id.clone()).collect();
-        let session_details: Vec<serde_json::Value> = sessions
-            .iter()
-            .map(|session| {
-                serde_json::json!({
-                    "id": session.id,
-                    "path": session.path.display().to_string(),
-                    "message_count": session.message_count,
-                    "updated_at_ms": session.updated_at_ms,
-                    "lifecycle": session.lifecycle.json_value(),
-                })
-            })
-            .collect();
+        let session_details = session_details_json(&sessions);
         let active_id = session.session_id.clone();
         let text = render_session_list(&active_id).unwrap_or_else(|e| format!("error: {e}"));
         Ok(ResumeCommandOutcome {
@@ -4550,6 +4539,7 @@ struct SessionHandle {
 struct ManagedSessionSummary {
     id: String,
     path: PathBuf,
+    created_at_ms: u64,
     updated_at_ms: u64,
     modified_epoch_millis: u128,
     message_count: usize,
@@ -6367,6 +6357,7 @@ fn list_managed_sessions() -> Result<Vec<ManagedSessionSummary>, Box<dyn std::er
         .map(|session| ManagedSessionSummary {
             id: session.id,
             path: session.path,
+            created_at_ms: session.created_at_ms,
             updated_at_ms: session.updated_at_ms,
             modified_epoch_millis: session.modified_epoch_millis,
             message_count: session.message_count,
@@ -6386,6 +6377,7 @@ fn latest_managed_session() -> Result<ManagedSessionSummary, Box<dyn std::error:
     Ok(ManagedSessionSummary {
         id: session.id,
         path: session.path,
+        created_at_ms: session.created_at_ms,
         updated_at_ms: session.updated_at_ms,
         modified_epoch_millis: session.modified_epoch_millis,
         message_count: session.message_count,
@@ -6443,6 +6435,7 @@ fn session_details_json(sessions: &[ManagedSessionSummary]) -> Vec<serde_json::V
                 "id": session.id,
                 "path": session.path.display().to_string(),
                 "message_count": session.message_count,
+                "created_at_ms": session.created_at_ms,
                 "updated_at_ms": session.updated_at_ms,
                 "modified_epoch_millis": session.modified_epoch_millis,
                 "parent_session_id": session.parent_session_id,
@@ -14269,6 +14262,33 @@ UU conflicted.rs",
         assert_eq!(missing["exists"], false);
         assert_eq!(missing["session_id"], "missing-session");
         assert!(missing["candidate_path"].as_str().is_some());
+
+        let list_command = SlashCommand::parse("/session list")
+            .expect("parse should succeed")
+            .expect("command should exist");
+        let list = run_resume_command(&active.path, &active_session, &list_command)
+            .expect("list should run")
+            .json
+            .expect("list should return json");
+        assert_eq!(list["kind"], "sessions");
+        let details = list["session_details"]
+            .as_array()
+            .expect("session_details should be an array");
+        let saved_path = saved.path.display().to_string();
+        let saved_detail = details
+            .iter()
+            .find(|detail| detail["path"] == saved_path)
+            .expect("saved session detail should exist");
+        let created_at_ms = saved_detail["created_at_ms"]
+            .as_u64()
+            .expect("created_at_ms should be present");
+        let updated_at_ms = saved_detail["updated_at_ms"]
+            .as_u64()
+            .expect("updated_at_ms should be present");
+        assert!(
+            created_at_ms <= updated_at_ms,
+            "created_at_ms should not be after updated_at_ms"
+        );
 
         let delete_command = SlashCommand::parse("/session delete session-saved --force")
             .expect("parse should succeed")
