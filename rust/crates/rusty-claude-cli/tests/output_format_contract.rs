@@ -941,6 +941,46 @@ fn mcp_degraded_config_and_failed_usage_are_distinct_json_contracts() {
     assert!(failed.get("config_load_error").is_none());
 }
 
+#[test]
+fn inventory_commands_deduplicate_config_deprecation_warnings_per_process() {
+    let root = unique_temp_dir("config-warning-dedup");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+    fs::write(
+        config_home.join("settings.json"),
+        r#"{"enabledPlugins": {}}"#,
+    )
+    .expect("deprecated config fixture should write");
+
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+    ];
+
+    for args in [&["plugins", "list"][..], &["mcp", "list"][..]] {
+        let output = run_claw(&root, args, &envs);
+        assert!(
+            output.status.success(),
+            "args={args:?}\nstdout:\n{}\n\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stderr = String::from_utf8(output.stderr).expect("stderr utf8");
+        let warning_count = stderr
+            .matches("field \"enabledPlugins\" is deprecated")
+            .count();
+        assert_eq!(
+            warning_count, 1,
+            "args={args:?} should emit the deprecated enabledPlugins warning once per process:\n{stderr}"
+        );
+    }
+}
+
 fn assert_json_command(current_dir: &Path, args: &[&str]) -> Value {
     assert_json_command_with_env(current_dir, args, &[])
 }
