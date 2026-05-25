@@ -4113,6 +4113,7 @@ fn run_resume_command(
                 )),
                 json: Some(serde_json::json!({
                     "kind": "export",
+                    "status": "ok",
                     "file": export_path.display().to_string(),
                     "message_count": msg_count,
                 })),
@@ -7560,6 +7561,7 @@ fn render_diff_json_for(cwd: &Path) -> Result<serde_json::Value, Box<dyn std::er
     if !in_git_repo {
         return Ok(serde_json::json!({
             "kind": "diff",
+            "status": "error",
             "result": "no_git_repo",
             "detail": format!("{} is not inside a git project", cwd.display()),
         }));
@@ -7568,6 +7570,7 @@ fn render_diff_json_for(cwd: &Path) -> Result<serde_json::Value, Box<dyn std::er
     let unstaged = run_git_diff_command_in(cwd, &["diff"])?;
     Ok(serde_json::json!({
         "kind": "diff",
+        "status": "ok",
         "result": if staged.trim().is_empty() && unstaged.trim().is_empty() { "clean" } else { "changes" },
         "staged": staged.trim(),
         "unstaged": unstaged.trim(),
@@ -8090,6 +8093,7 @@ fn run_export(
                 "{}",
                 serde_json::to_string_pretty(&json!({
                     "kind": "export",
+                    "status": "ok",
                     "message": report,
                     "session_id": handle.id,
                     "file": path.display().to_string(),
@@ -8111,6 +8115,7 @@ fn run_export(
             "{}",
             serde_json::to_string_pretty(&json!({
                 "kind": "export",
+                "status": "ok",
                 "session_id": handle.id,
                 "file": handle.path.display().to_string(),
                 "messages": session.messages.len(),
