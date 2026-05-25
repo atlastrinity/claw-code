@@ -2879,6 +2879,7 @@ fn print_system_prompt(
             "{}",
             serde_json::to_string_pretty(&json!({
                 "kind": "system-prompt",
+                "status": "ok",
                 "message": message,
                 "sections": sections,
             }))?
@@ -2901,6 +2902,7 @@ fn version_json_value() -> serde_json::Value {
     let executable_path = env::current_exe().ok().map(|p| p.display().to_string());
     json!({
         "kind": "version",
+        "status": "ok",
         "message": render_version_report(),
         "version": VERSION,
         "git_sha": GIT_SHA,
@@ -7478,8 +7480,12 @@ fn run_init(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Er
 /// string so claws can detect per-artifact state without substring matching.
 fn init_json_value(report: &crate::init::InitReport, message: &str) -> serde_json::Value {
     use crate::init::InitStatus;
+    // Derive top-level status: "ok" when all artifacts succeeded (created or
+    // skipped = idempotent); no failure path exists today so always "ok".
+    let status = "ok";
     json!({
         "kind": "init",
+        "status": status,
         "project_path": report.project_root.display().to_string(),
         "created": report.artifacts_with_status(InitStatus::Created),
         "updated": report.artifacts_with_status(InitStatus::Updated),
