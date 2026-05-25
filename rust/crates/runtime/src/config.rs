@@ -1,7 +1,22 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::{Display, Formatter};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
+
+/// Process-lifetime set of already-emitted config deprecation warning strings.
+/// Prevents duplicate warnings when `ConfigLoader::load()` is called multiple
+/// times within a single CLI invocation. (ROADMAP #698)
+static EMITTED_CONFIG_WARNINGS: std::sync::OnceLock<Mutex<HashSet<String>>> =
+    std::sync::OnceLock::new();
+
+fn emit_config_warning_once(warning: &str) {
+    let set = EMITTED_CONFIG_WARNINGS.get_or_init(|| Mutex::new(HashSet::new()));
+    let mut guard = set.lock().unwrap_or_else(|e| e.into_inner());
+    if guard.insert(warning.to_string()) {
+        eprintln!("warning: {warning}");
+    }
+}
 
 use crate::json::JsonValue;
 use crate::sandbox::{FilesystemIsolationMode, SandboxConfig};
@@ -301,7 +316,7 @@ impl ConfigLoader {
         }
 
         for warning in &all_warnings {
-            eprintln!("warning: {warning}");
+            emit_config_warning_once(&warning.to_string());
         }
 
         let merged_value = JsonValue::Object(merged.clone());
