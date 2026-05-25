@@ -688,7 +688,9 @@ mod tests {
         second_session.messages = follow_up_messages;
         let second = compact_session(&second_session, config);
 
-        assert!(second
+        // "Previously compacted context:" header is intentionally flattened
+        // (no re-nesting) to avoid summary inflation on repeated compaction.
+        assert!(!second
             .formatted_summary
             .contains("Previously compacted context:"));
         assert!(second
@@ -703,7 +705,7 @@ mod tests {
         assert!(matches!(
             &second.compacted_session.messages[0].blocks[0],
             ContentBlock::Text { text }
-                if text.contains("Previously compacted context:")
+                if !text.contains("Previously compacted context:")
                     && text.contains("Newly compacted context:")
         ));
         assert!(matches!(
