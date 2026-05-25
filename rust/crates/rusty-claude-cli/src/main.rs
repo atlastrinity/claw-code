@@ -306,6 +306,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "plugin_not_found"
     } else if message.contains("skill source") && message.contains("not found") {
         "skill_not_found"
+    } else if message.contains("Unsupported config section") {
+        "unsupported_config_section"
     } else {
         "unknown"
     }
@@ -7418,6 +7420,7 @@ fn render_config_json(
 
     let base = serde_json::json!({
         "kind": "config",
+        "status": "ok",
         "cwd": cwd.display().to_string(),
         "loaded_files": loaded_paths.len(),
         "merged_keys": runtime_config.merged().len(),
@@ -7436,6 +7439,8 @@ fn render_config_json(
             other => {
                 return Ok(serde_json::json!({
                     "kind": "config",
+                    "status": "error",
+                    "error_kind": "unsupported_config_section",
                     "section": other,
                     "ok": false,
                     "error": format!("Unsupported config section '{other}'. Use env, hooks, model, or plugins."),
