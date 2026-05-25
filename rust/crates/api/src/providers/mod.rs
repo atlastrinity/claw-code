@@ -640,6 +640,14 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
             max_output_tokens: 16_384,
             context_window_tokens: 256_000,
         }),
+        "qwen-max" => Some(ModelTokenLimit {
+            max_output_tokens: 8_192,
+            context_window_tokens: 131_072,
+        }),
+        "qwen-plus" => Some(ModelTokenLimit {
+            max_output_tokens: 8_192,
+            context_window_tokens: 131_072,
+        }),
         _ => None,
     }
 }
