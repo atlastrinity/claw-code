@@ -2853,6 +2853,7 @@ fn print_bootstrap_plan(output_format: CliOutputFormat) -> Result<(), Box<dyn st
             "{}",
             serde_json::to_string_pretty(&json!({
                 "kind": "bootstrap-plan",
+                "status": "ok",
                 "phases": phases,
             }))?
         ),
