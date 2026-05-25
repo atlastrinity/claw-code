@@ -2591,7 +2591,12 @@ fn check_boot_preflight_health(context: &StatusContext) -> DiagnosticCheck {
         format!("Worktree exists  {}", preflight.worktree_exists),
         format!("Git dir exists   {}", preflight.git_dir_exists),
         format!("Branch behind    {}", preflight.branch_freshness.behind),
-        format!("Trust allowlist  {:?}", preflight.trust_gate_allowed),
+        format!(
+            "Trust allowlist  {}",
+            preflight
+                .trust_gate_allowed
+                .map_or("unknown".to_string(), |v| v.to_string())
+        ),
         format!("Trusted roots    {}", preflight.trusted_roots_count),
         format!(
             "MCP eligible     {} · servers {}",
