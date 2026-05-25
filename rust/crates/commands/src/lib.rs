@@ -4125,9 +4125,17 @@ fn definition_source_id(source: DefinitionSource) -> &'static str {
 }
 
 fn definition_source_json(source: DefinitionSource) -> Value {
+    definition_source_json_with_detail(source, None)
+}
+
+fn definition_source_json_with_detail(
+    source: DefinitionSource,
+    detail_label: Option<&'static str>,
+) -> Value {
     json!({
         "id": definition_source_id(source),
         "label": source.label(),
+        "detail_label": detail_label,
     })
 }
 
@@ -4161,7 +4169,7 @@ fn skill_summary_json(skill: &SkillSummary) -> Value {
     json!({
         "name": &skill.name,
         "description": &skill.description,
-        "source": definition_source_json(skill.source),
+        "source": definition_source_json_with_detail(skill.source, skill.origin.detail_label()),
         "origin": skill_origin_json(skill.origin),
         "active": skill.shadowed_by.is_none(),
         "shadowed_by": skill.shadowed_by.map(definition_source_json),
@@ -5464,7 +5472,18 @@ mod tests {
         assert_eq!(report["summary"]["shadowed"], 1);
         assert_eq!(report["skills"][0]["name"], "plan");
         assert_eq!(report["skills"][0]["source"]["id"], "project_claw");
+        assert_eq!(report["skills"][0]["source"]["label"], "Project roots");
+        assert_eq!(
+            report["skills"][0]["source"]["detail_label"],
+            serde_json::Value::Null
+        );
         assert_eq!(report["skills"][1]["name"], "deploy");
+        assert_eq!(report["skills"][1]["source"]["id"], "project_claw");
+        assert_eq!(report["skills"][1]["source"]["label"], "Project roots");
+        assert_eq!(
+            report["skills"][1]["source"]["detail_label"],
+            "legacy /commands"
+        );
         assert_eq!(report["skills"][1]["origin"]["id"], "legacy_commands_dir");
         assert_eq!(report["skills"][3]["shadowed_by"]["id"], "project_claw");
 

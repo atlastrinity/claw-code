@@ -359,11 +359,90 @@ fn agents_command_emits_structured_agent_entries_when_requested() {
     assert_eq!(parsed["summary"]["shadowed"], 1);
     assert_eq!(parsed["agents"][0]["name"], "planner");
     assert_eq!(parsed["agents"][0]["source"]["id"], "project_claw");
+    assert_eq!(parsed["agents"][0]["source"]["label"], "Project roots");
+    assert_eq!(parsed["agents"][0]["source"]["detail_label"], Value::Null);
     assert_eq!(parsed["agents"][0]["active"], true);
     assert_eq!(parsed["agents"][1]["name"], "verifier");
     assert_eq!(parsed["agents"][2]["name"], "planner");
     assert_eq!(parsed["agents"][2]["active"], false);
     assert_eq!(parsed["agents"][2]["shadowed_by"]["id"], "project_claw");
+}
+
+#[test]
+fn agents_and_skills_inventory_share_source_schema_702() {
+    let root = unique_temp_dir("inventory-source-schema-702");
+    let workspace = root.join("workspace");
+    let project_agents = workspace.join(".codex").join("agents");
+    let project_skills = workspace.join(".codex").join("skills");
+    let legacy_commands = workspace.join(".claude").join("commands");
+    let home = root.join("home");
+    let isolated_config = root.join("config-home");
+    let isolated_codex = root.join("codex-home");
+    fs::create_dir_all(&workspace).expect("workspace should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+
+    write_agent(
+        &project_agents,
+        "planner",
+        "Project planner",
+        "gpt-5.4",
+        "medium",
+    );
+    write_skill(&project_skills, "plan", "Project planning guidance");
+    write_legacy_command(&legacy_commands, "deploy", "Legacy deployment guidance");
+
+    let envs = [
+        ("HOME", home.to_str().expect("utf8 home")),
+        (
+            "CLAW_CONFIG_HOME",
+            isolated_config.to_str().expect("utf8 config home"),
+        ),
+        (
+            "CODEX_HOME",
+            isolated_codex.to_str().expect("utf8 codex home"),
+        ),
+    ];
+    let agents =
+        assert_json_command_with_env(&workspace, &["--output-format", "json", "agents"], &envs);
+    let skills =
+        assert_json_command_with_env(&workspace, &["--output-format", "json", "skills"], &envs);
+
+    let agent_source = &agents["agents"][0]["source"];
+    let skill_source = &skills["skills"][0]["source"];
+    for source in [agent_source, skill_source] {
+        assert!(
+            source.get("id").is_some(),
+            "inventory source must expose id: {source}"
+        );
+        assert!(
+            source.get("label").is_some(),
+            "inventory source must expose label: {source}"
+        );
+        assert!(
+            source.get("detail_label").is_some(),
+            "inventory source must expose detail_label for a stable cross-resource path: {source}"
+        );
+    }
+    assert_eq!(agent_source["id"], "project_claw");
+    assert_eq!(agent_source["label"], "Project roots");
+    assert_eq!(agent_source["detail_label"], Value::Null);
+    assert_eq!(skill_source["id"], "project_claw");
+    assert_eq!(skill_source["label"], "Project roots");
+    assert_eq!(skill_source["detail_label"], Value::Null);
+
+    let legacy_skill = skills["skills"]
+        .as_array()
+        .expect("skills array")
+        .iter()
+        .find(|skill| skill["name"] == "deploy")
+        .expect("legacy command skill should be listed");
+    assert_eq!(legacy_skill["source"]["id"], "project_claw");
+    assert_eq!(legacy_skill["source"]["label"], "Project roots");
+    assert_eq!(legacy_skill["source"]["detail_label"], "legacy /commands");
+    assert_eq!(
+        legacy_skill["origin"]["id"], "legacy_commands_dir",
+        "legacy origin stays for compatibility while generic parsers use source"
+    );
 }
 
 #[test]
@@ -903,6 +982,25 @@ fn write_agent(root: &Path, name: &str, description: &str, model: &str, reasonin
         ),
     )
     .expect("agent fixture should write");
+}
+
+fn write_skill(root: &Path, name: &str, description: &str) {
+    let skill_root = root.join(name);
+    fs::create_dir_all(&skill_root).expect("skill root should exist");
+    fs::write(
+        skill_root.join("SKILL.md"),
+        format!("---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n"),
+    )
+    .expect("skill fixture should write");
+}
+
+fn write_legacy_command(root: &Path, name: &str, description: &str) {
+    fs::create_dir_all(root).expect("legacy command root should exist");
+    fs::write(
+        root.join(format!("{name}.md")),
+        format!("---\nname: {name}\ndescription: {description}\n---\n\n# {name}\n"),
+    )
+    .expect("legacy command fixture should write");
 }
 
 fn unique_temp_dir(label: &str) -> PathBuf {
