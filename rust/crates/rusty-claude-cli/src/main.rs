@@ -3986,7 +3986,9 @@ fn run_resume_command(
         SlashCommand::Help => Ok(ResumeCommandOutcome {
             session: session.clone(),
             message: Some(render_repl_help()),
-            json: Some(serde_json::json!({ "kind": "help", "text": render_repl_help() })),
+            json: Some(
+                serde_json::json!({ "kind": "help", "action": "help", "status": "ok", "text": render_repl_help() }),
+            ),
         }),
         SlashCommand::Compact => {
             let result = runtime::trident::trident_compact_session(
@@ -7231,6 +7233,7 @@ fn local_help_topic_command(topic: LocalHelpTopic) -> &'static str {
 fn render_export_help_json() -> serde_json::Value {
     json!({
         "kind": "help",
+        "action": "help",
         "status": "ok",
         "topic": "export",
         "command": "export",
@@ -7279,6 +7282,7 @@ fn render_help_topic_json(topic: LocalHelpTopic) -> serde_json::Value {
 
     json!({
         "kind": "help",
+        "action": "help",
         "status": "ok",
         "topic": local_help_topic_command(topic),
         "command": local_help_topic_command(topic),
@@ -10615,6 +10619,7 @@ fn print_help(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::
             "{}",
             serde_json::to_string_pretty(&json!({
                 "kind": "help",
+                "action": "help",
                 "status": "ok",
                 "message": message,
             }))?
