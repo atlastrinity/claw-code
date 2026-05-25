@@ -2202,7 +2202,16 @@ pub fn handle_plugins_slash_command(
     match action {
         None | Some("list") => {
             let report = manager.installed_plugin_registry_report()?;
-            let plugins = report.summaries();
+            let plugins: Vec<_> = if let Some(filter) = target {
+                let needle = filter.to_lowercase();
+                report
+                    .summaries()
+                    .into_iter()
+                    .filter(|p| p.metadata.id.to_lowercase().contains(&needle))
+                    .collect()
+            } else {
+                report.summaries().into_iter().collect()
+            };
             let failures = report.failures();
             Ok(PluginsCommandResult {
                 message: render_plugins_report_with_failures(&plugins, failures),

@@ -5999,8 +5999,10 @@ impl LiveCli {
             CliOutputFormat::Text => println!("{}", payload.message),
             CliOutputFormat::Json => {
                 let action_str = action.unwrap_or("list");
-                // For show/info/describe, filter to the named plugin.
+                // For show/info/describe, filter to the named plugin (exact match).
+                // For list with a target, treat target as a substring filter.
                 let is_show_action = matches!(action_str, "show" | "info" | "describe");
+                let is_list_action = action_str == "list";
                 let filtered_plugins: Vec<_> = if is_show_action {
                     if let Some(name) = target {
                         let needle = name.to_lowercase();
@@ -6011,6 +6013,23 @@ impl LiveCli {
                                 p.get("id")
                                     .and_then(|v| v.as_str())
                                     .map(|id| id.to_lowercase() == needle)
+                                    .unwrap_or(false)
+                            })
+                            .cloned()
+                            .collect()
+                    } else {
+                        payload.plugins.clone()
+                    }
+                } else if is_list_action {
+                    if let Some(filter) = target {
+                        let needle = filter.to_lowercase();
+                        payload
+                            .plugins
+                            .iter()
+                            .filter(|p| {
+                                p.get("id")
+                                    .and_then(|v| v.as_str())
+                                    .map(|id| id.to_lowercase().contains(&needle))
                                     .unwrap_or(false)
                             })
                             .cloned()
