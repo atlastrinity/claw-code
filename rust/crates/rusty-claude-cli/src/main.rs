@@ -2139,6 +2139,7 @@ impl DoctorReport {
         let (ok_count, warn_count, fail_count) = self.counts();
         json!({
             "kind": "doctor",
+            "action": "doctor",
             "status": self.status(),
             "message": report,
             "report": report,
@@ -2890,6 +2891,7 @@ fn dump_manifests_at_path(
                     "{}",
                     serde_json::to_string_pretty(&json!({
                         "kind": "dump-manifests",
+                        "action": "dump",
                         "commands": manifest.commands.entries().len(),
                         "tools": manifest.tools.entries().len(),
                         "bootstrap_phases": manifest.bootstrap.phases().len(),
@@ -2922,6 +2924,7 @@ fn print_bootstrap_plan(output_format: CliOutputFormat) -> Result<(), Box<dyn st
             "{}",
             serde_json::to_string_pretty(&json!({
                 "kind": "bootstrap-plan",
+                "action": "show",
                 "status": "ok",
                 "phases": phases,
             }))?
@@ -6748,6 +6751,7 @@ fn status_json_value(
     let allowed_tool_entries = allowed_tools.map(|tools| tools.iter().cloned().collect::<Vec<_>>());
     json!({
         "kind": "status",
+        "action": "show",
         "status": if degraded { "degraded" } else { "ok" },
         "config_load_error": context.config_load_error,
         "config_load_error_kind": context.config_load_error_kind,
