@@ -3909,7 +3909,9 @@ fn run_resume_command(
             session: session.clone(),
             message: Some(text),
             json: Some(serde_json::json!({
-                "kind": "session_list",
+                "kind": "sessions",
+                "status": "ok",
+                "action": "list",
                 "sessions": session_ids,
                 "session_details": session_details,
                 "active": active_id,
@@ -6382,7 +6384,9 @@ fn run_resumed_session_command(
                 session: session.clone(),
                 message: Some(text),
                 json: Some(serde_json::json!({
-                    "kind": "session_list",
+                    "kind": "sessions",
+                    "status": "ok",
+                    "action": "list",
                     "sessions": session_ids,
                     "session_details": session_details_json(&sessions),
                     "active": active_id,
@@ -7118,6 +7122,7 @@ fn local_help_topic_command(topic: LocalHelpTopic) -> &'static str {
 fn render_export_help_json() -> serde_json::Value {
     json!({
         "kind": "help",
+        "status": "ok",
         "topic": "export",
         "command": "export",
         "usage": "claw export [--session <id|latest>] [--output <path>] [--output-format <format>]",
@@ -7165,6 +7170,7 @@ fn render_help_topic_json(topic: LocalHelpTopic) -> serde_json::Value {
 
     json!({
         "kind": "help",
+        "status": "ok",
         "topic": local_help_topic_command(topic),
         "command": local_help_topic_command(topic),
         "message": render_help_topic(topic),
@@ -10487,6 +10493,7 @@ fn print_help(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::
             "{}",
             serde_json::to_string_pretty(&json!({
                 "kind": "help",
+                "status": "ok",
                 "message": message,
             }))?
         ),
