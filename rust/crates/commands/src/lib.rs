@@ -2485,6 +2485,17 @@ pub fn handle_skills_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
                 .into_iter()
                 .filter(|s| s.name.to_lowercase() == name)
                 .collect();
+            // #706: return typed error when named skill is not found instead of silent empty list
+            if matched.is_empty() {
+                return Ok(json!({
+                    "kind": "skills",
+                    "action": "show",
+                    "status": "error",
+                    "error_kind": "skill_not_found",
+                    "message": format!("skill '{}' not found", name),
+                    "requested": name,
+                }));
+            }
             Ok(render_skills_report_json(&matched))
         }
         Some("install") => Ok(render_skills_usage_json(Some("install"))),

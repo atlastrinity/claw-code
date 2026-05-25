@@ -304,7 +304,9 @@ fn classify_error_kind(message: &str) -> &'static str {
         "unknown_agents_subcommand"
     } else if message.contains("is not installed") {
         "plugin_not_found"
-    } else if message.contains("skill source") && message.contains("not found") {
+    } else if (message.contains("skill source") && message.contains("not found"))
+        || message.starts_with("skill '")
+    {
         "skill_not_found"
     } else if message.contains("Unsupported config section") {
         "unsupported_config_section"
@@ -5940,10 +5942,19 @@ impl LiveCli {
         let cwd = env::current_dir()?;
         match output_format {
             CliOutputFormat::Text => println!("{}", handle_skills_slash_command(args, &cwd)?),
-            CliOutputFormat::Json => println!(
-                "{}",
-                serde_json::to_string_pretty(&handle_skills_slash_command_json(args, &cwd)?)?
-            ),
+            CliOutputFormat::Json => {
+                let result = handle_skills_slash_command_json(args, &cwd)?;
+                let is_error = result.get("status").and_then(|v| v.as_str()) == Some("error");
+                println!("{}", serde_json::to_string_pretty(&result)?);
+                if is_error {
+                    return Err(result
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("skills command failed")
+                        .to_string()
+                        .into());
+                }
+            }
         }
         Ok(())
     }
