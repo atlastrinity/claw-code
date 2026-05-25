@@ -2009,6 +2009,37 @@ impl DiagnosticCheck {
                         .collect::<Vec<_>>(),
                 ),
             ),
+            (
+                // #701: structured key/value pairs parsed from prose detail strings.
+                // Each detail string is `"Key Label      value"` separated by 2+ spaces.
+                // Booleans (`true`/`false`) and integers are emitted as JSON scalars.
+                "detail_entries".to_string(),
+                Value::Array(
+                    self.details
+                        .iter()
+                        .map(|s| {
+                            // Split on first run of 2+ spaces to separate key from value.
+                            let parts: Vec<&str> = s.splitn(2, "  ").collect();
+                            if parts.len() == 2 {
+                                let k = parts[0].trim().to_string();
+                                let v_str = parts[1].trim();
+                                let v: Value = if v_str == "true" {
+                                    Value::Bool(true)
+                                } else if v_str == "false" {
+                                    Value::Bool(false)
+                                } else if let Ok(n) = v_str.parse::<i64>() {
+                                    Value::Number(n.into())
+                                } else {
+                                    Value::String(v_str.to_string())
+                                };
+                                json!({"key": k, "value": v})
+                            } else {
+                                json!({"key": s.trim(), "value": Value::Null})
+                            }
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+            ),
         ]);
         value.extend(self.data.clone());
         Value::Object(value)
