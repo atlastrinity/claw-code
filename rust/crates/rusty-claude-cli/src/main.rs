@@ -23,6 +23,8 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
+use log::debug;
+
 use api::{
     detect_provider_kind, model_family_identity_for, resolve_startup_auth_source, AnthropicClient,
     AuthSource, ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest,
@@ -58,7 +60,7 @@ use tools::{
     execute_tool, mvp_tool_specs, GlobalToolRegistry, RuntimeToolDefinition, ToolSearchOutput,
 };
 
-const DEFAULT_MODEL: &str = "claude-opus-4-6";
+const DEFAULT_MODEL: &str = "anthropic/claude-opus-4-6";
 
 /// #148: Model provenance for `claw status` JSON/text output. Records where
 /// the resolved model string came from so claws don't have to re-read argv
@@ -718,15 +720,19 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 let value = args
                     .get(index + 1)
                     .ok_or_else(|| "missing value for --model".to_string())?;
-                validate_model_syntax(value)?;
-                model = resolve_model_alias_with_config(value);
+                let resolved = resolve_model_alias_with_config(value);
+                debug!("Resolved --model '{}' -> '{}'", value, resolved);
+                validate_model_syntax(&resolved)?;
+                model = resolved;
                 model_flag_raw = Some(value.clone()); // #148
                 index += 2;
             }
             flag if flag.starts_with("--model=") => {
                 let value = &flag[8..];
-                validate_model_syntax(value)?;
-                model = resolve_model_alias_with_config(value);
+                let resolved = resolve_model_alias_with_config(value);
+                debug!("Resolved --model='{}' -> '{}'", value, resolved);
+                validate_model_syntax(&resolved)?;
+                model = resolved;
                 model_flag_raw = Some(value.to_string()); // #148
                 index += 1;
             }
@@ -1512,9 +1518,9 @@ fn levenshtein_distance(left: &str, right: &str) -> usize {
 
 fn resolve_model_alias(model: &str) -> &str {
     match model {
-        "opus" => "claude-opus-4-6",
-        "sonnet" => "claude-sonnet-4-6",
-        "haiku" => "claude-haiku-4-5-20251213",
+        "opus" => "anthropic/claude-opus-4-6",
+        "sonnet" => "anthropic/claude-sonnet-4-6",
+        "haiku" => "anthropic/claude-haiku-4-5-20251213",
         _ => model,
     }
 }
@@ -1538,11 +1544,6 @@ fn validate_model_syntax(model: &str) -> Result<(), String> {
     if trimmed.is_empty() {
         return Err("model string cannot be empty".to_string());
     }
-    // Known aliases are always valid
-    match trimmed {
-        "opus" | "sonnet" | "haiku" => return Ok(()),
-        _ => {}
-    }
     // Check for spaces (malformed)
     if trimmed.contains(' ') {
         return Err(format!(
@@ -1555,7 +1556,7 @@ fn validate_model_syntax(model: &str) -> Result<(), String> {
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
         // #154: hint if the model looks like it belongs to a different provider
         let mut err_msg = format!(
-            "invalid model syntax: '{}'. Expected provider/model (e.g., anthropic/claude-opus-4-6) or known alias (opus, sonnet, haiku)",
+            "invalid model syntax: '{}'. Expected provider/model (e.g., anthropic/claude-opus-4-6)",
             trimmed
         );
         if trimmed.starts_with("gpt-") || trimmed.starts_with("gpt_") {
@@ -10309,7 +10310,7 @@ mod tests {
     #[test]
     fn context_window_preflight_errors_render_recovery_steps() {
         let error = ApiError::ContextWindowExceeded {
-            model: "claude-sonnet-4-6".to_string(),
+            model: "anthropic/claude-sonnet-4-6".to_string(),
             estimated_input_tokens: 182_000,
             requested_output_tokens: 64_000,
             estimated_total_tokens: 246_000,
@@ -10324,7 +10325,7 @@ mod tests {
             "{rendered}"
         );
         assert!(
-            rendered.contains("Model            claude-sonnet-4-6"),
+            rendered.contains("Model            anthropic/claude-sonnet-4-6"),
             "{rendered}"
         );
         assert!(
@@ -10778,7 +10779,7 @@ mod tests {
             parse_args(&args).expect("args should parse"),
             CliAction::Prompt {
                 prompt: "explain this".to_string(),
-                model: "claude-opus-4-6".to_string(),
+                model: "anthropic/claude-opus-4-6".to_string(),
                 output_format: CliOutputFormat::Json,
                 allowed_tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
@@ -10852,7 +10853,7 @@ mod tests {
             parse_args(&args).expect("args should parse"),
             CliAction::Prompt {
                 prompt: "explain this".to_string(),
-                model: "claude-opus-4-6".to_string(),
+                model: "anthropic/claude-opus-4-6".to_string(),
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
@@ -10866,9 +10867,9 @@ mod tests {
 
     #[test]
     fn resolves_known_model_aliases() {
-        assert_eq!(resolve_model_alias("opus"), "claude-opus-4-6");
-        assert_eq!(resolve_model_alias("sonnet"), "claude-sonnet-4-6");
-        assert_eq!(resolve_model_alias("haiku"), "claude-haiku-4-5-20251213");
+        assert_eq!(resolve_model_alias("opus"), "anthropic/claude-opus-4-6");
+        assert_eq!(resolve_model_alias("sonnet"), "anthropic/claude-sonnet-4-6");
+        assert_eq!(resolve_model_alias("haiku"), "anthropic/claude-haiku-4-5-20251213");
         assert_eq!(resolve_model_alias("claude-opus"), "claude-opus");
     }
 
@@ -10883,7 +10884,7 @@ mod tests {
         std::fs::create_dir_all(&config_home).expect("config home should exist");
         std::fs::write(
             cwd.join(".claw").join("settings.json"),
-            r#"{"aliases":{"fast":"claude-haiku-4-5-20251213","smart":"opus","cheap":"grok-3-mini"}}"#,
+            r#"{"aliases":{"fast":"anthropic/claude-haiku-4-5-20251213","smart":"opus","cheap":"grok-3-mini"}}"#,
         )
         .expect("project config should write");
 
@@ -10904,11 +10905,11 @@ mod tests {
         std::fs::remove_dir_all(root).expect("temp config root should clean up");
 
         // then
-        assert_eq!(direct, "claude-haiku-4-5-20251213");
-        assert_eq!(chained, "claude-opus-4-6");
+        assert_eq!(direct, "anthropic/claude-haiku-4-5-20251213");
+        assert_eq!(chained, "anthropic/claude-opus-4-6");
         assert_eq!(cross_provider, "grok-3-mini");
         assert_eq!(unknown, "unknown-model");
-        assert_eq!(builtin, "claude-haiku-4-5-20251213");
+        assert_eq!(builtin, "anthropic/claude-haiku-4-5-20251213");
     }
 
     #[test]
@@ -11342,7 +11343,7 @@ mod tests {
                 model_flag_raw,
                 ..
             } => {
-                assert_eq!(model, "claude-sonnet-4-6", "sonnet alias should resolve");
+                assert_eq!(model, "anthropic/claude-sonnet-4-6", "sonnet alias should resolve");
                 assert_eq!(
                     model_flag_raw.as_deref(),
                     Some("sonnet"),
@@ -12314,7 +12315,7 @@ mod tests {
             .expect("prompt shorthand should still work"),
             CliAction::Prompt {
                 prompt: "please debug this".to_string(),
-                model: "claude-opus-4-6".to_string(),
+                model: "anthropic/claude-opus-4-6".to_string(),
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
                 permission_mode: crate::default_permission_mode(),
@@ -12816,7 +12817,7 @@ mod tests {
             vec!["session-old".to_string()],
         );
 
-        assert!(completions.contains(&"/model claude-sonnet-4-6".to_string()));
+        assert!(completions.contains(&"/model anthropic/claude-sonnet-4-6".to_string()));
         assert!(completions.contains(&"/permissions workspace-write".to_string()));
         assert!(completions.contains(&"/session list".to_string()));
         assert!(completions.contains(&"/session switch session-current".to_string()));
@@ -12835,7 +12836,7 @@ mod tests {
 
         let banner = with_current_dir(&root, || {
             LiveCli::new(
-                "claude-sonnet-4-6".to_string(),
+                "anthropic/claude-sonnet-4-6".to_string(),
                 true,
                 None,
                 PermissionMode::DangerFullAccess,
@@ -12853,11 +12854,11 @@ mod tests {
 
     #[test]
     fn format_connected_line_renders_anthropic_provider_for_claude_model() {
-        let model = "claude-sonnet-4-6";
+        let model = "anthropic/claude-sonnet-4-6";
 
         let line = format_connected_line(model);
 
-        assert_eq!(line, "Connected: claude-sonnet-4-6 via anthropic");
+        assert_eq!(line, "Connected: anthropic/claude-sonnet-4-6 via anthropic");
     }
 
     #[test]
@@ -12871,11 +12872,11 @@ mod tests {
 
     #[test]
     fn resolve_repl_model_returns_user_supplied_model_unchanged_when_explicit() {
-        let user_model = "claude-sonnet-4-6".to_string();
+        let user_model = "anthropic/claude-sonnet-4-6".to_string();
 
         let resolved = resolve_repl_model(user_model);
 
-        assert_eq!(resolved, "claude-sonnet-4-6");
+        assert_eq!(resolved, "anthropic/claude-sonnet-4-6");
     }
 
     #[test]
@@ -12891,7 +12892,7 @@ mod tests {
 
         let resolved = with_current_dir(&root, || resolve_repl_model(DEFAULT_MODEL.to_string()));
 
-        assert_eq!(resolved, "claude-sonnet-4-6");
+        assert_eq!(resolved, "anthropic/claude-sonnet-4-6");
 
         std::env::remove_var("ANTHROPIC_MODEL");
         std::env::remove_var("CLAW_CONFIG_HOME");
@@ -14381,7 +14382,7 @@ UU conflicted.rs",
             MessageResponse {
                 id: "msg-1".to_string(),
                 kind: "message".to_string(),
-                model: "claude-opus-4-6".to_string(),
+                model: "anthropic/claude-opus-4-6".to_string(),
                 role: "assistant".to_string(),
                 content: vec![OutputContentBlock::ToolUse {
                     id: "tool-1".to_string(),
@@ -14416,7 +14417,7 @@ UU conflicted.rs",
             MessageResponse {
                 id: "msg-2".to_string(),
                 kind: "message".to_string(),
-                model: "claude-opus-4-6".to_string(),
+                model: "anthropic/claude-opus-4-6".to_string(),
                 role: "assistant".to_string(),
                 content: vec![OutputContentBlock::ToolUse {
                     id: "tool-2".to_string(),
@@ -14451,7 +14452,7 @@ UU conflicted.rs",
             MessageResponse {
                 id: "msg-3".to_string(),
                 kind: "message".to_string(),
-                model: "claude-opus-4-6".to_string(),
+                model: "anthropic/claude-opus-4-6".to_string(),
                 role: "assistant".to_string(),
                 content: vec![
                     OutputContentBlock::Thinking {
@@ -15054,5 +15055,48 @@ mod dump_manifests_tests {
         );
 
         let _ = fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(test)]
+mod alias_resolution_tests {
+    use super::{resolve_model_alias_with_config, validate_model_syntax};
+
+    #[test]
+    fn test_alias_resolution_builtin() {
+        // Built-in aliases should resolve to their full IDs
+        assert_eq!(resolve_model_alias_with_config("opus"), "anthropic/claude-opus-4-6");
+        assert_eq!(resolve_model_alias_with_config("sonnet"), "anthropic/claude-sonnet-4-6");
+        assert_eq!(resolve_model_alias_with_config("haiku"), "anthropic/claude-haiku-4-5-20251213");
+    }
+
+    #[test]
+    fn test_alias_resolution_syntax_validation() {
+        // Resolved aliases should pass syntax validation
+        let resolved = resolve_model_alias_with_config("opus");
+        assert!(validate_model_syntax(&resolved).is_ok());
+
+        // Raw aliases should FAIL syntax validation (this is why we resolve first!)
+        assert!(validate_model_syntax("opus").is_err());
+    }
+
+    #[test]
+    fn test_unknown_alias_fails_validation() {
+        // Unknown aliases resolve to themselves
+        let resolved = resolve_model_alias_with_config("unknown-alias");
+        assert_eq!(resolved, "unknown-alias");
+
+        // And then fail validation with a helpful error
+        let result = validate_model_syntax(&resolved);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid model syntax"));
+    }
+
+    #[test]
+    fn test_direct_provider_model_passes() {
+        // Direct provider/model strings should remain unchanged and pass
+        let model = "openai/gpt-4o";
+        assert_eq!(resolve_model_alias_with_config(model), model);
+        assert!(validate_model_syntax(model).is_ok());
     }
 }
