@@ -6080,8 +6080,11 @@ impl LiveCli {
             CliOutputFormat::Json => {
                 let result = handle_skills_slash_command_json(args, &cwd)?;
                 let is_error = result.get("status").and_then(|v| v.as_str()) == Some("error");
+                // #739: action:"help" with unexpected set is a usage response, not a fatal error;
+                // don't return Err which would emit a second error envelope from the generic path.
+                let is_help_action = result.get("action").and_then(|v| v.as_str()) == Some("help");
                 println!("{}", serde_json::to_string_pretty(&result)?);
-                if is_error {
+                if is_error && !is_help_action {
                     return Err(result
                         .get("message")
                         .and_then(|v| v.as_str())
