@@ -2124,7 +2124,11 @@ impl DiagnosticCheck {
             ),
             ("summary".to_string(), Value::String(self.summary.clone())),
             (
-                "details".to_string(),
+                // #701 (complete): `details[]` is now the canonical structured form —
+                // `{key, value}` objects instead of padded prose strings. The legacy
+                // prose representation is preserved as `details_prose[]` for callers
+                // that still scrape the formatted strings.
+                "details_prose".to_string(),
                 Value::Array(
                     self.details
                         .iter()
@@ -2134,10 +2138,8 @@ impl DiagnosticCheck {
                 ),
             ),
             (
-                // #701: structured key/value pairs parsed from prose detail strings.
-                // Each detail string is `"Key Label      value"` separated by 2+ spaces.
-                // Booleans (`true`/`false`) and integers are emitted as JSON scalars.
-                "detail_entries".to_string(),
+                // details[] is now structured {key,value} objects (was prose strings).
+                "details".to_string(),
                 Value::Array(
                     self.details
                         .iter()
