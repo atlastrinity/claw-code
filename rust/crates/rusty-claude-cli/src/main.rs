@@ -2212,6 +2212,9 @@ struct DiagnosticCheck {
     summary: String,
     details: Vec<String>,
     data: Map<String, Value>,
+    /// #778: stable remediation hint for warn/fail checks so automation can read
+    /// a structured field instead of parsing details_prose.
+    hint: Option<String>,
 }
 
 impl DiagnosticCheck {
@@ -2222,6 +2225,7 @@ impl DiagnosticCheck {
             summary: summary.into(),
             details: Vec::new(),
             data: Map::new(),
+            hint: None,
         }
     }
 
@@ -2232,6 +2236,14 @@ impl DiagnosticCheck {
 
     fn with_data(mut self, data: Map<String, Value>) -> Self {
         self.data = data;
+        self
+    }
+
+    fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        let h = hint.into();
+        if !h.is_empty() {
+            self.hint = Some(h);
+        }
         self
     }
 
@@ -2297,6 +2309,14 @@ impl DiagnosticCheck {
                 ),
             ),
         ]);
+        // #778: include hint field so automation can read remediation without parsing prose
+        value.insert(
+            "hint".to_string(),
+            self.hint
+                .as_deref()
+                .map(|h| Value::String(h.to_string()))
+                .unwrap_or(Value::Null),
+        );
         value.extend(self.data.clone());
         Value::Object(value)
     }
@@ -2596,6 +2616,7 @@ fn check_auth_health() -> DiagnosticCheck {
             "Suggested action  set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN; `claw login` is removed"
                 .to_string(),
         ])
+        .with_hint("Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN env var. The saved OAuth token is no longer accepted.")
         .with_data(Map::from_iter([
             ("api_key_present".to_string(), json!(api_key_present)),
             ("auth_token_present".to_string(), json!(auth_token_present)),
@@ -2624,6 +2645,7 @@ fn check_auth_health() -> DiagnosticCheck {
             },
         )
         .with_details(vec![env_details])
+        .with_hint(if !any_auth_present { "Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN to authenticate." } else { "" })
         .with_data(Map::from_iter([
             ("api_key_present".to_string(), json!(api_key_present)),
             ("auth_token_present".to_string(), json!(auth_token_present)),
@@ -2637,6 +2659,7 @@ fn check_auth_health() -> DiagnosticCheck {
             DiagnosticLevel::Fail,
             format!("failed to inspect legacy saved credentials: {error}"),
         )
+        .with_hint("Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN env var to authenticate.")
         .with_data(Map::from_iter([
             ("api_key_present".to_string(), json!(api_key_present)),
             ("auth_token_present".to_string(), json!(auth_token_present)),
@@ -2728,6 +2751,7 @@ fn check_config_health(
                 .map(|path| format!("Discovered file   {path}"))
                 .collect()
         })
+        .with_hint("Fix the JSON syntax error in the listed config file, then rerun `claw doctor`.")
         .with_data(Map::from_iter([
             ("discovered_files".to_string(), json!(discovered_paths)),
             (
@@ -2791,6 +2815,13 @@ fn check_workspace_health(context: &StatusContext) -> DiagnosticCheck {
             "current directory is not inside a git project".to_string()
         },
     )
+    .with_hint(if !in_repo {
+        "Run `git init` to initialise a repository, or `cd` into a git project."
+    } else if stale_base_warning.is_some() {
+        "Rebase or merge to bring the branch up to date with its base."
+    } else {
+        ""
+    })
     .with_details(vec![
         format!("Cwd              {}", context.cwd.display()),
         format!(
@@ -2930,6 +2961,16 @@ fn check_boot_preflight_health(context: &StatusContext) -> DiagnosticCheck {
         preflight.summary(),
     )
     .with_details(details)
+    .with_hint(
+        // #778: stable remediation hint for automation
+        if !preflight.repo_exists || !preflight.worktree_exists {
+            "Ensure you are inside a git worktree (`git init` or `git worktree add`)."
+        } else if !missing_binaries.is_empty() {
+            "Install the listed missing required binaries."
+        } else {
+            ""
+        },
+    )
     .with_data(Map::from_iter([(
         "boot_preflight".to_string(),
         preflight.json_value(),
@@ -2964,6 +3005,16 @@ fn check_sandbox_health(status: &runtime::SandboxStatus) -> DiagnosticCheck {
         },
     )
     .with_details(details)
+    .with_hint(
+        // #778: stable remediation hint — sandbox degraded on non-Linux hosts is expected, not an error
+        if degraded && !status.supported {
+            "Sandbox namespace isolation requires Linux with `unshare`. On macOS/non-Linux hosts this warning is expected and can be ignored. Filesystem isolation is still active."
+        } else if degraded {
+            "Check that the `unshare` binary is available and the process has the required capabilities."
+        } else {
+            ""
+        },
+    )
     .with_data(Map::from_iter([
         ("enabled".to_string(), json!(status.enabled)),
         ("active".to_string(), json!(status.active)),
