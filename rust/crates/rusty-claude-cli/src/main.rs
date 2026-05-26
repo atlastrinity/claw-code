@@ -302,6 +302,9 @@ fn classify_error_kind(message: &str) -> &'static str {
         "api_http_error"
     } else if message.contains("mcpServers") {
         "malformed_mcp_config"
+    } else if message.contains(".claw/settings.json") || message.contains(".claw.json") {
+        // #763: config file JSON parse / validation errors (e.g. unterminated string, type mismatch)
+        "config_parse_error"
     } else if message.starts_with("empty prompt") {
         "empty_prompt"
     } else if message.starts_with("interactive_only:") || message.contains("stdin is not a TTY") {
@@ -322,6 +325,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "unknown_plugins_action"
     } else if message.starts_with("missing_prompt:") {
         "missing_prompt"
+    } else if message.starts_with("unknown_option:") {
+        "unknown_option"
     } else if message.contains("is a slash command")
         || message.starts_with("interactive_only:")
         // #735: "slash command /X is interactive-only" emitted by interactive-only guard
@@ -2012,7 +2017,7 @@ fn parse_export_args(args: &[String], output_format: CliOutputFormat) -> Result<
                 index += 1;
             }
             other if other.starts_with('-') => {
-                return Err(format!("unknown export option: {other}"));
+                return Err(format!("unknown_option: unknown export option: {other}.\nRun `claw export --help` for usage."));
             }
             other if output_path.is_none() => {
                 output_path = Some(PathBuf::from(other));
@@ -2055,7 +2060,7 @@ fn parse_dump_manifests_args(
             index += 1;
             continue;
         }
-        return Err(format!("unknown dump-manifests option: {arg}"));
+        return Err(format!("unknown_option: unknown dump-manifests option: {arg}.\nRun `claw dump-manifests --help` for usage."));
     }
 
     Ok(CliAction::DumpManifests {
@@ -12914,6 +12919,16 @@ mod tests {
                 "missing_prompt: -p requires a prompt string.\nUsage: claw -p <text>"
             ),
             "missing_prompt"
+        );
+        assert_eq!(
+            classify_error_kind("/tmp/.claw/settings.json: expected ',', found end of input"),
+            "config_parse_error"
+        );
+        assert_eq!(
+            classify_error_kind(
+                "/path/to/.claw.json: field \"model\" must be a string, got a number"
+            ),
+            "config_parse_error"
         );
     }
 
