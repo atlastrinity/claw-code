@@ -2621,6 +2621,8 @@ pub fn handle_skills_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
                     "error_kind": "skill_not_found",
                     "message": format!("skill '{}' not found", name),
                     "requested": name,
+                    // #761: hint so callers know how to enumerate available skills
+                    "hint": "Run `claw skills list` to see available skills.",
                 }));
             }
             Ok(render_skills_report_json_with_action(&matched, "show"))
@@ -4056,6 +4058,8 @@ fn render_mcp_server_report_json(
             "found": false,
             "server_name": server_name,
             "message": format!("server `{server_name}` is not configured"),
+            // #761: hint so callers know how to enumerate configured MCP servers
+            "hint": "Run `claw mcp list` to see configured servers.",
         }),
     }
 }
