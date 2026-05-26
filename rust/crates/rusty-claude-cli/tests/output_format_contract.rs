@@ -1903,3 +1903,40 @@ fn login_logout_removed_subcommands_have_error_kind_and_hint_765() {
         );
     }
 }
+
+#[test]
+fn diff_extra_args_have_typed_error_kind_and_hint_766() {
+    // #766: `claw diff --bogus` returned error_kind:"unknown" + hint:null.
+    // `diff` takes no arguments; extra args were unclassified with no remediation.
+    let root = unique_temp_dir("diff-extra-args-766");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+    // Need a git repo for diff to parse past arg validation
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    let output = run_claw(&root, &["--output-format", "json", "diff", "--bogus"], &[]);
+    assert!(
+        !output.status.success(),
+        "claw diff --bogus should exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let json_line = stderr
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .expect("stderr should contain a JSON error envelope");
+    let parsed: serde_json::Value =
+        serde_json::from_str(json_line).expect("error envelope should be valid JSON");
+
+    assert_eq!(
+        parsed["error_kind"], "unexpected_extra_args",
+        "claw diff --bogus must return error_kind:unexpected_extra_args (#766)"
+    );
+    let hint = parsed["hint"].as_str().unwrap_or("");
+    assert!(
+        !hint.is_empty(),
+        "claw diff --bogus must return non-null hint (#766), got: {hint:?}"
+    );
+}

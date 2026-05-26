@@ -328,6 +328,9 @@ fn classify_error_kind(message: &str) -> &'static str {
     } else if message.contains("has been removed.") {
         // #765: removed subcommands (login, logout) — hint contains migration guidance
         "removed_subcommand"
+    } else if message.starts_with("unexpected extra arguments") {
+        // #766: extra positionals after commands that take no arguments (e.g. claw diff)
+        "unexpected_extra_args"
     } else if message.starts_with("unknown_option:") {
         "unknown_option"
     } else if message.contains("is a slash command")
@@ -1145,7 +1148,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "diff" => {
             if rest.len() > 1 {
                 return Err(format!(
-                    "unexpected extra arguments after `claw diff`: {}",
+                    "unexpected extra arguments after `claw diff`: {}\nUsage: claw diff",
                     rest[1..].join(" ")
                 ));
             }
@@ -12940,6 +12943,13 @@ mod tests {
                 "`claw login` has been removed.\nSet ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead."
             ),
             "removed_subcommand"
+        );
+        // #766: unexpected extra arguments must classify as unexpected_extra_args
+        assert_eq!(
+            classify_error_kind(
+                "unexpected extra arguments after `claw diff`: --bogus\nUsage: claw diff"
+            ),
+            "unexpected_extra_args"
         );
         assert_eq!(
             classify_error_kind(
