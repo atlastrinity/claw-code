@@ -2145,6 +2145,8 @@ struct AgentSummary {
     reasoning_effort: Option<String>,
     source: DefinitionSource,
     shadowed_by: Option<DefinitionSource>,
+    // #728: on-disk path so `agents show` can surface the file path
+    path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -3541,6 +3543,7 @@ fn load_agents_from_roots(
                 reasoning_effort: parse_toml_string(&contents, "model_reasoning_effort"),
                 source: *source,
                 shadowed_by: None,
+                path: Some(entry.path()),
             });
         }
         root_agents.sort_by(|left, right| left.name.cmp(&right.name));
@@ -4273,6 +4276,8 @@ fn agent_summary_json(agent: &AgentSummary) -> Value {
         "source": definition_source_json(agent.source),
         "active": agent.shadowed_by.is_none(),
         "shadowed_by": agent.shadowed_by.map(definition_source_json),
+        // #728: expose on-disk path so callers can inspect the agent file directly
+        "path": agent.path.as_ref().map(|p| p.display().to_string()),
     })
 }
 
