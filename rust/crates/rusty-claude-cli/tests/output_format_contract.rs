@@ -1865,3 +1865,41 @@ fn config_parse_error_has_typed_error_kind_and_hint_764() {
         "malformed settings.json must return non-null hint (#764), got: {hint:?}"
     );
 }
+
+#[test]
+fn login_logout_removed_subcommands_have_error_kind_and_hint_765() {
+    // #765: `claw login` and `claw logout` are removed; JSON envelope must carry
+    // error_kind:removed_subcommand + non-null hint pointing to the env var migration.
+    // Before fix: single-line error string → error_kind:"unknown" + hint:null.
+    let root = unique_temp_dir("login-logout-removed-765");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+
+    for subcmd in &["login", "logout"] {
+        let output = run_claw(&root, &["--output-format", "json", subcmd], &[]);
+        assert!(
+            !output.status.success(),
+            "claw {subcmd} should exit non-zero"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let json_line = stderr
+            .lines()
+            .find(|l| l.trim_start().starts_with('{'))
+            .unwrap_or_else(|| panic!("claw {subcmd} stderr should contain a JSON envelope"));
+        let parsed: serde_json::Value =
+            serde_json::from_str(json_line).expect("error envelope should be valid JSON");
+
+        assert_eq!(
+            parsed["error_kind"], "removed_subcommand",
+            "claw {subcmd} must return error_kind:removed_subcommand (#765)"
+        );
+        let hint = parsed["hint"].as_str().unwrap_or("");
+        assert!(
+            !hint.is_empty(),
+            "claw {subcmd} must return non-null hint (#765), got: {hint:?}"
+        );
+        assert!(
+            hint.contains("ANTHROPIC_API_KEY") || hint.contains("ANTHROPIC_AUTH_TOKEN"),
+            "claw {subcmd} hint must mention the env var migration path, got: {hint:?}"
+        );
+    }
+}

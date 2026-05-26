@@ -325,6 +325,9 @@ fn classify_error_kind(message: &str) -> &'static str {
         "unknown_plugins_action"
     } else if message.starts_with("missing_prompt:") {
         "missing_prompt"
+    } else if message.contains("has been removed.") {
+        // #765: removed subcommands (login, logout) — hint contains migration guidance
+        "removed_subcommand"
     } else if message.starts_with("unknown_option:") {
         "unknown_option"
     } else if message.contains("is a slash command")
@@ -1478,8 +1481,9 @@ fn compact_interactive_only_error() -> String {
 }
 
 fn removed_auth_surface_error(command_name: &str) -> String {
+    // #765: two-line format so split_error_hint() extracts hint into JSON envelope
     format!(
-        "`claw {command_name}` has been removed. Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead."
+        "`claw {command_name}` has been removed.\nSet ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead."
     )
 }
 
@@ -12929,6 +12933,19 @@ mod tests {
                 "/path/to/.claw.json: field \"model\" must be a string, got a number"
             ),
             "config_parse_error"
+        );
+        // #765: removed auth subcommands must classify as removed_subcommand
+        assert_eq!(
+            classify_error_kind(
+                "`claw login` has been removed.\nSet ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead."
+            ),
+            "removed_subcommand"
+        );
+        assert_eq!(
+            classify_error_kind(
+                "`claw logout` has been removed.\nSet ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead."
+            ),
+            "removed_subcommand"
         );
     }
 
