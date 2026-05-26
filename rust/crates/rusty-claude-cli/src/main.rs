@@ -1326,6 +1326,9 @@ fn parse_single_word_command_alias(
         // Hint at the correct flag so they don't have to re-read --help.
         if rest[1] == "--json" {
             msg.push_str("\nDid you mean `--output-format json`?");
+        } else {
+            // #752: generic fallback hint so cli_parse errors always have non-null hint
+            msg.push_str(&format!("\nRun `claw {} --help` for usage.", verb));
         }
         return Some(Err(msg));
     }
