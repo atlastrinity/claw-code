@@ -6140,6 +6140,8 @@ impl LiveCli {
                                 "status": "error",
                                 "error_kind": "plugin_not_found",
                                 "requested": name,
+                                // #734: parity with skills show which always emits a message field
+                                "message": format!("plugin '{}' not found", name),
                             });
                             println!("{}", serde_json::to_string_pretty(&obj)?);
                             return Ok(());
