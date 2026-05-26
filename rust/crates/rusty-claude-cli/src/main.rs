@@ -12833,6 +12833,88 @@ mod tests {
             classify_error_kind("something completely unknown"),
             "unknown"
         );
+        // #762: coverage for all classifier arms added since #77 — prevents silent fallback
+        // to "unknown" if discriminant strings drift.
+        assert_eq!(
+            classify_error_kind("Manifest source files are missing: /tmp/x"),
+            "missing_manifests"
+        );
+        assert_eq!(
+            classify_error_kind("no managed sessions found in /tmp"),
+            "no_managed_sessions"
+        );
+        assert_eq!(
+            classify_error_kind("legacy session is missing workspace binding"),
+            "legacy_session_no_workspace_binding"
+        );
+        assert_eq!(
+            classify_error_kind("unsupported skills action: bogus. Supported actions: list"),
+            "unsupported_skills_action"
+        );
+        assert_eq!(
+            classify_error_kind(
+                "missing_flag_value: missing value for --model.\nUsage: --model <provider/model>"
+            ),
+            "missing_flag_value"
+        );
+        assert_eq!(
+            classify_error_kind("invalid_flag_value: unsupported permission mode 'bogus'.\nUsage: --permission-mode read-only|workspace-write|danger-full-access"),
+            "invalid_flag_value"
+        );
+        assert_eq!(
+            classify_error_kind("is not yet implemented"),
+            "unsupported_command"
+        );
+        assert_eq!(
+            classify_error_kind("confirmation required before running destructive operation"),
+            "confirmation_required"
+        );
+        assert_eq!(
+            classify_error_kind("api returned unexpected status 429"),
+            "api_http_error"
+        );
+        assert_eq!(
+            classify_error_kind("interactive_only: this command requires an interactive terminal"),
+            "interactive_only"
+        );
+        assert_eq!(
+            classify_error_kind("slash command /compact is interactive-only"),
+            "interactive_only"
+        );
+        assert_eq!(
+            classify_error_kind("unknown agents subcommand: bogus. Supported: list, show, help"),
+            "unknown_agents_subcommand"
+        );
+        assert_eq!(
+            classify_error_kind("agent not found: my-agent"),
+            "agent_not_found"
+        );
+        assert_eq!(
+            classify_error_kind("my-plugin is not installed"),
+            "plugin_not_found"
+        );
+        assert_eq!(
+            classify_error_kind("skill source /path/to/skill not found"),
+            "skill_not_found"
+        );
+        assert_eq!(
+            classify_error_kind("skill 'my-skill' does not exist"),
+            "skill_not_found"
+        );
+        assert_eq!(
+            classify_error_kind("Unsupported config section 'show'. Use: env, hooks, model"),
+            "unsupported_config_section"
+        );
+        assert_eq!(
+            classify_error_kind("unknown_plugins_action: bogus"),
+            "unknown_plugins_action"
+        );
+        assert_eq!(
+            classify_error_kind(
+                "missing_prompt: -p requires a prompt string.\nUsage: claw -p <text>"
+            ),
+            "missing_prompt"
+        );
     }
 
     #[test]
