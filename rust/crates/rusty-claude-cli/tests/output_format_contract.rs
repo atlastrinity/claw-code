@@ -1356,6 +1356,24 @@ fn diff_json_has_status_and_result_field_702() {
             .is_some(),
         "diff JSON must have working_directory field (#710)"
     );
+    // #740: diff JSON changed_file_count contract: numeric in git repos, absent for no_git_repo
+    let result_str = parsed.get("result").and_then(|v| v.as_str());
+    if result_str == Some("no_git_repo") {
+        // Non-git repos don't emit changed_file_count
+        assert!(
+            parsed.get("changed_file_count").is_none(),
+            "diff JSON should not have changed_file_count for no_git_repo (#733)"
+        );
+    } else {
+        // Git repos must emit numeric changed_file_count
+        assert!(
+            parsed
+                .get("changed_file_count")
+                .and_then(|v| v.as_u64())
+                .is_some(),
+            "diff JSON changed_file_count must be numeric in git repos (#733)"
+        );
+    }
 }
 
 #[test]
