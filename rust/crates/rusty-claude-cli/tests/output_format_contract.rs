@@ -1505,6 +1505,69 @@ fn prompt_no_arg_json_error_kind_750() {
 }
 
 #[test]
+fn short_p_flag_swallows_no_flags_755() {
+    // #755: `claw -p hello --output-format json` must parse --output-format json
+    // as a flag rather than swallowing it as part of the prompt. Before #755,
+    // args[index+1..].join(" ") consumed all remaining tokens into the prompt.
+    // After #755, -p consumes exactly one token and remaining flags are parsed.
+    // We verify by checking that the envelope IS JSON (meaning --output-format json
+    // was interpreted as a flag, not literal prompt text).
+    use std::process::Command;
+    let root = unique_temp_dir("short-p-flags");
+    fs::create_dir_all(&root).expect("temp dir");
+    let bin = env!("CARGO_BIN_EXE_claw");
+
+    // -p hello --output-format json: with no credentials, should fail with
+    // missing_credentials (not missing_prompt), proving --output-format json was parsed.
+    let output = Command::new(bin)
+        .current_dir(&root)
+        .args(["-p", "hello", "--output-format", "json"])
+        .env_remove("ANTHROPIC_API_KEY")
+        .env_remove("ANTHROPIC_AUTH_TOKEN")
+        .output()
+        .expect("claw -p should run");
+    assert!(
+        !output.status.success(),
+        "claw -p hello --output-format json must exit non-zero (no credentials)"
+    );
+    let raw = String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .filter(|l| l.starts_with('{'))
+        .collect::<Vec<_>>()
+        .join("");
+    // Must be valid JSON (i.e. --output-format json was parsed, not swallowed)
+    let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap_or_else(|_| {
+        panic!("--output-format json must be parsed as a flag, not prompt text; stderr: {raw}")
+    });
+    assert_eq!(
+        parsed["error_kind"], "missing_credentials",
+        "flags after -p prompt text must be parsed normally (#755); got: {parsed}"
+    );
+
+    // Also verify -p --model bogus is rejected as missing_prompt (flag-as-prompt guard)
+    let output2 = Command::new(bin)
+        .current_dir(&root)
+        .args(["--output-format", "json", "-p", "--model", "sonnet"])
+        .output()
+        .expect("claw -p flag-as-prompt should run");
+    let raw2 = String::from_utf8_lossy(&output2.stderr)
+        .lines()
+        .filter(|l| l.starts_with('{'))
+        .collect::<Vec<_>>()
+        .join("");
+    let parsed2: serde_json::Value = serde_json::from_str(&raw2)
+        .unwrap_or_else(|_| panic!("claw -p --model must emit JSON; got: {raw2}"));
+    assert_eq!(
+        parsed2["error_kind"], "missing_prompt",
+        "flag-like token after -p must be rejected as missing_prompt (#755): {parsed2}"
+    );
+    assert!(
+        parsed2["hint"].as_str().map_or(false, |h| !h.is_empty()),
+        "missing_prompt hint must be non-empty (#755)"
+    );
+}
+
+#[test]
 fn short_p_flag_no_arg_json_error_kind_753() {
     // #753: `claw --output-format json -p` (no prompt) must emit error_kind:"missing_prompt"
     // and non-empty hint. Before #753 it returned error_kind:"unknown" + hint:null.

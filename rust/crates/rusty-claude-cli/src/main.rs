@@ -742,6 +742,9 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut base_commit: Option<String> = None;
     let mut reasoning_effort: Option<String> = None;
     let mut allow_broad_cwd = false;
+    // #755: -p prompt text captured as single token; remaining args continue
+    // flag parsing. None until `-p <text>` is seen.
+    let mut short_p_prompt: Option<String> = None;
     let mut rest: Vec<String> = Vec::new();
     let mut index = 0;
 
@@ -858,24 +861,40 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 index += 1;
             }
             "-p" => {
-                // Claw Code compat: -p "prompt" = one-shot prompt
-                let prompt = args[index + 1..].join(" ");
-                if prompt.trim().is_empty() {
-                    // #753: same missing_prompt shape as claw prompt (no arg) fix in #750
-                    return Err("missing_prompt: -p requires a prompt string.\nUsage: claw -p <text>  or  claw prompt <text>".to_string());
+                // Claw Code compat: -p "prompt" = one-shot prompt.
+                // #755: consume exactly one token so subsequent flags like
+                // --model/--output-format are parsed normally instead of
+                // being swallowed into the prompt string (#117).
+                let next = args.get(index + 1).map(|s| s.as_str());
+                match next {
+                    None | Some("") => {
+                        return Err("missing_prompt: -p requires a prompt string.\nUsage: claw -p <text>  or  claw prompt <text>".to_string());
+                    }
+                    Some(tok) if tok.starts_with('-') && tok != "--" => {
+                        // Looks like a flag, not a prompt. Reject so the user
+                        // knows to quote the literal text or use `--`.
+                        return Err(format!(
+                            "missing_prompt: -p requires a prompt string before flags; got `{tok}`.\nUsage: claw -p <text> --model sonnet  or  claw -p -- {tok} (literal)"
+                        ));
+                    }
+                    Some(tok) => {
+                        // `--` sentinel: skip it and take the token after as literal
+                        let (prompt_text, skip) = if tok == "--" {
+                            match args.get(index + 2) {
+                                Some(t) => (t.as_str(), 3usize),
+                                None => return Err("missing_prompt: -p -- requires a prompt string after `--`.\nUsage: claw -p -- <text>".to_string()),
+                            }
+                        } else {
+                            (tok, 2usize)
+                        };
+                        if prompt_text.trim().is_empty() {
+                            return Err("missing_prompt: -p requires a non-empty prompt string.\nUsage: claw -p <text>  or  claw prompt <text>".to_string());
+                        }
+                        short_p_prompt = Some(prompt_text.to_string());
+                        index += skip;
+                        continue;
+                    }
                 }
-                return Ok(CliAction::Prompt {
-                    prompt,
-                    model: resolve_model_alias_with_config(&model),
-                    output_format,
-                    allowed_tools: normalize_allowed_tools(&allowed_tool_values)?,
-                    permission_mode: permission_mode_override
-                        .unwrap_or_else(default_permission_mode),
-                    compact,
-                    base_commit: base_commit.clone(),
-                    reasoning_effort: reasoning_effort.clone(),
-                    allow_broad_cwd,
-                });
             }
             "--print" => {
                 // Claw Code compat: --print makes output non-interactive
@@ -964,6 +983,21 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     let allowed_tools = normalize_allowed_tools(&allowed_tool_values)?;
+
+    // #755: -p consumed exactly one token; dispatch now that all flags are parsed
+    if let Some(prompt) = short_p_prompt {
+        return Ok(CliAction::Prompt {
+            prompt,
+            model: resolve_model_alias_with_config(&model),
+            output_format,
+            allowed_tools,
+            permission_mode: permission_mode_override.unwrap_or_else(default_permission_mode),
+            compact,
+            base_commit,
+            reasoning_effort,
+            allow_broad_cwd,
+        });
+    }
 
     if rest.is_empty() {
         let permission_mode = permission_mode_override.unwrap_or_else(default_permission_mode);
