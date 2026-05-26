@@ -323,6 +323,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "unsupported_config_section"
     } else if message.contains("unknown_plugins_action") {
         "unknown_plugins_action"
+    } else if message.starts_with("invalid_history_count:") || message.contains("invalid count") {
+        "invalid_history_count"
     } else if message.starts_with("missing_prompt:") {
         "missing_prompt"
     } else if message.contains("has been removed.") {
@@ -3370,14 +3372,20 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
             }
             Err(error) => {
                 if output_format == CliOutputFormat::Json {
+                    // #776: classify + split so wrappers get typed fields instead of
+                    // hardcoded "resume_command_error" + prose in the error field
+                    let full_error = error.to_string();
+                    let error_kind = classify_error_kind(&full_error);
+                    let (short_reason, hint) = split_error_hint(&full_error);
                     eprintln!(
                         "{}",
                         serde_json::json!({
-                            "kind": "resume_command_error",
+                            "kind": error_kind,
                             "action": "resume",
                             "status": "error",
-                            "error_kind": "resume_command_error",
-                            "error": error.to_string(),
+                            "error_kind": error_kind,
+                            "error": short_reason,
+                            "hint": hint,
                             "exit_code": 2,
                             "command": raw_command,
                         })
@@ -6847,7 +6855,7 @@ fn run_resumed_session_command(
         }
         Some("exists") => {
             let Some(target) = target else {
-                return Err("/session exists requires a session id".into());
+                return Err("/session exists requires a session id.\nUsage: claw --resume <session> /session exists <session-id>".into());
             };
             let value = session_exists_json(target, &session.session_id)?;
             let exists = value
@@ -6866,7 +6874,7 @@ fn run_resumed_session_command(
         }
         Some("delete") => {
             let Some(target) = target else {
-                return Err("/session delete requires a session id".into());
+                return Err("/session delete requires a session id.\nUsage: claw --resume <session> /session delete <session-id> --force".into());
             };
             Ok(ResumeCommandOutcome {
                 session: session.clone(),
@@ -6883,7 +6891,7 @@ fn run_resumed_session_command(
         }
         Some("delete-force") => {
             let Some(target) = target else {
-                return Err("/session delete requires a session id".into());
+                return Err("/session delete requires a session id.\nUsage: claw --resume <session> /session delete <session-id> --force".into());
             };
             let handle = resolve_session_reference(target)?;
             if handle.id == session.session_id || handle.path == session_path {
@@ -6911,8 +6919,8 @@ fn run_resumed_session_command(
                 })),
             })
         }
-        Some("switch" | "fork") => Err("unsupported resumed slash command".into()),
-        Some(other) => Err(format!("unsupported resumed /session action: {other}").into()),
+        Some("switch" | "fork") => Err("unsupported_resumed_command: /session switch and /session fork require an interactive REPL.\nUsage: claw (then /session switch <id>) or claw --resume <session>".into()),
+        Some(other) => Err(format!("unsupported_resumed_command: /session {other} is not supported in resume mode.\nSupported: list, exists, delete").into()),
     }
 }
 
@@ -8413,11 +8421,12 @@ fn parse_history_count(raw: Option<&str>) -> Result<usize, String> {
     let Some(raw) = raw else {
         return Ok(DEFAULT_HISTORY_LIMIT);
     };
+    // #776: use \n-delimited format so split_error_hint extracts hint into JSON envelopes
     let parsed: usize = raw
         .parse()
-        .map_err(|_| format!("history: invalid count '{raw}'. Expected a positive integer."))?;
+        .map_err(|_| format!("invalid_history_count: '{raw}' is not a positive integer.\nUsage: /history [count] (default: {DEFAULT_HISTORY_LIMIT})"))?;
     if parsed == 0 {
-        return Err("history: count must be greater than 0.".to_string());
+        return Err(format!("invalid_history_count: count must be greater than 0.\nUsage: /history [count] (default: {DEFAULT_HISTORY_LIMIT})"));
     }
     Ok(parsed)
 }
@@ -15148,8 +15157,9 @@ UU conflicted.rs",
         let parsed = parse_history_count(raw);
 
         // then
-        assert!(parsed.is_err());
-        assert!(parsed.unwrap_err().contains("invalid count 'abc'"));
+        // #776: updated to match new invalid_history_count: prefix format
+        let err = parsed.expect_err("non-numeric count should fail");
+        assert!(err.contains("invalid_history_count:") && err.contains("'abc'"));
     }
 
     #[test]
