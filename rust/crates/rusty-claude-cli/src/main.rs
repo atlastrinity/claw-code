@@ -2760,16 +2760,26 @@ fn check_boot_preflight_health(context: &StatusContext) -> DiagnosticCheck {
                 .map_or("unknown".to_string(), |v| v.to_string())
         ),
         format!("Trusted roots    {}", preflight.trusted_roots_count),
+        // #736: keep compound values readable but use " · " as intra-value separator
+        // so the two-space prose splitter yields key="MCP eligible" value="true · servers 0"
         format!(
-            "MCP eligible     {} · servers {}",
-            preflight.mcp_startup_eligible, preflight.mcp_servers_configured
+            "MCP eligible     {}",
+            format!(
+                "{}  ·  servers {}",
+                preflight.mcp_startup_eligible, preflight.mcp_servers_configured
+            )
         ),
         format!(
-            "Plugin eligible  {} · configured {}",
-            preflight.plugin_startup_eligible, preflight.plugins_configured
+            "Plugin eligible  {}",
+            format!(
+                "{}  ·  configured {}",
+                preflight.plugin_startup_eligible, preflight.plugins_configured
+            )
         ),
         format!(
-            "Last failed boot {}",
+            // #736: use two-space separator so the detail_entries prose splitter
+            // can extract key="Last failed boot" value="<none>|<reason>"
+            "Last failed boot  {}",
             preflight
                 .last_failed_boot_reason
                 .as_deref()
@@ -2778,7 +2788,8 @@ fn check_boot_preflight_health(context: &StatusContext) -> DiagnosticCheck {
     ];
     details.extend(preflight.required_binaries.iter().map(|binary| {
         format!(
-            "Required binary {} available={}",
+            // #736: two-space separator → key="Required binary <name>" value="available=true|false"
+            "Required binary {}  available={}",
             binary.name, binary.available
         )
     }));
