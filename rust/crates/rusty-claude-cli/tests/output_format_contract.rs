@@ -1377,6 +1377,86 @@ fn diff_json_has_status_and_result_field_702() {
 }
 
 #[test]
+fn diff_json_changed_file_count_deduplication_733() {
+    // #733/#742: changed_file_count must be numeric in a git repo, be 0 for clean,
+    // and deduplicate staged+unstaged edits to the same file (1 file changed = count 1).
+    use std::process::Command;
+    let root = unique_temp_dir("diff-changed-dedup");
+    fs::create_dir_all(&root).expect("temp dir");
+
+    // git init + identity config + initial commit
+    Command::new("git")
+        .args(["init"])
+        .current_dir(&root)
+        .output()
+        .expect("git init");
+    Command::new("git")
+        .args(["config", "user.email", "test@claw.test"])
+        .current_dir(&root)
+        .output()
+        .expect("git config email");
+    Command::new("git")
+        .args(["config", "user.name", "Test"])
+        .current_dir(&root)
+        .output()
+        .expect("git config name");
+    fs::write(root.join("tracked.txt"), b"v1").expect("write tracked");
+    Command::new("git")
+        .args(["add", "tracked.txt"])
+        .current_dir(&root)
+        .output()
+        .expect("git add");
+    Command::new("git")
+        .args(["commit", "-m", "init"])
+        .current_dir(&root)
+        .output()
+        .expect("git commit");
+
+    // Clean state: changed_file_count must be 0
+    let bin = env!("CARGO_BIN_EXE_claw");
+    let clean = Command::new(bin)
+        .current_dir(&root)
+        .args(["--output-format", "json", "diff"])
+        .output()
+        .expect("claw diff clean");
+    let clean_json: serde_json::Value =
+        serde_json::from_slice(&clean.stdout).expect("diff clean stdout must be valid JSON");
+    assert_eq!(clean_json["result"], "clean", "fresh repo must be clean");
+    assert_eq!(
+        clean_json["changed_file_count"].as_u64(),
+        Some(0),
+        "clean repo must have changed_file_count:0 (#733)"
+    );
+
+    // Make a staged edit AND an unstaged edit to the same file
+    fs::write(root.join("tracked.txt"), b"v2").expect("staged write");
+    Command::new("git")
+        .args(["add", "tracked.txt"])
+        .current_dir(&root)
+        .output()
+        .expect("git add staged");
+    fs::write(root.join("tracked.txt"), b"v3").expect("unstaged write");
+
+    // Dirty state: same file appears in staged+unstaged — must deduplicate to count 1
+    let dirty = Command::new(bin)
+        .current_dir(&root)
+        .args(["--output-format", "json", "diff"])
+        .output()
+        .expect("claw diff dirty");
+    let dirty_json: serde_json::Value =
+        serde_json::from_slice(&dirty.stdout).expect("diff dirty stdout must be valid JSON");
+    assert_eq!(
+        dirty_json["result"], "changes",
+        "dirty repo must have result:changes (#733)"
+    );
+    assert_eq!(
+        dirty_json["changed_file_count"].as_u64(),
+        Some(1),
+        "staged+unstaged edits to same file must deduplicate to changed_file_count:1 (#733)"
+    );
+}
+
+#[test]
 fn export_json_has_kind_702() {
     // #458/#702: `claw export --output-format json` must emit kind:export.
     // We check only the kind field to avoid flakiness from session-store state.
