@@ -278,6 +278,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "session_load_failed"
     } else if message.contains("no managed sessions found") {
         "no_managed_sessions"
+    } else if message.contains("legacy session is missing workspace binding") {
+        "legacy_session_no_workspace_binding"
     } else if message.contains("unsupported ACP invocation") {
         "unsupported_acp_invocation"
     } else if message.contains("unsupported skills action") {
