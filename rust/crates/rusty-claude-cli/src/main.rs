@@ -6929,7 +6929,11 @@ fn status_json_value(
     let degraded = context.config_load_error.is_some();
     let model_source = provenance.map(|p| p.source.as_str());
     let model_raw = provenance.and_then(|p| p.raw.clone());
-    let allowed_tool_entries = allowed_tools.map(|tools| tools.iter().cloned().collect::<Vec<_>>());
+    // #732: always emit an array (empty when unrestricted) so callers can do
+    // `.allowed_tools.entries | length > 0` without a null-check first.
+    let allowed_tool_entries = allowed_tools
+        .map(|tools| tools.iter().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
     json!({
         "kind": "status",
         "action": "show",
