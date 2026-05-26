@@ -1829,3 +1829,39 @@ fn export_json_has_kind_702() {
         );
     }
 }
+
+#[test]
+fn config_parse_error_has_typed_error_kind_and_hint_764() {
+    // #764: Malformed .claw/settings.json must emit error_kind:config_parse_error
+    // and a non-null hint in --output-format json mode (was error_kind:"unknown"
+    // + hint:null before #763/#764 fixes).
+    let root = unique_temp_dir("config-parse-error-764");
+    fs::create_dir_all(root.join(".claw")).expect("temp .claw dir should exist");
+
+    // Write an invalid JSON file (type mismatch: model must be a string)
+    fs::write(root.join(".claw").join("settings.json"), r#"{"model": 99}"#)
+        .expect("settings.json should write");
+
+    let output = run_claw(&root, &["--output-format", "json", "config", "show"], &[]);
+    assert!(
+        !output.status.success(),
+        "malformed settings.json should cause non-zero exit"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let json_line = stderr
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .expect("stderr should contain a JSON error envelope");
+    let parsed: serde_json::Value =
+        serde_json::from_str(json_line).expect("error envelope should be valid JSON");
+
+    assert_eq!(
+        parsed["error_kind"], "config_parse_error",
+        "malformed settings.json must return error_kind:config_parse_error (#763)"
+    );
+    let hint = parsed["hint"].as_str().unwrap_or("");
+    assert!(
+        !hint.is_empty(),
+        "malformed settings.json must return non-null hint (#764), got: {hint:?}"
+    );
+}

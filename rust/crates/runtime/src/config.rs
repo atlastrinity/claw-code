@@ -217,7 +217,10 @@ impl Display for ConfigError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Io(error) => write!(f, "{error}"),
-            Self::Parse(error) => write!(f, "{error}"),
+            Self::Parse(error) => write!(
+                f,
+                "{error}\nFix: open the file shown above and correct the JSON syntax, then retry."
+            ),
         }
     }
 }
