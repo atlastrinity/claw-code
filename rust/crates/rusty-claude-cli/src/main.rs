@@ -349,8 +349,11 @@ fn classify_error_kind(message: &str) -> &'static str {
     } else if message.contains("has been removed.") {
         // #765: removed subcommands (login, logout) — hint contains migration guidance
         "removed_subcommand"
-    } else if message.starts_with("unexpected extra arguments") {
+    } else if message.starts_with("unexpected extra arguments")
+        || message.starts_with("unexpected_extra_args:")
+    {
         // #766: extra positionals after commands that take no arguments (e.g. claw diff)
+        // #784: export extra-positional errors use the typed prefix form
         "unexpected_extra_args"
     } else if message.starts_with("invalid_resume_argument:") {
         // #768: --resume trailing arg is not a slash command
@@ -2113,7 +2116,7 @@ fn parse_export_args(args: &[String], output_format: CliOutputFormat) -> Result<
             "--output" | "-o" => {
                 let value = args
                     .get(index + 1)
-                    .ok_or_else(|| format!("missing value for {}", args[index]))?;
+                    .ok_or_else(|| format!("missing_flag_value: missing value for {}.\nUsage: claw export [PATH] [--session SESSION] [--output PATH]", args[index]))?;
                 output_path = Some(PathBuf::from(value));
                 index += 2;
             }
@@ -2129,7 +2132,8 @@ fn parse_export_args(args: &[String], output_format: CliOutputFormat) -> Result<
                 index += 1;
             }
             other => {
-                return Err(format!("unexpected export argument: {other}"));
+                // #784: use typed prefix so classify_error_kind returns unexpected_extra_args
+                return Err(format!("unexpected_extra_args: unexpected export argument: {other}.\nUsage: claw export [PATH] [--session SESSION] [--output PATH]"));
             }
         }
     }

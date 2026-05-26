@@ -2436,3 +2436,69 @@ fn init_json_envelope_has_hint_and_already_initialized_783() {
         "re-init hint should acknowledge workspace exists, got: {hint2:?}"
     );
 }
+
+#[test]
+fn export_arg_errors_have_typed_kind_and_hint_784() {
+    // #784: `claw export --output` (missing flag value) returned error_kind:"unknown" + hint:null.
+    // `claw export a.md b.md` (extra positional) also returned unknown+null.
+    // Both export arg errors now use typed prefixes + usage hint.
+    let root = unique_temp_dir("export-arg-errors-784");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    // Missing --output value
+    let out1 = run_claw(
+        &root,
+        &["--output-format", "json", "export", "--output"],
+        &[],
+    );
+    assert!(!out1.status.success(), "--output with no value should fail");
+    let stderr1 = String::from_utf8_lossy(&out1.stderr);
+    let j1: serde_json::Value = stderr1
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("missing --output should emit JSON error");
+    assert_eq!(
+        j1["error_kind"], "missing_flag_value",
+        "missing --output value should be missing_flag_value, got {:?}",
+        j1["error_kind"]
+    );
+    let h1 = j1["hint"]
+        .as_str()
+        .expect("missing_flag_value must have hint (#784)");
+    assert!(
+        !h1.is_empty() && h1.contains("export"),
+        "hint must reference export usage, got: {h1:?}"
+    );
+
+    // Extra positional argument
+    let out2 = run_claw(
+        &root,
+        &["--output-format", "json", "export", "first.md", "second.md"],
+        &[],
+    );
+    assert!(!out2.status.success(), "extra positional should fail");
+    let stderr2 = String::from_utf8_lossy(&out2.stderr);
+    let j2: serde_json::Value = stderr2
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("extra positional should emit JSON error");
+    assert_eq!(
+        j2["error_kind"], "unexpected_extra_args",
+        "extra positional should be unexpected_extra_args, got {:?}",
+        j2["error_kind"]
+    );
+    let h2 = j2["hint"]
+        .as_str()
+        .expect("unexpected_extra_args must have hint (#784)");
+    assert!(
+        !h2.is_empty() && h2.contains("export"),
+        "hint must reference export usage, got: {h2:?}"
+    );
+}
