@@ -663,6 +663,22 @@ fn doctor_and_resume_status_emit_json_when_requested() {
     assert!(boot_preflight["boot_preflight"]["repo"]["exists"].is_boolean());
     assert!(boot_preflight["boot_preflight"]["mcp_startup"]["eligible"].is_boolean());
     assert!(boot_preflight["boot_preflight"]["required_binaries"].is_array());
+    // #736: details[] must be {key,value} objects with non-null values;
+    // regression guard for the double-space separator fix on boot_preflight prose strings.
+    let bp_details = boot_preflight["details"]
+        .as_array()
+        .expect("boot_preflight details must be array");
+    for entry in bp_details {
+        assert!(
+            entry["key"].is_string(),
+            "boot_preflight detail entry missing string key: {entry:?}"
+        );
+        assert!(
+            !entry["value"].is_null(),
+            "boot_preflight detail entry has null value (prose-splitter failed): key={:?}",
+            entry["key"]
+        );
+    }
 
     let sandbox = checks
         .iter()
