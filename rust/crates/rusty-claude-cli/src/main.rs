@@ -402,6 +402,8 @@ fn plugin_summary_json(plugin: &plugins::PluginSummary) -> Value {
         "description": &plugin.metadata.description,
         "kind": plugin.metadata.kind.to_string(),
         "source": &plugin.metadata.source,
+        // #730: path parity with agents (#728) and skills (#729)
+        "path": plugin.metadata.root.as_ref().map(|p| p.display().to_string()),
         "enabled": plugin.enabled,
         "lifecycle_state": plugin.lifecycle_state(),
         "lifecycle": {
