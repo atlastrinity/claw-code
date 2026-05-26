@@ -7874,7 +7874,9 @@ fn render_config_json(
     let cwd = env::current_dir()?;
     let loader = ConfigLoader::default_for(&cwd);
     let discovered = loader.discover();
-    let runtime_config = loader.load()?;
+    // #773: use load_collecting_warnings so deprecation warnings are surfaced in the
+    // JSON envelope instead of only as unstructured stderr text.
+    let (runtime_config, config_warnings) = loader.load_collecting_warnings()?;
 
     let loaded_paths: Vec<_> = runtime_config
         .loaded_entries()
@@ -7902,6 +7904,11 @@ fn render_config_json(
         })
         .collect();
 
+    let warnings_json: Vec<serde_json::Value> = config_warnings
+        .iter()
+        .map(|w| serde_json::Value::String(w.clone()))
+        .collect();
+
     let base = serde_json::json!({
         "kind": "config",
         "action": if section.is_some() { "show" } else { "list" },
@@ -7910,6 +7917,9 @@ fn render_config_json(
         "loaded_files": loaded_paths.len(),
         "merged_keys": runtime_config.merged().len(),
         "files": files,
+        // #773: deprecation warnings surfaced structurally so JSON-mode callers
+        // don't need to strip unstructured text from stderr
+        "warnings": warnings_json,
     });
 
     if let Some(section) = section {

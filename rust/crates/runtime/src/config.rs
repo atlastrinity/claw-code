@@ -346,6 +346,70 @@ impl ConfigLoader {
             feature_config,
         })
     }
+
+    /// Like [`load`] but also returns the list of validation warnings collected during
+    /// loading, without emitting them to stderr. Callers that want to surface warnings
+    /// through a structured channel (e.g. the JSON config envelope) should use this.
+    /// #773: enables JSON-mode callers to include `warnings` in their output envelope
+    /// instead of receiving unstructured text on stderr.
+    pub fn load_collecting_warnings(&self) -> Result<(RuntimeConfig, Vec<String>), ConfigError> {
+        let mut merged = BTreeMap::new();
+        let mut loaded_entries = Vec::new();
+        let mut mcp_servers = BTreeMap::new();
+        let mut all_warnings: Vec<String> = Vec::new();
+
+        for entry in self.discover() {
+            crate::config_validate::check_unsupported_format(&entry.path)?;
+            let Some(parsed) = read_optional_json_object(&entry.path)? else {
+                continue;
+            };
+            let validation = crate::config_validate::validate_config_file(
+                &parsed.object,
+                &parsed.source,
+                &entry.path,
+            );
+            if !validation.is_ok() {
+                let first_error = &validation.errors[0];
+                return Err(ConfigError::Parse(first_error.to_string()));
+            }
+            all_warnings.extend(validation.warnings.iter().map(|w| w.to_string()));
+            validate_optional_hooks_config(&parsed.object, &entry.path)?;
+            merge_mcp_servers(&mut mcp_servers, entry.source, &parsed.object, &entry.path)?;
+            deep_merge_objects(&mut merged, &parsed.object);
+            loaded_entries.push(entry);
+        }
+
+        // Still emit to stderr for non-JSON callers that go through the normal load() path;
+        // here we just *also* return them so callers can surface them structurally.
+        for warning in &all_warnings {
+            emit_config_warning_once(warning);
+        }
+
+        let merged_value = JsonValue::Object(merged.clone());
+
+        let feature_config = RuntimeFeatureConfig {
+            hooks: parse_optional_hooks_config(&merged_value)?,
+            plugins: parse_optional_plugin_config(&merged_value)?,
+            mcp: McpConfigCollection {
+                servers: mcp_servers,
+            },
+            oauth: parse_optional_oauth_config(&merged_value, "merged settings.oauth")?,
+            model: parse_optional_model(&merged_value),
+            aliases: parse_optional_aliases(&merged_value)?,
+            permission_mode: parse_optional_permission_mode(&merged_value)?,
+            permission_rules: parse_optional_permission_rules(&merged_value)?,
+            sandbox: parse_optional_sandbox_config(&merged_value)?,
+            provider_fallbacks: parse_optional_provider_fallbacks(&merged_value)?,
+            trusted_roots: parse_optional_trusted_roots(&merged_value)?,
+        };
+
+        let config = RuntimeConfig {
+            merged,
+            loaded_entries,
+            feature_config,
+        };
+        Ok((config, all_warnings))
+    }
 }
 
 impl RuntimeConfig {
