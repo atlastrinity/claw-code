@@ -1175,6 +1175,28 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 "interactive_only: `claw session` is a slash command{action_hint}.\nUse `claw --resume SESSION.jsonl /session <action>` or start `claw` and run `/session [list|exists|switch|fork|delete]`."
             ))
         }
+        // #770: same fallthrough gap as #767 — these slash commands had no multi-arg match arm
+        // and fell to CliAction::Prompt reaching the credential gate when called with args.
+        "cost" => Err(
+            "interactive_only: `claw cost` is a slash command.\nUse `claw --resume SESSION.jsonl /cost` or start `claw` and run `/cost`."
+                .to_string(),
+        ),
+        "clear" => Err(
+            "interactive_only: `claw clear` is a slash command.\nUse `claw --resume SESSION.jsonl /clear [--confirm]` or start `claw` and run `/clear`."
+                .to_string(),
+        ),
+        "memory" => Err(
+            "interactive_only: `claw memory` is a slash command.\nStart `claw` and run `/memory` inside the REPL."
+                .to_string(),
+        ),
+        "ultraplan" => Err(
+            "interactive_only: `claw ultraplan` is a slash command.\nStart `claw` and run `/ultraplan` inside the REPL."
+                .to_string(),
+        ),
+        "model" if rest.len() > 1 => Err(
+            "interactive_only: `claw model` is a slash command.\nStart `claw` and run `/model [model-name]` inside the REPL."
+                .to_string(),
+        ),
         "skills" => {
             let args = join_optional_args(&rest[1..]);
             if let Some(action) = args.as_deref() {

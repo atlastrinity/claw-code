@@ -2019,3 +2019,60 @@ fn session_with_unknown_subcommand_returns_interactive_only_not_credentials_767(
         );
     }
 }
+
+#[test]
+fn slash_only_verbs_with_args_return_interactive_only_not_credentials_770() {
+    // #770: `claw cost breakdown`, `claw clear --force`, `claw memory reset`,
+    // `claw ultraplan bogus`, `claw model opus extra` all fell through to
+    // CliAction::Prompt and reached the credential gate, returning
+    // error_kind:"missing_credentials". These are all slash-only commands;
+    // any multi-token invocation should return interactive_only guidance.
+    let root = unique_temp_dir("slash-verbs-770");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+
+    let cases: &[&[&str]] = &[
+        &["cost", "breakdown"],
+        &["clear", "--force"],
+        &["memory", "reset"],
+        &["ultraplan", "bogus"],
+        &["model", "opus", "extra"],
+    ];
+
+    for args in cases {
+        let full_args: Vec<&str> = std::iter::once("--output-format")
+            .chain(std::iter::once("json"))
+            .chain(args.iter().copied())
+            .collect();
+        let output = run_claw(&root, &full_args, &[]);
+        assert!(
+            !output.status.success(),
+            "claw {} should exit non-zero",
+            args.join(" ")
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let json_line = stderr
+            .lines()
+            .find(|l| l.trim_start().starts_with('{'))
+            .unwrap_or_else(|| {
+                panic!(
+                    "claw {} stderr should contain JSON, got: {stderr}",
+                    args.join(" ")
+                )
+            });
+        let parsed: serde_json::Value =
+            serde_json::from_str(json_line).expect("error envelope should be valid JSON");
+
+        assert_eq!(
+            parsed["error_kind"],
+            "interactive_only",
+            "claw {} must return error_kind:interactive_only (#770), not missing_credentials",
+            args.join(" ")
+        );
+        let hint = parsed["hint"].as_str().unwrap_or("");
+        assert!(
+            !hint.is_empty(),
+            "claw {} must return non-null hint (#770)",
+            args.join(" ")
+        );
+    }
+}
