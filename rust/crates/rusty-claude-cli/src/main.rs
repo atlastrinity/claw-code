@@ -349,6 +349,9 @@ fn classify_error_kind(message: &str) -> &'static str {
     } else if message.contains("has been removed.") {
         // #765: removed subcommands (login, logout) — hint contains migration guidance
         "removed_subcommand"
+    } else if message.starts_with("unknown subcommand:") {
+        // #785: typo/unknown top-level subcommand (e.g. `claw dump` → did you mean dump-manifests?)
+        "unknown_subcommand"
     } else if message.starts_with("unexpected extra arguments")
         || message.starts_with("unexpected_extra_args:")
     {
@@ -13008,6 +13011,11 @@ mod tests {
         assert_eq!(
             classify_error_kind("unrecognized argument `--foo` for subcommand `doctor`"),
             "cli_parse"
+        );
+        // #785: unknown top-level subcommand (typo or unrecognised command)
+        assert_eq!(
+            classify_error_kind("unknown subcommand: dump.\nDid you mean     dump-manifests"),
+            "unknown_subcommand"
         );
         assert_eq!(
             classify_error_kind("unsupported ACP invocation. Use `claw acp`."),

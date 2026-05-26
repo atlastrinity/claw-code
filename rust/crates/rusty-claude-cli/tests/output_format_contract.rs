@@ -2502,3 +2502,38 @@ fn export_arg_errors_have_typed_kind_and_hint_784() {
         "hint must reference export usage, got: {h2:?}"
     );
 }
+
+#[test]
+fn unknown_subcommand_returns_typed_kind_785() {
+    // #785: `claw dump` (a near-miss for dump-manifests) returned error_kind:"unknown"
+    // because the classifier had no arm for "unknown subcommand:" prose prefix.
+    // Fix: added "unknown_subcommand" arm in classify_error_kind.
+    let root = unique_temp_dir("unknown-subcommand-785");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    // "dump" is close enough to "dump-manifests" to trigger the typo suggestion path
+    let output = run_claw(&root, &["--output-format", "json", "dump"], &[]);
+    assert!(!output.status.success(), "unknown subcommand should fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let j: serde_json::Value = stderr
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("unknown subcommand should emit JSON error");
+    assert_eq!(
+        j["error_kind"], "unknown_subcommand",
+        "unknown subcommand should return unknown_subcommand kind, got {:?}",
+        j["error_kind"]
+    );
+    // hint should point at the suggestion and/or --help
+    let hint = j["hint"].as_str().unwrap_or("");
+    assert!(
+        hint.contains("dump-manifests") || hint.contains("--help") || hint.contains("claw"),
+        "hint should reference the suggested subcommand or help, got: {hint:?}"
+    );
+}
