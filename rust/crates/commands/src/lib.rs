@@ -4161,11 +4161,18 @@ fn render_mcp_usage(unexpected: Option<&str>) -> String {
 }
 
 fn render_mcp_usage_json(unexpected: Option<&str>) -> Value {
+    // #748: add error_kind when unexpected is set, matching agents/plugins unknown-subcommand shape.
+    let error_kind: Value = if unexpected.is_some() {
+        json!("unknown_mcp_action")
+    } else {
+        Value::Null
+    };
     json!({
         "kind": "mcp",
         "action": "help",
         "ok": unexpected.is_none(),
         "status": if unexpected.is_some() { "error" } else { "ok" },
+        "error_kind": error_kind,
         "usage": {
             "slash_command": "/mcp [list|show <server>|help]",
             "direct_cli": "claw mcp [list|show <server>|help]",
