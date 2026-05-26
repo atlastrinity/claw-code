@@ -2076,3 +2076,142 @@ fn slash_only_verbs_with_args_return_interactive_only_not_credentials_770() {
         );
     }
 }
+
+#[test]
+fn agents_plugins_mcp_unknown_subcommand_have_hint_774() {
+    // #774: `claw agents bogus`, `claw plugins bogus`, `claw mcp bogus` returned
+    // hint:null despite having correct error_kind. Fixed by adding \n delimiter
+    // to error strings in commands/src/lib.rs and explicit hint in mcp JSON envelope.
+    let root = unique_temp_dir("unknown-subcommands-774");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+
+    // agents bogus
+    {
+        let output = run_claw(&root, &["--output-format", "json", "agents", "bogus"], &[]);
+        assert!(!output.status.success(), "agents bogus should fail");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let json_line = stderr
+            .lines()
+            .find(|l| l.trim_start().starts_with('{'))
+            .expect("agents bogus should emit JSON error");
+        let parsed: serde_json::Value = serde_json::from_str(json_line).unwrap();
+        assert_eq!(parsed["error_kind"], "unknown_agents_subcommand");
+        let hint = parsed["hint"].as_str().unwrap_or("");
+        assert!(
+            !hint.is_empty(),
+            "agents bogus hint must be non-null (#774)"
+        );
+        assert!(
+            hint.contains("list") || hint.contains("show") || hint.contains("help"),
+            "agents bogus hint must mention supported actions, got: {hint:?}"
+        );
+    }
+
+    // plugins bogus
+    {
+        let output = run_claw(&root, &["--output-format", "json", "plugins", "bogus"], &[]);
+        assert!(!output.status.success(), "plugins bogus should fail");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let json_line = stderr
+            .lines()
+            .find(|l| l.trim_start().starts_with('{'))
+            .expect("plugins bogus should emit JSON error");
+        let parsed: serde_json::Value = serde_json::from_str(json_line).unwrap();
+        assert_eq!(parsed["error_kind"], "unknown_plugins_action");
+        let hint = parsed["hint"].as_str().unwrap_or("");
+        assert!(
+            !hint.is_empty(),
+            "plugins bogus hint must be non-null (#774)"
+        );
+    }
+
+    // mcp bogus
+    {
+        let output = run_claw(&root, &["--output-format", "json", "mcp", "bogus"], &[]);
+        assert!(!output.status.success(), "mcp bogus should fail");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let json_str = if stdout.trim().starts_with('{') {
+            stdout.to_string()
+        } else {
+            stderr
+                .lines()
+                .find(|l| l.trim_start().starts_with('{'))
+                .unwrap_or("")
+                .to_string()
+        };
+        let parsed: serde_json::Value =
+            serde_json::from_str(json_str.trim()).expect("mcp bogus should emit JSON");
+        assert_eq!(parsed["error_kind"], "unknown_mcp_action");
+        let hint = parsed["hint"].as_str().unwrap_or("");
+        assert!(!hint.is_empty(), "mcp bogus hint must be non-null (#774)");
+    }
+}
+
+#[test]
+fn interactive_only_guard_batch_769_to_771() {
+    // #769-#771: a sweep of slash-only verbs with args that previously fell to
+    // CliAction::Prompt hitting the credential gate. All must return
+    // error_kind:interactive_only (not missing_credentials) with non-null hint.
+    let root = unique_temp_dir("interactive-only-batch-769-771");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+    // Need a git repo for some subcommands
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    let cases: &[&[&str]] = &[
+        // #769: session with unknown subcommand
+        &["session", "bogus"],
+        &["session", "nuke"],
+        // #770: slash-only verbs with trailing args
+        &["cost", "breakdown"],
+        &["clear", "--force"],
+        &["memory", "reset"],
+        &["ultraplan", "bogus"],
+        &["model", "opus", "extra"],
+        // #771: usage/stats/fork
+        &["usage", "extra"],
+        &["stats", "extra"],
+        &["fork", "newbranch"],
+    ];
+
+    for args in cases {
+        let full_args: Vec<&str> = std::iter::once("--output-format")
+            .chain(std::iter::once("json"))
+            .chain(args.iter().copied())
+            .collect();
+        let output = run_claw(&root, &full_args, &[]);
+        assert!(
+            !output.status.success(),
+            "claw {} should exit non-zero",
+            args.join(" ")
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let json_line = stderr
+            .lines()
+            .find(|l| l.trim_start().starts_with('{'))
+            .unwrap_or_else(|| {
+                panic!(
+                    "claw {} should emit JSON, got stderr: {stderr}",
+                    args.join(" ")
+                )
+            });
+        let parsed: serde_json::Value = serde_json::from_str(json_line).unwrap();
+        assert_eq!(
+            parsed["error_kind"],
+            "interactive_only",
+            "claw {} must return interactive_only, got {:?}",
+            args.join(" "),
+            parsed["error_kind"]
+        );
+        let hint = parsed["hint"].as_str().unwrap_or("");
+        assert!(
+            !hint.is_empty(),
+            "claw {} must have non-null hint",
+            args.join(" ")
+        );
+    }
+}

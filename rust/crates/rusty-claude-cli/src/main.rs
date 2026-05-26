@@ -12965,8 +12965,9 @@ mod tests {
             classify_error_kind("slash command /compact is interactive-only"),
             "interactive_only"
         );
+        // #774: agents now uses \n-delimited format — update test string to match real emission
         assert_eq!(
-            classify_error_kind("unknown agents subcommand: bogus. Supported: list, show, help"),
+            classify_error_kind("unknown agents subcommand: bogus.\nSupported: list, show, help"),
             "unknown_agents_subcommand"
         );
         assert_eq!(
