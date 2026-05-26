@@ -1422,7 +1422,8 @@ fn bare_slash_command_guidance(command_name: &str) -> Option<String> {
 }
 
 fn compact_interactive_only_error() -> String {
-    "interactive_only: `claw compact` is an interactive/session command. Start `claw` and run `/compact`, or use `claw --resume SESSION.jsonl /compact` to compact an existing session."
+    // #749: newline before remediation so split_error_hint populates hint field
+    "interactive_only: `claw compact` is an interactive/session command.\nStart `claw` and run `/compact`, or use `claw --resume SESSION.jsonl /compact` to compact an existing session."
         .to_string()
 }
 

@@ -283,6 +283,16 @@ fn compact_subcommand_json_help_fails_fast_when_stdin_closed() {
             .contains("claw compact"),
         "message should name compact: {parsed}"
     );
+    // #749: hint must be non-empty (was null before fix — same class as #738/#745/#746)
+    let hint = parsed["hint"].as_str().unwrap_or("");
+    assert!(
+        !hint.is_empty(),
+        "compact interactive-only JSON must have non-empty hint (#749); got: {parsed}"
+    );
+    assert!(
+        hint.contains("/compact") || hint.contains("--resume"),
+        "hint should mention /compact or --resume: {hint}"
+    );
 
     fs::remove_dir_all(&workspace).expect("workspace cleanup should succeed");
 }
