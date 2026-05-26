@@ -921,7 +921,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             "--allowedTools" | "--allowed-tools" => {
                 let value = args
                     .get(index + 1)
-                    .ok_or_else(|| "missing value for --allowedTools".to_string())?;
+                    .ok_or_else(|| "missing_flag_value: missing value for --allowedTools.\nUsage: --allowedTools <tool-name>  e.g. --allowedTools Bash".to_string())?;
                 allowed_tool_values.push(value.clone());
                 index += 2;
             }
@@ -1851,7 +1851,7 @@ fn parse_permission_mode_arg(value: &str) -> Result<PermissionMode, String> {
     normalize_permission_mode(value)
         .ok_or_else(|| {
             format!(
-                "unsupported permission mode '{value}'. Use read-only, workspace-write, or danger-full-access."
+                "invalid_flag_value: unsupported permission mode '{value}'.\nUsage: --permission-mode read-only|workspace-write|danger-full-access"
             )
         })
         .map(permission_mode_from_label)
@@ -5954,7 +5954,7 @@ impl LiveCli {
 
         let normalized = normalize_permission_mode(&mode).ok_or_else(|| {
             format!(
-                "unsupported permission mode '{mode}'. Use read-only, workspace-write, or danger-full-access."
+                "invalid_flag_value: unsupported permission mode '{mode}'.\nUsage: --permission-mode read-only|workspace-write|danger-full-access"
             )
         })?;
 
