@@ -1980,3 +1980,42 @@ fn resume_non_slash_trailing_arg_has_typed_error_kind_and_hint_768() {
         "hint must reference slash-command usage, got: {hint:?}"
     );
 }
+
+#[test]
+fn session_with_unknown_subcommand_returns_interactive_only_not_credentials_767() {
+    // #767: `claw session bogus` bypassed all guards and fell through to
+    // CliAction::Prompt, reaching the credential-check gate and returning
+    // error_kind:"missing_credentials" instead of a structured routing error.
+    // Fix: explicit "session" match arm returns interactive_only guidance.
+    let root = unique_temp_dir("session-unknown-767");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+
+    for sub in &["bogus", "nuke", "delete-all"] {
+        let output = run_claw(&root, &["--output-format", "json", "session", sub], &[]);
+        assert!(
+            !output.status.success(),
+            "claw session {sub} should exit non-zero"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let json_line = stderr
+            .lines()
+            .find(|l| l.trim_start().starts_with('{'))
+            .unwrap_or_else(|| panic!("claw session {sub} stderr should contain JSON"));
+        let parsed: serde_json::Value =
+            serde_json::from_str(json_line).expect("error envelope should be valid JSON");
+
+        assert_eq!(
+            parsed["error_kind"], "interactive_only",
+            "claw session {sub} must return error_kind:interactive_only (#767), not missing_credentials"
+        );
+        let hint = parsed["hint"].as_str().unwrap_or("");
+        assert!(
+            !hint.is_empty(),
+            "claw session {sub} must return non-null hint (#767)"
+        );
+        assert!(
+            hint.contains("/session") || hint.contains("--resume"),
+            "hint must reference /session usage, got: {hint:?}"
+        );
+    }
+}

@@ -1166,6 +1166,15 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             "`claw permissions` is a slash command. Start `claw` and run `/permissions` inside the REPL.\n  Usage  /permissions [read-only|workspace-write|danger-full-access]"
                 .to_string(),
         ),
+        // #767: `claw session bogus` bypassed parse_single_word_command_alias (rest.len()>1),
+        // had no match arm, and fell to CliAction::Prompt — reaching the credential gate
+        // instead of a structured error. Mirror the guard on `permissions`.
+        "session" => {
+            let action_hint = rest.get(1).map_or(String::new(), |a| format!(" (got: `{a}`)" ));
+            Err(format!(
+                "interactive_only: `claw session` is a slash command{action_hint}.\nUse `claw --resume SESSION.jsonl /session <action>` or start `claw` and run `/session [list|exists|switch|fork|delete]`."
+            ))
+        }
         "skills" => {
             let args = join_optional_args(&rest[1..]);
             if let Some(action) = args.as_deref() {
