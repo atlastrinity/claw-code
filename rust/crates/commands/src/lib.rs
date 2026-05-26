@@ -2334,6 +2334,13 @@ pub fn handle_plugins_slash_command(
                 reload_runtime: false,
             })
         }
+        // #743/#420: "help" was caught by Some(other) → unknown_plugins_action error with hint:null.
+        // agents/mcp/skills all return a help envelope; plugins must match that parity.
+        Some("help" | "-h" | "--help") => Ok(PluginsCommandResult {
+            message: "Plugins\n  Usage            /plugins [list|show <id>|install <id>|enable <id>|disable <id>|uninstall <id>|update <id>|help]\n  Subcommands      list  show  install  enable  disable  uninstall  update  help"
+                .to_string(),
+            reload_runtime: false,
+        }),
         Some(other) => Err(PluginError::CommandFailed(format!(
             "unknown_plugins_action: '{other}' is not a supported /plugins action. Use list, show, install, enable, disable, uninstall, or update."
         ))),

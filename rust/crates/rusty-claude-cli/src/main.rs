@@ -6108,6 +6108,23 @@ impl LiveCli {
             CliOutputFormat::Text => println!("{}", payload.message),
             CliOutputFormat::Json => {
                 let action_str = action.unwrap_or("list");
+                // #743/#420: plugins help must return a usage envelope matching agents/mcp/skills help shape.
+                if matches!(action_str, "help" | "-h" | "--help") {
+                    let cwd_str = cwd.display().to_string();
+                    let obj = json!({
+                        "kind": "plugin",
+                        "action": "help",
+                        "status": "ok",
+                        "unexpected": null,
+                        "usage": {
+                            "direct_cli": "claw plugins [list|show <id>|install <id>|enable <id>|disable <id>|uninstall <id>|update <id>|help]",
+                            "slash_command": "/plugins [list|show <id>|install <id>|enable <id>|disable <id>|uninstall <id>|update <id>|help]",
+                        },
+                        "cwd": cwd_str,
+                    });
+                    println!("{}", serde_json::to_string_pretty(&obj)?);
+                    return Ok(());
+                }
                 // For show/info/describe, filter to the named plugin (exact match).
                 // For list with a target, treat target as a substring filter.
                 let is_show_action = matches!(action_str, "show" | "info" | "describe");
