@@ -2342,7 +2342,7 @@ pub fn handle_plugins_slash_command(
             reload_runtime: false,
         }),
         Some(other) => Err(PluginError::CommandFailed(format!(
-            "unknown_plugins_action: '{other}' is not a supported /plugins action. Use list, show, install, enable, disable, uninstall, or update."
+            "unknown_plugins_action: '{other}' is not a supported /plugins action.\nUse: list, show, install, enable, disable, uninstall, or update."
         ))),
     }
 }
@@ -2406,7 +2406,7 @@ pub fn handle_agents_slash_command(args: Option<&str>, cwd: &Path) -> std::io::R
         Some(args) if is_help_arg(args) => Ok(render_agents_usage(None)),
         Some(args) => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("unknown agents subcommand: {args}. Supported: list, show, help"),
+            format!("unknown agents subcommand: {args}.\nSupported: list, show, help"),
         )),
     }
 }
@@ -2477,7 +2477,7 @@ pub fn handle_agents_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
         Some(args) if is_help_arg(args) => Ok(render_agents_usage_json(None)),
         Some(args) => Err(std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
-            format!("unknown agents subcommand: {args}. Supported: list, show, help"),
+            format!("unknown agents subcommand: {args}.\nSupported: list, show, help"),
         )),
     }
 }
@@ -4173,12 +4173,20 @@ fn render_mcp_usage_json(unexpected: Option<&str>) -> Value {
     } else {
         Value::Null
     };
+    // #774: add hint field so unknown_mcp_action errors have non-null hint parity
+    // with agents/plugins unknown-subcommand envelopes.
+    let hint: Value = if unexpected.is_some() {
+        json!("Use: list, show <server>, or help")
+    } else {
+        Value::Null
+    };
     json!({
         "kind": "mcp",
         "action": "help",
         "ok": unexpected.is_none(),
         "status": if unexpected.is_some() { "error" } else { "ok" },
         "error_kind": error_kind,
+        "hint": hint,
         "usage": {
             "slash_command": "/mcp [list|show <server>|help]",
             "direct_cli": "claw mcp [list|show <server>|help]",
