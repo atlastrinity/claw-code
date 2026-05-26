@@ -4475,11 +4475,13 @@ fn run_resume_command(
         SlashCommand::Plugins { action, target } => {
             // Only list is supported in resume mode (no runtime to reload)
             match action.as_deref() {
-                Some("install") | Some("uninstall") | Some("enable") | Some("disable")
-                | Some("update") => {
-                    return Err(
-                        "resumed /plugins mutations are interactive-only; start `claw` and run `/plugins` in the REPL".into(),
-                    );
+                Some(action @ ("install" | "uninstall" | "enable" | "disable" | "update")) => {
+                    // #777: use interactive_only: prefix + \n hint so #776's classify/split
+                    // emits error_kind:interactive_only + non-null hint instead of unknown+null.
+                    // Orchestrators can now detect this and switch to a live REPL instead of retrying.
+                    return Err(format!(
+                        "interactive_only: /plugins {action} requires a live session to reload the plugin runtime.\nStart `claw` and run `/plugins {action}` inside the REPL, or use `claw plugins {action}` as a direct CLI command."
+                    ).into());
                 }
                 _ => {}
             }

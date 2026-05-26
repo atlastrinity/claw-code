@@ -2215,3 +2215,63 @@ fn interactive_only_guard_batch_769_to_771() {
         );
     }
 }
+
+#[test]
+fn resume_plugin_mutations_are_typed_interactive_only_777() {
+    // #777: `/plugins install|enable|disable|uninstall|update` in resume mode returned
+    // a generic single-line error; after #776's classify/split it fell to
+    // error_kind:"unknown" + hint:null because there was no interactive_only: prefix.
+    // Fix: each mutation arm now returns "interactive_only: ... \n..." so the caller
+    // gets error_kind:interactive_only + non-null hint pointing at live REPL.
+    let root = unique_temp_dir("resume-plugin-mutations-777");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    // Create a minimal session file so we get past session load and into command dispatch
+    let session_file = write_session_fixture(&root, "resume-plugin-777", None);
+
+    for mutation in &["install", "enable", "disable", "uninstall", "update"] {
+        let cmd = format!("/plugins {mutation} my-plugin");
+        let output = run_claw(
+            &root,
+            &[
+                "--resume",
+                session_file.to_str().unwrap(),
+                "--output-format",
+                "json",
+                &cmd,
+            ],
+            &[],
+        );
+        assert!(
+            !output.status.success(),
+            "/plugins {mutation} in resume mode should exit non-zero"
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let json_line = stderr
+            .lines()
+            .find(|l| l.trim_start().starts_with('{'))
+            .unwrap_or_else(|| {
+                panic!("/plugins {mutation} should emit JSON error, got stderr: {stderr}")
+            });
+        let parsed: serde_json::Value = serde_json::from_str(json_line).unwrap();
+        assert_eq!(
+            parsed["error_kind"], "interactive_only",
+            "/plugins {mutation} must return interactive_only, got {:?}",
+            parsed["error_kind"]
+        );
+        let hint = parsed["hint"].as_str().unwrap_or("");
+        assert!(
+            !hint.is_empty(),
+            "/plugins {mutation} must have non-null hint (#777)"
+        );
+        assert!(
+            hint.contains("claw") || hint.contains("REPL") || hint.contains("plugins"),
+            "/plugins {mutation} hint must reference live session or CLI, got: {hint:?}"
+        );
+    }
+}
