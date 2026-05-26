@@ -331,6 +331,9 @@ fn classify_error_kind(message: &str) -> &'static str {
     } else if message.starts_with("unexpected extra arguments") {
         // #766: extra positionals after commands that take no arguments (e.g. claw diff)
         "unexpected_extra_args"
+    } else if message.starts_with("invalid_resume_argument:") {
+        // #768: --resume trailing arg is not a slash command
+        "invalid_resume_argument"
     } else if message.starts_with("unknown_option:") {
         "unknown_option"
     } else if message.contains("is a slash command")
@@ -2102,7 +2105,10 @@ fn parse_resume_args(args: &[String], output_format: CliOutputFormat) -> Result<
         }
 
         if current_command.is_empty() {
-            return Err("--resume trailing arguments must be slash commands".to_string());
+            // #768: typed prefix + \n hint so split_error_hint() extracts hint into JSON envelope
+            return Err(format!(
+                "invalid_resume_argument: `{token}` is not a slash command.\nUsage: claw --resume <session-id|latest> /<slash-command>  (e.g. /compact, /status)"
+            ));
         }
 
         current_command.push(' ');
@@ -12956,6 +12962,13 @@ mod tests {
                 "`claw logout` has been removed.\nSet ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead."
             ),
             "removed_subcommand"
+        );
+        // #768: invalid resume trailing arg must classify as invalid_resume_argument
+        assert_eq!(
+            classify_error_kind(
+                "invalid_resume_argument: `compact` is not a slash command.\nUsage: claw --resume <session-id|latest> /<slash-command>"
+            ),
+            "invalid_resume_argument"
         );
     }
 

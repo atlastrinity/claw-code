@@ -1940,3 +1940,43 @@ fn diff_extra_args_have_typed_error_kind_and_hint_766() {
         "claw diff --bogus must return non-null hint (#766), got: {hint:?}"
     );
 }
+
+#[test]
+fn resume_non_slash_trailing_arg_has_typed_error_kind_and_hint_768() {
+    // #768: `claw --resume latest compact` (missing leading /) returned
+    // error_kind:"unknown" + hint:null. Resume is orchestration-critical;
+    // wrappers need a machine-readable signal with a recovery hint.
+    let root = unique_temp_dir("resume-invalid-arg-768");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+
+    let output = run_claw(
+        &root,
+        &["--output-format", "json", "--resume", "latest", "compact"],
+        &[],
+    );
+    assert!(
+        !output.status.success(),
+        "claw --resume latest compact should exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let json_line = stderr
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .expect("stderr should contain a JSON error envelope");
+    let parsed: serde_json::Value =
+        serde_json::from_str(json_line).expect("error envelope should be valid JSON");
+
+    assert_eq!(
+        parsed["error_kind"], "invalid_resume_argument",
+        "non-slash resume trailing arg must return error_kind:invalid_resume_argument (#768)"
+    );
+    let hint = parsed["hint"].as_str().unwrap_or("");
+    assert!(
+        !hint.is_empty(),
+        "non-slash resume trailing arg must return non-null hint (#768), got: {hint:?}"
+    );
+    assert!(
+        hint.contains("/compact") || hint.contains("slash-command"),
+        "hint must reference slash-command usage, got: {hint:?}"
+    );
+}
