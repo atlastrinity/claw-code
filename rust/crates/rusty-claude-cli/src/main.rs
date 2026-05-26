@@ -4512,9 +4512,12 @@ fn run_resume_command(
         }
         SlashCommand::Skills { args } => {
             if let SkillSlashDispatch::Invoke(_) = classify_skills_slash_command(args.as_deref()) {
-                return Err(
-                    "resumed /skills invocations are interactive-only; start `claw` and run `/skills <skill>` in the REPL".into(),
-                );
+                // #779: use interactive_only: prefix + \n hint so #776 classify/split emits
+                // error_kind:interactive_only + non-null hint instead of unknown+null.
+                let skill_name = args.as_deref().unwrap_or("<skill>");
+                return Err(format!(
+                    "interactive_only: /skills {skill_name} invocation requires a live session.\nStart `claw` and run `/skills {skill_name}` inside the REPL, or use `claw -p <prompt>` with skill context."
+                ).into());
             }
             let cwd = env::current_dir()?;
             Ok(ResumeCommandOutcome {

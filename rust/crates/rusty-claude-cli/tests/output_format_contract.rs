@@ -2275,3 +2275,57 @@ fn resume_plugin_mutations_are_typed_interactive_only_777() {
         );
     }
 }
+
+#[test]
+fn resume_skills_invocation_is_typed_interactive_only_779() {
+    // #779: `/skills <skill>` invocation in resume mode returned bare prose;
+    // after #776 classify/split it fell to error_kind:"unknown" + hint:null.
+    // Fix: use interactive_only: prefix + \n hint so callers get typed fields.
+    let root = unique_temp_dir("resume-skills-invocation-779");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+    let session_file = write_session_fixture(&root, "resume-skills-779", None);
+
+    // A non-empty skills arg that would classify as Invoke
+    let output = run_claw(
+        &root,
+        &[
+            "--resume",
+            session_file.to_str().unwrap(),
+            "--output-format",
+            "json",
+            "/skills my-skill",
+        ],
+        &[],
+    );
+    assert!(
+        !output.status.success(),
+        "/skills <skill> in resume mode should exit non-zero"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let json_line = stderr
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .unwrap_or_else(|| {
+            panic!("/skills invocation should emit JSON error, got stderr: {stderr}")
+        });
+    let parsed: serde_json::Value = serde_json::from_str(json_line).unwrap();
+    assert_eq!(
+        parsed["error_kind"], "interactive_only",
+        "resumed /skills invocation must return interactive_only, got {:?}",
+        parsed["error_kind"]
+    );
+    let hint = parsed["hint"].as_str().unwrap_or("");
+    assert!(
+        !hint.is_empty(),
+        "resumed /skills invocation must have non-null hint (#779)"
+    );
+    assert!(
+        hint.contains("claw") || hint.contains("REPL") || hint.contains("skills"),
+        "hint must reference live session or CLI, got: {hint:?}"
+    );
+}
