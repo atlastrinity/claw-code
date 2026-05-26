@@ -2329,3 +2329,38 @@ fn resume_skills_invocation_is_typed_interactive_only_779() {
         "hint must reference live session or CLI, got: {hint:?}"
     );
 }
+
+#[test]
+fn acp_unsupported_invocation_has_hint_782() {
+    // #782: `claw acp start` returned error_kind:unsupported_acp_invocation but hint:null
+    // because the remediation text was on the same line as the error message.
+    // Fix: add \n-delimited hint so split_error_hint extracts it.
+    let root = unique_temp_dir("acp-unsupported-782");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    let output = run_claw(&root, &["--output-format", "json", "acp", "start"], &[]);
+    assert!(!output.status.success(), "acp start should fail");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let json_line = stderr
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .expect("should emit JSON error");
+    let parsed: serde_json::Value = serde_json::from_str(json_line).unwrap();
+    assert_eq!(
+        parsed["error_kind"], "unsupported_acp_invocation",
+        "unsupported ACP invocation should be classified correctly"
+    );
+    let hint = parsed["hint"]
+        .as_str()
+        .expect("hint must be non-null (#782)");
+    assert!(!hint.is_empty(), "hint must not be empty");
+    assert!(
+        hint.contains("discoverability") || hint.contains("ROADMAP"),
+        "hint should explain the discoverability-only status, got: {hint:?}"
+    );
+}

@@ -1593,7 +1593,7 @@ fn parse_acp_args(args: &[String], output_format: CliOutputFormat) -> Result<Cli
         [] => Ok(CliAction::Acp { output_format }),
         [subcommand] if subcommand == "serve" => Ok(CliAction::Acp { output_format }),
         _ => Err(String::from(
-            "unsupported ACP invocation. Use `claw acp`, `claw acp serve`, `claw --acp`, or `claw -acp`.",
+            "unsupported ACP invocation. Use `claw acp`, `claw acp serve`, `claw --acp`, or `claw -acp`.\nACP/Zed editor integration is currently a discoverability alias only; a real daemon and JSON-RPC endpoint are in ROADMAP tracking.",
         )),
     }
 }
