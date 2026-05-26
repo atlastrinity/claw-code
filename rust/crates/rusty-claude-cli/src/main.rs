@@ -7973,12 +7973,25 @@ fn render_diff_json_for(cwd: &Path) -> Result<serde_json::Value, Box<dyn std::er
     }
     let staged = run_git_diff_command_in(cwd, &["diff", "--cached"])?;
     let unstaged = run_git_diff_command_in(cwd, &["diff"])?;
+    // #733: add changed_file_count so callers don't have to count diff hunks
+    let staged_files =
+        run_git_diff_command_in(cwd, &["diff", "--cached", "--name-only"]).unwrap_or_default();
+    let unstaged_files = run_git_diff_command_in(cwd, &["diff", "--name-only"]).unwrap_or_default();
+    let mut changed: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for line in staged_files.lines().chain(unstaged_files.lines()) {
+        let t = line.trim();
+        if !t.is_empty() {
+            changed.insert(t);
+        }
+    }
+    let changed_file_count = changed.len();
     Ok(serde_json::json!({
         "kind": "diff",
         "action": "diff",
         "status": "ok",
         "working_directory": cwd.display().to_string(),
         "result": if staged.trim().is_empty() && unstaged.trim().is_empty() { "clean" } else { "changes" },
+        "changed_file_count": changed_file_count,
         "staged": staged.trim(),
         "unstaged": unstaged.trim(),
     }))
