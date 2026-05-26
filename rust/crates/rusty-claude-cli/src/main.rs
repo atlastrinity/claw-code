@@ -1197,6 +1197,19 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             "interactive_only: `claw model` is a slash command.\nStart `claw` and run `/model [model-name]` inside the REPL."
                 .to_string(),
         ),
+        // #771: usage/stats/fork are slash-only verbs with no multi-arg match arms
+        "usage" => Err(
+            "interactive_only: `claw usage` is a slash command.\nUse `claw --resume SESSION.jsonl /usage` or start `claw` and run `/usage`."
+                .to_string(),
+        ),
+        "stats" => Err(
+            "interactive_only: `claw stats` is a slash command.\nUse `claw --resume SESSION.jsonl /stats` or start `claw` and run `/stats`."
+                .to_string(),
+        ),
+        "fork" => Err(
+            "interactive_only: `claw fork` is a slash command.\nStart `claw` and run `/session fork [branch-name]` inside the REPL."
+                .to_string(),
+        ),
         "skills" => {
             let args = join_optional_args(&rest[1..]);
             if let Some(action) = args.as_deref() {
@@ -1228,7 +1241,16 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "system-prompt" => parse_system_prompt_args(&rest[1..], model, output_format),
         "acp" => parse_acp_args(&rest[1..], output_format),
         "login" | "logout" => Err(removed_auth_surface_error(rest[0].as_str())),
-        "init" => Ok(CliAction::Init { output_format }),
+        "init" => {
+            // #771: extra positional args to `init` were silently ignored — now rejected
+            if rest.len() > 1 {
+                let extra = rest[1..].join(" ");
+                return Err(format!(
+                    "unexpected extra arguments after `claw init`: {extra}\nUsage: claw init [--cwd <dir>] [--date <date>] [--session <session-id>]"
+                ));
+            }
+            Ok(CliAction::Init { output_format })
+        }
         "export" => parse_export_args(&rest[1..], output_format),
         "prompt" => {
             let prompt = rest[1..].join(" ");
