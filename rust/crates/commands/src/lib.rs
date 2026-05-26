@@ -2156,6 +2156,8 @@ struct SkillSummary {
     source: DefinitionSource,
     shadowed_by: Option<DefinitionSource>,
     origin: SkillOrigin,
+    // #729: on-disk path parity with AgentSummary
+    path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3588,6 +3590,7 @@ fn load_skills_from_roots(roots: &[SkillRoot]) -> std::io::Result<Vec<SkillSumma
                         source: root.source,
                         shadowed_by: None,
                         origin: root.origin,
+                        path: Some(entry.path()),
                     });
                 }
                 SkillOrigin::LegacyCommandsDir => {
@@ -3619,6 +3622,7 @@ fn load_skills_from_roots(roots: &[SkillRoot]) -> std::io::Result<Vec<SkillSumma
                         source: root.source,
                         shadowed_by: None,
                         origin: root.origin,
+                        path: Some(markdown_path),
                     });
                 }
             }
@@ -4303,6 +4307,8 @@ fn skill_summary_json(skill: &SkillSummary) -> Value {
         "origin": skill_origin_json(skill.origin),
         "active": skill.shadowed_by.is_none(),
         "shadowed_by": skill.shadowed_by.map(definition_source_json),
+        // #729: path parity with agent_summary_json
+        "path": skill.path.as_ref().map(|p| p.display().to_string()),
     })
 }
 
