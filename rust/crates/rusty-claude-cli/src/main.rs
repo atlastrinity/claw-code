@@ -3326,6 +3326,10 @@ impl BranchFreshness {
     fn json_value(&self) -> serde_json::Value {
         json!({
             "upstream": self.upstream,
+            // #727: has_upstream disambiguates fresh:null-because-no-upstream
+            // from fresh:null-because-unavailable; automation should check
+            // has_upstream before branching on fresh.
+            "has_upstream": self.upstream.is_some(),
             "ahead": self.ahead,
             "behind": self.behind,
             "fresh": self.fresh,
