@@ -1519,17 +1519,20 @@ fn bare_slash_command_guidance(command_name: &str) -> Option<String> {
     }
     let slash_command = slash_command_specs()
         .iter()
-        .find(|spec| spec.name == command_name)?;
+        // #772: check both spec.name and spec.aliases for command-line invocations
+        .find(|spec| spec.name == command_name || spec.aliases.contains(&command_name))?;
+    let canonical_name = slash_command.name;
     // #745: newline before remediation text so split_error_hint populates hint field
     let guidance = if slash_command.resume_supported {
         format!(
-            "`claw {command_name}` is a slash command.\nUse `claw --resume SESSION.jsonl /{command_name}` or start `claw` and run `/{command_name}`."
+            "`claw {command_name}` is a slash command.\nUse `claw --resume SESSION.jsonl /{canonical_name}` or start `claw` and run `/{canonical_name}`."
         )
     } else {
         format!(
-            "`claw {command_name}` is a slash command.\nStart `claw` and run `/{command_name}` inside the REPL."
+            "`claw {command_name}` is a slash command.\nStart `claw` and run `/{canonical_name}` inside the REPL."
         )
     };
+    // #772: help text still mentions the alias, but the remediation shows canonical form
     Some(guidance)
 }
 
