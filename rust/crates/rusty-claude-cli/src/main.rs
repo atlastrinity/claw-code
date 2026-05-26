@@ -2159,14 +2159,15 @@ fn parse_dump_manifests_args(
         if arg == "--manifests-dir" {
             let value = args
                 .get(index + 1)
-                .ok_or_else(|| String::from("--manifests-dir requires a path"))?;
+                .ok_or_else(|| String::from("missing_flag_value: --manifests-dir requires a path.\nUsage: claw dump-manifests --manifests-dir <path> [--output-format json]"))?;
             manifests_dir = Some(PathBuf::from(value));
             index += 2;
             continue;
         }
         if let Some(value) = arg.strip_prefix("--manifests-dir=") {
             if value.is_empty() {
-                return Err(String::from("--manifests-dir requires a path"));
+                // #786: empty --manifests-dir= is also a missing value
+                return Err(String::from("missing_flag_value: --manifests-dir requires a path.\nUsage: claw dump-manifests --manifests-dir <path> [--output-format json]"));
             }
             manifests_dir = Some(PathBuf::from(value));
             index += 1;

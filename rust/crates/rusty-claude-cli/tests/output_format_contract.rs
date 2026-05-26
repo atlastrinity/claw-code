@@ -2537,3 +2537,78 @@ fn unknown_subcommand_returns_typed_kind_785() {
         "hint should reference the suggested subcommand or help, got: {hint:?}"
     );
 }
+
+#[test]
+fn dump_manifests_missing_dir_has_typed_kind_and_hint_786() {
+    // #786: `claw dump-manifests --manifests-dir` (no value) and `--manifests-dir=` (empty)
+    // both emitted plain "--manifests-dir requires a path" with error_kind:"unknown" + hint:null.
+    // Fix: use missing_flag_value: prefix + \n usage hint.
+    let root = unique_temp_dir("dump-manifests-missing-dir-786");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    // Case 1: --manifests-dir with no following value (next arg is --output-format)
+    let out1 = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "dump-manifests",
+            "--manifests-dir",
+            "--output-format",
+            "json",
+        ],
+        &[],
+    );
+    assert!(!out1.status.success());
+    let stderr1 = String::from_utf8_lossy(&out1.stderr);
+    let j1: serde_json::Value = stderr1
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("missing --manifests-dir value should emit JSON error");
+    assert_eq!(
+        j1["error_kind"], "missing_flag_value",
+        "missing --manifests-dir value should be missing_flag_value, got {:?}",
+        j1["error_kind"]
+    );
+    let h1 = j1["hint"]
+        .as_str()
+        .expect("missing_flag_value must have hint (#786)");
+    assert!(
+        h1.contains("dump-manifests") || h1.contains("manifests-dir"),
+        "hint should reference dump-manifests usage, got: {h1:?}"
+    );
+
+    // Case 2: --manifests-dir= with empty value
+    let out2 = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "dump-manifests",
+            "--manifests-dir=",
+        ],
+        &[],
+    );
+    assert!(!out2.status.success());
+    let stderr2 = String::from_utf8_lossy(&out2.stderr);
+    let j2: serde_json::Value = stderr2
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("empty --manifests-dir= should emit JSON error");
+    assert_eq!(
+        j2["error_kind"], "missing_flag_value",
+        "empty --manifests-dir= should be missing_flag_value, got {:?}",
+        j2["error_kind"]
+    );
+    let h2 = j2["hint"]
+        .as_str()
+        .expect("missing_flag_value must have hint (#786)");
+    assert!(!h2.is_empty(), "hint must not be empty");
+}
