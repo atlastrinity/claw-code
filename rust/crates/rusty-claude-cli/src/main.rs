@@ -7276,14 +7276,21 @@ fn print_sandbox_status_snapshot(
 fn sandbox_json_value(status: &runtime::SandboxStatus) -> serde_json::Value {
     // Derive top-level status so automation can do a single field check
     // instead of combining enabled/active/supported booleans.
-    // ok  = not enabled (not requested), OR enabled and active
-    // warn = enabled and supported but not yet active (degraded)
-    // error = enabled but unsupported on this platform
+    // ok   = not enabled (not requested), OR enabled and active
+    // warn = enabled and supported but not yet active (degraded),
+    //        OR enabled but unsupported on this platform AND filesystem sandbox is active
+    //        (#731: "not supported on macOS" is a degraded state, not a hard error;
+    //         filesystem_active:true means partial containment is working)
+    // error = enabled but unsupported AND no filesystem sandbox either (nothing active)
     let top_status = if !status.enabled {
         "ok"
     } else if status.active {
         "ok"
     } else if status.supported {
+        "warn"
+    } else if status.filesystem_active {
+        // Platform doesn't support namespace isolation but filesystem sandbox is active:
+        // this is a degraded/partial state, not a hard error.
         "warn"
     } else {
         "error"
