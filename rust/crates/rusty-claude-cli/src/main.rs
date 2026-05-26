@@ -861,7 +861,8 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 // Claw Code compat: -p "prompt" = one-shot prompt
                 let prompt = args[index + 1..].join(" ");
                 if prompt.trim().is_empty() {
-                    return Err("-p requires a prompt string".to_string());
+                    // #753: same missing_prompt shape as claw prompt (no arg) fix in #750
+                    return Err("missing_prompt: -p requires a prompt string.\nUsage: claw -p <text>  or  claw prompt <text>".to_string());
                 }
                 return Ok(CliAction::Prompt {
                     prompt,
