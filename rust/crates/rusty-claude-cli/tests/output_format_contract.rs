@@ -2364,3 +2364,75 @@ fn acp_unsupported_invocation_has_hint_782() {
         "hint should explain the discoverability-only status, got: {hint:?}"
     );
 }
+
+#[test]
+fn init_json_envelope_has_hint_and_already_initialized_783() {
+    // #783: claw --output-format json init was missing the hint field entirely.
+    // Also added already_initialized: bool so orchestrators can detect the idempotent
+    // case without checking created.len() == 0.
+    let root = unique_temp_dir("init-hint-783");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    // Fresh init — already_initialized should be false, hint should mention CLAUDE.md
+    let output = run_claw(&root, &["--output-format", "json", "init"], &[]);
+    assert!(output.status.success(), "init should succeed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let raw = if stdout.trim_start().starts_with('{') {
+        &*stdout
+    } else {
+        &*stderr
+    };
+    let parsed: serde_json::Value = serde_json::from_str(raw.trim()).unwrap_or_else(|_| {
+        // multi-line JSON; find the whole block
+        serde_json::from_str(raw).expect("should emit valid JSON")
+    });
+
+    assert_eq!(parsed["status"], "ok", "init should succeed");
+    assert!(
+        parsed.get("already_initialized").is_some(),
+        "init JSON must include already_initialized field (#783)"
+    );
+    assert_eq!(
+        parsed["already_initialized"], false,
+        "first init: already_initialized must be false"
+    );
+    let hint = parsed["hint"]
+        .as_str()
+        .expect("hint must be present and non-null (#783)");
+    assert!(!hint.is_empty(), "hint must not be empty");
+    assert!(
+        hint.contains("CLAUDE.md") || hint.contains("doctor"),
+        "fresh-init hint should mention CLAUDE.md or doctor, got: {hint:?}"
+    );
+
+    // Idempotent re-init — already_initialized should be true
+    let output2 = run_claw(&root, &["--output-format", "json", "init"], &[]);
+    assert!(output2.status.success(), "re-init should succeed");
+    let stdout2 = String::from_utf8_lossy(&output2.stdout);
+    let stderr2 = String::from_utf8_lossy(&output2.stderr);
+    let raw2 = if stdout2.trim_start().starts_with('{') {
+        &*stdout2
+    } else {
+        &*stderr2
+    };
+    let parsed2: serde_json::Value = serde_json::from_str(raw2.trim())
+        .or_else(|_| serde_json::from_str(raw2))
+        .expect("re-init should emit valid JSON");
+    assert_eq!(
+        parsed2["already_initialized"], true,
+        "re-init: already_initialized must be true"
+    );
+    let hint2 = parsed2["hint"]
+        .as_str()
+        .expect("hint must be present on re-init");
+    assert!(
+        hint2.contains("already") || hint2.contains("doctor"),
+        "re-init hint should acknowledge workspace exists, got: {hint2:?}"
+    );
+}
