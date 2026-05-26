@@ -1407,13 +1407,14 @@ fn bare_slash_command_guidance(command_name: &str) -> Option<String> {
     let slash_command = slash_command_specs()
         .iter()
         .find(|spec| spec.name == command_name)?;
+    // #745: newline before remediation text so split_error_hint populates hint field
     let guidance = if slash_command.resume_supported {
         format!(
-            "`claw {command_name}` is a slash command. Use `claw --resume SESSION.jsonl /{command_name}` or start `claw` and run `/{command_name}`."
+            "`claw {command_name}` is a slash command.\nUse `claw --resume SESSION.jsonl /{command_name}` or start `claw` and run `/{command_name}`."
         )
     } else {
         format!(
-            "`claw {command_name}` is a slash command. Start `claw` and run `/{command_name}` inside the REPL."
+            "`claw {command_name}` is a slash command.\nStart `claw` and run `/{command_name}` inside the REPL."
         )
     };
     Some(guidance)
