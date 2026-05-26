@@ -7791,6 +7791,17 @@ fn render_config_json(
             "skills" => runtime_config.get("skills").map(|v| v.render()),
             "agents" => runtime_config.get("agents").map(|v| v.render()),
             other => {
+                // #741: populate hint field for unsupported section errors so callers reading
+                // .hint get actionable guidance instead of null
+                let hint = if matches!(other, "list" | "show" | "help" | "info") {
+                    format!(
+                        "'claw config {other}' is not a subcommand. To list all config: `claw config`. To inspect a section: `claw config <section>` where section is one of: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents."
+                    )
+                } else {
+                    format!(
+                        "'{other}' is not a config section. Supported: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents."
+                    )
+                };
                 return Ok(serde_json::json!({
                     "kind": "config",
                     "action": "show",
@@ -7799,6 +7810,7 @@ fn render_config_json(
                     "section": other,
                     "ok": false,
                     "error": format!("Unsupported config section '{other}'. Use: env, hooks, model, plugins, mcp, sandbox, permissions, skills, or agents."),
+                    "hint": hint,
                     "supported_sections": ["env", "hooks", "model", "plugins", "mcp", "sandbox", "permissions", "skills", "agents"],
                     "cwd": cwd.display().to_string(),
                     "loaded_files": loaded_paths.len(),
