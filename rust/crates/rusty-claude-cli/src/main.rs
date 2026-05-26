@@ -222,7 +222,9 @@ fn main() {
             // fields and add the stable status/error_kind/action contract used
             // by non-interactive command guards.
             let kind = classify_error_kind(&message);
-            let (short_reason, hint) = split_error_hint(&message);
+            let (short_reason, inline_hint) = split_error_hint(&message);
+            // #781: fall back to a kind-derived hint when the message has no \n-delimited hint
+            let hint = inline_hint.or_else(|| fallback_hint_for_error_kind(kind).map(String::from));
             eprintln!(
                 "{}",
                 serde_json::json!({
@@ -301,6 +303,20 @@ fn classify_error_kind(message: &str) -> &'static str {
         "unsupported_resumed_command"
     } else if message.contains("confirmation required") {
         "confirmation_required"
+    } else if (message.contains("api failed") || message.contains("api returned"))
+        && (message.contains("401")
+            || message.contains("Unauthorized")
+            || message.contains("authentication_error"))
+    {
+        // #781: sub-classify auth failures so wrappers can distinguish from rate-limit / server errors
+        "api_auth_error"
+    } else if (message.contains("api failed") || message.contains("api returned"))
+        && (message.contains("429")
+            || message.contains("rate_limit")
+            || message.contains("rate limit"))
+    {
+        // #781: sub-classify rate-limit failures
+        "api_rate_limit_error"
     } else if message.contains("api failed") || message.contains("api returned") {
         "api_http_error"
     } else if message.contains("mcpServers") {
@@ -362,6 +378,24 @@ fn split_error_hint(message: &str) -> (String, Option<String>) {
     match message.split_once('\n') {
         Some((short, hint)) => (short.to_string(), Some(hint.trim().to_string())),
         None => (message.to_string(), None),
+    }
+}
+
+/// #781: derive a stable fallback hint from a classified error kind when the error
+/// message itself has no `\n`-delimited hint. Returns `None` for kinds where the
+/// message is self-explanatory or no canonical remediation exists.
+fn fallback_hint_for_error_kind(kind: &str) -> Option<&'static str> {
+    match kind {
+        "api_auth_error" => {
+            Some("Check that ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN is set and valid.")
+        }
+        "api_rate_limit_error" => {
+            Some("You have hit the API rate limit. Wait and retry, or reduce request frequency.")
+        }
+        "missing_credentials" => {
+            Some("Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN before running claw.")
+        }
+        _ => None,
     }
 }
 
@@ -13034,8 +13068,19 @@ mod tests {
             classify_error_kind("confirmation required before running destructive operation"),
             "confirmation_required"
         );
+        // #781: 429 and 401 now sub-classify; generic 5xx/other still api_http_error
         assert_eq!(
             classify_error_kind("api returned unexpected status 429"),
+            "api_rate_limit_error"
+        );
+        assert_eq!(
+            classify_error_kind(
+                "api returned 401 Unauthorized (authentication_error): invalid x-api-key"
+            ),
+            "api_auth_error"
+        );
+        assert_eq!(
+            classify_error_kind("api returned 500 Internal Server Error"),
             "api_http_error"
         );
         assert_eq!(
