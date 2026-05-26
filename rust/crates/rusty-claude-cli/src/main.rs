@@ -316,6 +316,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "unsupported_config_section"
     } else if message.contains("unknown_plugins_action") {
         "unknown_plugins_action"
+    } else if message.starts_with("missing_prompt:") {
+        "missing_prompt"
     } else if message.contains("is a slash command")
         || message.starts_with("interactive_only:")
         // #735: "slash command /X is interactive-only" emitted by interactive-only guard
@@ -1147,7 +1149,8 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         "prompt" => {
             let prompt = rest[1..].join(" ");
             if prompt.trim().is_empty() {
-                return Err("prompt subcommand requires a prompt string".to_string());
+                // #750: provide error_kind-compatible prefix + \n for hint extraction
+                return Err("missing_prompt: prompt subcommand requires a prompt string.\nUsage: claw prompt <text>  or  echo '<text>' | claw".to_string());
             }
             Ok(CliAction::Prompt {
                 prompt,
