@@ -6227,6 +6227,8 @@ impl LiveCli {
                                 "requested": name,
                                 // #734: parity with skills show which always emits a message field
                                 "message": format!("plugin '{}' not found", name),
+                                // #760: hint so callers know how to enumerate available plugins
+                                "hint": "Run `claw plugins list` to see available plugins.",
                             });
                             println!("{}", serde_json::to_string_pretty(&obj)?);
                             return Ok(());

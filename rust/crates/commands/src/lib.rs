@@ -2468,6 +2468,8 @@ pub fn handle_agents_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
                     "requested": name,
                     // #734: parity with skills show which always emits a message field
                     "message": format!("agent '{}' not found", name),
+                    // #760: hint so callers know how to enumerate available agents
+                    "hint": "Run `claw agents list` to see available agents.",
                 }));
             }
             Ok(render_agents_report_json_with_action(cwd, &matched, "show"))
