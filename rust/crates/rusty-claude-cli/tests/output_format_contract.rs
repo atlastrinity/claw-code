@@ -1457,6 +1457,54 @@ fn diff_json_changed_file_count_deduplication_733() {
 }
 
 #[test]
+fn prompt_no_arg_json_error_kind_750() {
+    // #751/#750: `claw prompt --output-format json` with no prompt argument must emit
+    // error_kind:"missing_prompt" and a non-empty hint. Before #750 it returned
+    // error_kind:"unknown" + hint:null.
+    use std::process::Command;
+    let root = unique_temp_dir("prompt-no-arg");
+    fs::create_dir_all(&root).expect("temp dir");
+    let bin = env!("CARGO_BIN_EXE_claw");
+
+    let output = Command::new(bin)
+        .current_dir(&root)
+        .args(["--output-format", "json", "prompt"])
+        .output()
+        .expect("claw prompt should run");
+    assert!(
+        !output.status.success(),
+        "claw prompt with no arg must exit non-zero"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr)
+        .lines()
+        .filter(|l| l.starts_with('{'))
+        .collect::<Vec<_>>()
+        .join("");
+    let raw = if stdout.trim().starts_with('{') {
+        stdout.trim().to_string()
+    } else {
+        stderr
+    };
+    let parsed: serde_json::Value = serde_json::from_str(&raw).unwrap_or_else(|_| {
+        panic!("claw prompt (no arg) --output-format json must emit valid JSON; got: {raw}")
+    });
+    assert_eq!(
+        parsed["error_kind"], "missing_prompt",
+        "claw prompt no-arg must have error_kind:missing_prompt (#750); got: {parsed}"
+    );
+    let hint = parsed["hint"].as_str().unwrap_or("");
+    assert!(
+        !hint.is_empty(),
+        "claw prompt no-arg hint must be non-empty (#750)"
+    );
+    assert!(
+        hint.contains("claw prompt") || hint.contains("echo"),
+        "hint should mention 'claw prompt' or 'echo': {hint}"
+    );
+}
+
+#[test]
 fn bare_slash_command_hint_745() {
     // #747/#745: claw <slash-cmd> --output-format json must return non-null hint.
     // bare_slash_command_guidance() previously had no \n so split_error_hint returned hint:null.
