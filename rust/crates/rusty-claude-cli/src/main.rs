@@ -1778,12 +1778,12 @@ fn resolve_model_alias_with_config(model: &str) -> String {
 fn validate_model_syntax(model: &str) -> Result<(), String> {
     let trimmed = model.trim();
     if trimmed.is_empty() {
-        return Err("model string cannot be empty".to_string());
+        return Err("invalid model syntax: model string cannot be empty.\nUsage: --model <provider/model>  e.g. --model anthropic/claude-opus-4-7".to_string());
     }
     // Check for spaces (malformed)
     if trimmed.contains(' ') {
         return Err(format!(
-            "invalid model syntax: '{}' contains spaces. Use provider/model format or known alias",
+            "invalid model syntax: '{}' contains spaces.\nUse provider/model format (e.g., anthropic/claude-opus-4-7) or a known alias.",
             trimmed
         ));
     }
@@ -1792,7 +1792,7 @@ fn validate_model_syntax(model: &str) -> Result<(), String> {
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
         // #154: hint if the model looks like it belongs to a different provider
         let mut err_msg = format!(
-            "invalid model syntax: '{}'. Expected provider/model (e.g., anthropic/claude-opus-4-6)",
+            "invalid model syntax: '{}'.\nExpected provider/model (e.g., anthropic/claude-opus-4-7)",
             trimmed
         );
         if trimmed.starts_with("gpt-") || trimmed.starts_with("gpt_") {
