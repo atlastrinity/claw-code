@@ -1457,6 +1457,54 @@ fn diff_json_changed_file_count_deduplication_733() {
 }
 
 #[test]
+fn config_unsupported_section_json_hint_741() {
+    // #744/#741: claw config <unknown-section> --output-format json must return
+    // error_kind:unsupported_config_section with a non-null hint and supported_sections[].
+    // This is the regression guard for #741 (hint was null before fix).
+    use std::process::Command;
+    let root = unique_temp_dir("config-unsupported-section");
+    fs::create_dir_all(&root).expect("temp dir");
+    let bin = env!("CARGO_BIN_EXE_claw");
+
+    for section in &["list", "show", "bogus", "help"] {
+        let output = Command::new(bin)
+            .current_dir(&root)
+            .args(["--output-format", "json", "config", section])
+            .output()
+            .expect("claw config should run");
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|_| {
+            panic!("claw config {section} --output-format json must emit valid JSON; got: {stdout}")
+        });
+        assert_eq!(
+            parsed["kind"], "config",
+            "config {section} JSON must have kind:config (#741)"
+        );
+        assert_eq!(
+            parsed["status"], "error",
+            "config {section} must return status:error (#741)"
+        );
+        assert_eq!(
+            parsed["error_kind"], "unsupported_config_section",
+            "config {section} must return error_kind:unsupported_config_section (#741)"
+        );
+        // #741: hint must be a non-empty string (was null before fix)
+        let hint = parsed["hint"].as_str().unwrap_or("");
+        assert!(
+            !hint.is_empty(),
+            "config {section} --output-format json hint must be non-empty (#741)"
+        );
+        // supported_sections must still be present and non-empty
+        assert!(
+            parsed["supported_sections"]
+                .as_array()
+                .map_or(false, |a| !a.is_empty()),
+            "config {section} JSON must include supported_sections (#741)"
+        );
+    }
+}
+
+#[test]
 fn export_json_has_kind_702() {
     // #458/#702: `claw export --output-format json` must emit kind:export.
     // We check only the kind field to avoid flakiness from session-store state.
