@@ -1190,8 +1190,9 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             let tail = &rest[1..];
             let section = tail.first().cloned();
             if tail.len() > 1 {
+                // #791: append \n hint so split_error_hint extracts it and hint is non-null
                 return Err(format!(
-                    "unexpected extra arguments after `claw config {}`: {}",
+                    "unexpected extra arguments after `claw config {}`: {}\nUsage: claw config [env|hooks|model|plugins|mcp|settings]",
                     tail[0],
                     tail[1..].join(" ")
                 ));

@@ -2904,3 +2904,70 @@ fn system_prompt_unknown_option_returns_typed_kind_790() {
         "hint for --json should suggest --output-format json, got: {h2:?}"
     );
 }
+
+#[test]
+fn config_extra_args_have_non_null_hint_791() {
+    // #791: `claw config show bogus-key` and `claw config set a b` returned
+    // error_kind:"unexpected_extra_args" + hint:null because the error message
+    // "unexpected extra arguments after `claw config ...`: ..." had no \n delimiter.
+    // Fix: appended \n + usage hint to the format string.
+    let root = unique_temp_dir("config-extra-args-791");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    // config show with extra positional arg
+    let out1 = run_claw(
+        &root,
+        &["--output-format", "json", "config", "show", "bogus-key"],
+        &[],
+    );
+    assert!(!out1.status.success());
+    let stderr1 = String::from_utf8_lossy(&out1.stderr);
+    let j1: serde_json::Value = stderr1
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("config show extra arg should emit JSON error");
+    assert_eq!(
+        j1["error_kind"], "unexpected_extra_args",
+        "config show extra arg should be unexpected_extra_args, got {:?}",
+        j1["error_kind"]
+    );
+    let h1 = j1["hint"]
+        .as_str()
+        .expect("unexpected_extra_args must have hint (#791)");
+    assert!(
+        h1.contains("config") || h1.contains("claw"),
+        "hint should reference config usage, got: {h1:?}"
+    );
+
+    // config set with extra positionals
+    let out2 = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "config",
+            "set",
+            "bogus-section.key",
+            "value",
+        ],
+        &[],
+    );
+    assert!(!out2.status.success());
+    let stderr2 = String::from_utf8_lossy(&out2.stderr);
+    let j2: serde_json::Value = stderr2
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("config set extra arg should emit JSON error");
+    assert_eq!(j2["error_kind"], "unexpected_extra_args");
+    assert!(
+        j2["hint"].as_str().is_some_and(|h| !h.is_empty()),
+        "config set extra arg must have non-null hint (#791)"
+    );
+}
