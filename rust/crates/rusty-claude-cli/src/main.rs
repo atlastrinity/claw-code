@@ -335,7 +335,7 @@ fn classify_error_kind(message: &str) -> &'static str {
         "unknown_agents_subcommand"
     } else if message.starts_with("agent not found:") {
         "agent_not_found"
-    } else if message.contains("is not installed") {
+    } else if message.contains("is not installed") || message.starts_with("plugin_not_found:") {
         "plugin_not_found"
     } else if message.contains("plugin source") && message.contains("was not found") {
         // #794: `plugins install /nonexistent/path` → "plugin source ... was not found"
@@ -6406,7 +6406,28 @@ impl LiveCli {
         }
         let payload = plugins_command_payload_for(&cwd, action, target)?;
         match output_format {
-            CliOutputFormat::Text => println!("{}", payload.message),
+            CliOutputFormat::Text => {
+                // #806: text-mode show must return error when plugin not found (parity with JSON)
+                let action_str = action.unwrap_or("list");
+                if matches!(action_str, "show" | "info" | "describe") {
+                    if let Some(name) = target {
+                        let needle = name.to_lowercase();
+                        let found = payload.plugins.iter().any(|p| {
+                            p.get("id")
+                                .and_then(|v| v.as_str())
+                                .map(|id| id.to_lowercase() == needle)
+                                .unwrap_or(false)
+                        });
+                        if !found {
+                            return Err(format!(
+                                "plugin_not_found: plugin '{}' not found\nRun `claw plugins list` to see available plugins.",
+                                name
+                            ).into());
+                        }
+                    }
+                }
+                println!("{}", payload.message);
+            }
             CliOutputFormat::Json => {
                 let action_str = action.unwrap_or("list");
                 // #743/#420: plugins help must return a usage envelope matching agents/mcp/skills help shape.
