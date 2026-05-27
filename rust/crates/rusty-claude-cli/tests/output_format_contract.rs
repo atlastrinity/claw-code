@@ -2664,3 +2664,104 @@ fn resume_directory_path_returns_typed_kind_and_hint_787() {
         "hint should explain expected path format, got: {hint:?}"
     );
 }
+
+#[test]
+fn skills_show_not_found_emits_single_json_object_788() {
+    // #788: `claw --output-format json skills show no-such-skill` emitted TWO JSON objects:
+    // one from the skills handler (action:"show", status:"error") and a second from the
+    // top-level error handler (action:"abort"). The skills handler returned Err() after
+    // printing its JSON, which caused the ? propagation to trigger a duplicate envelope.
+    // Fix: exit(1) directly after the skills JSON is emitted instead of returning Err.
+    let root = unique_temp_dir("skills-show-double-emit-788");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    let output = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "skills",
+            "show",
+            "no-such-skill-xyz",
+        ],
+        &[],
+    );
+    assert!(!output.status.success(), "skills show unknown should fail");
+    // Skills handler emits JSON to stdout; the duplicate was on stderr from the main error path.
+    // After fix: stdout has 1 JSON object, stderr has none (no duplicate).
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+
+    // Count JSON objects in stdout — must be exactly 1
+    let json_objects: Vec<serde_json::Value> = {
+        let mut objects = Vec::new();
+        let mut remaining = stdout.trim();
+        while !remaining.is_empty() {
+            match serde_json::from_str::<serde_json::Value>(remaining) {
+                Ok(v) => {
+                    objects.push(v);
+                    break;
+                }
+                Err(_) => {
+                    // Try finding a complete JSON object
+                    if let Some(pos) = remaining.find('{') {
+                        remaining = &remaining[pos..];
+                        let mut depth = 0i32;
+                        let mut end = 0;
+                        for (i, c) in remaining.char_indices() {
+                            match c {
+                                '{' => depth += 1,
+                                '}' => {
+                                    depth -= 1;
+                                    if depth == 0 {
+                                        end = i + 1;
+                                        break;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        if end > 0 {
+                            if let Ok(v) = serde_json::from_str(&remaining[..end]) {
+                                objects.push(v);
+                                remaining = remaining[end..].trim_start();
+                            } else {
+                                break;
+                            }
+                        } else {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+        objects
+    };
+
+    assert_eq!(
+        json_objects.len(),
+        1,
+        "skills show not-found must emit exactly 1 JSON object on stdout, got {}. stdout: {} stderr: {}",
+        json_objects.len(),
+        stdout,
+        stderr
+    );
+    // Verify stderr has no duplicate error JSON (the pre-#788 bug was a second abort envelope here)
+    let stderr_has_json = stderr.lines().any(|l| l.trim_start().starts_with('{'));
+    assert!(
+        !stderr_has_json,
+        "stderr must have no duplicate JSON error envelope, got: {stderr}"
+    );
+    assert_eq!(
+        json_objects[0]["error_kind"], "skill_not_found",
+        "single JSON object must have skill_not_found error_kind"
+    );
+    assert_eq!(json_objects[0]["status"], "error");
+}

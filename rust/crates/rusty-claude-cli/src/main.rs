@@ -6333,12 +6333,10 @@ impl LiveCli {
                 let is_help_action = result.get("action").and_then(|v| v.as_str()) == Some("help");
                 println!("{}", serde_json::to_string_pretty(&result)?);
                 if is_error && !is_help_action {
-                    return Err(result
-                        .get("message")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("skills command failed")
-                        .to_string()
-                        .into());
+                    // #788: the error JSON is already emitted above; returning Err here
+                    // would cause the top-level handler to emit a second error envelope.
+                    // Exit directly to signal failure without a duplicate envelope.
+                    std::process::exit(1);
                 }
             }
         }
