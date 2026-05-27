@@ -2842,3 +2842,65 @@ fn plugins_show_not_found_exits_nonzero_789() {
     assert_eq!(j["error_kind"], "plugin_not_found");
     assert_eq!(j["status"], "error");
 }
+
+#[test]
+fn system_prompt_unknown_option_returns_typed_kind_790() {
+    // #790: `claw --output-format json system-prompt bogus` returned error_kind:"unknown" + hint:null.
+    // The unknown-option branch emitted plain "unknown system-prompt option: bogus" with no typed
+    // prefix. Fix: use unknown_option: prefix + \n usage hint.
+    let root = unique_temp_dir("system-prompt-unknown-opt-790");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    // Generic unknown option
+    let out1 = run_claw(
+        &root,
+        &["--output-format", "json", "system-prompt", "bogus"],
+        &[],
+    );
+    assert!(!out1.status.success());
+    let stderr1 = String::from_utf8_lossy(&out1.stderr);
+    let j1: serde_json::Value = stderr1
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("unknown option should emit JSON error");
+    assert_eq!(
+        j1["error_kind"], "unknown_option",
+        "system-prompt unknown option should be unknown_option, got {:?}",
+        j1["error_kind"]
+    );
+    let h1 = j1["hint"]
+        .as_str()
+        .expect("unknown_option must have hint (#790)");
+    assert!(
+        h1.contains("system-prompt") || h1.contains("claw"),
+        "hint should reference system-prompt usage, got: {h1:?}"
+    );
+
+    // Special --json case: hint should mention --output-format json
+    let out2 = run_claw(
+        &root,
+        &["--output-format", "json", "system-prompt", "--json"],
+        &[],
+    );
+    assert!(!out2.status.success());
+    let stderr2 = String::from_utf8_lossy(&out2.stderr);
+    let j2: serde_json::Value = stderr2
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("--json flag should emit JSON error");
+    assert_eq!(j2["error_kind"], "unknown_option");
+    let h2 = j2["hint"]
+        .as_str()
+        .expect("--json case must have hint (#790)");
+    assert!(
+        h2.contains("output-format") || h2.contains("json"),
+        "hint for --json should suggest --output-format json, got: {h2:?}"
+    );
+}

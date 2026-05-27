@@ -2091,11 +2091,16 @@ fn parse_system_prompt_args(
             }
             other => {
                 // #152: hint `--output-format json` when user types `--json`.
-                let mut msg = format!("unknown system-prompt option: {other}");
-                if other == "--json" {
-                    msg.push_str("\nDid you mean `--output-format json`?");
-                }
-                return Err(msg);
+                // #790: use unknown_option: prefix + \n hint so classify_error_kind returns
+                // unknown_option and split_error_hint extracts the remediation text.
+                let hint = if other == "--json" {
+                    "Did you mean `--output-format json`? Usage: claw system-prompt [--cwd <dir>] [--date <YYYY-MM-DD>] [--output-format text|json]".to_string()
+                } else {
+                    "Usage: claw system-prompt [--cwd <dir>] [--date <YYYY-MM-DD>] [--output-format text|json]".to_string()
+                };
+                return Err(format!(
+                    "unknown_option: unknown system-prompt option: {other}.\n{hint}"
+                ));
             }
         }
     }
