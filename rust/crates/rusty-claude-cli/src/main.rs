@@ -6281,10 +6281,17 @@ impl LiveCli {
         let cwd = env::current_dir()?;
         match output_format {
             CliOutputFormat::Text => println!("{}", handle_agents_slash_command(args, &cwd)?),
-            CliOutputFormat::Json => println!(
-                "{}",
-                serde_json::to_string_pretty(&handle_agents_slash_command_json(args, &cwd)?)?
-            ),
+            CliOutputFormat::Json => {
+                let value = handle_agents_slash_command_json(args, &cwd)?;
+                // #789: parity with print_mcp/#788 print_skills — exit 1 when envelope
+                // reports an error so automation can rely on exit code instead of
+                // parsing the JSON status field.
+                let is_error = value.get("status").and_then(|v| v.as_str()) == Some("error");
+                println!("{}", serde_json::to_string_pretty(&value)?);
+                if is_error {
+                    std::process::exit(1);
+                }
+            }
         }
         Ok(())
     }
@@ -6428,7 +6435,8 @@ impl LiveCli {
                                 "hint": "Run `claw plugins list` to see available plugins.",
                             });
                             println!("{}", serde_json::to_string_pretty(&obj)?);
-                            return Ok(());
+                            // #789: exit 1 on not-found so automation can rely on exit code
+                            std::process::exit(1);
                         }
                     }
                 }

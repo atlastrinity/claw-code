@@ -203,7 +203,9 @@ fn inventory_commands_emit_structured_json_when_requested() {
             isolated_codex.to_str().expect("utf8 codex home"),
         ),
     ];
-    let agents_show_missing = assert_json_command_with_env(
+    // #789: agents show not-found now exits 1 (parity with skills #788);
+    // use run_claw directly instead of assert_json_command_with_env which checks success.
+    let agents_show_out = run_claw(
         &root,
         &[
             "--output-format",
@@ -214,6 +216,12 @@ fn inventory_commands_emit_structured_json_when_requested() {
         ],
         &agents_show_env,
     );
+    assert!(
+        !agents_show_out.status.success(),
+        "agents show not-found must exit non-zero"
+    );
+    let agents_show_missing: serde_json::Value =
+        serde_json::from_slice(&agents_show_out.stdout).expect("agents show stdout should be json");
     assert_eq!(agents_show_missing["kind"], "agents", "agents show kind");
     assert_eq!(agents_show_missing["action"], "show", "agents show action");
     assert_eq!(
@@ -2764,4 +2772,73 @@ fn skills_show_not_found_emits_single_json_object_788() {
         "single JSON object must have skill_not_found error_kind"
     );
     assert_eq!(json_objects[0]["status"], "error");
+}
+
+#[test]
+fn agents_show_not_found_exits_nonzero_789() {
+    // #789: `claw --output-format json agents show <not-found>` returned exit 0 despite
+    // emitting status:"error". print_agents had no error check — just println + Ok(()).
+    // Skills was fixed in #788 (exit 1 via process::exit); agents/plugins had the same gap.
+    let root = unique_temp_dir("agents-show-exit-789");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    let output = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "agents",
+            "show",
+            "no-such-agent-xyz-789",
+        ],
+        &[],
+    );
+    assert!(
+        !output.status.success(),
+        "agents show not-found must exit non-zero (#789), got exit 0"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let j: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("agents show should emit valid JSON");
+    assert_eq!(j["error_kind"], "agent_not_found");
+    assert_eq!(j["status"], "error");
+}
+
+#[test]
+fn plugins_show_not_found_exits_nonzero_789() {
+    // #789: same as agents — `claw --output-format json plugins show <not-found>` exited 0
+    // despite status:"error". The not-found branch used `return Ok(())` instead of exit(1).
+    let root = unique_temp_dir("plugins-show-exit-789");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    let output = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "plugins",
+            "show",
+            "no-such-plugin-xyz-789",
+        ],
+        &[],
+    );
+    assert!(
+        !output.status.success(),
+        "plugins show not-found must exit non-zero (#789), got exit 0"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let j: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("plugins show should emit valid JSON");
+    assert_eq!(j["error_kind"], "plugin_not_found");
+    assert_eq!(j["status"], "error");
 }
