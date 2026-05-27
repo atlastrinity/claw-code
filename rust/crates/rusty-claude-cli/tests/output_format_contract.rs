@@ -1916,36 +1916,95 @@ fn login_logout_removed_subcommands_have_error_kind_and_hint_765() {
 fn diff_extra_args_have_typed_error_kind_and_hint_766() {
     // #766: `claw diff --bogus` returned error_kind:"unknown" + hint:null.
     // `diff` takes no arguments; extra args were unclassified with no remediation.
-    let root = unique_temp_dir("diff-extra-args-766");
+    let root = git_temp_dir("diff-extra-args-766");
+
+    assert_diff_unexpected_extra_args_json(
+        &root,
+        &["--output-format", "json", "diff", "--bogus"],
+        "claw diff --bogus",
+    );
+}
+
+#[test]
+fn diff_trailing_json_after_malformed_args_is_bounded_json_3129() {
+    // #3129: when --output-format json appeared after malformed `diff` args,
+    // the parser fell through to the interactive/prompt path and emitted zero
+    // JSON stdout. These forms must fail before any provider or TUI path starts.
+    let root = git_temp_dir("diff-trailing-json-3129");
+
+    for (args, label) in [
+        (
+            &["diff", "--bogus-flag", "--output-format", "json"][..],
+            "claw diff --bogus-flag --output-format json",
+        ),
+        (
+            &["diff", "does-not-exist", "--output-format", "json"][..],
+            "claw diff does-not-exist --output-format json",
+        ),
+        (
+            &[
+                "diff",
+                "--cached",
+                "--bogus-flag",
+                "--output-format",
+                "json",
+            ][..],
+            "claw diff --cached --bogus-flag --output-format json",
+        ),
+    ] {
+        assert_diff_unexpected_extra_args_json(&root, args, label);
+    }
+}
+
+fn git_temp_dir(prefix: &str) -> PathBuf {
+    let root = unique_temp_dir(prefix);
     fs::create_dir_all(&root).expect("temp dir should exist");
-    // Need a git repo for diff to parse past arg validation
+    // Need a git repo so `diff` reaches argument validation before git checks.
     std::process::Command::new("git")
         .args(["init", "-q"])
         .current_dir(&root)
         .output()
-        .ok();
+        .expect("git init should launch");
+    root
+}
 
-    let output = run_claw(&root, &["--output-format", "json", "diff", "--bogus"], &[]);
+fn assert_diff_unexpected_extra_args_json(root: &Path, args: &[&str], label: &str) {
+    let output = run_claw(root, args, &[]);
     assert!(
         !output.status.success(),
-        "claw diff --bogus should exit non-zero"
+        "{label} should exit non-zero; stdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "{label} should not enter the spinner/prompt path; stdout:\n{}",
+        String::from_utf8_lossy(&output.stdout)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     let json_line = stderr
         .lines()
         .find(|l| l.trim_start().starts_with('{'))
-        .expect("stderr should contain a JSON error envelope");
+        .unwrap_or_else(|| {
+            panic!("{label} stderr should contain a JSON error envelope; stderr:\n{stderr}")
+        });
     let parsed: serde_json::Value =
         serde_json::from_str(json_line).expect("error envelope should be valid JSON");
 
     assert_eq!(
         parsed["error_kind"], "unexpected_extra_args",
-        "claw diff --bogus must return error_kind:unexpected_extra_args (#766)"
+        "{label} must return error_kind:unexpected_extra_args"
     );
     let hint = parsed["hint"].as_str().unwrap_or("");
     assert!(
         !hint.is_empty(),
-        "claw diff --bogus must return non-null hint (#766), got: {hint:?}"
+        "{label} must return non-null hint, got: {hint:?}"
+    );
+    assert!(
+        parsed["message"]
+            .as_str()
+            .is_some_and(|message| !message.is_empty()),
+        "{label} must return non-empty message"
     );
 }
 

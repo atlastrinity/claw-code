@@ -1225,10 +1225,10 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         // `git diff`). No session needed to inspect the working tree.
         "diff" => {
             if rest.len() > 1 {
-                return Err(format!(
-                    "unexpected extra arguments after `claw diff`: {}\nUsage: claw diff",
-                    rest[1..].join(" ")
-                ));
+                // #3129: keep malformed `diff ... --output-format json` on the
+                // parser/error path, not the prompt/TUI fallback. The newline
+                // before Usage is part of the JSON hint contract.
+                return Err(unexpected_diff_args_error(&rest[1..]));
             }
             Ok(CliAction::Diff { output_format })
         }
@@ -1622,6 +1622,13 @@ fn removed_auth_surface_error(command_name: &str) -> String {
     // #765: two-line format so split_error_hint() extracts hint into JSON envelope
     format!(
         "`claw {command_name}` has been removed.\nSet ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN instead."
+    )
+}
+
+fn unexpected_diff_args_error(extra: &[String]) -> String {
+    format!(
+        "unexpected extra arguments after `claw diff`: {}\nUsage: claw diff",
+        extra.join(" ")
     )
 }
 
