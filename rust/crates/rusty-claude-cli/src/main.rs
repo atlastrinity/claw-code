@@ -13259,6 +13259,20 @@ mod tests {
             ),
             "invalid_resume_argument"
         );
+        // coverage: invalid_history_count arm
+        assert_eq!(
+            classify_error_kind("invalid_history_count: abc is not a valid count"),
+            "invalid_history_count"
+        );
+        assert_eq!(
+            classify_error_kind("something invalid count something"),
+            "invalid_history_count"
+        );
+        // coverage: unknown_option arm (#790)
+        assert_eq!(
+            classify_error_kind("unknown_option: unknown system-prompt option: --foo."),
+            "unknown_option"
+        );
     }
 
     #[test]
