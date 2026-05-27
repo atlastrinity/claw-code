@@ -3156,3 +3156,48 @@ fn plugins_uninstall_not_found_has_hint_793() {
         "hint should reference plugins list, got: {h:?}"
     );
 }
+
+#[test]
+fn plugins_install_not_found_path_returns_typed_kind_794() {
+    // #794: `claw plugins install /nonexistent/path` returned error_kind:"unknown" + hint:null.
+    // The message "plugin source ... was not found" had no classifier arm; fell to "unknown".
+    // Fix: added "plugin_source_not_found" classifier arm + fallback hint table entry.
+    let root = unique_temp_dir("plugins-install-794");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    let output = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "plugins",
+            "install",
+            "/nonexistent-path-xyz-794",
+        ],
+        &[],
+    );
+    assert!(
+        !output.status.success(),
+        "plugins install not-found-path must exit non-zero (#794)"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let j: serde_json::Value = stderr
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("plugins install not-found should emit JSON error envelope");
+    assert_eq!(
+        j["error_kind"], "plugin_source_not_found",
+        "plugins install not-found should be plugin_source_not_found, got {:?}",
+        j["error_kind"]
+    );
+    let h = j["hint"]
+        .as_str()
+        .expect("plugin_source_not_found must have non-null hint (#794)");
+    assert!(!h.is_empty(), "hint must be non-empty");
+}

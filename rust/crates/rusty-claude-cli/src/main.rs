@@ -337,6 +337,9 @@ fn classify_error_kind(message: &str) -> &'static str {
         "agent_not_found"
     } else if message.contains("is not installed") {
         "plugin_not_found"
+    } else if message.contains("plugin source") && message.contains("was not found") {
+        // #794: `plugins install /nonexistent/path` → "plugin source ... was not found"
+        "plugin_source_not_found"
     } else if (message.contains("skill source") && message.contains("not found"))
         || message.starts_with("skill '")
     {
@@ -414,6 +417,10 @@ fn fallback_hint_for_error_kind(kind: &str) -> Option<&'static str> {
         // #793: plugins uninstall/enable/disable of non-existing plugin propagates through
         // the ? operator with no \n delimiter, so split_error_hint returns None.
         "plugin_not_found" => Some("Run `claw plugins list` to see installed plugins."),
+        // #794: plugins install with a path that doesn't exist
+        "plugin_source_not_found" => Some(
+            "Check that the path or URL is correct. Use a local directory or a valid registry id.",
+        ),
         _ => None,
     }
 }
@@ -13177,6 +13184,11 @@ mod tests {
         assert_eq!(
             classify_error_kind("my-plugin is not installed"),
             "plugin_not_found"
+        );
+        // #794: plugins install with missing source path
+        assert_eq!(
+            classify_error_kind("plugin source `/nonexistent/path` was not found"),
+            "plugin_source_not_found"
         );
         assert_eq!(
             classify_error_kind("skill source /path/to/skill not found"),
