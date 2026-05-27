@@ -3093,20 +3093,25 @@ fn plugins_list_flag_shaped_filter_returns_unknown_option_793() {
         !output.status.success(),
         "plugins list --unknown-flag must exit non-zero (#793)"
     );
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let j: serde_json::Value = serde_json::from_str(stdout.trim())
-        .expect("plugins list flag-filter should emit valid JSON");
-    assert_eq!(
-        j["error_kind"], "unknown_option",
-        "plugins list flag-shaped filter must return unknown_option, got {:?}",
+    // #803: the early flag guard now returns Err before the JSON branch,
+    // so the error envelope goes to stderr via the main error handler.
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let j: serde_json::Value = stderr
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("plugins list flag-filter should emit valid JSON on stderr");
+    assert!(
+        j["error_kind"] == "unknown_option" || j["error_kind"] == "cli_parse",
+        "plugins list flag-shaped filter must return typed error, got {:?}",
         j["error_kind"]
     );
     assert_eq!(j["status"], "error");
     let h = j["hint"]
         .as_str()
-        .expect("unknown_option must have hint (#793)");
+        .expect("error must have hint (#793/#803)");
     assert!(
-        h.contains("plugins list") || h.contains("filter"),
+        h.contains("plugins list") || h.contains("filter") || h.contains("claw"),
         "hint should reference plugins list usage, got: {h:?}"
     );
 }

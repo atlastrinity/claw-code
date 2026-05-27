@@ -2365,6 +2365,13 @@ pub fn handle_agents_slash_command(args: Option<&str>, cwd: &Path) -> std::io::R
         }
         Some(args) if args.starts_with("list ") => {
             let filter = args["list ".len()..].trim().to_lowercase();
+            // #803: reject flag-shaped tokens in text mode too (JSON guard was added in #792)
+            if filter.starts_with('-') {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("unknown option for `agents list`: {filter}\nUsage: claw agents list [<filter>]\nFilters are name substrings, not flags."),
+                ));
+            }
             let roots = discover_definition_roots(cwd, "agents");
             let agents = load_agents_from_roots(&roots)?;
             let filtered: Vec<_> = agents
@@ -2546,6 +2553,13 @@ pub fn handle_skills_slash_command(args: Option<&str>, cwd: &Path) -> std::io::R
         }
         Some(args) if args.starts_with("list ") => {
             let filter = args["list ".len()..].trim().to_lowercase();
+            // #803: reject flag-shaped tokens in text mode too (JSON guard was added in #792)
+            if filter.starts_with('-') {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("unknown option for `skills list`: {filter}\nUsage: claw skills list [<filter>]\nFilters are name substrings, not flags."),
+                ));
+            }
             let roots = discover_skill_roots(cwd);
             let skills = load_skills_from_roots(&roots)?;
             let filtered: Vec<_> = skills

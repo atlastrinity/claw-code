@@ -6386,6 +6386,17 @@ impl LiveCli {
         output_format: CliOutputFormat,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let cwd = env::current_dir()?;
+        // #803: reject flag-shaped tokens in list filter for BOTH text and JSON modes.
+        // Previously the guard was JSON-only (#793); text mode silently returned empty success.
+        if action.as_deref() == Some("list") {
+            if let Some(filter) = target.as_deref() {
+                if filter.starts_with('-') {
+                    return Err(format!(
+                        "unknown option for `claw plugins list`: {filter}\nUsage: claw plugins list [<filter>]\nFilters are id substrings, not flags."
+                    ).into());
+                }
+            }
+        }
         let payload = plugins_command_payload_for(&cwd, action, target)?;
         match output_format {
             CliOutputFormat::Text => println!("{}", payload.message),
