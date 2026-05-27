@@ -2612,3 +2612,55 @@ fn dump_manifests_missing_dir_has_typed_kind_and_hint_786() {
         .expect("missing_flag_value must have hint (#786)");
     assert!(!h2.is_empty(), "hint must not be empty");
 }
+
+#[test]
+fn resume_directory_path_returns_typed_kind_and_hint_787() {
+    // #787: `claw --resume /tmp` (directory instead of .jsonl file) returned
+    // error_kind:"session_load_failed" + hint:null. The OS error "Is a directory (os error 21)"
+    // had no \n delimiter so split_error_hint returned None, and the resume error path
+    // didn't call fallback_hint_for_error_kind.
+    // Fix: (1) added session_path_is_directory classifier arm for os error 21;
+    //      (2) wired fallback_hint_for_error_kind into both resume error emission sites.
+    let root = unique_temp_dir("resume-dir-787");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    // Pass the root directory itself as the session path
+    let output = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "--resume",
+            root.to_str().unwrap(),
+            "/status",
+        ],
+        &[],
+    );
+    assert!(
+        !output.status.success(),
+        "resume with directory should fail"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let j: serde_json::Value = stderr
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("resume with directory should emit JSON error");
+    assert_eq!(
+        j["error_kind"], "session_path_is_directory",
+        "directory resume path should return session_path_is_directory, got {:?}",
+        j["error_kind"]
+    );
+    let hint = j["hint"]
+        .as_str()
+        .expect("session_path_is_directory must have hint (#787)");
+    assert!(
+        hint.contains(".jsonl") || hint.contains("session") || hint.contains("file"),
+        "hint should explain expected path format, got: {hint:?}"
+    );
+}

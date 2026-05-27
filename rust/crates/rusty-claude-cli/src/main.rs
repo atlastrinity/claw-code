@@ -283,6 +283,9 @@ fn classify_error_kind(message: &str) -> &'static str {
         // error message is "failed to restore session: legacy session is missing workspace
         // binding: ...", so the specific arm must be checked first.
         "legacy_session_no_workspace_binding"
+    } else if message.contains("Is a directory") || message.contains("os error 21") {
+        // #787: --resume given a directory path instead of a .jsonl file
+        "session_path_is_directory"
     } else if message.contains("failed to restore session") {
         "session_load_failed"
     } else if message.contains("unsupported ACP invocation") {
@@ -401,6 +404,13 @@ fn fallback_hint_for_error_kind(kind: &str) -> Option<&'static str> {
         "missing_credentials" => {
             Some("Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN before running claw.")
         }
+        // #787: session load failures have no \n-delimited hint from the OS error path
+        "session_load_failed" => Some(
+            "Pass a path to a .jsonl session file, not a directory. Managed sessions live in .claw/sessions/.",
+        ),
+        "session_path_is_directory" => Some(
+            "--resume expects a .jsonl session file path, not a directory. Run `claw --output-format json /session list` to list managed sessions.",
+        ),
         _ => None,
     }
 }
@@ -3327,7 +3337,10 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                 // #77: classify session load errors for downstream consumers
                 let full_message = format!("failed to restore session: {error}");
                 let kind = classify_error_kind(&full_message);
-                let (short_reason, hint) = split_error_hint(&full_message);
+                let (short_reason, inline_hint) = split_error_hint(&full_message);
+                // #787: fall back to kind-derived hint when message has no \n delimiter
+                let hint =
+                    inline_hint.or_else(|| fallback_hint_for_error_kind(kind).map(String::from));
                 eprintln!(
                     "{}",
                     serde_json::json!({
@@ -3472,7 +3485,10 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                     // hardcoded "resume_command_error" + prose in the error field
                     let full_error = error.to_string();
                     let error_kind = classify_error_kind(&full_error);
-                    let (short_reason, hint) = split_error_hint(&full_error);
+                    let (short_reason, inline_hint) = split_error_hint(&full_error);
+                    // #787: fall back to kind-derived hint when error has no \n delimiter
+                    let hint = inline_hint
+                        .or_else(|| fallback_hint_for_error_kind(error_kind).map(String::from));
                     eprintln!(
                         "{}",
                         serde_json::json!({
@@ -13008,6 +13024,11 @@ mod tests {
         assert_eq!(
             classify_error_kind("failed to restore session: file not found"),
             "session_load_failed"
+        );
+        // #787: directory-as-session-path gets its own kind (precedes generic session_load_failed)
+        assert_eq!(
+            classify_error_kind("failed to restore session: Is a directory (os error 21)"),
+            "session_path_is_directory"
         );
         assert_eq!(
             classify_error_kind("unrecognized argument `--foo` for subcommand `doctor`"),
