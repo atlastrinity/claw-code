@@ -5659,11 +5659,36 @@ impl LiveCli {
                 // Detect context window overflow. Some providers (e.g. OpenAI-compat backends)
                 // return 400 with "no parseable body" instead of a proper context_length_exceeded
                 // error when the request is too large to even parse — treat that as context overflow too.
+                // Also detect model-specific context error markers (e.g. llama.cpp returns
+                // "Context size has been exceeded." / "exceed_context_size_error" / "exceeds the available context size").
                 let is_context_window = error_str.contains("context_window")
                     || error_str.contains("Context window")
-                    || error_str.contains("no parseable body");
+                    || error_str.contains("no parseable body")
+                    || error_str.contains("exceed_context_size")
+                    || error_str.contains("exceeds the available context size")
+                    || error_str.to_ascii_lowercase().contains("context size has been exceeded");
 
-                if is_context_window {
+                // Also treat "assistant stream produced no content" and reqwest decode failures
+                // as recoverable errors that may benefit from auto-compaction. Some backends (e.g.
+                // llama.cpp) return a non-SSE HTTP 500 body when context overflows, causing
+                // reqwest to fail with "error decoding response body" — treat that as context overflow too.
+                let is_no_content = error_str.contains("assistant stream produced no content")
+                    || error_str.contains("Failed to parse input at pos")
+                    || error_str.contains("error decoding response body");
+
+                if is_context_window || is_no_content {
+                    // If the error tells us the server's actual context window, adapt our
+                    // auto-compaction threshold so future auto-compact-trigger checks are accurate.
+                    if let Some(window) = extract_context_window_tokens_from_error(&error_str) {
+                        // Set threshold at 70% of the reported window to leave headroom.
+                        let threshold: u32 = (window as f64 * 0.7).round() as u32;
+                        println!(
+                            "  Server context window: {} tokens — setting auto-compaction threshold to {}",
+                            window, threshold
+                        );
+                        runtime.set_auto_compaction_input_tokens_threshold(threshold);
+                    }
+
                     // A single compaction pass may not free enough context space.
                     // Progressive retry: each round preserves fewer recent messages (4→2→1→0),
                     // trading conversation continuity for a smaller payload until it fits.
@@ -5745,9 +5770,21 @@ impl LiveCli {
                                 let retry_str = retry_error.to_string();
                                 let still_context_window = retry_str.contains("context_window")
                                     || retry_str.contains("Context window")
-                                    || retry_str.contains("no parseable body");
+                                    || retry_str.contains("no parseable body")
+                                    || retry_str.contains("exceed_context_size")
+                                    || retry_str.contains("exceeds the available context size")
+                                    || retry_str.to_ascii_lowercase().contains("context size has been exceeded");
+                                let still_no_content = retry_str.contains("assistant stream produced no content")
+                                    || retry_str.contains("Failed to parse input at pos")
+                                    || retry_str.contains("error decoding response body");
 
-                                if still_context_window && round + 1 < max_compact_rounds {
+                                if (still_context_window || still_no_content) && round + 1 < max_compact_rounds {
+                                    // If the retry error reveals the context window, adapt threshold.
+                                    if let Some(window) = extract_context_window_tokens_from_error(&retry_str) {
+                                        let threshold: u32 = (window as f64 * 0.7).round() as u32;
+                                        new_runtime.set_auto_compaction_input_tokens_threshold(threshold);
+                                    }
+
                                     // The compacted session was still too large for the model's context.
                                     // Shut down the old runtime, adopt the partially-compacted one,
                                     // and loop — the next round will compact more aggressively.
@@ -10052,6 +10089,62 @@ fn request_ends_with_tool_result(request: &ApiRequest) -> bool {
         .messages
         .last()
         .is_some_and(|message| message.role == MessageRole::Tool)
+}
+
+/// Extract the server-reported context window size from an error message.
+/// Returns `None` if no window size can be parsed.  The server must
+/// mention something like "context size (81920 tokens)" or "available
+/// context size (81920 tokens)" — the number inside parens after the
+/// parenthesised phrase is taken as the window.
+///
+/// Known formats:
+///   - "exceeds the available context size (81920 tokens)"
+///   - "context size (128000 tokens)"
+///   - "maximum context length is 200000 tokens"
+fn extract_context_window_tokens_from_error(error_str: &str) -> Option<u32> {
+    // Pattern: "(NNNNNN tokens)" appearing after context-size markers
+    for line in error_str.lines() {
+        let lowered = line.to_ascii_lowercase();
+        if lowered.contains("context size") || lowered.contains("context length")
+            || lowered.contains("context window")
+        {
+            // Try parenthesised form: (81920 tokens)
+            if let Some(start) = lowered.find('(') {
+                if let Some(end) = lowered.find(")") {
+                    if start < end {
+                        let inner = &line[start + 1..end];
+                        let digits: String = inner.chars().take_while(|c| c.is_ascii_digit()).collect();
+                        if let Ok(n) = digits.parse::<u32>() {
+                            if n > 1000 {
+                                return Some(n);
+                            }
+                        }
+                    }
+                }
+            }
+            // Try "maximum context length is NNNNNN tokens"
+            if let Some(pos) = lowered.find("is ") {
+                let rest = &line[pos + 3..];
+                let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if let Ok(n) = digits.parse::<u32>() {
+                    if n > 1000 {
+                        return Some(n);
+                    }
+                }
+            }
+            // Try "configured limit of NNNNNN tokens"
+            if let Some(pos) = lowered.find("of ") {
+                let rest = &line[pos + 3..];
+                let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if let Ok(n) = digits.parse::<u32>() {
+                    if n > 1000 {
+                        return Some(n);
+                    }
+                }
+            }
+        }
+    }
+    None
 }
 
 fn format_user_visible_api_error(session_id: &str, error: &api::ApiError) -> String {
