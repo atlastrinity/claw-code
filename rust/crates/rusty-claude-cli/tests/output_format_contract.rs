@@ -3201,3 +3201,84 @@ fn plugins_install_not_found_path_returns_typed_kind_794() {
         .expect("plugin_source_not_found must have non-null hint (#794)");
     assert!(!h.is_empty(), "hint must be non-empty");
 }
+
+#[test]
+fn skills_install_not_found_and_unsupported_action_have_hints_795() {
+    // #795: `claw skills install /nonexistent` returned skill_not_found + hint:null, and
+    // `claw skills uninstall x` returned unsupported_skills_action + hint:null. Both error
+    // kinds were missing from fallback_hint_for_error_kind table. Fix: added both entries.
+    let root = unique_temp_dir("skills-install-795");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    // skills install with nonexistent local path
+    let out1 = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "skills",
+            "install",
+            "/nonexistent-xyz-795",
+        ],
+        &[],
+    );
+    assert!(
+        !out1.status.success(),
+        "skills install not-found must exit non-zero (#795)"
+    );
+    let stderr1 = String::from_utf8_lossy(&out1.stderr);
+    let j1: serde_json::Value = stderr1
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("skills install not-found should emit JSON error");
+    assert_eq!(
+        j1["error_kind"], "skill_not_found",
+        "skills install not-found should be skill_not_found, got {:?}",
+        j1["error_kind"]
+    );
+    let h1 = j1["hint"]
+        .as_str()
+        .expect("skill_not_found must have non-null hint (#795)");
+    assert!(
+        h1.contains("skills list") || h1.contains("skills install"),
+        "hint should reference skills commands, got: {h1:?}"
+    );
+
+    // skills uninstall (unsupported action)
+    let out2 = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "skills",
+            "uninstall",
+            "some-skill",
+        ],
+        &[],
+    );
+    assert!(
+        !out2.status.success(),
+        "skills uninstall must exit non-zero (#795)"
+    );
+    let stderr2 = String::from_utf8_lossy(&out2.stderr);
+    let j2: serde_json::Value = stderr2
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("skills uninstall should emit JSON error");
+    assert_eq!(
+        j2["error_kind"], "unsupported_skills_action",
+        "skills uninstall should be unsupported_skills_action, got {:?}",
+        j2["error_kind"]
+    );
+    let h2 = j2["hint"]
+        .as_str()
+        .expect("unsupported_skills_action must have non-null hint (#795)");
+    assert!(!h2.is_empty(), "hint must be non-empty");
+}

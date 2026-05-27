@@ -421,6 +421,14 @@ fn fallback_hint_for_error_kind(kind: &str) -> Option<&'static str> {
         "plugin_source_not_found" => Some(
             "Check that the path or URL is correct. Use a local directory or a valid registry id.",
         ),
+        // #795: skills install/show of a non-existing skill path or name
+        "skill_not_found" => Some(
+            "Run `claw skills list` to see available skills, or `claw skills install <path>` to install a new one.",
+        ),
+        // #795: unsupported action on skills (e.g. /skills uninstall) with no \n hint
+        "unsupported_skills_action" => Some(
+            "Supported: list, install <path>, show <name>, help. Run `claw skills help` for details.",
+        ),
         _ => None,
     }
 }
