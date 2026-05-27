@@ -3451,3 +3451,38 @@ fn empty_prompt_has_non_null_hint_798() {
         "hint should reference usage, got: {h:?}"
     );
 }
+
+#[test]
+fn diff_non_git_dir_has_error_kind_and_hint_801() {
+    // #801: `claw --output-format json diff` in a non-git directory returned
+    // status:"error" + result:"no_git_repo" but had no error_kind, hint, or
+    // message fields — violating the error envelope contract. Fix: added all
+    // three fields to the no_git_repo JSON branch.
+    let root = unique_temp_dir("diff-nongit-801");
+    fs::create_dir_all(&root).expect("temp dir");
+    // Intentionally NOT running git init
+
+    let output = run_claw(&root, &["--output-format", "json", "diff"], &[]);
+    // diff non-git may exit 0 (custom JSON handler) — check envelope content
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let j: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("diff non-git should emit valid JSON");
+    assert_eq!(j["status"], "error");
+    assert_eq!(j["result"], "no_git_repo");
+    assert_eq!(
+        j["error_kind"], "no_git_repo",
+        "diff non-git must have error_kind (#801), got {:?}",
+        j["error_kind"]
+    );
+    let h = j["hint"]
+        .as_str()
+        .expect("diff non-git must have non-null hint (#801)");
+    assert!(
+        h.contains("git init") || h.contains("git"),
+        "hint should suggest git init, got: {h:?}"
+    );
+    assert!(
+        j["message"].as_str().is_some(),
+        "diff non-git must have message field (#801)"
+    );
+}

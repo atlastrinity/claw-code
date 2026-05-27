@@ -8331,11 +8331,15 @@ fn render_diff_json_for(cwd: &Path) -> Result<serde_json::Value, Box<dyn std::er
         .map(|o| o.status.success())
         .unwrap_or(false);
     if !in_git_repo {
+        // #801: add error_kind, hint, message fields for envelope parity with other error paths
         return Ok(serde_json::json!({
             "kind": "diff",
             "action": "diff",
             "status": "error",
+            "error_kind": "no_git_repo",
             "result": "no_git_repo",
+            "message": format!("{} is not inside a git project", cwd.display()),
+            "hint": "Run `git init` to create a repository, or change to a directory that is inside a git project.",
             "working_directory": cwd.display().to_string(),
             "detail": format!("{} is not inside a git project", cwd.display()),
         }));
