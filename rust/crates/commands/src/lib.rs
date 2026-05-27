@@ -2459,12 +2459,29 @@ pub fn handle_agents_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
                 || args.starts_with("info ")
                 || args.starts_with("describe ") =>
         {
-            let name = args
+            let name_raw = args
                 .split_once(' ')
                 .map(|(_, name)| name)
                 .unwrap_or_default()
                 .trim()
                 .to_lowercase();
+            // #796: extra positional args after the name (e.g. `agents show foo extra`)
+            // produced a confusing agent_not_found for "foo extra" instead of flagging
+            // the unexpected extra argument.
+            let (name, extra) = name_raw
+                .split_once(' ')
+                .map(|(n, e)| (n.to_string(), Some(e.to_string())))
+                .unwrap_or_else(|| (name_raw.clone(), None));
+            if let Some(extra_token) = extra {
+                return Ok(serde_json::json!({
+                    "kind": "agents",
+                    "action": "show",
+                    "status": "error",
+                    "error_kind": "unexpected_extra_args",
+                    "unexpected": extra_token,
+                    "hint": format!("Usage: claw agents show <name>\nUnexpected extra: '{extra_token}'"),
+                }));
+            }
             let roots = discover_definition_roots(cwd, "agents");
             let agents = load_agents_from_roots(&roots)?;
             let matched: Vec<_> = agents
@@ -2624,12 +2641,29 @@ pub fn handle_skills_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
                 || args.starts_with("info ")
                 || args.starts_with("describe ") =>
         {
-            let name = args
+            let name_raw = args
                 .split_once(' ')
                 .map(|(_, name)| name)
                 .unwrap_or_default()
                 .trim()
                 .to_lowercase();
+            // #796: extra positional args after the name (e.g. `skills show foo extra`)
+            // produced a confusing skill_not_found for "foo extra" instead of flagging
+            // the unexpected extra argument.
+            let (name, extra) = name_raw
+                .split_once(' ')
+                .map(|(n, e)| (n.to_string(), Some(e.to_string())))
+                .unwrap_or_else(|| (name_raw.clone(), None));
+            if let Some(extra_token) = extra {
+                return Ok(json!({
+                    "kind": "skills",
+                    "action": "show",
+                    "status": "error",
+                    "error_kind": "unexpected_extra_args",
+                    "unexpected": extra_token,
+                    "hint": format!("Usage: claw skills show <name>\nUnexpected extra: '{extra_token}'"),
+                }));
+            }
             let roots = discover_skill_roots(cwd);
             let skills = load_skills_from_roots(&roots)?;
             let matched: Vec<_> = skills

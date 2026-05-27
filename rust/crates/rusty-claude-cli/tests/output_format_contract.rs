@@ -3282,3 +3282,94 @@ fn skills_install_not_found_and_unsupported_action_have_hints_795() {
         .expect("unsupported_skills_action must have non-null hint (#795)");
     assert!(!h2.is_empty(), "hint must be non-empty");
 }
+
+#[test]
+fn agents_show_extra_positional_arg_returns_unexpected_extra_796() {
+    // #796: `claw agents show <name> <extra>` treated the full "name extra" as a single
+    // agent name, producing agent_not_found for "name extra" instead of flagging the
+    // unexpected extra argument. Fix: detect space-containing "name" and return
+    // unexpected_extra_args with usage hint.
+    let root = unique_temp_dir("agents-show-extra-796");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    let output = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "agents",
+            "show",
+            "some-agent",
+            "--extra-flag",
+        ],
+        &[],
+    );
+    assert!(
+        !output.status.success(),
+        "agents show with extra arg must exit non-zero (#796)"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let j: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("agents show extra arg should emit valid JSON");
+    assert_eq!(
+        j["error_kind"], "unexpected_extra_args",
+        "agents show extra arg should return unexpected_extra_args, got {:?}",
+        j["error_kind"]
+    );
+    let h = j["hint"]
+        .as_str()
+        .expect("unexpected_extra_args must have hint (#796)");
+    assert!(
+        h.contains("claw agents show") || h.contains("Usage"),
+        "hint should reference usage, got: {h:?}"
+    );
+}
+
+#[test]
+fn skills_show_extra_positional_arg_returns_unexpected_extra_796() {
+    // #796: same gap as agents — `claw skills show <name> <extra>` treated "name extra"
+    // as a single skill name → skill_not_found. Fix: detect space-containing name.
+    let root = unique_temp_dir("skills-show-extra-796");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    let output = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "skills",
+            "show",
+            "some-skill",
+            "--extra-flag",
+        ],
+        &[],
+    );
+    assert!(
+        !output.status.success(),
+        "skills show with extra arg must exit non-zero (#796)"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let j: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("skills show extra arg should emit valid JSON");
+    assert_eq!(
+        j["error_kind"], "unexpected_extra_args",
+        "skills show extra arg should return unexpected_extra_args, got {:?}",
+        j["error_kind"]
+    );
+    assert!(
+        j["hint"]
+            .as_str()
+            .is_some_and(|h| h.contains("claw skills show") || h.contains("Usage")),
+        "hint should reference usage (#796)"
+    );
+}
