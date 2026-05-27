@@ -3063,3 +3063,96 @@ fn skills_list_flag_shaped_filter_returns_unknown_option_792() {
         "hint should reference correct usage (#792)"
     );
 }
+
+#[test]
+fn plugins_list_flag_shaped_filter_returns_unknown_option_793() {
+    // #793: `claw plugins list --bogus-flag` silently returned status:"ok" with empty
+    // plugins list instead of an error. The list filter branch in print_plugins treated
+    // "--bogus-flag" as an id substring filter and found no matches, producing a false-positive.
+    // Fix: added flag-prefix guard; filter tokens starting with "-" now return unknown_option.
+    let root = unique_temp_dir("plugins-list-flag-793");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    let output = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "plugins",
+            "list",
+            "--unknown-flag",
+        ],
+        &[],
+    );
+    assert!(
+        !output.status.success(),
+        "plugins list --unknown-flag must exit non-zero (#793)"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let j: serde_json::Value = serde_json::from_str(stdout.trim())
+        .expect("plugins list flag-filter should emit valid JSON");
+    assert_eq!(
+        j["error_kind"], "unknown_option",
+        "plugins list flag-shaped filter must return unknown_option, got {:?}",
+        j["error_kind"]
+    );
+    assert_eq!(j["status"], "error");
+    let h = j["hint"]
+        .as_str()
+        .expect("unknown_option must have hint (#793)");
+    assert!(
+        h.contains("plugins list") || h.contains("filter"),
+        "hint should reference plugins list usage, got: {h:?}"
+    );
+}
+
+#[test]
+fn plugins_uninstall_not_found_has_hint_793() {
+    // #793: `claw plugins uninstall no-such-plugin` returned plugin_not_found + hint:null.
+    // The error propagated from plugins_command_payload_for via ? with no \n delimiter;
+    // split_error_hint returned None and plugin_not_found wasn't in the fallback table.
+    // Fix: added "plugin_not_found" entry to fallback_hint_for_error_kind().
+    let root = unique_temp_dir("plugins-uninstall-793");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    let output = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "plugins",
+            "uninstall",
+            "no-such-xyz-793",
+        ],
+        &[],
+    );
+    assert!(
+        !output.status.success(),
+        "plugins uninstall not-found must exit non-zero (#793)"
+    );
+    // Error envelope goes to stderr (propagated via ? to main error handler)
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let j: serde_json::Value = stderr
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("plugins uninstall not-found should emit JSON error envelope");
+    assert_eq!(j["error_kind"], "plugin_not_found");
+    let h = j["hint"]
+        .as_str()
+        .expect("plugin_not_found must have non-null hint (#793)");
+    assert!(
+        h.contains("plugins list") || h.contains("claw plugins"),
+        "hint should reference plugins list, got: {h:?}"
+    );
+}

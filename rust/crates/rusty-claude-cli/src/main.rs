@@ -411,6 +411,9 @@ fn fallback_hint_for_error_kind(kind: &str) -> Option<&'static str> {
         "session_path_is_directory" => Some(
             "--resume expects a .jsonl session file path, not a directory. Run `claw --output-format json /session list` to list managed sessions.",
         ),
+        // #793: plugins uninstall/enable/disable of non-existing plugin propagates through
+        // the ? operator with no \n delimiter, so split_error_hint returns None.
+        "plugin_not_found" => Some("Run `claw plugins list` to see installed plugins."),
         _ => None,
     }
 }
@@ -6407,6 +6410,20 @@ impl LiveCli {
                     }
                 } else if is_list_action {
                     if let Some(filter) = target {
+                        // #793: flag-shaped tokens silently became substring filters on
+                        // plugins list, returning empty success instead of an error.
+                        if filter.starts_with('-') {
+                            let obj = json!({
+                                "kind": "plugin",
+                                "action": "list",
+                                "status": "error",
+                                "error_kind": "unknown_option",
+                                "unexpected": filter,
+                                "hint": "Usage: claw plugins list [<filter>]\nFilters are id substrings, not flags.",
+                            });
+                            println!("{}", serde_json::to_string_pretty(&obj)?);
+                            std::process::exit(1);
+                        }
                         let needle = filter.to_lowercase();
                         payload
                             .plugins
