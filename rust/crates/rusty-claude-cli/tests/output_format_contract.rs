@@ -3373,3 +3373,48 @@ fn skills_show_extra_positional_arg_returns_unexpected_extra_796() {
         "hint should reference usage (#796)"
     );
 }
+
+#[test]
+fn plugins_extra_args_have_non_null_hint_797() {
+    // #797: `claw plugins show <name> <extra>` returned unexpected_extra_args + hint:null.
+    // The plugins arg parser at the top level emitted "unexpected extra arguments after
+    // `claw plugins show ...`: ..." with no \n delimiter. Parity with #791 config fix.
+    let root = unique_temp_dir("plugins-extra-args-797");
+    fs::create_dir_all(&root).expect("temp dir");
+    std::process::Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&root)
+        .output()
+        .ok();
+
+    let output = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "plugins",
+            "show",
+            "some-plugin",
+            "extra-arg",
+        ],
+        &[],
+    );
+    assert!(
+        !output.status.success(),
+        "plugins show with extra arg must exit non-zero (#797)"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let j: serde_json::Value = stderr
+        .lines()
+        .find(|l| l.trim_start().starts_with('{'))
+        .and_then(|l| serde_json::from_str(l).ok())
+        .expect("plugins extra arg should emit JSON error");
+    assert_eq!(j["error_kind"], "unexpected_extra_args");
+    let h = j["hint"]
+        .as_str()
+        .expect("unexpected_extra_args must have non-null hint (#797)");
+    assert!(
+        h.contains("plugins") || h.contains("Usage"),
+        "hint should reference plugins usage, got: {h:?}"
+    );
+}
