@@ -2390,22 +2390,30 @@ pub fn handle_agents_slash_command(args: Option<&str>, cwd: &Path) -> std::io::R
                 || args.starts_with("info ")
                 || args.starts_with("describe ") =>
         {
-            let name = args
+            let name_raw = args
                 .split_once(' ')
                 .map(|(_, name)| name)
                 .unwrap_or_default()
                 .trim()
                 .to_lowercase();
+            // #804: detect extra positional args (parity with JSON-mode fix #796)
+            if name_raw.contains(' ') {
+                let extra = name_raw.split_once(' ').map(|(_, e)| e).unwrap_or("");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("unexpected extra arguments after agent name\nUsage: claw agents show <name>\nUnexpected extra: '{extra}'"),
+                ));
+            }
             let roots = discover_definition_roots(cwd, "agents");
             let agents = load_agents_from_roots(&roots)?;
             let matched: Vec<_> = agents
                 .into_iter()
-                .filter(|a| a.name.to_lowercase() == name)
+                .filter(|a| a.name.to_lowercase() == name_raw)
                 .collect();
             if matched.is_empty() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    format!("agent not found: {name}"),
+                    format!("agent not found: {name_raw}"),
                 ));
             }
             Ok(render_agents_report(&matched))
@@ -2578,17 +2586,25 @@ pub fn handle_skills_slash_command(args: Option<&str>, cwd: &Path) -> std::io::R
                 || args.starts_with("info ")
                 || args.starts_with("describe ") =>
         {
-            let name = args
+            let name_raw = args
                 .split_once(' ')
                 .map(|(_, name)| name)
                 .unwrap_or_default()
                 .trim()
                 .to_lowercase();
+            // #804: detect extra positional args (parity with JSON-mode fix #796)
+            if name_raw.contains(' ') {
+                let extra = name_raw.split_once(' ').map(|(_, e)| e).unwrap_or("");
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("unexpected extra arguments after skill name\nUsage: claw skills show <name>\nUnexpected extra: '{extra}'"),
+                ));
+            }
             let roots = discover_skill_roots(cwd);
             let skills = load_skills_from_roots(&roots)?;
             let matched: Vec<_> = skills
                 .into_iter()
-                .filter(|s| s.name.to_lowercase() == name)
+                .filter(|s| s.name.to_lowercase() == name_raw)
                 .collect();
             Ok(render_skills_report(&matched))
         }
