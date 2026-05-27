@@ -3433,6 +3433,7 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                             "status": "error",
                             "error_kind": "unsupported_command",
                             "error": format!("/{cmd_root} is not yet implemented in this build"),
+                            "hint": "This command is not available in the current build. Update claw or use a different command.",
                             "exit_code": 2,
                             "command": raw_command,
                         })
@@ -3455,6 +3456,7 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                             "status": "error",
                             "error_kind": "unsupported_resumed_command",
                             "error": format!("unsupported resumed command: {raw_command}"),
+                            "hint": "This command cannot be used with --resume. Use it in an interactive REPL session instead.",
                             "exit_code": 2,
                             "command": raw_command,
                         })
@@ -3474,6 +3476,7 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                             "status": "error",
                             "error_kind": "cli_parse",
                             "error": error.to_string(),
+                            "hint": "Run `claw --help` for usage.",
                             "exit_code": 2,
                             "command": raw_command,
                         })
@@ -4838,6 +4841,7 @@ fn enforce_broad_cwd_policy(
                         "status": "error",
                         "error_kind": "broad_cwd",
                         "error": message,
+                        "hint": "Change to a more specific project directory, or use --cwd to set the workspace root.",
                         "exit_code": 1,
                     })
                 );
