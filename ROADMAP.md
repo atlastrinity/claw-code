@@ -7876,3 +7876,9 @@ Original filing (2026-04-18): the session emitted `SessionStart hook (completed)
     **Required fix shape.** When `looks_like_subcommand_typo` fires on a single-word positional arg with no close suggestions, emit `command_not_found:` rather than falling through. Add `command_not_found:` prefix classifier to `classify_error_kind`. Result: clean `{"error_kind":"command_not_found",...}` envelope on stdout (JSON mode), error on stderr (text mode), zero provider startup.
 
     **Acceptance.** `claw --output-format json foobar` exits 1, stdout `error_kind:"command_not_found"`, stderr empty, no Anthropic call. Typo with suggestions (`claw statuz`) also gets `command_not_found` plus `hint` with suggestions. [SCOPE: claw-code]
+
+826. **Multi-word unknown subcommand still falls through to `missing_credentials`** — dogfooded 2026-05-29 14:38 on `main` `70d64be0`. After #825 fixed single-word unknown subcommands, multi-word invocations (`claw foobar baz`) are still undetected: the `looks_like_subcommand_typo` guard only fires when `rest.len() == 1`. When there are two or more positional args, the first word is treated as a prompt and all args join into a prompt string → provider startup → `missing_credentials`. Same misleading-error class as #825 but for multi-word cases.
+
+    **Required fix shape.** Extend the command-not-found guard to also fire when `rest.len() > 1` and `rest[0]` passes `looks_like_subcommand_typo` but does not match any known subcommand. The multi-arg case should also emit `command_not_found` — with a note that if literal multi-word prompt was intended, use `claw prompt <text>` or `echo 'text' | claw`.
+
+    **Acceptance.** `claw --output-format json foobar baz` exits 1, stdout `error_kind:"command_not_found"`, stderr empty, no provider startup. `claw "write a haiku"` (valid prompt passthrough) is unaffected. [SCOPE: claw-code]
