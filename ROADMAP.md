@@ -7894,3 +7894,9 @@ Original filing (2026-04-18): the session emitted `SessionStart hook (completed)
     **Fix applied.** `SlashCommand::Unknown` arm now special-cases `approve | yes | y | deny | no | n` and emits `interactive_only:` prefix before falling through to `format_unknown_direct_slash_command`. Both `error_kind` and hint are correct.
 
     **Acceptance.** `claw --output-format json /approve` exits rc=1, stdout `error_kind:"interactive_only"`, stderr empty. [SCOPE: claw-code]
+
+829. **`interactive_only` hint incorrectly suggests `--resume` for commands that are not resume-safe** — dogfooded 2026-05-29 16:40 on `main` `187aebd7`. `claw --output-format json /commit` hint says `"use claw --resume SESSION.jsonl /commit"` but `/commit` is not resume-safe (no `[resume]` marker in `/help`). Same for `/pr`, `/issue`, `/bughunter`, `/ultraplan`. The generic `interactive_only` hint template does not distinguish resume-safe from live-REPL-only commands, so it always suggests `--resume` regardless. Users who follow the hint will get `interactive_only` again.
+
+    **Required fix shape.** The generic `interactive_only:` message formatter (line ~1745 in `main.rs`) currently always appends `or use claw --resume SESSION.jsonl {command_name}`. This should be conditioned on whether the slash command appears in the resume-safe command list. Non-resume-safe interactive commands should only say `Start claw and run it there.`
+
+    **Acceptance.** `claw --output-format json /commit` hint does NOT mention `--resume`. `claw --output-format json /status` (resume-safe) hint still mentions `--resume`. [SCOPE: claw-code]
