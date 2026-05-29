@@ -225,7 +225,10 @@ fn main() {
             let (short_reason, inline_hint) = split_error_hint(&message);
             // #781: fall back to a kind-derived hint when the message has no \n-delimited hint
             let hint = inline_hint.or_else(|| fallback_hint_for_error_kind(kind).map(String::from));
-            eprintln!(
+            // #819/#820/#823: JSON mode error envelopes must go to stdout so machine
+            // consumers can parse failures from stdout byte 0 (parity with all
+            // non-interactive command guards that already use println! / to_stdout).
+            println!(
                 "{}",
                 serde_json::json!({
                     "type": "error",
@@ -3401,7 +3404,9 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                 // #787: fall back to kind-derived hint when message has no \n delimiter
                 let hint =
                     inline_hint.or_else(|| fallback_hint_for_error_kind(kind).map(String::from));
-                eprintln!(
+                // #819: JSON mode resume errors go to stdout for parity with other
+                // non-interactive command guards.
+                println!(
                     "{}",
                     serde_json::json!({
                         "kind": kind,
@@ -3459,7 +3464,7 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                 .unwrap_or("");
             if STUB_COMMANDS.contains(&cmd_root) {
                 if output_format == CliOutputFormat::Json {
-                    eprintln!(
+                    println!(
                         "{}",
                         serde_json::json!({
                             "kind": "unsupported_command",
@@ -3482,7 +3487,7 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
             Ok(Some(command)) => command,
             Ok(None) => {
                 if output_format == CliOutputFormat::Json {
-                    eprintln!(
+                    println!(
                         "{}",
                         serde_json::json!({
                             "kind": "unsupported_resumed_command",
@@ -3502,7 +3507,7 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
             }
             Err(error) => {
                 if output_format == CliOutputFormat::Json {
-                    eprintln!(
+                    println!(
                         "{}",
                         serde_json::json!({
                             "kind": "cli_parse",
@@ -3552,7 +3557,7 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                     // #787: fall back to kind-derived hint when error has no \n delimiter
                     let hint = inline_hint
                         .or_else(|| fallback_hint_for_error_kind(error_kind).map(String::from));
-                    eprintln!(
+                    println!(
                         "{}",
                         serde_json::json!({
                             "kind": error_kind,
