@@ -7900,3 +7900,9 @@ Original filing (2026-04-18): the session emitted `SessionStart hook (completed)
     **Required fix shape.** The generic `interactive_only:` message formatter (line ~1745 in `main.rs`) currently always appends `or use claw --resume SESSION.jsonl {command_name}`. This should be conditioned on whether the slash command appears in the resume-safe command list. Non-resume-safe interactive commands should only say `Start claw and run it there.`
 
     **Acceptance.** `claw --output-format json /commit` hint does NOT mention `--resume`. `claw --output-format json /status` (resume-safe) hint still mentions `--resume`. [SCOPE: claw-code]
+
+830. **`claw mcp show` (missing server name arg) emits `error_kind:"unknown_mcp_action"` instead of `missing_argument`** — dogfooded 2026-05-29 17:00 on `main` `ac5b19de`. `claw --output-format json mcp show` (no server name supplied) exits with `error_kind:"unknown_mcp_action"`. However `show` IS a known MCP action — the error is a missing required argument (server name), not an unknown action. Machine consumers inspecting `error_kind` cannot distinguish "I don't know this action" from "I know this action but a required arg is missing".
+
+    **Required fix shape.** The MCP subcommand parser should detect `show` with no following token and emit `missing_argument: mcp show requires a server name.\nUsage: claw mcp show <server>` with a distinct `error_kind`. Update the classifier arm to return `missing_argument` for this prefix.
+
+    **Acceptance.** `claw --output-format json mcp show` exits rc=1, stdout `error_kind:"missing_argument"`, stderr empty. Hint contains usage example. [SCOPE: claw-code]
