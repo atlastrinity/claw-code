@@ -1667,7 +1667,10 @@ async fn expect_success(response: reqwest::Response) -> Result<reqwest::Response
     })
 }
 
-fn parse_retry_after(headers: &reqwest::header::HeaderMap, status: reqwest::StatusCode) -> Option<std::time::Duration> {
+fn parse_retry_after(
+    headers: &reqwest::header::HeaderMap,
+    status: reqwest::StatusCode,
+) -> Option<std::time::Duration> {
     if status != reqwest::StatusCode::TOO_MANY_REQUESTS {
         return None;
     }
