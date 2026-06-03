@@ -4026,6 +4026,42 @@ fn direct_unknown_slash_command_emits_typed_error_kind() {
     );
 }
 
+#[test]
+fn resume_unknown_slash_command_emits_typed_error_kind_827() {
+    let root = unique_temp_dir("resume-unknown-slash-827");
+    std::fs::create_dir_all(&root).expect("create temp dir");
+    let session_path = write_session_fixture(&root, "resume-unknown-slash-827", Some("hello"));
+
+    let output = run_claw(
+        &root,
+        &[
+            "--resume",
+            session_path.to_str().expect("session path utf8"),
+            "--output-format",
+            "json",
+            "/boguscommand",
+        ],
+        &[],
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "resume unknown slash should exit 2"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let j: serde_json::Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("resume unknown slash must emit JSON (#827), got: {stdout:?}"));
+    assert_eq!(
+        j["error_kind"], "unknown_slash_command",
+        "resume unknown slash must emit unknown_slash_command (#827): {j}"
+    );
+    assert!(
+        stderr.is_empty(),
+        "resume unknown slash JSON must have empty stderr (#827): {stderr:?}"
+    );
+}
+
 // #828: /approve and /deny outside REPL must emit interactive_only, not unknown_slash_command
 #[test]
 fn approve_deny_outside_repl_emits_interactive_only() {

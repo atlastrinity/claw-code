@@ -7883,11 +7883,15 @@ Original filing (2026-04-18): the session emitted `SessionStart hook (completed)
 
     **Acceptance.** `claw --output-format json foobar baz` exits 1, stdout `error_kind:"command_not_found"`, stderr empty, no provider startup. `claw "write a haiku"` (valid prompt passthrough) is unaffected. [SCOPE: claw-code]
 
-827. **`--resume <session> /unknown-slash-command` emits `error_kind:"unknown"` instead of a typed kind** — dogfooded 2026-05-29 14:58 on `main` `d47b0151`. `claw --resume latest --output-format json /bogus` exits rc=2 with `{"error_kind":"unknown",...}` on stdout (correct channel, correct rc) but the opaque `"unknown"` kind gives machine consumers no way to distinguish "unrecognized slash command" from other error classes. The error has a useful `hint` with suggestions, but the `error_kind` field is `"unknown"` across all unrecognized resume slash commands.
+827. **DONE — `--resume <session> /unknown-slash-command` emits `error_kind:"unknown"` instead of a typed kind** — dogfooded 2026-05-29 14:58 on `main` `d47b0151`. `claw --resume latest --output-format json /bogus` exits rc=2 with `{"error_kind":"unknown",...}` on stdout (correct channel, correct rc) but the opaque `"unknown"` kind gives machine consumers no way to distinguish "unrecognized slash command" from other error classes. The error has a useful `hint` with suggestions, but the `error_kind` field is `"unknown"` across all unrecognized resume slash commands.
 
     **Required fix shape.** Introduce a typed `error_kind` for unrecognized slash commands (e.g. `unknown_slash_command` or `command_not_found`). Update the JSON emit in the `--resume` unknown-command handler to use the typed kind. Add regression coverage asserting the typed kind.
 
     **Acceptance.** `claw --resume latest --output-format json /bogus` exits rc=2, stdout `error_kind:"unknown_slash_command"` (or similar typed constant), stderr empty. [SCOPE: claw-code]
+
+    **Fix applied.** Unknown direct and resumed slash commands now use the classifier-friendly `unknown_slash_command:` prefix, so the JSON resume-command error path emits `error_kind:"unknown_slash_command"` instead of falling back to `unknown`. Direct slash command coverage and the new resumed-session regression both assert stdout JSON and empty stderr.
+
+    **Verification.** `cargo fmt --manifest-path rust/Cargo.toml --all -- --check`; `cargo test --manifest-path rust/Cargo.toml -p rusty-claude-cli direct_unknown_slash_command_emits_typed_error_kind -- --nocapture`; `cargo test --manifest-path rust/Cargo.toml -p rusty-claude-cli resume_unknown_slash_command_emits_typed_error_kind_827 -- --nocapture`; direct probe `cargo run --manifest-path rust/Cargo.toml -q -p rusty-claude-cli -- --resume .claw/sessions/491726c4e6bde42d/session-1778832949219-0.jsonl --output-format json /boguscommand`.
 
 828. **DONE — `/approve` and `/deny` outside REPL emit `unknown_slash_command` instead of `interactive_only`** — dogfooded 2026-05-29 16:05 on `main` `9d05573f`. `claw --output-format json /approve` exited rc=1 with `error_kind:"unknown_slash_command"` — these are valid REPL-only slash commands but are not `SlashCommand` enum variants, so they fell through to `format_unknown_direct_slash_command`. Machine consumers saw the wrong error class.
 
