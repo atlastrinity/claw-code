@@ -422,6 +422,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "missing_argument"
     } else if message.contains("unsupported skills action") {
         "unsupported_skills_action"
+    } else if message.starts_with("invalid_install_source:") {
+        "invalid_install_source"
     } else if message.starts_with("invalid_cwd:") {
         "invalid_cwd"
     } else if message.starts_with("invalid_output_path:") {
@@ -567,9 +569,12 @@ fn fallback_hint_for_error_kind(kind: &str) -> Option<&'static str> {
         "skill_not_found" => Some(
             "Run `claw skills list` to see available skills, or `claw skills install <path>` to install a new one.",
         ),
-        // #795: unsupported action on skills (e.g. /skills uninstall) with no \n hint
+        // #795/#431: unsupported/invalid skills lifecycle input should include actionable local guidance.
         "unsupported_skills_action" => Some(
-            "Supported: list, install <path>, show <name>, help. Run `claw skills help` for details.",
+            "Supported: list, show <name>, install <path>, uninstall <name>, help. Run `claw skills help` for details.",
+        ),
+        "invalid_install_source" => Some(
+            "Pass a local skill directory containing SKILL.md or a standalone markdown file.",
         ),
         _ => None,
     }
@@ -1711,9 +1716,9 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             let args = join_optional_args(&rest[1..]);
             if let Some(action) = args.as_deref() {
                 let first_word = action.split_whitespace().next().unwrap_or(action);
-                if matches!(first_word, "remove" | "add" | "uninstall" | "delete") {
+                if matches!(first_word, "add") {
                     return Err(format!(
-                        "unsupported skills action: {first_word}. Supported actions: list, install <path>, help, or <skill> [args]"
+                        "unsupported skills action: {first_word}. Supported actions: list, show <name>, install <path>, uninstall <name>, help, or <skill> [args]"
                     ));
                 }
             }
@@ -14409,6 +14414,10 @@ mod tests {
             "unsupported_skills_action"
         );
         assert_eq!(
+            classify_error_kind("invalid_install_source: bogus"),
+            "invalid_install_source"
+        );
+        assert_eq!(
             classify_error_kind(
                 "missing_flag_value: missing value for --model.\nUsage: --model <provider/model>"
             ),
@@ -15056,17 +15065,27 @@ mod tests {
 
     #[test]
     fn unsupported_skills_actions_return_typed_error_683() {
-        for action in ["remove", "add", "uninstall", "delete"] {
-            let error = parse_args(&["skills".to_string(), action.to_string()])
-                .expect_err(&format!("skills {action} should error"));
-            assert!(
-                error.contains("unsupported skills action"),
-                "skills {action} should contain 'unsupported skills action', got: {error}"
-            );
+        let error = parse_args(&["skills".to_string(), "add".to_string()])
+            .expect_err("skills add should error");
+        assert!(
+            error.contains("unsupported skills action"),
+            "skills add should contain 'unsupported skills action', got: {error}"
+        );
+        assert_eq!(
+            classify_error_kind(&error),
+            "unsupported_skills_action",
+            "skills add should classify as unsupported_skills_action, got: {error}"
+        );
+
+        for action in ["remove", "uninstall", "delete"] {
             assert_eq!(
-                classify_error_kind(&error),
-                "unsupported_skills_action",
-                "skills {action} should classify as unsupported_skills_action, got: {error}"
+                parse_args(&["skills".to_string(), action.to_string()])
+                    .expect(&format!("skills {action} should parse")),
+                CliAction::Skills {
+                    args: Some(action.to_string()),
+                    output_format: CliOutputFormat::Text,
+                },
+                "skills {action} should route locally so missing targets are handled without credentials"
             );
         }
     }

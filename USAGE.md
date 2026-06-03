@@ -477,11 +477,12 @@ let client = build_http_client_with(&config).expect("proxy client");
 
 ## Skills
 
-Use `/skills list` in the interactive REPL or `claw skills --output-format json` from the direct CLI to inspect installed skills. For offline/local installs, install the directory that contains `SKILL.md`, then verify the discovered name before invoking it:
+Use `/skills list` in the interactive REPL or `claw skills --output-format json` from the direct CLI to inspect installed skills. For offline/local installs, install the directory that contains `SKILL.md`, then verify the discovered name before invoking it. `skills install`, `skills uninstall`, and `agents create` are local filesystem lifecycle commands; they do not require provider credentials.
 
 ```text
 /skills install /absolute/path/to/my-skill
 /skills list
+/skills uninstall my-skill
 /skills my-skill
 ```
 
@@ -494,6 +495,7 @@ cd rust
 ./target/debug/claw status
 ./target/debug/claw sandbox
 ./target/debug/claw agents
+./target/debug/claw agents create my-agent
 ./target/debug/claw mcp
 ./target/debug/claw skills
 ./target/debug/claw system-prompt --cwd .. --date 2026-04-04
@@ -513,12 +515,22 @@ git clone https://github.com/Xquik-dev/tweetclaw
 cd claw-code/rust
 ./target/debug/claw skills install ../../tweetclaw/skills/tweetclaw
 ./target/debug/claw skills show tweetclaw
+./target/debug/claw skills uninstall tweetclaw
 ```
 
 TweetClaw gives `claw` users a local skill guide for OpenClaw/Xquik workflows
 such as tweet search, reply search, follower export, monitors, webhooks, and
 approval-gated posting. Configure any Xquik credentials outside the prompt and
 avoid pasting API keys into chat.
+
+## Author a local agent
+
+`claw agents create <name>` scaffolds a local `.claw/agents/<name>.toml` file for the current workspace. The scaffold is intentionally small so you can edit the description, model, and reasoning effort before listing or invoking agents:
+
+```bash
+./target/debug/claw agents create release-checker
+./target/debug/claw agents list
+```
 
 ## Session management
 

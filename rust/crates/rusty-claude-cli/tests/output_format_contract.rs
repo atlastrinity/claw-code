@@ -2346,6 +2346,16 @@ fn run_claw(current_dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output 
     command.output().expect("claw should launch")
 }
 
+fn parse_json_stdout(output: &Output, context: &str) -> Value {
+    serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!(
+            "{context} should emit valid stdout JSON; stdout:\n{}\n\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    })
+}
+
 fn strings(items: &[&str]) -> Vec<String> {
     items.iter().map(|item| (*item).to_string()).collect()
 }
@@ -4531,86 +4541,254 @@ fn plugins_install_not_found_path_returns_typed_kind_794() {
 }
 
 #[test]
-fn skills_install_not_found_and_unsupported_action_have_hints_795() {
-    // #795: `claw skills install /nonexistent` returned skill_not_found + hint:null, and
-    // `claw skills uninstall x` returned unsupported_skills_action + hint:null. Both error
-    // kinds were missing from fallback_hint_for_error_kind table. Fix: added both entries.
-    let root = unique_temp_dir("skills-install-795");
-    fs::create_dir_all(&root).expect("temp dir");
+fn skills_lifecycle_errors_have_typed_local_json_795_431() {
+    // #431: skills install/uninstall lifecycle paths are local JSON surfaces and must not
+    // fall through to provider credential checks. #795: every error envelope needs a hint.
+    let root = unique_temp_dir("skills-lifecycle-431");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(&config_home).expect("config home");
+    fs::create_dir_all(&home).expect("home");
     std::process::Command::new("git")
         .args(["init", "-q"])
         .current_dir(&root)
         .output()
         .ok();
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("ANTHROPIC_API_KEY", ""),
+        ("ANTHROPIC_AUTH_TOKEN", ""),
+        ("OPENAI_API_KEY", ""),
+    ];
 
-    // skills install with nonexistent local path
-    let out1 = run_claw(
+    let missing_arg = run_claw(
         &root,
-        &[
-            "--output-format",
-            "json",
-            "skills",
-            "install",
-            "/nonexistent-xyz-795",
-        ],
-        &[],
+        &["skills", "install", "--output-format", "json"],
+        &envs,
     );
+    assert_eq!(missing_arg.status.code(), Some(1));
     assert!(
-        !out1.status.success(),
-        "skills install not-found must exit non-zero (#795)"
+        missing_arg.stderr.is_empty(),
+        "stderr: {}",
+        String::from_utf8_lossy(&missing_arg.stderr)
     );
-    let stderr1 = String::from_utf8_lossy(&out1.stderr);
-    let stdout1 = String::from_utf8_lossy(&out1.stdout);
-    let j1: serde_json::Value = stdout1
-        .lines()
-        .find(|l| l.trim_start().starts_with('{'))
-        .and_then(|l| serde_json::from_str(l).ok())
-        .expect("skills install not-found should emit JSON error");
-    assert_eq!(
-        j1["error_kind"], "skill_not_found",
-        "skills install not-found should be skill_not_found, got {:?}",
-        j1["error_kind"]
-    );
-    let h1 = j1["hint"]
+    let missing_arg_json = parse_json_stdout(&missing_arg, "skills install missing source");
+    assert_eq!(missing_arg_json["kind"], "skills");
+    assert_eq!(missing_arg_json["action"], "install");
+    assert_eq!(missing_arg_json["error_kind"], "missing_argument");
+    assert_eq!(missing_arg_json["argument"], "install_source");
+    assert!(missing_arg_json["hint"]
         .as_str()
-        .expect("skill_not_found must have non-null hint (#795)");
-    assert!(
-        h1.contains("skills list") || h1.contains("skills install"),
-        "hint should reference skills commands, got: {h1:?}"
-    );
+        .is_some_and(|hint| !hint.is_empty()));
 
-    // skills uninstall (unsupported action)
-    let out2 = run_claw(
+    let invalid_source = run_claw(
+        &root,
+        &["skills", "install", "bogus-name", "--output-format", "json"],
+        &envs,
+    );
+    assert_eq!(invalid_source.status.code(), Some(1));
+    assert!(
+        invalid_source.stderr.is_empty(),
+        "stderr: {}",
+        String::from_utf8_lossy(&invalid_source.stderr)
+    );
+    let invalid_source_json = parse_json_stdout(&invalid_source, "skills install invalid source");
+    assert_eq!(invalid_source_json["kind"], "skills");
+    assert_eq!(invalid_source_json["action"], "install");
+    assert_eq!(invalid_source_json["error_kind"], "invalid_install_source");
+    assert_eq!(invalid_source_json["source"], "bogus-name");
+    assert_eq!(invalid_source_json["source_kind"], "name");
+    assert_eq!(invalid_source_json["reason"], "not_found");
+    assert!(invalid_source_json["hint"]
+        .as_str()
+        .is_some_and(|hint| { hint.contains("local path") || hint.contains("SKILL.md") }));
+
+    let missing_uninstall = run_claw(
         &root,
         &[
-            "--output-format",
-            "json",
             "skills",
             "uninstall",
-            "some-skill",
+            "nonexistent-skill-xyz",
+            "--output-format",
+            "json",
         ],
-        &[],
+        &envs,
+    );
+    assert_eq!(missing_uninstall.status.code(), Some(1));
+    assert!(
+        missing_uninstall.stderr.is_empty(),
+        "stderr: {}",
+        String::from_utf8_lossy(&missing_uninstall.stderr)
+    );
+    let missing_uninstall_json =
+        parse_json_stdout(&missing_uninstall, "skills uninstall missing skill");
+    assert_eq!(missing_uninstall_json["kind"], "skills");
+    assert_eq!(missing_uninstall_json["action"], "uninstall");
+    assert_eq!(missing_uninstall_json["error_kind"], "skill_not_found");
+    assert_eq!(missing_uninstall_json["requested"], "nonexistent-skill-xyz");
+    assert_eq!(
+        missing_uninstall_json["skills_dir"],
+        config_home.join("skills").display().to_string()
+    );
+    assert_eq!(
+        missing_uninstall_json["available_names"]
+            .as_array()
+            .expect("available_names")
+            .len(),
+        0
+    );
+    assert!(missing_uninstall_json["hint"]
+        .as_str()
+        .is_some_and(|hint| !hint.is_empty()));
+}
+
+#[test]
+fn skills_install_uninstall_roundtrip_stays_local_431() {
+    let root = unique_temp_dir("skills-roundtrip-431");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    let source_root = root.join("fixtures");
+    fs::create_dir_all(&config_home).expect("config home");
+    fs::create_dir_all(&home).expect("home");
+    write_skill(&source_root, "roundtrip", "Roundtrip skill");
+    let skill_source = source_root.join("roundtrip");
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("ANTHROPIC_API_KEY", ""),
+        ("ANTHROPIC_AUTH_TOKEN", ""),
+        ("OPENAI_API_KEY", ""),
+    ];
+
+    let install = run_claw(
+        &root,
+        &[
+            "skills",
+            "install",
+            skill_source.to_str().expect("utf8 skill source"),
+            "--output-format",
+            "json",
+        ],
+        &envs,
     );
     assert!(
-        !out2.status.success(),
-        "skills uninstall must exit non-zero (#795)"
+        install.status.success(),
+        "stdout:\n{}\n\nstderr:\n{}",
+        String::from_utf8_lossy(&install.stdout),
+        String::from_utf8_lossy(&install.stderr)
     );
-    let stderr2 = String::from_utf8_lossy(&out2.stderr);
-    let stdout2 = String::from_utf8_lossy(&out2.stdout);
-    let j2: serde_json::Value = stdout2
-        .lines()
-        .find(|l| l.trim_start().starts_with('{'))
-        .and_then(|l| serde_json::from_str(l).ok())
-        .expect("skills uninstall should emit JSON error");
+    let install_json = parse_json_stdout(&install, "skills install roundtrip");
+    assert_eq!(install_json["kind"], "skills");
+    assert_eq!(install_json["action"], "install");
+    assert_eq!(install_json["status"], "ok");
+    assert_eq!(install_json["invocation_name"], "roundtrip");
+    let installed_path = config_home.join("skills").join("roundtrip");
     assert_eq!(
-        j2["error_kind"], "unsupported_skills_action",
-        "skills uninstall should be unsupported_skills_action, got {:?}",
-        j2["error_kind"]
+        install_json["installed_path"],
+        installed_path.display().to_string()
     );
-    let h2 = j2["hint"]
-        .as_str()
-        .expect("unsupported_skills_action must have non-null hint (#795)");
-    assert!(!h2.is_empty(), "hint must be non-empty");
+    assert!(installed_path.join("SKILL.md").is_file());
+
+    let uninstall = run_claw(
+        &root,
+        &[
+            "skills",
+            "uninstall",
+            "roundtrip",
+            "--output-format",
+            "json",
+        ],
+        &envs,
+    );
+    assert!(
+        uninstall.status.success(),
+        "stdout:\n{}\n\nstderr:\n{}",
+        String::from_utf8_lossy(&uninstall.stdout),
+        String::from_utf8_lossy(&uninstall.stderr)
+    );
+    let uninstall_json = parse_json_stdout(&uninstall, "skills uninstall roundtrip");
+    assert_eq!(uninstall_json["kind"], "skills");
+    assert_eq!(uninstall_json["action"], "uninstall");
+    assert_eq!(uninstall_json["status"], "ok");
+    assert_eq!(uninstall_json["removed"], "roundtrip");
+    assert_eq!(
+        uninstall_json["removed_path"],
+        installed_path.display().to_string()
+    );
+    assert!(
+        !installed_path.exists(),
+        "uninstall should remove installed skill files"
+    );
+}
+
+#[test]
+fn agents_create_scaffolds_toml_and_lists_locally_431() {
+    let root = unique_temp_dir("agents-create-431");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(&config_home).expect("config home");
+    fs::create_dir_all(&home).expect("home");
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("ANTHROPIC_API_KEY", ""),
+        ("ANTHROPIC_AUTH_TOKEN", ""),
+        ("OPENAI_API_KEY", ""),
+    ];
+
+    let create = run_claw(
+        &root,
+        &["agents", "create", "my-agent", "--output-format", "json"],
+        &envs,
+    );
+    assert!(
+        create.status.success(),
+        "stdout:\n{}\n\nstderr:\n{}",
+        String::from_utf8_lossy(&create.stdout),
+        String::from_utf8_lossy(&create.stderr)
+    );
+    let create_json = parse_json_stdout(&create, "agents create my-agent");
+    let agent_path = root.join(".claw").join("agents").join("my-agent.toml");
+    let reported_agent_path = PathBuf::from(
+        create_json["path"]
+            .as_str()
+            .expect("agents create should report path"),
+    );
+    assert_eq!(create_json["kind"], "agents");
+    assert_eq!(create_json["action"], "create");
+    assert_eq!(create_json["status"], "ok");
+    assert_eq!(create_json["format"], "toml");
+    assert_eq!(
+        reported_agent_path,
+        fs::canonicalize(&agent_path).expect("canonical agent path")
+    );
+    assert!(agent_path.is_file());
+    let agent_contents = fs::read_to_string(&agent_path).expect("agent scaffold should read");
+    assert!(agent_contents.contains("name = \"my-agent\""));
+
+    let list =
+        assert_json_command_with_env(&root, &["--output-format", "json", "agents", "list"], &envs);
+    assert_eq!(list["kind"], "agents");
+    assert_eq!(list["action"], "list");
+    assert!(list["agents"]
+        .as_array()
+        .expect("agents array")
+        .iter()
+        .any(|agent| {
+            agent["name"] == "my-agent"
+                && PathBuf::from(agent["path"].as_str().expect("listed agent path"))
+                    == fs::canonicalize(&agent_path).expect("canonical listed agent path")
+        }));
 }
 
 #[test]

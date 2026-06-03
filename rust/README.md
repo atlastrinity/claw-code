@@ -100,7 +100,7 @@ Primary artifacts:
 | Slash commands (including `/skills`, `/agents`, `/mcp`, `/doctor`, `/plugin`, `/subagent`) | ✅ |
 | Hooks (`/hooks`, config-backed lifecycle hooks) | ✅ |
 | Plugin management surfaces | ✅ |
-| Skills inventory / install surfaces | ✅ |
+| Skills inventory / install / uninstall surfaces | ✅ |
 | Machine-readable JSON output across core CLI surfaces | ✅ |
 
 ## Model Aliases
@@ -168,8 +168,8 @@ The REPL now exposes a much broader surface than the original minimal shell:
 - plugin management: `/plugin` (with aliases `/plugins`, `/marketplace`)
 
 Notable claw-first surfaces now available directly in slash form:
-- `/skills [list|install <path>|help]`
-- `/agents [list|help]`
+- `/skills [list|show <name>|install <path>|uninstall <name>|help]`
+- `/agents [list|show <name>|create <name>|help]`
 - `/mcp [list|show <server>|help]`
 - `/doctor`
 - `/plugin [list|install <path>|enable <name>|disable <name>|uninstall <id>|update <id>]`
