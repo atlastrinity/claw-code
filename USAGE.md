@@ -519,6 +519,28 @@ Runtime config is loaded in this order, with later entries overriding earlier on
 4. `<repo>/.claw/settings.json`
 5. `<repo>/.claw/settings.local.json`
 
+## Hook configuration
+
+`hooks.PreToolUse`, `hooks.PostToolUse`, and `hooks.PostToolUseFailure` accept either legacy command strings or object-style entries with a `matcher` and nested command hooks:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      "echo legacy hook",
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": "scripts/audit-bash.sh" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Object-style matchers are optional. When present, they match tool names case-insensitively and support `*` wildcards plus comma or pipe separated alternatives. Nested hook `type` may be omitted or set to `"command"`; each nested command runs in configuration order.
+
 ## Project instruction rules
 
 In addition to root instruction files such as `CLAUDE.md`, `AGENTS.md`, `.claw/CLAUDE.md`, `.claude/CLAUDE.md`, and `.claw/instructions.md`, `claw` loads sorted Markdown/text rule files from:

@@ -135,9 +135,16 @@ pub struct ProviderFallbackConfig {
 /// Hook command lists grouped by lifecycle stage.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RuntimeHookConfig {
-    pre_tool_use: Vec<String>,
-    post_tool_use: Vec<String>,
-    post_tool_use_failure: Vec<String>,
+    pre_tool_use: Vec<RuntimeHookCommand>,
+    post_tool_use: Vec<RuntimeHookCommand>,
+    post_tool_use_failure: Vec<RuntimeHookCommand>,
+}
+
+/// A hook command plus optional tool matcher from object-style hook config.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeHookCommand {
+    command: String,
+    matcher: Option<String>,
 }
 
 /// Raw permission rule lists grouped by allow, deny, and ask behavior.
@@ -823,12 +830,76 @@ fn write_settings_root(
     fs::write(path, format!("{rendered}\n")).map_err(ConfigError::Io)
 }
 
+impl RuntimeHookCommand {
+    #[must_use]
+    pub fn new(command: impl Into<String>) -> Self {
+        Self {
+            command: command.into(),
+            matcher: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_matcher(command: impl Into<String>, matcher: Option<String>) -> Self {
+        Self {
+            command: command.into(),
+            matcher: matcher.and_then(|value| {
+                let trimmed = value.trim();
+                if trimmed.is_empty() {
+                    None
+                } else {
+                    Some(trimmed.to_string())
+                }
+            }),
+        }
+    }
+
+    #[must_use]
+    pub fn command(&self) -> &str {
+        &self.command
+    }
+
+    #[must_use]
+    pub fn matcher(&self) -> Option<&str> {
+        self.matcher.as_deref()
+    }
+
+    #[must_use]
+    pub fn matches_tool(&self, tool_name: &str) -> bool {
+        self.matcher
+            .as_deref()
+            .is_none_or(|matcher| hook_matcher_matches(matcher, tool_name))
+    }
+}
+
 impl RuntimeHookConfig {
     #[must_use]
     pub fn new(
         pre_tool_use: Vec<String>,
         post_tool_use: Vec<String>,
         post_tool_use_failure: Vec<String>,
+    ) -> Self {
+        Self::from_hook_commands(
+            pre_tool_use
+                .into_iter()
+                .map(RuntimeHookCommand::new)
+                .collect(),
+            post_tool_use
+                .into_iter()
+                .map(RuntimeHookCommand::new)
+                .collect(),
+            post_tool_use_failure
+                .into_iter()
+                .map(RuntimeHookCommand::new)
+                .collect(),
+        )
+    }
+
+    #[must_use]
+    pub fn from_hook_commands(
+        pre_tool_use: Vec<RuntimeHookCommand>,
+        post_tool_use: Vec<RuntimeHookCommand>,
+        post_tool_use_failure: Vec<RuntimeHookCommand>,
     ) -> Self {
         Self {
             pre_tool_use,
@@ -838,12 +909,22 @@ impl RuntimeHookConfig {
     }
 
     #[must_use]
-    pub fn pre_tool_use(&self) -> &[String] {
+    pub fn pre_tool_use(&self) -> Vec<String> {
+        hook_commands(&self.pre_tool_use)
+    }
+
+    #[must_use]
+    pub fn pre_tool_use_entries(&self) -> &[RuntimeHookCommand] {
         &self.pre_tool_use
     }
 
     #[must_use]
-    pub fn post_tool_use(&self) -> &[String] {
+    pub fn post_tool_use(&self) -> Vec<String> {
+        hook_commands(&self.post_tool_use)
+    }
+
+    #[must_use]
+    pub fn post_tool_use_entries(&self) -> &[RuntimeHookCommand] {
         &self.post_tool_use
     }
 
@@ -855,18 +936,70 @@ impl RuntimeHookConfig {
     }
 
     pub fn extend(&mut self, other: &Self) {
-        extend_unique(&mut self.pre_tool_use, other.pre_tool_use());
-        extend_unique(&mut self.post_tool_use, other.post_tool_use());
-        extend_unique(
+        extend_unique_hook_commands(&mut self.pre_tool_use, other.pre_tool_use_entries());
+        extend_unique_hook_commands(&mut self.post_tool_use, other.post_tool_use_entries());
+        extend_unique_hook_commands(
             &mut self.post_tool_use_failure,
-            other.post_tool_use_failure(),
+            other.post_tool_use_failure_entries(),
         );
     }
 
     #[must_use]
-    pub fn post_tool_use_failure(&self) -> &[String] {
+    pub fn post_tool_use_failure(&self) -> Vec<String> {
+        hook_commands(&self.post_tool_use_failure)
+    }
+
+    #[must_use]
+    pub fn post_tool_use_failure_entries(&self) -> &[RuntimeHookCommand] {
         &self.post_tool_use_failure
     }
+}
+
+fn hook_commands(commands: &[RuntimeHookCommand]) -> Vec<String> {
+    commands.iter().map(|entry| entry.command.clone()).collect()
+}
+
+fn hook_matcher_matches(matcher: &str, tool_name: &str) -> bool {
+    matcher
+        .split([',', '|'])
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .any(|part| {
+            part == "*" || part.eq_ignore_ascii_case(tool_name) || wildcard_match(part, tool_name)
+        })
+}
+
+fn wildcard_match(pattern: &str, value: &str) -> bool {
+    if !pattern.contains('*') {
+        return false;
+    }
+    let pattern = pattern.to_ascii_lowercase();
+    let value = value.to_ascii_lowercase();
+    let parts = pattern.split('*').collect::<Vec<_>>();
+    let mut remainder = value.as_str();
+    let starts_with_wildcard = pattern.starts_with('*');
+    let ends_with_wildcard = pattern.ends_with('*');
+
+    if let Some(first) = parts.first().filter(|part| !part.is_empty()) {
+        if !starts_with_wildcard && !remainder.starts_with(first) {
+            return false;
+        }
+        if let Some(index) = remainder.find(first) {
+            remainder = &remainder[index + first.len()..];
+        }
+    }
+
+    for part in parts.iter().skip(1).filter(|part| !part.is_empty()) {
+        let Some(index) = remainder.find(part) else {
+            return false;
+        };
+        remainder = &remainder[index + part.len()..];
+    }
+
+    ends_with_wildcard
+        || parts
+            .last()
+            .is_none_or(|last| last.is_empty() || remainder.is_empty())
 }
 
 impl RuntimePermissionRuleConfig {
@@ -1043,9 +1176,11 @@ fn parse_optional_hooks_config_object(
     };
     let hooks = expect_object(hooks_value, context)?;
     Ok(RuntimeHookConfig {
-        pre_tool_use: optional_string_array(hooks, "PreToolUse", context)?.unwrap_or_default(),
-        post_tool_use: optional_string_array(hooks, "PostToolUse", context)?.unwrap_or_default(),
-        post_tool_use_failure: optional_string_array(hooks, "PostToolUseFailure", context)?
+        pre_tool_use: optional_hook_command_array(hooks, "PreToolUse", context)?
+            .unwrap_or_default(),
+        post_tool_use: optional_hook_command_array(hooks, "PostToolUse", context)?
+            .unwrap_or_default(),
+        post_tool_use_failure: optional_hook_command_array(hooks, "PostToolUseFailure", context)?
             .unwrap_or_default(),
     })
 }
@@ -1500,6 +1635,106 @@ fn optional_string_array(
     }
 }
 
+fn optional_hook_command_array(
+    object: &BTreeMap<String, JsonValue>,
+    key: &str,
+    context: &str,
+) -> Result<Option<Vec<RuntimeHookCommand>>, ConfigError> {
+    let Some(value) = object.get(key) else {
+        return Ok(None);
+    };
+    let Some(array) = value.as_array() else {
+        return Err(ConfigError::Parse(format!(
+            "{context}: field {key} must be an array"
+        )));
+    };
+
+    let mut commands = Vec::new();
+    for (index, item) in array.iter().enumerate() {
+        if let Some(command) = item.as_str() {
+            commands.push(RuntimeHookCommand::new(command.to_string()));
+            continue;
+        }
+
+        let Some(entry) = item.as_object() else {
+            return Err(ConfigError::Parse(format!(
+                "{context}: field {key}[{index}] must be a string or hook object"
+            )));
+        };
+        let matcher = optional_hook_matcher(entry, context, key, index)?;
+        let hooks = entry
+            .get("hooks")
+            .and_then(JsonValue::as_array)
+            .ok_or_else(|| {
+                ConfigError::Parse(format!(
+                    "{context}: field {key}[{index}].hooks must be an array"
+                ))
+            })?;
+        for (hook_index, hook) in hooks.iter().enumerate() {
+            let Some(hook_object) = hook.as_object() else {
+                return Err(ConfigError::Parse(format!(
+                    "{context}: field {key}[{index}].hooks[{hook_index}] must be an object"
+                )));
+            };
+            if let Some(hook_type) = hook_object.get("type") {
+                let Some(hook_type) = hook_type.as_str() else {
+                    return Err(ConfigError::Parse(format!(
+                        "{context}: field {key}[{index}].hooks[{hook_index}].type must be a string"
+                    )));
+                };
+                if hook_type != "command" {
+                    return Err(ConfigError::Parse(format!(
+                        "{context}: field {key}[{index}].hooks[{hook_index}].type must be \"command\""
+                    )));
+                }
+            }
+            let command = hook_object
+                .get("command")
+                .and_then(JsonValue::as_str)
+                .filter(|command| !command.trim().is_empty())
+                .ok_or_else(|| {
+                    ConfigError::Parse(format!(
+                        "{context}: field {key}[{index}].hooks[{hook_index}].command must be a non-empty string"
+                    ))
+                })?;
+            commands.push(RuntimeHookCommand::with_matcher(
+                command.to_string(),
+                matcher.clone(),
+            ));
+        }
+    }
+    Ok(Some(commands))
+}
+
+fn optional_hook_matcher(
+    entry: &BTreeMap<String, JsonValue>,
+    context: &str,
+    key: &str,
+    index: usize,
+) -> Result<Option<String>, ConfigError> {
+    entry
+        .get("matcher")
+        .map(|value| {
+            value.as_str().map(str::to_string).ok_or_else(|| {
+                ConfigError::Parse(format!(
+                    "{context}: field {key}[{index}].matcher must be a string"
+                ))
+            })
+        })
+        .transpose()
+}
+
+fn extend_unique_hook_commands(
+    target: &mut Vec<RuntimeHookCommand>,
+    values: &[RuntimeHookCommand],
+) {
+    for value in values {
+        if !target.iter().any(|existing| existing == value) {
+            target.push(value.clone());
+        }
+    }
+}
+
 fn optional_string_map(
     object: &BTreeMap<String, JsonValue>,
     key: &str,
@@ -1546,24 +1781,12 @@ fn deep_merge_objects(
     }
 }
 
-fn extend_unique(target: &mut Vec<String>, values: &[String]) {
-    for value in values {
-        push_unique(target, value.clone());
-    }
-}
-
-fn push_unique(target: &mut Vec<String>, value: String) {
-    if !target.iter().any(|existing| existing == &value) {
-        target.push(value);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
         deep_merge_objects, parse_permission_mode_label, ConfigLoader, ConfigSource,
         McpServerConfig, McpTransport, ResolvedPermissionMode, RuntimeFeatureConfig,
-        RuntimeHookConfig, RuntimePluginConfig, CLAW_SETTINGS_SCHEMA_NAME,
+        RuntimeHookCommand, RuntimeHookConfig, RuntimePluginConfig, CLAW_SETTINGS_SCHEMA_NAME,
     };
     use crate::json::JsonValue;
     use crate::sandbox::FilesystemIsolationMode;
@@ -1692,6 +1915,65 @@ mod tests {
         assert!(loaded.mcp().get("home").is_some());
         assert!(loaded.mcp().get("project").is_some());
 
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn parses_object_style_hook_entries_with_matchers() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(&home).expect("home config dir");
+        fs::create_dir_all(&cwd).expect("project dir");
+        fs::write(
+            home.join("settings.json"),
+            r#"{"hooks":{"PreToolUse":["legacy",{"matcher":"Bash","hooks":[{"type":"command","command":"bash-one"},{"type":"command","command":"bash-two"}]},{"matcher":"Read*","hooks":[{"command":"read-any"}]}]}}"#,
+        )
+        .expect("write settings");
+
+        let loaded = ConfigLoader::new(&cwd, &home)
+            .load()
+            .expect("config should load");
+
+        assert_eq!(
+            loaded.hooks().pre_tool_use(),
+            vec![
+                "legacy".to_string(),
+                "bash-one".to_string(),
+                "bash-two".to_string(),
+                "read-any".to_string(),
+            ]
+        );
+        let entries = loaded.hooks().pre_tool_use_entries();
+        assert_eq!(entries[0], RuntimeHookCommand::new("legacy"));
+        assert_eq!(entries[1].matcher(), Some("Bash"));
+        assert!(entries[1].matches_tool("bash"));
+        assert!(!entries[1].matches_tool("Read"));
+        assert!(entries[3].matches_tool("ReadFile"));
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn rejects_object_style_hook_entries_without_command() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(&home).expect("home config dir");
+        fs::create_dir_all(&cwd).expect("project dir");
+        fs::write(
+            home.join("settings.json"),
+            r#"{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command"}]}]}}"#,
+        )
+        .expect("write settings");
+
+        let error = ConfigLoader::new(&cwd, &home)
+            .load()
+            .expect_err("config should reject malformed hook entry");
+
+        assert!(error
+            .to_string()
+            .contains("command must be a non-empty string"));
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }
 

@@ -92,6 +92,7 @@ enum FieldType {
     Bool,
     Object,
     StringArray,
+    HookArray,
     RulesImport,
     Number,
 }
@@ -104,6 +105,7 @@ impl FieldType {
             Self::Object => "an object",
             Self::StringArray => "an array of strings",
             Self::RulesImport => "a string or an array of strings",
+            Self::HookArray => "an array of strings or hook objects",
             Self::Number => "a number",
         }
     }
@@ -116,6 +118,10 @@ impl FieldType {
             Self::StringArray => value
                 .as_array()
                 .is_some_and(|arr| arr.iter().all(|v| v.as_str().is_some())),
+            Self::HookArray => value.as_array().is_some_and(|arr| {
+                arr.iter()
+                    .all(|entry| entry.as_str().is_some() || entry.as_object().is_some())
+            }),
             Self::RulesImport => {
                 value.as_str().is_some()
                     || value
@@ -218,15 +224,15 @@ const TOP_LEVEL_FIELDS: &[FieldSpec] = &[
 const HOOKS_FIELDS: &[FieldSpec] = &[
     FieldSpec {
         name: "PreToolUse",
-        expected: FieldType::StringArray,
+        expected: FieldType::HookArray,
     },
     FieldSpec {
         name: "PostToolUse",
-        expected: FieldType::StringArray,
+        expected: FieldType::HookArray,
     },
     FieldSpec {
         name: "PostToolUseFailure",
-        expected: FieldType::StringArray,
+        expected: FieldType::HookArray,
     },
 ];
 
@@ -715,6 +721,29 @@ mod tests {
         // then
         assert_eq!(result.errors.len(), 1);
         assert_eq!(result.errors[0].field, "hooks.BadHook");
+    }
+
+    #[test]
+    fn validates_object_style_hook_entries() {
+        let source = r#"{"hooks":{"PreToolUse":["legacy",{"matcher":"Bash","hooks":[{"type":"command","command":"echo ok"}]}]}}"#;
+        let parsed = JsonValue::parse(source).expect("valid json");
+        let object = parsed.as_object().expect("object");
+
+        let result = validate_config_file(object, source, &test_path());
+
+        assert!(result.errors.is_empty(), "{:?}", result.errors);
+    }
+
+    #[test]
+    fn rejects_wrong_hook_entry_types() {
+        let source = r#"{"hooks":{"PreToolUse":[42]}}"#;
+        let parsed = JsonValue::parse(source).expect("valid json");
+        let object = parsed.as_object().expect("object");
+
+        let result = validate_config_file(object, source, &test_path());
+
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].field, "hooks.PreToolUse");
     }
 
     #[test]
