@@ -2183,6 +2183,46 @@ fn export_json_has_kind_702() {
 }
 
 #[test]
+fn export_missing_session_json_error_uses_stdout_819() {
+    let root = unique_temp_dir("export-missing-session-819");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+
+    let output = run_claw(
+        &root,
+        &[
+            "--output-format",
+            "json",
+            "export",
+            "--session",
+            "does-not-exist",
+        ],
+        &[],
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "export missing session should exit rc=1 (#819)"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.is_empty(),
+        "export missing session JSON mode must keep stderr empty (#819), got: {stderr:?}"
+    );
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap_or_else(|_| {
+        panic!("export missing session must emit valid stdout JSON (#819), got: {stdout:?}")
+    });
+    assert_eq!(
+        parsed["error_kind"], "session_not_found",
+        "export missing session must emit session_not_found (#819): {parsed}"
+    );
+    assert_eq!(
+        parsed["action"], "abort",
+        "export missing session should use the abort envelope (#819): {parsed}"
+    );
+}
+
+#[test]
 fn config_parse_error_has_typed_error_kind_and_hint_764() {
     // #764: Malformed .claw/settings.json must emit error_kind:config_parse_error
     // and a non-null hint in --output-format json mode (was error_kind:"unknown"
