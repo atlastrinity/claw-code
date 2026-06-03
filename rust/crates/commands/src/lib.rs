@@ -1670,7 +1670,11 @@ fn parse_mcp_command(args: &[&str]) -> Result<SlashCommand, SlashCommandParseErr
             target: None,
         }),
         ["list", ..] => Err(usage_error("mcp list", "")),
-        ["show"] => Err(usage_error("mcp show", "<server>")),
+        ["show"] => Err(command_error(
+            "missing_argument: mcp show requires a server name.",
+            "mcp",
+            "/mcp show <server>",
+        )),
         ["show", target] => Ok(SlashCommand::Mcp {
             action: Some("show".to_string()),
             target: Some((*target).to_string()),
@@ -2918,12 +2922,12 @@ fn render_mcp_report_for(
             }
         }
         Some(args) if is_help_arg(args) => Ok(render_mcp_usage(None)),
-        Some("show") => Ok(render_mcp_usage(Some("show"))),
+        Some("show") => Ok(render_mcp_missing_argument_text("show")),
         Some(args) if args.split_whitespace().next() == Some("show") => {
             let mut parts = args.split_whitespace();
             let _ = parts.next();
             let Some(server_name) = parts.next() else {
-                return Ok(render_mcp_usage(Some("show")));
+                return Ok(render_mcp_missing_argument_text("show"));
             };
             if parts.next().is_some() {
                 return Ok(render_mcp_usage(Some(args)));
@@ -3027,12 +3031,12 @@ fn render_mcp_report_json_for(
             }
         }
         Some(args) if is_help_arg(args) => Ok(render_mcp_usage_json(None)),
-        Some("show") => Ok(render_mcp_usage_json(Some("show"))),
+        Some("show") => Ok(render_mcp_missing_argument_json("show")),
         Some(args) if args.split_whitespace().next() == Some("show") => {
             let mut parts = args.split_whitespace();
             let _ = parts.next();
             let Some(server_name) = parts.next() else {
-                return Ok(render_mcp_usage_json(Some("show")));
+                return Ok(render_mcp_missing_argument_json("show"));
             };
             if parts.next().is_some() {
                 return Ok(render_mcp_usage_json(Some(args)));
@@ -4267,6 +4271,44 @@ fn render_mcp_usage(unexpected: Option<&str>) -> String {
         lines.push(format!("  Unexpected       {args}"));
     }
     lines.join("\n")
+}
+
+fn render_mcp_missing_argument_text(action: &str) -> String {
+    let hint = match action {
+        "show" => "use `claw mcp show <server>` to inspect a server",
+        _ => "provide the required argument for this MCP action",
+    };
+    format!(
+        "MCP\n  Error            missing argument for '{action}'\n  Hint             {hint}\n  Usage            /mcp [list|show <server>|help]"
+    )
+}
+
+fn render_mcp_missing_argument_json(action: &str) -> Value {
+    let (message, hint) = match action {
+        "show" => (
+            "mcp show requires a server name",
+            "Usage: claw mcp show <server>",
+        ),
+        _ => (
+            "mcp action requires an argument",
+            "Usage: claw mcp [list|show <server>|help]",
+        ),
+    };
+    json!({
+        "kind": "mcp",
+        "action": action,
+        "ok": false,
+        "status": "error",
+        "error_kind": "missing_argument",
+        "message": message,
+        "hint": hint,
+        "usage": {
+            "slash_command": "/mcp [list|show <server>|help]",
+            "direct_cli": "claw mcp [list|show <server>|help]",
+            "sources": [".claw/settings.json", ".claw/settings.local.json"],
+        },
+        "unexpected": Value::Null,
+    })
 }
 
 fn render_mcp_usage_json(unexpected: Option<&str>) -> Value {

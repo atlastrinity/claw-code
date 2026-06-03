@@ -2449,6 +2449,38 @@ fn agents_plugins_mcp_unknown_subcommand_have_hint_774() {
 }
 
 #[test]
+fn mcp_show_missing_server_name_returns_missing_argument_830() {
+    let root = unique_temp_dir("mcp-show-missing-830");
+    fs::create_dir_all(&root).expect("temp dir");
+
+    let output = run_claw(&root, &["--output-format", "json", "mcp", "show"], &[]);
+    assert!(
+        !output.status.success(),
+        "mcp show without server must fail"
+    );
+    assert_eq!(output.status.code(), Some(1), "exit code must be 1 (#830)");
+    assert!(
+        output.stderr.is_empty(),
+        "JSON mcp show missing-argument error must keep stderr empty (#830), got: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .expect("mcp show missing server should emit valid JSON on stdout");
+    assert_eq!(parsed["kind"], "mcp");
+    assert_eq!(parsed["action"], "show");
+    assert_eq!(parsed["status"], "error");
+    assert_eq!(parsed["error_kind"], "missing_argument");
+    assert!(
+        parsed["hint"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("mcp show <server>"),
+        "hint should contain usage example, got: {}",
+        parsed["hint"]
+    );
+}
+
+#[test]
 fn interactive_only_guard_batch_769_to_771() {
     // #769-#771: a sweep of slash-only verbs with args that previously fell to
     // CliAction::Prompt hitting the credential gate. All must return

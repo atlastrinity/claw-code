@@ -297,6 +297,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "session_load_failed"
     } else if message.contains("unsupported ACP invocation") {
         "unsupported_acp_invocation"
+    } else if message.starts_with("missing_argument:") {
+        "missing_argument"
     } else if message.contains("unsupported skills action") {
         "unsupported_skills_action"
     } else if message.contains("unrecognized argument") || message.contains("unknown option") {
@@ -13475,6 +13477,11 @@ mod tests {
         assert_eq!(
             classify_error_kind("unknown_option: unknown system-prompt option: --foo."),
             "unknown_option"
+        );
+        // #830: known command with missing required argument must not collapse to unknown.
+        assert_eq!(
+            classify_error_kind("missing_argument: mcp show requires a server name."),
+            "missing_argument"
         );
     }
 
