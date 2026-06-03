@@ -193,7 +193,10 @@ cd rust
 ./target/debug/claw --permission-mode read-only prompt "summarize Cargo.toml"
 ./target/debug/claw --permission-mode workspace-write prompt "update README.md"
 ./target/debug/claw --allowedTools read,glob "inspect the runtime crate"
+./target/debug/claw --cwd ../other-workspace status --output-format json
 ```
+
+Global workspace override flags: `--cwd PATH`, `-C PATH`, and `--directory PATH` are accepted before any subcommand. They are validated before command dispatch and take precedence over the process `$PWD`; invalid paths return typed `invalid_cwd` JSON errors in JSON mode.
 
 Supported permission modes (default: `workspace-write`):
 

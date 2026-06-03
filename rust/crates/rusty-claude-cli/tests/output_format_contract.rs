@@ -24,6 +24,13 @@ fn help_emits_json_when_requested() {
         .as_str()
         .expect("help text")
         .contains("Usage:"));
+    assert!(
+        parsed["message"]
+            .as_str()
+            .expect("help text")
+            .contains("--cwd PATH, -C PATH, --directory PATH"),
+        "help JSON should document global cwd override (#429): {parsed}"
+    );
 }
 
 #[test]
@@ -532,6 +539,99 @@ fn invalid_permission_mode_json_is_typed_428() {
         stderr.is_empty(),
         "JSON error stderr should be empty: {stderr:?}"
     );
+}
+
+#[test]
+fn global_cwd_flag_routes_status_workspace_and_short_alias_429() {
+    let parent = unique_temp_dir("global-cwd-parent-429");
+    let workspace = parent.join("workspace");
+    let launcher = parent.join("launcher");
+    fs::create_dir_all(&workspace).expect("workspace dir should exist");
+    fs::create_dir_all(&launcher).expect("launcher dir should exist");
+
+    let workspace_str = workspace.to_str().expect("utf8 workspace");
+    let expected_cwd = fs::canonicalize(&workspace)
+        .expect("workspace should canonicalize")
+        .display()
+        .to_string();
+    let status = assert_json_command(
+        &launcher,
+        &["--cwd", workspace_str, "--output-format", "json", "status"],
+    );
+    assert_eq!(status["kind"], "status");
+    assert_eq!(status["workspace"]["cwd"], expected_cwd);
+
+    let short_status = assert_json_command(
+        &launcher,
+        &["-C", workspace_str, "status", "--output-format", "json"],
+    );
+    assert_eq!(short_status["workspace"]["cwd"], expected_cwd);
+
+    let directory_status = assert_json_command(
+        &launcher,
+        &[
+            "--directory",
+            workspace_str,
+            "--output-format=json",
+            "status",
+        ],
+    );
+    assert_eq!(directory_status["workspace"]["cwd"], expected_cwd);
+}
+
+#[test]
+fn global_cwd_flag_reports_typed_invalid_paths_429() {
+    let root = unique_temp_dir("global-cwd-invalid-429");
+    let file = root.join("not-a-directory");
+    fs::create_dir_all(&root).expect("root dir should exist");
+    fs::write(&file, "not a dir").expect("file fixture should write");
+
+    let missing = root.join("missing");
+    let output = run_claw(
+        &root,
+        &[
+            "--cwd",
+            missing.to_str().expect("utf8 missing path"),
+            "status",
+            "--output-format",
+            "json",
+        ],
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("invalid cwd should emit JSON, got: {stdout:?}"));
+    assert_eq!(parsed["kind"], "invalid_cwd");
+    assert_eq!(parsed["error_kind"], "invalid_cwd");
+    assert_eq!(parsed["reason"], "not_found");
+    assert_eq!(parsed["path"], missing.to_str().expect("utf8 missing path"));
+    assert!(output.stderr.is_empty());
+
+    let file_output = run_claw(
+        &root,
+        &[
+            "--cwd",
+            file.to_str().expect("utf8 file path"),
+            "status",
+            "--output-format=json",
+        ],
+        &[],
+    );
+    assert_eq!(file_output.status.code(), Some(1));
+    let file_stdout = String::from_utf8_lossy(&file_output.stdout);
+    let file_json: Value = serde_json::from_str(file_stdout.trim())
+        .unwrap_or_else(|_| panic!("file cwd should emit JSON, got: {file_stdout:?}"));
+    assert_eq!(file_json["kind"], "invalid_cwd");
+    assert_eq!(file_json["reason"], "not_a_directory");
+
+    let empty_output = run_claw(&root, &["--cwd", "", "status", "--output-format=json"], &[]);
+    assert_eq!(empty_output.status.code(), Some(1));
+    let empty_stdout = String::from_utf8_lossy(&empty_output.stdout);
+    let empty_json: Value = serde_json::from_str(empty_stdout.trim())
+        .unwrap_or_else(|_| panic!("empty cwd should emit JSON, got: {empty_stdout:?}"));
+    assert_eq!(empty_json["kind"], "invalid_cwd");
+    assert_eq!(empty_json["reason"], "empty");
 }
 
 #[test]

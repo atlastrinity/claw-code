@@ -285,6 +285,9 @@ const CLI_OPTION_SUGGESTIONS: &[&str] = &[
     "--model",
     "--output-format",
     "--permission-mode",
+    "--cwd",
+    "--directory",
+    "-C",
     "--skip-permissions",
     "--dangerously-skip-permissions",
     "--allowedTools",
@@ -323,23 +326,32 @@ fn main() {
             let (short_reason, inline_hint) = split_error_hint(&message);
             // #781: fall back to a kind-derived hint when the message has no \n-delimited hint
             let hint = inline_hint.or_else(|| fallback_hint_for_error_kind(kind).map(String::from));
+            let mut error_json = serde_json::json!({
+                "type": "error",
+                "kind": kind,
+                "status": "error",
+                "error_kind": kind,
+                "error": short_reason,
+                "message": short_reason,
+                "action": "abort",
+                "hint": hint,
+                "exit_code": 1,
+            });
+            if kind == "invalid_cwd" {
+                if let Some(error) = error.downcast_ref::<InvalidCwdError>() {
+                    if let Some(object) = error_json.as_object_mut() {
+                        object.insert("path".to_string(), serde_json::json!(&error.path));
+                        object.insert(
+                            "reason".to_string(),
+                            serde_json::json!(error.reason.as_str()),
+                        );
+                    }
+                }
+            }
             // #819/#820/#823: JSON mode error envelopes must go to stdout so machine
             // consumers can parse failures from stdout byte 0 (parity with all
             // non-interactive command guards that already use println! / to_stdout).
-            println!(
-                "{}",
-                serde_json::json!({
-                    "type": "error",
-                    "kind": kind,
-                    "status": "error",
-                    "error_kind": kind,
-                    "error": short_reason,
-                    "message": short_reason,
-                    "action": "abort",
-                    "hint": hint,
-                    "exit_code": 1,
-                })
-            );
+            println!("{}", error_json);
         } else {
             // #156: Add machine-readable error kind to text output so stderr observers
             // don't need to regex-scrape the prose.
@@ -399,6 +411,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "missing_argument"
     } else if message.contains("unsupported skills action") {
         "unsupported_skills_action"
+    } else if message.starts_with("invalid_cwd:") {
+        "invalid_cwd"
     } else if message.contains("unrecognized argument") || message.contains("unknown option") {
         "cli_parse"
     } else if message.starts_with("missing_flag_value:") {
@@ -548,6 +562,178 @@ fn fallback_hint_for_error_kind(kind: &str) -> Option<&'static str> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InvalidCwdReason {
+    Empty,
+    NotFound,
+    NotADirectory,
+}
+
+impl InvalidCwdReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Empty => "empty",
+            Self::NotFound => "not_found",
+            Self::NotADirectory => "not_a_directory",
+        }
+    }
+}
+
+#[derive(Debug)]
+struct InvalidCwdError {
+    path: String,
+    reason: InvalidCwdReason,
+}
+
+impl InvalidCwdError {
+    fn new(path: impl Into<String>, reason: InvalidCwdReason) -> Self {
+        Self {
+            path: path.into(),
+            reason,
+        }
+    }
+}
+
+impl std::fmt::Display for InvalidCwdError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "invalid_cwd: {}: `{}`\nUsage: --cwd <path>, -C <path>, or --directory <path>",
+            self.reason.as_str(),
+            self.path
+        )
+    }
+}
+
+impl std::error::Error for InvalidCwdError {}
+
+fn split_global_cwd_args(
+    args: &[String],
+) -> Result<(Vec<String>, Option<PathBuf>), Box<dyn std::error::Error>> {
+    let mut filtered = Vec::with_capacity(args.len());
+    let mut cwd = None;
+    let mut index = 0;
+
+    while index < args.len() {
+        let arg = &args[index];
+        match arg.as_str() {
+            "--cwd" | "-C" | "--directory" => {
+                let value = args.get(index + 1).ok_or_else(|| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "missing_flag_value: missing value for --cwd.\nUsage: --cwd <path>, -C <path>, or --directory <path>",
+                    )
+                })?;
+                cwd = Some(validate_global_cwd(value)?);
+                index += 2;
+            }
+            flag if flag.starts_with("--cwd=") => {
+                let value = &flag[6..];
+                cwd = Some(validate_global_cwd(value)?);
+                index += 1;
+            }
+            flag if flag.starts_with("--directory=") => {
+                let value = &flag[12..];
+                cwd = Some(validate_global_cwd(value)?);
+                index += 1;
+            }
+            flag if global_flag_takes_value(flag) => {
+                filtered.push(arg.clone());
+                if let Some(value) = args.get(index + 1) {
+                    filtered.push(value.clone());
+                    index += 2;
+                } else {
+                    index += 1;
+                }
+            }
+            flag if global_flag_is_value_inline(flag) => {
+                filtered.push(arg.clone());
+                index += 1;
+            }
+            flag if global_flag_without_value(flag) => {
+                filtered.push(arg.clone());
+                index += 1;
+            }
+            "--" => {
+                filtered.extend(args[index..].iter().cloned());
+                break;
+            }
+            other if other.starts_with('-') => {
+                filtered.push(arg.clone());
+                index += 1;
+            }
+            _ => {
+                filtered.extend(args[index..].iter().cloned());
+                break;
+            }
+        }
+    }
+
+    Ok((filtered, cwd))
+}
+
+fn global_flag_takes_value(flag: &str) -> bool {
+    matches!(
+        flag,
+        "--model"
+            | "--output-format"
+            | "--permission-mode"
+            | "--base-commit"
+            | "--reasoning-effort"
+            | "--allowedTools"
+            | "--allowed-tools"
+    )
+}
+
+fn global_flag_is_value_inline(flag: &str) -> bool {
+    flag.starts_with("--model=")
+        || flag.starts_with("--output-format=")
+        || flag.starts_with("--permission-mode=")
+        || flag.starts_with("--base-commit=")
+        || flag.starts_with("--reasoning-effort=")
+        || flag.starts_with("--allowedTools=")
+        || flag.starts_with("--allowed-tools=")
+}
+
+fn global_flag_without_value(flag: &str) -> bool {
+    matches!(
+        flag,
+        "--help"
+            | "-h"
+            | "--version"
+            | "-V"
+            | "--dangerously-skip-permissions"
+            | "--skip-permissions"
+            | "--compact"
+            | "--allow-broad-cwd"
+            | "--print"
+            | "--acp"
+            | "-acp"
+    )
+}
+
+fn validate_global_cwd(value: &str) -> Result<PathBuf, InvalidCwdError> {
+    if value.trim().is_empty() {
+        return Err(InvalidCwdError::new(value, InvalidCwdReason::Empty));
+    }
+    let path = PathBuf::from(value);
+    match fs::metadata(&path) {
+        Ok(metadata) if metadata.is_dir() => Ok(path),
+        Ok(_) => Err(InvalidCwdError::new(value, InvalidCwdReason::NotADirectory)),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {
+            Err(InvalidCwdError::new(value, InvalidCwdReason::NotFound))
+        }
+        Err(_) => Err(InvalidCwdError::new(value, InvalidCwdReason::NotFound)),
+    }
+}
+
+fn apply_global_cwd(cwd: Option<PathBuf>) -> Result<(), Box<dyn std::error::Error>> {
+    if let Some(cwd) = cwd {
+        env::set_current_dir(cwd)?;
+    }
+    Ok(())
+}
+
 /// Read piped stdin content when stdin is not a terminal.
 ///
 /// Returns `None` when stdin is attached to a terminal (interactive REPL use),
@@ -654,6 +840,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     if json_mode {
         runtime::suppress_config_warnings_for_json_mode();
     }
+    let (args, cwd) = split_global_cwd_args(&args)?;
+    apply_global_cwd(cwd)?;
     match parse_args(&args)? {
         CliAction::DumpManifests {
             output_format,
@@ -12075,6 +12263,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         out,
+        "  --cwd PATH, -C PATH, --directory PATH  Run as if launched from PATH"
+    )?;
+    writeln!(
+        out,
         "  --compact                  Strip tool call details; print only the final assistant text (text mode only; useful for piping)"
     )?;
     writeln!(
@@ -14085,6 +14277,10 @@ mod tests {
         assert_eq!(
             classify_error_kind("invalid_permission_mode: unsupported permission mode 'bogus'.\nUsage: --permission-mode read-only|workspace-write|danger-full-access"),
             "invalid_permission_mode"
+        );
+        assert_eq!(
+            classify_error_kind("invalid_cwd: not_found: `/tmp/missing`\nUsage: --cwd <path>"),
+            "invalid_cwd"
         );
         assert_eq!(
             classify_error_kind("is not yet implemented"),

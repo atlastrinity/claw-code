@@ -124,6 +124,7 @@ Flags:
   --model MODEL
   --output-format text|json
   --permission-mode MODE
+  --cwd PATH, -C PATH, --directory PATH
   --dangerously-skip-permissions, --skip-permissions
   --allowedTools TOOLS
   --resume [SESSION.jsonl|session-id|latest]
