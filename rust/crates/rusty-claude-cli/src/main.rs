@@ -48,7 +48,6 @@ use commands::{
     slash_command_specs, validate_slash_command_input, PluginsCommandResult, SkillSlashDispatch,
     SlashCommand,
 };
-use compat_harness::{extract_manifest, UpstreamPaths};
 use init::initialize_repo;
 use plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
 use render::{MarkdownStreamState, Spinner, TerminalRenderer};
@@ -347,6 +346,16 @@ fn main() {
                         );
                     }
                 }
+            } else if kind == "invalid_output_path" {
+                if let Some(error) = error.downcast_ref::<InvalidOutputPathError>() {
+                    if let Some(object) = error_json.as_object_mut() {
+                        object.insert("path".to_string(), serde_json::json!(&error.path));
+                        object.insert(
+                            "reason".to_string(),
+                            serde_json::json!(error.reason.as_str()),
+                        );
+                    }
+                }
             }
             // #819/#820/#823: JSON mode error envelopes must go to stdout so machine
             // consumers can parse failures from stdout byte 0 (parity with all
@@ -387,7 +396,9 @@ fn classify_error_kind(message: &str) -> &'static str {
         "command_not_found"
     } else if message.contains("missing Anthropic credentials") {
         "missing_credentials"
-    } else if message.contains("Manifest source files are missing") {
+    } else if message.contains("Manifest source files are missing")
+        || message.starts_with("missing_manifests:")
+    {
         "missing_manifests"
     } else if message.contains("no worker state file found") {
         "missing_worker_state"
@@ -413,6 +424,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "unsupported_skills_action"
     } else if message.starts_with("invalid_cwd:") {
         "invalid_cwd"
+    } else if message.starts_with("invalid_output_path:") {
+        "invalid_output_path"
     } else if message.contains("unrecognized argument") || message.contains("unknown option") {
         "cli_parse"
     } else if message.starts_with("missing_flag_value:") {
@@ -606,6 +619,53 @@ impl std::fmt::Display for InvalidCwdError {
 }
 
 impl std::error::Error for InvalidCwdError {}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InvalidOutputPathReason {
+    Empty,
+    ParentNotFound,
+    ParentNotADirectory,
+    PathIsDirectory,
+}
+
+impl InvalidOutputPathReason {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Empty => "empty",
+            Self::ParentNotFound => "parent_not_found",
+            Self::ParentNotADirectory => "parent_not_a_directory",
+            Self::PathIsDirectory => "path_is_directory",
+        }
+    }
+}
+
+#[derive(Debug)]
+struct InvalidOutputPathError {
+    path: String,
+    reason: InvalidOutputPathReason,
+}
+
+impl InvalidOutputPathError {
+    fn new(path: impl Into<String>, reason: InvalidOutputPathReason) -> Self {
+        Self {
+            path: path.into(),
+            reason,
+        }
+    }
+}
+
+impl std::fmt::Display for InvalidOutputPathError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "invalid_output_path: {}: `{}`\nUsage: claw export [PATH] [--session SESSION] [--output PATH]",
+            self.reason.as_str(),
+            self.path
+        )
+    }
+}
+
+impl std::error::Error for InvalidOutputPathError {}
 
 fn split_global_cwd_args(
     args: &[String],
@@ -3844,12 +3904,12 @@ fn dump_manifests(
     manifests_dir: Option<&Path>,
     output_format: CliOutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let workspace_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let workspace_dir = env::current_dir()?;
     dump_manifests_at_path(&workspace_dir, manifests_dir, output_format)
 }
 
-const DUMP_MANIFESTS_OVERRIDE_HINT: &str =
-    "Hint: set CLAUDE_CODE_UPSTREAM=/path/to/upstream or pass `claw dump-manifests --manifests-dir /path/to/upstream`.";
+const DUMP_MANIFESTS_USAGE_HINT: &str =
+    "Usage: claw dump-manifests [--manifests-dir <path>] [--output-format json]";
 
 // Internal function for testing that accepts a workspace directory path.
 fn dump_manifests_at_path(
@@ -3857,72 +3917,105 @@ fn dump_manifests_at_path(
     manifests_dir: Option<&Path>,
     output_format: CliOutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let paths = if let Some(dir) = manifests_dir {
-        let resolved = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
-        UpstreamPaths::from_repo_root(resolved)
-    } else {
-        // Surface the resolved path in the error so users can diagnose missing
-        // manifest files without guessing what path the binary expected.
-        let resolved = workspace_dir
-            .canonicalize()
-            .unwrap_or_else(|_| workspace_dir.to_path_buf());
-        UpstreamPaths::from_workspace_dir(&resolved)
-    };
+    let discovery_root = manifests_dir.unwrap_or(workspace_dir);
+    let resolved_root = discovery_root
+        .canonicalize()
+        .unwrap_or_else(|_| discovery_root.to_path_buf());
 
-    let source_root = paths.repo_root();
-    if !source_root.exists() {
+    if !resolved_root.exists() {
         return Err(format!(
-            "Manifest source directory does not exist.\n  looked in: {}\n  {DUMP_MANIFESTS_OVERRIDE_HINT}",
-            source_root.display(),
+            "missing_manifests: manifest discovery directory does not exist.\n  looked in: {}\n  {DUMP_MANIFESTS_USAGE_HINT}",
+            resolved_root.display(),
+        )
+        .into());
+    }
+    if !resolved_root.is_dir() {
+        return Err(format!(
+            "missing_manifests: manifest discovery path is not a directory.\n  looked in: {}\n  {DUMP_MANIFESTS_USAGE_HINT}",
+            resolved_root.display(),
         )
         .into());
     }
 
-    let required_paths = [
-        ("src/commands.ts", paths.commands_path()),
-        ("src/tools.ts", paths.tools_path()),
-        ("src/entrypoints/cli.tsx", paths.cli_path()),
-    ];
-    let missing = required_paths
-        .iter()
-        .filter_map(|(label, path)| (!path.is_file()).then_some(*label))
-        .collect::<Vec<_>>();
-    if !missing.is_empty() {
-        return Err(format!(
-            "Manifest source files are missing.\n  repo root: {}\n  missing: {}\n  {DUMP_MANIFESTS_OVERRIDE_HINT}",
-            source_root.display(),
-            missing.join(", "),
-        )
-        .into());
-    }
-
-    match extract_manifest(&paths) {
-        Ok(manifest) => {
-            match output_format {
-                CliOutputFormat::Text => {
-                    println!("commands: {}", manifest.commands.entries().len());
-                    println!("tools: {}", manifest.tools.entries().len());
-                    println!("bootstrap phases: {}", manifest.bootstrap.phases().len());
-                }
-                CliOutputFormat::Json => println!(
-                    "{}",
-                    serde_json::to_string_pretty(&json!({
-                        "kind": "dump-manifests",
-                        "action": "dump",
-                        "commands": manifest.commands.entries().len(),
-                        "tools": manifest.tools.entries().len(),
-                        "bootstrap_phases": manifest.bootstrap.phases().len(),
-                    }))?
-                ),
-            }
-            Ok(())
+    let manifest = build_rust_resolver_manifest(&resolved_root)?;
+    match output_format {
+        CliOutputFormat::Text => {
+            println!("Manifest Dump");
+            println!("  Source           rust-resolver");
+            println!("  Workspace        {}", resolved_root.display());
+            println!("  Commands         {}", manifest["commands"]);
+            println!("  Tools            {}", manifest["tools"]);
+            println!("  Agents           {}", manifest["agents"]);
+            println!("  Skills           {}", manifest["skills"]);
+            println!("  Bootstrap phases {}", manifest["bootstrap_phases"]);
         }
-        Err(error) => Err(format!(
-            "failed to extract manifests: {error}\n  looked in: {path}\n  {DUMP_MANIFESTS_OVERRIDE_HINT}",
-            path = paths.repo_root().display()
-        )
-        .into()),
+        CliOutputFormat::Json => println!("{}", serde_json::to_string_pretty(&manifest)?),
     }
+    Ok(())
+}
+
+fn build_rust_resolver_manifest(workspace_dir: &Path) -> Result<Value, Box<dyn std::error::Error>> {
+    let command_entries = slash_command_specs()
+        .iter()
+        .map(|spec| {
+            json!({
+                "name": spec.name,
+                "aliases": spec.aliases,
+                "summary": spec.summary,
+                "argument_hint": spec.argument_hint,
+                "resume_supported": spec.resume_supported,
+                "implemented": !STUB_COMMANDS.contains(&spec.name),
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let tool_entries = mvp_tool_specs()
+        .into_iter()
+        .map(|spec| {
+            json!({
+                "name": spec.name,
+                "description": spec.description,
+                "required_permission": spec.required_permission.as_str(),
+                "input_schema": spec.input_schema,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    let agent_report = handle_agents_slash_command_json(None, workspace_dir)?;
+    let skill_report = handle_skills_slash_command_json(None, workspace_dir)?;
+    let agents = agent_report
+        .get("agents")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let skills = skill_report
+        .get("skills")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let bootstrap = runtime::BootstrapPlan::claude_code_default()
+        .phases()
+        .iter()
+        .map(|phase| format!("{phase:?}"))
+        .collect::<Vec<_>>();
+
+    Ok(json!({
+        "kind": "dump-manifests",
+        "action": "dump",
+        "status": "ok",
+        "source": "rust-resolver",
+        "workspace": workspace_dir.display().to_string(),
+        "commands": command_entries.len(),
+        "tools": tool_entries.len(),
+        "agents": agents.len(),
+        "skills": skills.len(),
+        "bootstrap_phases": bootstrap.len(),
+        "command_manifests": command_entries,
+        "tool_manifests": tool_entries,
+        "agent_manifests": agents,
+        "skill_manifests": skills,
+        "bootstrap_manifest": bootstrap,
+    }))
 }
 
 fn print_bootstrap_plan(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
@@ -9912,6 +10005,52 @@ fn resolve_export_path(
     Ok(cwd.join(final_name))
 }
 
+fn validate_export_output_path(path: Option<&Path>) -> Result<(), InvalidOutputPathError> {
+    let Some(path) = path else {
+        return Ok(());
+    };
+    let raw = path.to_string_lossy();
+    if raw.trim().is_empty() {
+        return Err(InvalidOutputPathError::new(
+            raw.to_string(),
+            InvalidOutputPathReason::Empty,
+        ));
+    }
+    if matches!(fs::metadata(path), Ok(metadata) if metadata.is_dir()) {
+        return Err(InvalidOutputPathError::new(
+            raw.to_string(),
+            InvalidOutputPathReason::PathIsDirectory,
+        ));
+    }
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        match fs::metadata(parent) {
+            Ok(metadata) if metadata.is_dir() => {}
+            Ok(_) => {
+                return Err(InvalidOutputPathError::new(
+                    raw.to_string(),
+                    InvalidOutputPathReason::ParentNotADirectory,
+                ));
+            }
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {
+                return Err(InvalidOutputPathError::new(
+                    raw.to_string(),
+                    InvalidOutputPathReason::ParentNotFound,
+                ));
+            }
+            Err(_) => {
+                return Err(InvalidOutputPathError::new(
+                    raw.to_string(),
+                    InvalidOutputPathReason::ParentNotFound,
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 const SESSION_MARKDOWN_TOOL_SUMMARY_LIMIT: usize = 280;
 
 fn summarize_tool_payload_for_markdown(payload: &str) -> String {
@@ -9930,6 +10069,7 @@ fn run_export(
     output_path: Option<&Path>,
     output_format: CliOutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    validate_export_output_path(output_path)?;
     let (handle, session) = load_session_reference(session_reference)?;
     let markdown = render_session_markdown(&session, &handle.id, &handle.path);
 
@@ -17472,78 +17612,73 @@ mod sandbox_report_tests {
 
 #[cfg(test)]
 mod dump_manifests_tests {
-    use super::{dump_manifests_at_path, CliOutputFormat};
+    use super::{build_rust_resolver_manifest, dump_manifests_at_path, CliOutputFormat};
     use std::fs;
 
     #[test]
-    fn dump_manifests_shows_helpful_error_when_manifests_missing() {
-        let root = std::env::temp_dir().join(format!(
-            "claw_test_missing_manifests_{}",
-            std::process::id()
-        ));
+    fn dump_manifests_defaults_to_rust_resolver_inventory() {
+        let root =
+            std::env::temp_dir().join(format!("claw_test_rust_manifests_{}", std::process::id()));
         let workspace = root.join("workspace");
-        std::fs::create_dir_all(&workspace).expect("failed to create temp workspace");
+        fs::create_dir_all(&workspace).expect("workspace should exist");
 
-        let result = dump_manifests_at_path(&workspace, None, CliOutputFormat::Text);
-        assert!(
-            result.is_err(),
-            "expected an error when manifests are missing"
-        );
+        let manifest = build_rust_resolver_manifest(&workspace).expect("manifest should build");
+        assert_eq!(manifest["kind"], "dump-manifests");
+        assert_eq!(manifest["source"], "rust-resolver");
+        assert!(manifest["commands"].as_u64().expect("commands count") > 0);
+        assert!(manifest["tools"].as_u64().expect("tools count") > 0);
+        assert!(manifest["command_manifests"]
+            .as_array()
+            .expect("command manifests")
+            .iter()
+            .any(|entry| entry["name"] == "status"));
+        assert!(manifest["tool_manifests"]
+            .as_array()
+            .expect("tool manifests")
+            .iter()
+            .any(|entry| entry["name"] == "read_file"));
+        assert!(dump_manifests_at_path(&workspace, None, CliOutputFormat::Text).is_ok());
 
-        let error_msg = result.unwrap_err().to_string();
-
-        assert!(
-            error_msg.contains("Manifest source files are missing"),
-            "error message should mention missing manifest sources: {error_msg}"
-        );
-        assert!(
-            error_msg.contains(&root.display().to_string()),
-            "error message should contain the resolved repo root path: {error_msg}"
-        );
-        assert!(
-            error_msg.contains("src/commands.ts"),
-            "error message should mention missing commands.ts: {error_msg}"
-        );
-        assert!(
-            error_msg.contains("CLAUDE_CODE_UPSTREAM"),
-            "error message should explain how to supply the upstream path: {error_msg}"
-        );
-
-        let _ = std::fs::remove_dir_all(&root);
+        let _ = fs::remove_dir_all(&root);
     }
 
     #[test]
-    fn dump_manifests_uses_explicit_manifest_dir() {
+    fn dump_manifests_scopes_explicit_manifest_dir_without_upstream_ts() {
         let root = std::env::temp_dir().join(format!(
             "claw_test_explicit_manifest_dir_{}",
             std::process::id()
         ));
         let workspace = root.join("workspace");
-        let upstream = root.join("upstream");
-        fs::create_dir_all(workspace.join("nested")).expect("workspace should exist");
-        fs::create_dir_all(upstream.join("src/entrypoints"))
-            .expect("upstream fixture should exist");
-        fs::write(
-            upstream.join("src/commands.ts"),
-            "import FooCommand from './commands/foo'\n",
-        )
-        .expect("commands fixture should write");
-        fs::write(
-            upstream.join("src/tools.ts"),
-            "import ReadTool from './tools/read'\n",
-        )
-        .expect("tools fixture should write");
-        fs::write(
-            upstream.join("src/entrypoints/cli.tsx"),
-            "startupProfiler()\n",
-        )
-        .expect("cli fixture should write");
+        let manifest_dir = root.join("manifest-source");
+        fs::create_dir_all(&workspace).expect("workspace should exist");
+        fs::create_dir_all(&manifest_dir).expect("manifest dir should exist");
 
-        let result = dump_manifests_at_path(&workspace, Some(&upstream), CliOutputFormat::Text);
+        let result = dump_manifests_at_path(&workspace, Some(&manifest_dir), CliOutputFormat::Text);
         assert!(
             result.is_ok(),
-            "explicit manifest dir should succeed: {result:?}"
+            "explicit manifest dir should not require upstream TS files: {result:?}"
         );
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn dump_manifests_missing_explicit_dir_has_typed_kind() {
+        let root = std::env::temp_dir().join(format!(
+            "claw_test_missing_manifest_dir_{}",
+            std::process::id()
+        ));
+        let workspace = root.join("workspace");
+        let missing = root.join("missing");
+        fs::create_dir_all(&workspace).expect("workspace should exist");
+
+        let result = dump_manifests_at_path(&workspace, Some(&missing), CliOutputFormat::Text);
+        let error = result.expect_err("missing explicit manifest dir should fail");
+        let error_msg = error.to_string();
+        assert!(error_msg.starts_with("missing_manifests:"));
+        assert!(error_msg.contains(&missing.display().to_string()));
+        assert!(!error_msg.contains("CLAUDE_CODE_UPSTREAM"));
+        assert!(!error_msg.contains("src/commands.ts"));
 
         let _ = fs::remove_dir_all(&root);
     }

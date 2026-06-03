@@ -635,6 +635,60 @@ fn global_cwd_flag_reports_typed_invalid_paths_429() {
 }
 
 #[test]
+fn export_invalid_output_path_reports_typed_json_430() {
+    let root = unique_temp_dir("export-invalid-output-430");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+
+    let missing_relative = "missing/transcript.md";
+    let missing_output = run_claw(
+        &root,
+        &["--output-format", "json", "export", missing_relative],
+        &[],
+    );
+    assert_eq!(missing_output.status.code(), Some(1));
+    assert!(
+        missing_output.stderr.is_empty(),
+        "invalid export path JSON should keep stderr empty, got:\n{}",
+        String::from_utf8_lossy(&missing_output.stderr)
+    );
+    let missing_stdout = String::from_utf8_lossy(&missing_output.stdout);
+    let missing_json: Value = serde_json::from_str(missing_stdout.trim()).unwrap_or_else(|_| {
+        panic!("invalid export path should emit JSON, got: {missing_stdout:?}")
+    });
+    assert_eq!(missing_json["kind"], "invalid_output_path");
+    assert_eq!(missing_json["error_kind"], "invalid_output_path");
+    assert_eq!(missing_json["reason"], "parent_not_found");
+    assert_eq!(missing_json["path"], missing_relative);
+
+    let directory = root.join("existing-directory");
+    fs::create_dir_all(&directory).expect("directory fixture should exist");
+    let directory_output = run_claw(
+        &root,
+        &[
+            "--output-format=json",
+            "export",
+            "--output",
+            directory.to_str().expect("utf8 directory path"),
+        ],
+        &[],
+    );
+    assert_eq!(directory_output.status.code(), Some(1));
+    assert!(directory_output.stderr.is_empty());
+    let directory_stdout = String::from_utf8_lossy(&directory_output.stdout);
+    let directory_json: Value =
+        serde_json::from_str(directory_stdout.trim()).unwrap_or_else(|_| {
+            panic!("directory export path should emit JSON, got: {directory_stdout:?}")
+        });
+    assert_eq!(directory_json["kind"], "invalid_output_path");
+    assert_eq!(directory_json["error_kind"], "invalid_output_path");
+    assert_eq!(directory_json["reason"], "path_is_directory");
+    assert_eq!(
+        directory_json["path"],
+        directory.to_str().expect("utf8 directory path")
+    );
+}
+
+#[test]
 fn status_json_accepts_namespaced_model_env_and_surfaces_alias_426() {
     let root = unique_temp_dir("status-model-env-426");
     let config_home = root.join("config-home");
@@ -1154,20 +1208,22 @@ fn dump_manifests_and_init_emit_json_when_requested() {
     let root = unique_temp_dir("manifest-init-json");
     fs::create_dir_all(&root).expect("temp dir should exist");
 
-    let upstream = write_upstream_fixture(&root);
-    let manifests = assert_json_command(
-        &root,
-        &[
-            "--output-format",
-            "json",
-            "dump-manifests",
-            "--manifests-dir",
-            upstream.to_str().expect("utf8 upstream"),
-        ],
-    );
+    let manifests = assert_json_command(&root, &["--output-format", "json", "dump-manifests"]);
     assert_eq!(manifests["kind"], "dump-manifests");
-    assert_eq!(manifests["commands"], 1);
-    assert_eq!(manifests["tools"], 1);
+    assert_eq!(manifests["status"], "ok");
+    assert_eq!(manifests["source"], "rust-resolver");
+    assert!(manifests["commands"].as_u64().expect("commands count") > 0);
+    assert!(manifests["tools"].as_u64().expect("tools count") > 0);
+    assert!(manifests["command_manifests"]
+        .as_array()
+        .expect("command manifests")
+        .iter()
+        .any(|entry| entry["name"] == "status"));
+    assert!(manifests["tool_manifests"]
+        .as_array()
+        .expect("tool manifests")
+        .iter()
+        .any(|entry| entry["name"] == "read_file"));
 
     let workspace = root.join("workspace");
     fs::create_dir_all(&workspace).expect("workspace should exist");
@@ -1663,7 +1719,6 @@ fn local_json_surfaces_have_non_empty_action_contract_714() {
 
     let session_path = write_session_fixture(&workspace, "action-sweep-export", Some("export me"));
     let export_output = root.join("export.md");
-    let upstream = write_upstream_fixture(&root);
     let git_init = Command::new("git")
         .arg("init")
         .current_dir(&git_workspace)
@@ -1701,13 +1756,7 @@ fn local_json_surfaces_have_non_empty_action_contract_714() {
         ),
         (
             &workspace,
-            vec![
-                "--output-format".into(),
-                "json".into(),
-                "dump-manifests".into(),
-                "--manifests-dir".into(),
-                upstream.to_str().expect("upstream utf8").into(),
-            ],
+            strings(&["--output-format", "json", "dump-manifests"]),
         ),
         (
             &workspace,
@@ -2299,29 +2348,6 @@ fn run_claw(current_dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output 
 
 fn strings(items: &[&str]) -> Vec<String> {
     items.iter().map(|item| (*item).to_string()).collect()
-}
-
-fn write_upstream_fixture(root: &Path) -> PathBuf {
-    let upstream = root.join("claw-code");
-    let src = upstream.join("src");
-    let entrypoints = src.join("entrypoints");
-    fs::create_dir_all(&entrypoints).expect("upstream entrypoints dir should exist");
-    fs::write(
-        src.join("commands.ts"),
-        "import FooCommand from './commands/foo'\n",
-    )
-    .expect("commands fixture should write");
-    fs::write(
-        src.join("tools.ts"),
-        "import ReadTool from './tools/read'\n",
-    )
-    .expect("tools fixture should write");
-    fs::write(
-        entrypoints.join("cli.tsx"),
-        "if (args[0] === '--version') {}\nstartupProfiler()\n",
-    )
-    .expect("cli fixture should write");
-    upstream
 }
 
 fn write_session_fixture(root: &Path, session_id: &str, user_text: Option<&str>) -> PathBuf {
