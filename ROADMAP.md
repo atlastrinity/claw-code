@@ -8002,3 +8002,9 @@ Original filing (2026-04-18): the session emitted `SessionStart hook (completed)
     **Fix applied.** `parse_direct_slash_cli_action` now routes `/status`, `/diff`, `/version`, `/doctor`, and `/sandbox` directly to the same local `CliAction` variants as `status`, `diff`, `version`, `doctor`, and `sandbox`. The generic `interactive_only` branch remains the fallback for valid but live-REPL-only slash commands, preserving the #829 non-resume-safe hint behavior.
 
     **Verification.** `cargo test --manifest-path rust/Cargo.toml -p rusty-claude-cli direct_resume_safe_slash_commands_route_to_local_json_actions_831 -- --nocapture`.
+
+832. **DONE — roadmap-next-id helper missing explicit ROADMAP path behavior lacked regression coverage** — follow-up to #725 and PR #3117 after dogfood showed `scripts/roadmap-next-id.sh /tmp/nonexistent-roadmap` already failed correctly but the helper tests did not pin that behavior. The missing-path case is important because docs-only PRs can otherwise regress back to printing a next id for an absent explicit file.
+
+    **Fix applied.** Added `test_roadmap_next_id_fails_when_explicit_roadmap_path_is_missing`, proving an explicit missing ROADMAP path exits nonzero, keeps stdout empty, and reports both `ROADMAP not found` and the requested path on stderr. Added `tests/__init__.py` so `python3 -m unittest tests.test_roadmap_helpers` resolves this repository's tests package consistently.
+
+    **Verification.** `python3 -m unittest tests.test_roadmap_helpers`; `scripts/roadmap-check-ids.sh`; `scripts/roadmap-next-id.sh`.
