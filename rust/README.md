@@ -124,7 +124,7 @@ Flags:
   --model MODEL
   --output-format text|json
   --permission-mode MODE
-  --dangerously-skip-permissions
+  --dangerously-skip-permissions, --skip-permissions
   --allowedTools TOOLS
   --resume [SESSION.jsonl|session-id|latest]
   --version, -V
@@ -211,7 +211,7 @@ rust/
 - **9 crates** in workspace
 - **Binary name:** `claw`
 - **Default model:** `claude-opus-4-7`
-- **Default permissions:** `danger-full-access`
+- **Default permissions:** `workspace-write`
 
 ## License
 

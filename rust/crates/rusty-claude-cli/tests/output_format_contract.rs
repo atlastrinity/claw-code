@@ -435,6 +435,106 @@ fn status_json_surfaces_permission_mode_override_for_security_audit() {
 }
 
 #[test]
+fn default_permission_mode_is_workspace_write_and_audited_428() {
+    let root = unique_temp_dir("default-permission-mode-428");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("RUSTY_CLAUDE_PERMISSION_MODE", ""),
+    ];
+
+    let status = assert_json_command_with_env(&root, &["--output-format", "json", "status"], &envs);
+    assert_eq!(status["permission_mode"], "workspace-write");
+    assert_eq!(status["permission_mode_source"], "default");
+
+    let doctor = assert_json_command_with_env(&root, &["--output-format", "json", "doctor"], &envs);
+    let permissions = doctor["checks"]
+        .as_array()
+        .expect("doctor checks")
+        .iter()
+        .find(|check| check["name"] == "permissions")
+        .expect("permissions check");
+    assert_eq!(permissions["status"], "ok");
+    assert_eq!(permissions["mode"], "workspace-write");
+    assert_eq!(permissions["source"], "default");
+    assert_eq!(
+        permissions["message"],
+        "default permission mode is workspace-write"
+    );
+}
+
+#[test]
+fn explicit_danger_permission_mode_is_audited_and_alias_supported_428() {
+    let root = unique_temp_dir("danger-permission-mode-428");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+
+    let status = assert_json_command(
+        &root,
+        &["--skip-permissions", "--output-format", "json", "status"],
+    );
+    assert_eq!(status["permission_mode"], "danger-full-access");
+    assert_eq!(status["permission_mode_source"], "flag");
+
+    let doctor = assert_json_command(
+        &root,
+        &[
+            "--permission-mode",
+            "danger-full-access",
+            "--output-format",
+            "json",
+            "doctor",
+        ],
+    );
+    let permissions = doctor["checks"]
+        .as_array()
+        .expect("doctor checks")
+        .iter()
+        .find(|check| check["name"] == "permissions")
+        .expect("permissions check");
+    assert_eq!(permissions["status"], "ok");
+    assert_eq!(permissions["mode"], "danger-full-access");
+    assert_eq!(permissions["source"], "flag");
+    assert_eq!(permissions["source_explicit"], true);
+}
+
+#[test]
+fn invalid_permission_mode_json_is_typed_428() {
+    let root = unique_temp_dir("invalid-permission-mode-428");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+
+    let output = run_claw(
+        &root,
+        &[
+            "--permission-mode",
+            "bogus-mode",
+            "status",
+            "--output-format",
+            "json",
+        ],
+        &[],
+    );
+    assert_eq!(output.status.code(), Some(1));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let parsed: Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("invalid permission mode must emit JSON, got: {stdout:?}"));
+    assert_eq!(parsed["error_kind"], "invalid_permission_mode");
+    assert_eq!(parsed["kind"], "invalid_permission_mode");
+    assert!(
+        stderr.is_empty(),
+        "JSON error stderr should be empty: {stderr:?}"
+    );
+}
+
+#[test]
 fn status_json_accepts_namespaced_model_env_and_surfaces_alias_426() {
     let root = unique_temp_dir("status-model-env-426");
     let config_home = root.join("config-home");

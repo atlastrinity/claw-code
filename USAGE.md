@@ -195,11 +195,11 @@ cd rust
 ./target/debug/claw --allowedTools read,glob "inspect the runtime crate"
 ```
 
-Supported permission modes:
+Supported permission modes (default: `workspace-write`):
 
-- `read-only`
-- `workspace-write`
-- `danger-full-access`
+- `read-only` allows inspection-only local tools such as file reads, glob/grep searches, local skills, and status-style reporting. It does not allow workspace mutation, network-fetch/search tools, or arbitrary command execution.
+- `workspace-write` is the safe default. It allows reads plus direct file-editing tools inside the current workspace, including write/edit/notebook/config/plan-mode updates, while still gating network-fetch/search tools, arbitrary shell execution, subagent launches, REPL subprocesses, and other full-access tools behind an explicit escalation.
+- `danger-full-access` allows every registered tool requirement, including arbitrary command execution, web fetch/search, subagent launches, subprocess REPLs, and unrestricted tool access. Select it only with an explicit `--permission-mode danger-full-access`, `--dangerously-skip-permissions`, `--skip-permissions`, env, or config opt-in.
 
 Model aliases currently supported by the CLI:
 
