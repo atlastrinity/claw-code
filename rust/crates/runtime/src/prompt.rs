@@ -240,8 +240,10 @@ fn discover_instruction_files(cwd: &Path) -> std::io::Result<Vec<ContextFile>> {
     for dir in directories {
         for candidate in [
             dir.join("CLAUDE.md"),
+            dir.join("AGENTS.md"),
             dir.join("CLAUDE.local.md"),
             dir.join(".claw").join("CLAUDE.md"),
+            dir.join(".claude").join("CLAUDE.md"),
             dir.join(".claw").join("instructions.md"),
         ] {
             push_context_file(&mut files, candidate)?;
@@ -633,6 +635,63 @@ mod tests {
                 "nested instructions"
             ]
         );
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn discovers_agents_markdown_instruction_file() {
+        let root = temp_dir();
+        fs::create_dir_all(&root).expect("root dir");
+        fs::write(root.join("AGENTS.md"), "agents-only instructions").expect("write AGENTS.md");
+
+        let context = ProjectContext::discover(&root, "2026-03-31").expect("context should load");
+
+        assert_eq!(context.instruction_files.len(), 1);
+        assert!(context.instruction_files[0].path.ends_with("AGENTS.md"));
+        assert!(render_instruction_files(&context.instruction_files)
+            .contains("agents-only instructions"));
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn discovers_scoped_dot_claude_claude_markdown_instruction_file() {
+        let root = temp_dir();
+        fs::create_dir_all(root.join(".claude")).expect("dot claude dir");
+        fs::write(
+            root.join(".claude").join("CLAUDE.md"),
+            "dot-claude-only instructions",
+        )
+        .expect("write .claude/CLAUDE.md");
+
+        let context = ProjectContext::discover(&root, "2026-03-31").expect("context should load");
+
+        assert_eq!(context.instruction_files.len(), 1);
+        assert!(context.instruction_files[0]
+            .path
+            .ends_with(".claude/CLAUDE.md"));
+        assert!(render_instruction_files(&context.instruction_files)
+            .contains("dot-claude-only instructions"));
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn discovers_claude_agents_and_dot_claude_instruction_files_together() {
+        let root = temp_dir();
+        fs::create_dir_all(root.join(".claude")).expect("dot claude dir");
+        fs::write(root.join("CLAUDE.md"), "claude instructions").expect("write CLAUDE.md");
+        fs::write(root.join("AGENTS.md"), "agents instructions").expect("write AGENTS.md");
+        fs::write(
+            root.join(".claude").join("CLAUDE.md"),
+            "dot claude instructions",
+        )
+        .expect("write .claude/CLAUDE.md");
+
+        let context = ProjectContext::discover(&root, "2026-03-31").expect("context should load");
+        let rendered = render_instruction_files(&context.instruction_files);
+
+        assert!(rendered.contains("claude instructions"));
+        assert!(rendered.contains("agents instructions"));
+        assert!(rendered.contains("dot claude instructions"));
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }
 

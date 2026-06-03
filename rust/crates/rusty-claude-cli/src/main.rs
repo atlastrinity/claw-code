@@ -1381,13 +1381,14 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             allow_broad_cwd,
         ),
         other => {
-            if rest.len() == 1 && looks_like_subcommand_typo(other) {
-                // #825: always emit a command_not_found error for
-                // single-word all-alpha/dash tokens that don't match any
-                // known subcommand — with or without close suggestions.
-                // Multi-word cases fall through to CliAction::Prompt so
-                // natural language prompts like `claw explain this` work.
-                // (#826 documents the multi-word gap as a known limitation.)
+            if looks_like_subcommand_typo(other)
+                && (rest.len() == 1 || output_format == CliOutputFormat::Json)
+            {
+                // #825/#826: emit command_not_found before provider startup for
+                // command-shaped tokens that do not match known subcommands.
+                // Text-mode multi-word prompt shorthand remains available, but
+                // JSON-mode automation must not turn an unknown command into a
+                // credential-gated prompt request.
                 let mut message = format!("command_not_found: unknown subcommand: {other}.");
                 if let Some(suggestions) = suggest_similar_subcommand(other) {
                     if let Some(line) = render_suggestion_line("Did you mean", &suggestions) {

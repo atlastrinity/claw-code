@@ -3972,31 +3972,30 @@ fn unknown_subcommand_typo_with_suggestions_json_emits_command_not_found() {
     assert!(stderr.is_empty(), "typo JSON must have empty stderr (#825)");
 }
 
-// #826: multi-word unknown subcommand is a known gap — falls through to
-// CliAction::Prompt (natural language prompt passthrough like `claw explain this`).
-// Single-word typos (#825) are caught; multi-word is documented as backlog.
-// This test documents the current behaviour (not the desired fix).
+// #826: JSON-mode multi-word unknown subcommands must not fall through to
+// CliAction::Prompt and hit the provider credential gate.
 #[test]
-fn multi_word_unknown_subcommand_falls_through_to_prompt_826() {
-    let root = unique_temp_dir("multi-word-gap-826");
+fn multi_word_unknown_subcommand_json_emits_command_not_found_826() {
+    let root = unique_temp_dir("multi-word-command-not-found-826");
     std::fs::create_dir_all(&root).expect("create temp dir");
-    // "foobar baz" has no fuzzy suggestion → falls through to Prompt path
-    // (hits missing_credentials since no API key is set, rc=1)
     let output = run_claw(&root, &["--output-format", "json", "foobar", "baz"], &[]);
     assert_eq!(output.status.code(), Some(1));
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    // Currently emits missing_credentials (fallthrough gap documented in #826)
     let j: serde_json::Value =
-        serde_json::from_str(stdout.trim()).expect("multi-word fallthrough must emit JSON");
+        serde_json::from_str(stdout.trim()).expect("multi-word unknown subcommand must emit JSON");
     assert_eq!(
-        j["status"], "error",
-        "multi-word fallthrough must be an error: {j}"
+        j["error_kind"], "command_not_found",
+        "multi-word unknown subcommand must emit command_not_found, not missing_credentials (#826): {j}"
     );
-    // stderr must be empty regardless (JSON mode)
+    let hint = j["hint"].as_str().unwrap_or_default();
+    assert!(
+        hint.contains("claw prompt") || hint.contains("--help"),
+        "hint should explain prompt/command recovery, got: {hint:?}"
+    );
     assert!(
         stderr.is_empty(),
-        "multi-word fallthrough JSON must have empty stderr: {stderr:?}"
+        "multi-word command_not_found JSON must have empty stderr: {stderr:?}"
     );
 }
 
