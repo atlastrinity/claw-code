@@ -86,6 +86,12 @@ cd rust
 ./target/debug/claw prompt "summarize this repository"
 ```
 
+Pipe prompt text through stdin when automation already produces the prompt body:
+
+```bash
+printf 'summarize this repository\n' | ./target/debug/claw prompt --output-format json
+```
+
 ### Shorthand prompt mode
 
 ```bash

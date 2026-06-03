@@ -1399,10 +1399,37 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         }
         "export" => parse_export_args(&rest[1..], output_format),
         "prompt" => {
-            let prompt = rest[1..].join(" ");
+            let mut read_stdin = false;
+            let prompt_parts = rest[1..]
+                .iter()
+                .filter_map(|arg| {
+                    if matches!(arg.as_str(), "--stdin" | "--prompt-stdin") {
+                        read_stdin = true;
+                        None
+                    } else {
+                        Some(arg.as_str())
+                    }
+                })
+                .collect::<Vec<_>>();
+            let positional_prompt = prompt_parts.join(" ");
+            let stdin_prompt = if read_stdin || positional_prompt.trim().is_empty() {
+                read_piped_stdin()
+            } else {
+                None
+            };
+            let prompt = if read_stdin {
+                merge_prompt_with_stdin(&positional_prompt, stdin_prompt.as_deref())
+            } else {
+                stdin_prompt
+                    .as_deref()
+                    .map(str::trim)
+                    .unwrap_or(&positional_prompt)
+                    .to_string()
+            };
             if prompt.trim().is_empty() {
-                // #750: provide error_kind-compatible prefix + \n for hint extraction
-                return Err("missing_prompt: prompt subcommand requires a prompt string.\nUsage: claw prompt <text>  or  echo '<text>' | claw".to_string());
+                // #750/#823/#423: provide error_kind-compatible prefix + \n for hint extraction.
+                return Err("missing_prompt: prompt subcommand requires a prompt string.
+Usage: claw prompt <text>  or  echo '<text>' | claw prompt".to_string());
             }
             Ok(CliAction::Prompt {
                 prompt,
@@ -11608,9 +11635,12 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "      Start the interactive REPL")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--output-format text|json] prompt TEXT"
+        "  claw [--model MODEL] [--output-format text|json] prompt [--stdin] [TEXT]"
     )?;
-    writeln!(out, "      Send one prompt and exit")?;
+    writeln!(
+        out,
+        "      Send one prompt and exit; reads stdin when TEXT is omitted"
+    )?;
     writeln!(
         out,
         "  claw [--model MODEL] [--output-format text|json] TEXT"
