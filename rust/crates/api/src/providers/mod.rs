@@ -262,6 +262,14 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
             default_base_url: openai_compat::DEFAULT_OPENAI_BASE_URL,
         });
     }
+    if canonical.starts_with("local/") {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "OPENAI_API_KEY",
+            base_url_env: "OPENAI_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_OPENAI_BASE_URL,
+        });
+    }
     // Alibaba DashScope compatible-mode endpoint. Routes qwen/* and bare
     // qwen-* model names (qwen-max, qwen-plus, qwen-turbo, qwen-qwq, etc.)
     // to the OpenAI-compat client pointed at DashScope's /compatible-mode/v1.
@@ -337,17 +345,21 @@ pub fn provider_diagnostics_for_model(model: &str) -> ProviderDiagnostics {
     }
 }
 
+fn looks_like_local_openai_model(model: &str) -> bool {
+    model.contains(':') || model.contains('.')
+}
+
 #[must_use]
 pub fn detect_provider_kind(model: &str) -> ProviderKind {
-    if let Some(metadata) = metadata_for_model(model) {
+    let resolved_model = resolve_model_alias(model);
+    if let Some(metadata) = metadata_for_model(&resolved_model) {
         return metadata.provider;
     }
-    // When OPENAI_BASE_URL is set, the user explicitly configured an
-    // OpenAI-compatible endpoint. Prefer it over the Anthropic fallback
-    // even when the model name has no recognized prefix — this is the
-    // common case for local providers (Ollama, LM Studio, vLLM, etc.)
-    // where model names like "qwen2.5-coder:7b" don't match any prefix.
-    if std::env::var_os("OPENAI_BASE_URL").is_some() && openai_compat::has_api_key("OPENAI_API_KEY")
+    // When OPENAI_BASE_URL is set and the unknown model name looks like a
+    // local server tag (for example `llama3.2` or `qwen2.5-coder:7b`), prefer
+    // the OpenAI-compatible endpoint over ambient Anthropic credentials.
+    if std::env::var_os("OPENAI_BASE_URL").is_some()
+        && looks_like_local_openai_model(&resolved_model)
     {
         return ProviderKind::OpenAi;
     }
@@ -1040,6 +1052,18 @@ mod tests {
         let kind2 = super::metadata_for_model("gpt-4o")
             .map_or_else(|| detect_provider_kind("gpt-4o"), |m| m.provider);
         assert_eq!(kind2, ProviderKind::OpenAi);
+    }
+
+    #[test]
+    fn local_prefix_routes_to_openai_not_anthropic() {
+        let meta = super::metadata_for_model("local/Qwen/Qwen3.6-27B-FP8")
+            .expect("local/ prefix must resolve to OpenAI-compatible metadata");
+        assert_eq!(meta.provider, ProviderKind::OpenAi);
+        assert_eq!(meta.auth_env, "OPENAI_API_KEY");
+        assert_eq!(meta.base_url_env, "OPENAI_BASE_URL");
+
+        let kind = detect_provider_kind("local/Qwen/Qwen3.6-27B-FP8");
+        assert_eq!(kind, ProviderKind::OpenAi);
     }
 
     #[test]

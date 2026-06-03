@@ -2098,6 +2098,9 @@ fn validate_model_syntax(model: &str) -> Result<(), String> {
     if is_bare_provider_model(trimmed) {
         return Ok(());
     }
+    if is_local_openai_model_syntax(trimmed) {
+        return Ok(());
+    }
     // Check provider/model format: provider_id/model_id
     let parts: Vec<&str> = trimmed.split('/').collect();
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
@@ -2126,6 +2129,13 @@ fn validate_model_syntax(model: &str) -> Result<(), String> {
 
 fn is_bare_provider_model(model: &str) -> bool {
     model.starts_with("claude-") || model.starts_with("gpt-")
+}
+
+fn is_local_openai_model_syntax(model: &str) -> bool {
+    if let Some(rest) = model.strip_prefix("local/") {
+        return !rest.is_empty() && rest.split('/').all(|segment| !segment.is_empty());
+    }
+    std::env::var_os("OPENAI_BASE_URL").is_some() && (model.contains(':') || model.contains('.'))
 }
 
 fn config_alias_for_current_dir(alias: &str) -> Option<String> {
@@ -13577,6 +13587,35 @@ mod tests {
             !err_garbage.contains("Did you mean"),
             "Unrelated model errors should not get a hint: {err_garbage}"
         );
+
+        let original_openai_base_url = std::env::var_os("OPENAI_BASE_URL");
+        std::env::set_var("OPENAI_BASE_URL", "http://127.0.0.1:11434/v1");
+        match parse_args(&[
+            "prompt".to_string(),
+            "test".to_string(),
+            "--model".to_string(),
+            "qwen2.5-coder:7b".to_string(),
+        ])
+        .expect("Ollama-style tag should parse when OPENAI_BASE_URL is set")
+        {
+            CliAction::Prompt { model, .. } => assert_eq!(model, "qwen2.5-coder:7b"),
+            other => panic!("expected CliAction::Prompt, got: {other:?}"),
+        }
+        match parse_args(&[
+            "prompt".to_string(),
+            "test".to_string(),
+            "--model".to_string(),
+            "local/Qwen/Qwen3.6-27B-FP8".to_string(),
+        ])
+        .expect("local/ slash-containing model should parse")
+        {
+            CliAction::Prompt { model, .. } => assert_eq!(model, "local/Qwen/Qwen3.6-27B-FP8"),
+            other => panic!("expected CliAction::Prompt, got: {other:?}"),
+        }
+        match original_openai_base_url {
+            Some(value) => std::env::set_var("OPENAI_BASE_URL", value),
+            None => std::env::remove_var("OPENAI_BASE_URL"),
+        }
     }
 
     #[test]
