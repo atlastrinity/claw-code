@@ -145,6 +145,80 @@ fn version_emits_json_when_requested() {
         parsed["executable_path"].is_string(),
         "executable_path must be a string in version JSON so callers can identify which binary is running"
     );
+    let binary_provenance = parsed["binary_provenance"]
+        .as_object()
+        .expect("version JSON must include binary_provenance object (#797)");
+    assert!(matches!(
+        binary_provenance["status"].as_str(),
+        Some("known" | "unknown")
+    ));
+    assert_eq!(binary_provenance["git_sha"], parsed["git_sha"]);
+    assert_eq!(binary_provenance["target"], parsed["target"]);
+    assert_eq!(binary_provenance["build_date"], parsed["build_date"]);
+    assert_eq!(
+        binary_provenance["executable_path"],
+        parsed["executable_path"]
+    );
+    assert!(
+        binary_provenance["hint"].is_string() || binary_provenance["hint"].is_null(),
+        "binary provenance must classify missing/stale lineage with a structured hint field"
+    );
+}
+
+#[test]
+fn version_status_doctor_include_binary_provenance_797() {
+    let root = git_temp_dir("binary-provenance-797");
+    fs::write(root.join("tracked.txt"), "v1").expect("write tracked file");
+    let git_commands: &[&[&str]] = &[
+        &["config", "user.email", "test@claw.test"],
+        &["config", "user.name", "Test"],
+        &["add", "tracked.txt"],
+        &["commit", "-m", "init"],
+    ];
+    for args in git_commands {
+        let output = Command::new("git")
+            .args(*args)
+            .current_dir(&root)
+            .output()
+            .expect("git fixture command should launch");
+        assert!(
+            output.status.success(),
+            "git fixture command failed: {args:?}\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let version = assert_json_command(&root, &["--output-format", "json", "version"]);
+    assert_eq!(version["kind"], "version");
+    assert!(matches!(
+        version["binary_provenance"]["status"].as_str(),
+        Some("known" | "unknown")
+    ));
+    assert!(version["binary_provenance"]["workspace_git_sha"].is_string());
+    assert!(
+        version["binary_provenance"]["workspace_match"].is_boolean()
+            || version["binary_provenance"]["workspace_match"].is_null()
+    );
+
+    let status = assert_json_command(&root, &["--output-format", "json", "status"]);
+    assert_eq!(status["kind"], "status");
+    assert_eq!(
+        status["binary_provenance"]["workspace_git_sha"],
+        version["binary_provenance"]["workspace_git_sha"]
+    );
+
+    let doctor = assert_json_command(&root, &["--output-format", "json", "doctor"]);
+    let system = doctor["checks"]
+        .as_array()
+        .expect("doctor checks")
+        .iter()
+        .find(|check| check["name"] == "system")
+        .expect("system check");
+    assert_eq!(
+        system["binary_provenance"]["workspace_git_sha"],
+        version["binary_provenance"]["workspace_git_sha"]
+    );
 }
 
 #[test]
@@ -767,6 +841,17 @@ fn doctor_and_resume_status_emit_json_when_requested() {
         .expect("workspace check");
     assert!(workspace["cwd"].as_str().is_some());
     assert!(workspace["in_git_repo"].is_boolean());
+    let status = assert_json_command(&root, &["--output-format", "json", "status"]);
+    assert_eq!(status["kind"], "status");
+    assert!(matches!(
+        status["binary_provenance"]["status"].as_str(),
+        Some("known" | "unknown")
+    ));
+    assert!(status["binary_provenance"]["executable_path"].is_string());
+    assert!(
+        status["binary_provenance"]["workspace_match"].is_boolean()
+            || status["binary_provenance"]["workspace_match"].is_null()
+    );
 
     let boot_preflight = checks
         .iter()
@@ -800,6 +885,14 @@ fn doctor_and_resume_status_emit_json_when_requested() {
     assert!(sandbox["enabled"].is_boolean());
     assert!(sandbox["fallback_reason"].is_null() || sandbox["fallback_reason"].is_string());
 
+    let system = checks
+        .iter()
+        .find(|check| check["name"] == "system")
+        .expect("system check");
+    assert!(matches!(
+        system["binary_provenance"]["status"].as_str(),
+        Some("known" | "unknown")
+    ));
     let session_path = write_session_fixture(&root, "resume-json", Some("hello"));
     let resumed = assert_json_command(
         &root,

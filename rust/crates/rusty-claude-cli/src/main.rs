@@ -2680,6 +2680,7 @@ fn render_doctor_report(
         session_lifecycle: classify_session_lifecycle_for(&cwd),
         boot_preflight,
         sandbox_status: resolve_sandbox_status(sandbox_config.sandbox(), &cwd),
+        binary_provenance: binary_provenance_for(Some(&cwd)),
         // Doctor path has its own config check; StatusContext here is only
         // fed into health renderers that don't read config_load_error.
         config_load_error: config.as_ref().err().map(ToString::to_string),
@@ -3297,6 +3298,14 @@ fn check_system_health(cwd: &Path, config: Option<&runtime::RuntimeConfig>) -> D
     if let Some(model) = default_model {
         details.push(format!("Default model    {model}"));
     }
+    let binary_provenance = binary_provenance_for(Some(cwd));
+    details.push(format!(
+        "Binary provenance  status={} workspace_match={}",
+        binary_provenance.status(),
+        binary_provenance
+            .workspace_match
+            .map_or_else(|| "unknown".to_string(), |matches| matches.to_string())
+    ));
     DiagnosticCheck::new(
         "System",
         DiagnosticLevel::Ok,
@@ -3310,6 +3319,10 @@ fn check_system_health(cwd: &Path, config: Option<&runtime::RuntimeConfig>) -> D
         ("version".to_string(), json!(VERSION)),
         ("build_target".to_string(), json!(BUILD_TARGET)),
         ("git_sha".to_string(), json!(GIT_SHA)),
+        (
+            "binary_provenance".to_string(),
+            binary_provenance.json_value(),
+        ),
         ("default_model".to_string(), json!(default_model)),
     ]))
 }
@@ -3493,17 +3506,19 @@ fn print_version(output_format: CliOutputFormat) -> Result<(), Box<dyn std::erro
 }
 
 fn version_json_value() -> serde_json::Value {
-    let executable_path = env::current_exe().ok().map(|p| p.display().to_string());
+    let cwd = env::current_dir().ok();
+    let binary_provenance = binary_provenance_for(cwd.as_deref());
     json!({
         "kind": "version",
         "action": "show",
         "status": "ok",
         "message": render_version_report(),
         "version": VERSION,
-        "git_sha": GIT_SHA,
-        "target": BUILD_TARGET,
-        "build_date": DEFAULT_DATE,
-        "executable_path": executable_path,
+        "git_sha": binary_provenance.git_sha,
+        "target": binary_provenance.target,
+        "build_date": binary_provenance.build_date,
+        "executable_path": binary_provenance.executable_path,
+        "binary_provenance": binary_provenance.json_value(),
     })
 }
 
@@ -3718,6 +3733,7 @@ struct StatusContext {
     session_lifecycle: SessionLifecycleSummary,
     boot_preflight: BootPreflightSnapshot,
     sandbox_status: runtime::SandboxStatus,
+    binary_provenance: BinaryProvenance,
     /// #143: when `.claw.json` (or another loaded config file) fails to parse,
     /// we capture the parse error here and still populate every field that
     /// doesn't depend on runtime config (workspace, git, sandbox defaults,
@@ -3730,6 +3746,87 @@ struct StatusContext {
     /// readable string so downstream claws can switch on the kind token
     /// instead of regex-scraping the prose.
     config_load_error_kind: Option<&'static str>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BinaryProvenance {
+    git_sha: Option<String>,
+    target: Option<String>,
+    build_date: String,
+    executable_path: Option<String>,
+    workspace_git_sha: Option<String>,
+    workspace_match: Option<bool>,
+    hint: Option<String>,
+}
+
+impl BinaryProvenance {
+    fn status(&self) -> &'static str {
+        if self.git_sha.is_some() {
+            "known"
+        } else {
+            "unknown"
+        }
+    }
+
+    fn json_value(&self) -> serde_json::Value {
+        json!({
+            "status": self.status(),
+            "git_sha": self.git_sha,
+            "target": self.target,
+            "build_date": self.build_date,
+            "executable_path": self.executable_path,
+            "workspace_git_sha": self.workspace_git_sha,
+            "workspace_match": self.workspace_match,
+            "hint": self.hint,
+        })
+    }
+}
+
+fn known_build_metadata(value: Option<&str>) -> Option<String> {
+    let value = value?.trim();
+    if value.is_empty() || value == "unknown" {
+        None
+    } else {
+        Some(value.to_string())
+    }
+}
+
+fn binary_provenance_for(cwd: Option<&Path>) -> BinaryProvenance {
+    let git_sha = known_build_metadata(GIT_SHA);
+    let target = known_build_metadata(BUILD_TARGET);
+    let workspace_git_sha = cwd.and_then(|cwd| {
+        run_git_capture_in(cwd, &["rev-parse", "--short", "HEAD"])
+            .map(|sha| sha.trim().to_string())
+            .filter(|sha| !sha.is_empty())
+    });
+    let workspace_match = git_sha
+        .as_deref()
+        .zip(workspace_git_sha.as_deref())
+        .map(|(binary, workspace)| binary.starts_with(workspace) || workspace.starts_with(binary));
+    let hint = if git_sha.is_none() {
+        Some(
+            "Build metadata did not include a git SHA; rebuild from a git checkout before filing provenance-sensitive dogfood reports."
+                .to_string(),
+        )
+    } else if workspace_match == Some(false) {
+        Some(
+            "The running binary was built from a different commit than the current workspace HEAD; rebuild or switch binaries before attributing behavior to this checkout."
+                .to_string(),
+        )
+    } else {
+        None
+    };
+    BinaryProvenance {
+        git_sha,
+        target,
+        build_date: DEFAULT_DATE.to_string(),
+        executable_path: env::current_exe()
+            .ok()
+            .map(|path| path.display().to_string()),
+        workspace_git_sha,
+        workspace_match,
+        hint,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -7500,6 +7597,7 @@ fn status_json_value(
             "restricted": allowed_tools.is_some(),
             "entries": allowed_tool_entries,
         },
+        "binary_provenance": context.binary_provenance.json_value(),
         "usage": {
             "messages": usage.message_count,
             "turns": usage.turns,
@@ -7627,6 +7725,7 @@ fn status_context(
         session_lifecycle: classify_session_lifecycle_for(&cwd),
         boot_preflight,
         sandbox_status,
+        binary_provenance: binary_provenance_for(Some(&cwd)),
         config_load_error,
         config_load_error_kind,
     })
@@ -14801,6 +14900,7 @@ mod tests {
                 },
                 boot_preflight: test_boot_preflight(),
                 sandbox_status: runtime::SandboxStatus::default(),
+                binary_provenance: super::binary_provenance_for(None),
                 config_load_error: None,
                 config_load_error_kind: None,
             },
@@ -14946,6 +15046,7 @@ mod tests {
             },
             boot_preflight: test_boot_preflight(),
             sandbox_status: runtime::SandboxStatus::default(),
+            binary_provenance: super::binary_provenance_for(None),
             config_load_error: None,
             config_load_error_kind: None,
         };
@@ -14984,6 +15085,7 @@ mod tests {
             },
             boot_preflight: test_boot_preflight(),
             sandbox_status: runtime::SandboxStatus::default(),
+            binary_provenance: super::binary_provenance_for(None),
             config_load_error: None,
             config_load_error_kind: None,
         };
