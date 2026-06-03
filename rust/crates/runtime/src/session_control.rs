@@ -199,6 +199,21 @@ impl SessionStore {
         {
             return Ok(latest);
         }
+        // Distinguish between "no sessions at all" and "sessions exist but
+        // all are empty" so the user gets a clear signal about what to do.
+        let has_any_session = self
+            .list_sessions()?
+            .iter()
+            .any(|s| s.id != exclude)
+            || self
+                .scan_global_sessions()?
+                .iter()
+                .any(|s| s.id != exclude);
+        if has_any_session {
+            return Err(SessionControlError::Format(
+                format_all_sessions_empty(&self.sessions_root),
+            ));
+        }
         Err(SessionControlError::Format(format_no_managed_sessions(
             &self.sessions_root,
         )))
@@ -774,6 +789,16 @@ fn format_no_managed_sessions(sessions_root: &Path) -> String {
     )
 }
 
+fn format_all_sessions_empty(sessions_root: &Path) -> String {
+    let fingerprint_dir = sessions_root
+        .file_name()
+        .and_then(|f| f.to_str())
+        .unwrap_or("<unknown>");
+    format!(
+        "all sessions are empty (0 messages) in .claw/sessions/{fingerprint_dir}/\nThis usually means a fresh `claw` session is running but no messages have been sent yet.\nWait for a response in your other session, then try `--resume {LATEST_SESSION_REFERENCE}` again."
+    )
+}
+
 fn format_legacy_session_missing_workspace_root(
     session_path: &Path,
     workspace_root: &Path,
@@ -1226,6 +1251,35 @@ mod tests {
         // then
         assert_eq!(latest.id, newer.session_id);
         assert_eq!(handle.id, newer.session_id);
+        fs::remove_dir_all(base).expect("temp dir should clean up");
+    }
+
+    #[test]
+    fn latest_session_returns_all_empty_error_when_sessions_exist_but_have_no_messages() {
+        // given — create sessions with 0 messages (empty)
+        let base = temp_dir();
+        fs::create_dir_all(&base).expect("base dir should exist");
+        let store = SessionStore::from_cwd(&base).expect("store should build");
+
+        let empty_handle = store.create_handle("empty-session");
+        Session::new()
+            .with_persistence_path(empty_handle.path.clone())
+            .save_to_path(&empty_handle.path)
+            .expect("empty session should save");
+
+        // when — latest_session should fail with the "all sessions empty" message
+        let result = store.latest_session();
+        assert!(result.is_err(), "latest_session should fail when all sessions are empty");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(
+            err_msg.contains("all sessions are empty"),
+            "error should mention 'all sessions are empty', got: {err_msg}"
+        );
+        assert!(
+            err_msg.contains("0 messages"),
+            "error should mention '0 messages', got: {err_msg}"
+        );
+
         fs::remove_dir_all(base).expect("temp dir should clean up");
     }
 

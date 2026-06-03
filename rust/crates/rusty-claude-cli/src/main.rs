@@ -15377,16 +15377,26 @@ UU conflicted.rs",
         std::env::set_current_dir(&workspace).expect("switch cwd");
 
         let older = create_managed_session_handle("session-older").expect("older handle");
-        Session::new()
-            .with_persistence_path(older.path.clone())
-            .save_to_path(&older.path)
-            .expect("older session should save");
+        {
+            let mut session = Session::new().with_persistence_path(older.path.clone());
+            session
+                .push_user_text("older session message")
+                .expect("older message should save");
+            session
+                .save_to_path(&older.path)
+                .expect("older session should save");
+        }
         std::thread::sleep(Duration::from_millis(20));
         let newer = create_managed_session_handle("session-newer").expect("newer handle");
-        Session::new()
-            .with_persistence_path(newer.path.clone())
-            .save_to_path(&newer.path)
-            .expect("newer session should save");
+        {
+            let mut session = Session::new().with_persistence_path(newer.path.clone());
+            session
+                .push_user_text("newer session message")
+                .expect("newer message should save");
+            session
+                .save_to_path(&newer.path)
+                .expect("newer session should save");
+        }
 
         let resolved = resolve_session_reference("latest").expect("latest session should resolve");
         assert_eq!(
