@@ -647,6 +647,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 );
             }
         },
+        CliAction::Models {
+            action,
+            output_format,
+        } => print_models(action.as_deref(), output_format)?,
         CliAction::Diff { output_format } => match output_format {
             CliOutputFormat::Text => {
                 println!("{}", render_diff_report()?);
@@ -770,6 +774,10 @@ enum CliAction {
         section: Option<String>,
         output_format: CliOutputFormat,
     },
+    Models {
+        action: Option<String>,
+        output_format: CliOutputFormat,
+    },
     Diff {
         output_format: CliOutputFormat,
     },
@@ -817,6 +825,8 @@ enum LocalHelpTopic {
     Plugins,
     Mcp,
     Config,
+    Model,
+    Settings,
     Diff,
 }
 
@@ -1076,6 +1086,8 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 "plugins" | "plugin" | "marketplace" => Some(LocalHelpTopic::Plugins),
                 "mcp" => Some(LocalHelpTopic::Mcp),
                 "config" => Some(LocalHelpTopic::Config),
+                "model" | "models" => Some(LocalHelpTopic::Model),
+                "settings" => Some(LocalHelpTopic::Settings),
                 "diff" => Some(LocalHelpTopic::Diff),
                 _ => None,
             };
@@ -1292,10 +1304,23 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             "interactive_only: `claw ultraplan` is a slash command.\nStart `claw` and run `/ultraplan` inside the REPL."
                 .to_string(),
         ),
-        "model" if rest.len() > 1 => Err(
-            "interactive_only: `claw model` is a slash command.\nStart `claw` and run `/model [model-name]` inside the REPL."
-                .to_string(),
-        ),
+        "model" | "models" => {
+            let tail = &rest[1..];
+            let action = tail.first().cloned();
+            if tail.len() > 1 {
+                return Err(format!(
+                    "unexpected extra arguments after `claw {} {}`: {}\nUsage: claw {} [help] [--output-format json]",
+                    rest[0],
+                    tail[0],
+                    tail[1..].join(" "),
+                    rest[0]
+                ));
+            }
+            Ok(CliAction::Models {
+                action,
+                output_format,
+            })
+        }
         // #771: usage/stats/fork are slash-only verbs with no multi-arg match arms
         "usage" => Err(
             "interactive_only: `claw usage` is a slash command.\nUse `claw --resume SESSION.jsonl /usage` or start `claw` and run `/usage`."
@@ -1335,6 +1360,25 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     args,
                     output_format,
                 }),
+            }
+        }
+        "settings" => {
+            let tail = &rest[1..];
+            if tail.is_empty() {
+                Ok(CliAction::Config {
+                    section: Some("settings".to_string()),
+                    output_format,
+                })
+            } else if tail.len() == 1 && matches!(tail[0].as_str(), "help" | "--help" | "-h") {
+                Ok(CliAction::HelpTopic {
+                    topic: LocalHelpTopic::Settings,
+                    output_format,
+                })
+            } else {
+                Err(format!(
+                    "unexpected extra arguments after `claw settings`: {}\nUsage: claw settings [help] [--output-format json]",
+                    tail.join(" ")
+                ))
             }
         }
         "system-prompt" => parse_system_prompt_args(&rest[1..], model, output_format),
@@ -1453,6 +1497,8 @@ fn parse_local_help_action(
         "system-prompt" => LocalHelpTopic::SystemPrompt,
         "dump-manifests" => LocalHelpTopic::DumpManifests,
         "bootstrap-plan" => LocalHelpTopic::BootstrapPlan,
+        "model" | "models" => LocalHelpTopic::Model,
+        "settings" => LocalHelpTopic::Settings,
         _ => return None,
     };
     let has_non_help = rest[1..].iter().any(|a| !is_help_flag(a));
@@ -1518,6 +1564,8 @@ fn parse_single_word_command_alias(
                 "plugins" | "plugin" | "marketplace" => Some(LocalHelpTopic::Plugins),
                 "mcp" => Some(LocalHelpTopic::Mcp),
                 "config" => Some(LocalHelpTopic::Config),
+                "model" | "models" => Some(LocalHelpTopic::Model),
+                "settings" => Some(LocalHelpTopic::Settings),
                 "diff" => Some(LocalHelpTopic::Diff),
                 _ => None,
             };
@@ -1567,6 +1615,8 @@ fn parse_single_word_command_alias(
             "plugins" | "plugin" | "marketplace" => Some(LocalHelpTopic::Plugins),
             "mcp" => Some(LocalHelpTopic::Mcp),
             "config" => Some(LocalHelpTopic::Config),
+            "model" | "models" => Some(LocalHelpTopic::Model),
+            "settings" => Some(LocalHelpTopic::Settings),
             "diff" => Some(LocalHelpTopic::Diff),
             _ => None,
         };
@@ -1710,6 +1760,17 @@ fn parse_direct_slash_cli_action(
     let raw = rest.join(" ");
     match SlashCommand::parse(&raw) {
         Ok(Some(SlashCommand::Help)) => Ok(CliAction::Help { output_format }),
+        Ok(Some(SlashCommand::Status)) => Ok(CliAction::Status {
+            model,
+            model_flag_raw: None,
+            permission_mode,
+            output_format,
+            allowed_tools,
+        }),
+        Ok(Some(SlashCommand::Sandbox)) => Ok(CliAction::Sandbox { output_format }),
+        Ok(Some(SlashCommand::Diff)) => Ok(CliAction::Diff { output_format }),
+        Ok(Some(SlashCommand::Version)) => Ok(CliAction::Version { output_format }),
+        Ok(Some(SlashCommand::Doctor)) => Ok(CliAction::Doctor { output_format }),
         Ok(Some(SlashCommand::Agents { args })) => Ok(CliAction::Agents {
             args,
             output_format,
@@ -7920,6 +7981,21 @@ fn render_help_topic(topic: LocalHelpTopic) -> String {
   Formats          text (default), json
   Related          /config · claw doctor"
             .to_string(),
+        LocalHelpTopic::Model => "Models
+  Usage            claw models [help] [--output-format <format>]
+  Aliases          claw model
+  Purpose          show bounded local model command guidance without entering the REPL
+  Output           supported model-selection surfaces and current config model value
+  Formats          text (default), json
+  Related          /model · claw config model · claw status"
+            .to_string(),
+        LocalHelpTopic::Settings => "Settings
+  Usage            claw settings [help] [--output-format <format>]
+  Purpose          show effective settings/config using the local config envelope
+  Output           same as claw config settings; no provider request or session resume required
+  Formats          text (default), json
+  Related          claw config · claw doctor"
+            .to_string(),
         LocalHelpTopic::Diff => "Diff
   Usage            claw diff [--output-format <format>]
   Purpose          show the diff of changes relative to the expected base commit
@@ -7947,8 +8023,75 @@ fn local_help_topic_command(topic: LocalHelpTopic) -> &'static str {
         LocalHelpTopic::Plugins => "plugins",
         LocalHelpTopic::Mcp => "mcp",
         LocalHelpTopic::Config => "config",
+        LocalHelpTopic::Model => "models",
+        LocalHelpTopic::Settings => "settings",
         LocalHelpTopic::Diff => "diff",
     }
+}
+
+fn print_models(
+    action: Option<&str>,
+    output_format: CliOutputFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let help_requested = action.is_some_and(|value| matches!(value, "help" | "--help" | "-h"));
+    if help_requested {
+        return print_help_topic(LocalHelpTopic::Model, output_format);
+    }
+    if let Some(action) = action {
+        return Err(format!(
+            "unsupported_models_action: unsupported models action: {action}.\nUsage: claw models [help] [--output-format json]"
+        )
+        .into());
+    }
+
+    let configured_model = config_model_for_current_dir();
+    let resolved_config_model = configured_model
+        .as_deref()
+        .map(resolve_model_alias_with_config);
+
+    match output_format {
+        CliOutputFormat::Text => {
+            println!("Models");
+            println!("  Default          {DEFAULT_MODEL}");
+            println!("  Built-in aliases opus, sonnet, haiku");
+            if let Some(raw) = configured_model.as_deref() {
+                println!(
+                    "  Config model     {raw}{}",
+                    resolved_config_model
+                        .as_deref()
+                        .filter(|resolved| *resolved != raw)
+                        .map(|resolved| format!(" -> {resolved}"))
+                        .unwrap_or_default()
+                );
+            } else {
+                println!("  Config model     <unset>");
+            }
+            println!("  Usage            claw --model <provider/model> prompt <text>");
+        }
+        CliOutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "kind": "models",
+                    "action": "list",
+                    "status": "ok",
+                    "default_model": DEFAULT_MODEL,
+                    "aliases": [
+                        {"name": "opus", "model": resolve_model_alias("opus")},
+                        {"name": "sonnet", "model": resolve_model_alias("sonnet")},
+                        {"name": "haiku", "model": resolve_model_alias("haiku")}
+                    ],
+                    "configured_model": configured_model,
+                    "resolved_configured_model": resolved_config_model,
+                    "local_only": true,
+                    "requires_credentials": false,
+                    "requires_provider_request": false,
+                    "message": "Use --model <provider/model> or configure a model in claw settings."
+                }))?
+            );
+        }
+    }
+    Ok(())
 }
 
 fn render_export_help_json() -> serde_json::Value {
@@ -8188,24 +8331,29 @@ fn render_config_report(section: Option<&str>) -> Result<String, Box<dyn std::er
 
     if let Some(section) = section {
         lines.push(format!("Merged section: {section}"));
-        let value = match section {
-            "env" => runtime_config.get("env"),
-            "hooks" => runtime_config.get("hooks"),
-            "model" => runtime_config.get("model"),
+        let rendered = match section {
+            "env" => runtime_config.get("env").map(|value| value.render()),
+            "hooks" => runtime_config.get("hooks").map(|value| value.render()),
+            "model" => runtime_config.get("model").map(|value| value.render()),
             "plugins" => runtime_config
                 .get("plugins")
-                .or_else(|| runtime_config.get("enabledPlugins")),
+                .or_else(|| runtime_config.get("enabledPlugins"))
+                .map(|value| value.render()),
             "mcp" | "mcp_servers" | "mcpServers" => runtime_config
                 .get("mcp")
                 .or_else(|| runtime_config.get("mcp_servers"))
-                .or_else(|| runtime_config.get("mcpServers")),
-            "sandbox" => runtime_config.get("sandbox"),
-            "permissions" => runtime_config.get("permissions"),
-            "skills" => runtime_config.get("skills"),
-            "agents" => runtime_config.get("agents"),
+                .or_else(|| runtime_config.get("mcpServers"))
+                .map(|value| value.render()),
+            "sandbox" => runtime_config.get("sandbox").map(|value| value.render()),
+            "permissions" => runtime_config
+                .get("permissions")
+                .map(|value| value.render()),
+            "skills" => runtime_config.get("skills").map(|value| value.render()),
+            "agents" => runtime_config.get("agents").map(|value| value.render()),
+            "settings" => Some(runtime_config.as_json().render()),
             other => {
                 lines.push(format!(
-                    "  Unsupported config section '{other}'. Use: env, hooks, model, plugins, mcp, sandbox, permissions, skills, or agents."
+                    "  Unsupported config section '{other}'. Use: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents, or settings."
                 ));
                 return Ok(lines.join(
                     "
@@ -8215,10 +8363,7 @@ fn render_config_report(section: Option<&str>) -> Result<String, Box<dyn std::er
         };
         lines.push(format!(
             "  {}",
-            match value {
-                Some(value) => value.render(),
-                None => "<unset>".to_string(),
-            }
+            rendered.unwrap_or_else(|| "<unset>".to_string())
         ));
         return Ok(lines.join(
             "
@@ -8308,16 +8453,17 @@ fn render_config_json(
             "permissions" => runtime_config.get("permissions").map(|v| v.render()),
             "skills" => runtime_config.get("skills").map(|v| v.render()),
             "agents" => runtime_config.get("agents").map(|v| v.render()),
+            "settings" => Some(runtime_config.as_json().render()),
             other => {
                 // #741: populate hint field for unsupported section errors so callers reading
                 // .hint get actionable guidance instead of null
                 let hint = if matches!(other, "list" | "show" | "help" | "info") {
                     format!(
-                        "'claw config {other}' is not a subcommand. To list all config: `claw config`. To inspect a section: `claw config <section>` where section is one of: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents."
+                        "'claw config {other}' is not a subcommand. To list all config: `claw config`. To inspect a section: `claw config <section>` where section is one of: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents, settings."
                     )
                 } else {
                     format!(
-                        "'{other}' is not a config section. Supported: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents."
+                        "'{other}' is not a config section. Supported: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents, settings."
                     )
                 };
                 return Ok(serde_json::json!({
@@ -8327,9 +8473,9 @@ fn render_config_json(
                     "error_kind": "unsupported_config_section",
                     "section": other,
                     "ok": false,
-                    "error": format!("Unsupported config section '{other}'. Use: env, hooks, model, plugins, mcp, sandbox, permissions, skills, or agents."),
+                    "error": format!("Unsupported config section '{other}'. Use: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents, or settings."),
                     "hint": hint,
-                    "supported_sections": ["env", "hooks", "model", "plugins", "mcp", "sandbox", "permissions", "skills", "agents"],
+                    "supported_sections": ["env", "hooks", "model", "plugins", "mcp", "sandbox", "permissions", "skills", "agents", "settings"],
                     "cwd": cwd.display().to_string(),
                     "loaded_files": loaded_paths.len(),
                     "files": files,
