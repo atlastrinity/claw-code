@@ -70,6 +70,46 @@ pub struct RuntimeConfig {
     feature_config: RuntimeFeatureConfig,
 }
 
+/// Machine-readable load state for a discovered config file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfigFileStatus {
+    Loaded,
+    NotFound,
+    Skipped,
+    LoadError,
+}
+
+impl ConfigFileStatus {
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Loaded => "loaded",
+            Self::NotFound => "not_found",
+            Self::Skipped => "skipped",
+            Self::LoadError => "load_error",
+        }
+    }
+}
+
+/// Structured status for one discovered config file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigFileReport {
+    pub entry: ConfigEntry,
+    pub loaded: bool,
+    pub status: ConfigFileStatus,
+    pub reason: Option<String>,
+    pub detail: Option<String>,
+}
+
+/// Best-effort inspection of the config discovery and load pipeline.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfigInspection {
+    pub files: Vec<ConfigFileReport>,
+    pub runtime_config: Option<RuntimeConfig>,
+    pub warnings: Vec<String>,
+    pub load_error: Option<String>,
+}
+
 /// Parsed plugin-related settings extracted from runtime config.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct RuntimePluginConfig {
@@ -347,7 +387,7 @@ impl ConfigLoader {
 
         for entry in self.discover() {
             crate::config_validate::check_unsupported_format(&entry.path)?;
-            let Some(parsed) = read_optional_json_object(&entry.path)? else {
+            let OptionalConfigFile::Loaded(parsed) = read_optional_json_object(&entry.path)? else {
                 continue;
             };
             let validation = crate::config_validate::validate_config_file(
@@ -370,30 +410,7 @@ impl ConfigLoader {
             emit_config_warning_once(&warning.to_string());
         }
 
-        let merged_value = JsonValue::Object(merged.clone());
-
-        let feature_config = RuntimeFeatureConfig {
-            hooks: parse_optional_hooks_config(&merged_value)?,
-            plugins: parse_optional_plugin_config(&merged_value)?,
-            mcp: McpConfigCollection {
-                servers: mcp_servers,
-            },
-            oauth: parse_optional_oauth_config(&merged_value, "merged settings.oauth")?,
-            model: parse_optional_model(&merged_value),
-            aliases: parse_optional_aliases(&merged_value)?,
-            permission_mode: parse_optional_permission_mode(&merged_value)?,
-            permission_rules: parse_optional_permission_rules(&merged_value)?,
-            sandbox: parse_optional_sandbox_config(&merged_value)?,
-            provider_fallbacks: parse_optional_provider_fallbacks(&merged_value)?,
-            trusted_roots: parse_optional_trusted_roots(&merged_value)?,
-            rules_import: parse_optional_rules_import(&merged_value)?,
-        };
-
-        Ok(RuntimeConfig {
-            merged,
-            loaded_entries,
-            feature_config,
-        })
+        build_runtime_config(merged, loaded_entries, mcp_servers)
     }
 
     /// Like [`load`] but also returns the list of validation warnings collected during
@@ -409,7 +426,7 @@ impl ConfigLoader {
 
         for entry in self.discover() {
             crate::config_validate::check_unsupported_format(&entry.path)?;
-            let Some(parsed) = read_optional_json_object(&entry.path)? else {
+            let OptionalConfigFile::Loaded(parsed) = read_optional_json_object(&entry.path)? else {
                 continue;
             };
             let validation = crate::config_validate::validate_config_file(
@@ -428,31 +445,199 @@ impl ConfigLoader {
             loaded_entries.push(entry);
         }
 
-        let merged_value = JsonValue::Object(merged.clone());
-
-        let feature_config = RuntimeFeatureConfig {
-            hooks: parse_optional_hooks_config(&merged_value)?,
-            plugins: parse_optional_plugin_config(&merged_value)?,
-            mcp: McpConfigCollection {
-                servers: mcp_servers,
-            },
-            oauth: parse_optional_oauth_config(&merged_value, "merged settings.oauth")?,
-            model: parse_optional_model(&merged_value),
-            aliases: parse_optional_aliases(&merged_value)?,
-            permission_mode: parse_optional_permission_mode(&merged_value)?,
-            permission_rules: parse_optional_permission_rules(&merged_value)?,
-            sandbox: parse_optional_sandbox_config(&merged_value)?,
-            provider_fallbacks: parse_optional_provider_fallbacks(&merged_value)?,
-            trusted_roots: parse_optional_trusted_roots(&merged_value)?,
-            rules_import: parse_optional_rules_import(&merged_value)?,
-        };
-
-        let config = RuntimeConfig {
-            merged,
-            loaded_entries,
-            feature_config,
-        };
+        let config = build_runtime_config(merged, loaded_entries, mcp_servers)?;
         Ok((config, all_warnings))
+    }
+
+    /// Inspect every discovered config path and return per-file status details.
+    /// Unlike [`Self::load`], this is best-effort: invalid files are reported in
+    /// `files[]` and skipped from the merged runtime view so JSON config callers can
+    /// show the whole discovery picture without collapsing every unloaded path to
+    /// `loaded:false`.
+    #[must_use]
+    pub fn inspect_collecting_warnings(&self) -> ConfigInspection {
+        let mut merged = BTreeMap::new();
+        let mut loaded_entries = Vec::new();
+        let mut mcp_servers = BTreeMap::new();
+        let mut warnings = Vec::new();
+        let mut files = Vec::new();
+        let mut load_error = None;
+
+        for entry in self.discover() {
+            if let Err(error) = crate::config_validate::check_unsupported_format(&entry.path) {
+                let detail = error.to_string();
+                load_error.get_or_insert_with(|| detail.clone());
+                files.push(ConfigFileReport::load_error(
+                    entry,
+                    "unsupported_format",
+                    detail,
+                ));
+                continue;
+            }
+
+            let parsed = match read_optional_json_object(&entry.path) {
+                Ok(OptionalConfigFile::Loaded(parsed)) => parsed,
+                Ok(OptionalConfigFile::NotFound) => {
+                    files.push(ConfigFileReport::not_found(entry));
+                    continue;
+                }
+                Ok(OptionalConfigFile::Skipped { reason, detail }) => {
+                    files.push(ConfigFileReport::skipped(entry, reason, detail));
+                    continue;
+                }
+                Err(error) => {
+                    let reason = config_error_reason(&error).to_string();
+                    let detail = error.to_string();
+                    load_error.get_or_insert_with(|| detail.clone());
+                    files.push(ConfigFileReport::load_error(entry, reason, detail));
+                    continue;
+                }
+            };
+
+            let validation = crate::config_validate::validate_config_file(
+                &parsed.object,
+                &parsed.source,
+                &entry.path,
+            );
+            if !validation.is_ok() {
+                let detail = validation.errors[0].to_string();
+                load_error.get_or_insert_with(|| detail.clone());
+                files.push(ConfigFileReport::load_error(
+                    entry,
+                    "validation_error",
+                    detail,
+                ));
+                continue;
+            }
+            warnings.extend(
+                validation
+                    .warnings
+                    .iter()
+                    .map(|warning| warning.to_string()),
+            );
+
+            if let Err(error) = validate_optional_hooks_config(&parsed.object, &entry.path) {
+                let detail = error.to_string();
+                load_error.get_or_insert_with(|| detail.clone());
+                files.push(ConfigFileReport::load_error(
+                    entry,
+                    "validation_error",
+                    detail,
+                ));
+                continue;
+            }
+
+            if let Err(error) =
+                merge_mcp_servers(&mut mcp_servers, entry.source, &parsed.object, &entry.path)
+            {
+                let detail = error.to_string();
+                load_error.get_or_insert_with(|| detail.clone());
+                files.push(ConfigFileReport::load_error(entry, "parse_error", detail));
+                continue;
+            }
+
+            deep_merge_objects(&mut merged, &parsed.object);
+            loaded_entries.push(entry.clone());
+            files.push(ConfigFileReport::loaded(entry));
+        }
+
+        let runtime_config = match build_runtime_config(merged, loaded_entries, mcp_servers) {
+            Ok(config) => Some(config),
+            Err(error) => {
+                load_error.get_or_insert_with(|| error.to_string());
+                None
+            }
+        };
+
+        ConfigInspection {
+            files,
+            runtime_config,
+            warnings,
+            load_error,
+        }
+    }
+}
+
+impl ConfigFileReport {
+    fn loaded(entry: ConfigEntry) -> Self {
+        Self {
+            entry,
+            loaded: true,
+            status: ConfigFileStatus::Loaded,
+            reason: None,
+            detail: None,
+        }
+    }
+
+    fn not_found(entry: ConfigEntry) -> Self {
+        Self {
+            entry,
+            loaded: false,
+            status: ConfigFileStatus::NotFound,
+            reason: Some("not_found".to_string()),
+            detail: None,
+        }
+    }
+
+    fn skipped(entry: ConfigEntry, reason: String, detail: Option<String>) -> Self {
+        Self {
+            entry,
+            loaded: false,
+            status: ConfigFileStatus::Skipped,
+            reason: Some(reason),
+            detail,
+        }
+    }
+
+    fn load_error(entry: ConfigEntry, reason: impl Into<String>, detail: String) -> Self {
+        Self {
+            entry,
+            loaded: false,
+            status: ConfigFileStatus::LoadError,
+            reason: Some(reason.into()),
+            detail: Some(detail),
+        }
+    }
+}
+
+fn build_runtime_config(
+    merged: BTreeMap<String, JsonValue>,
+    loaded_entries: Vec<ConfigEntry>,
+    mcp_servers: BTreeMap<String, ScopedMcpServerConfig>,
+) -> Result<RuntimeConfig, ConfigError> {
+    let merged_value = JsonValue::Object(merged.clone());
+
+    let feature_config = RuntimeFeatureConfig {
+        hooks: parse_optional_hooks_config(&merged_value)?,
+        plugins: parse_optional_plugin_config(&merged_value)?,
+        mcp: McpConfigCollection {
+            servers: mcp_servers,
+        },
+        oauth: parse_optional_oauth_config(&merged_value, "merged settings.oauth")?,
+        model: parse_optional_model(&merged_value),
+        aliases: parse_optional_aliases(&merged_value)?,
+        permission_mode: parse_optional_permission_mode(&merged_value)?,
+        permission_rules: parse_optional_permission_rules(&merged_value)?,
+        sandbox: parse_optional_sandbox_config(&merged_value)?,
+        provider_fallbacks: parse_optional_provider_fallbacks(&merged_value)?,
+        trusted_roots: parse_optional_trusted_roots(&merged_value)?,
+        rules_import: parse_optional_rules_import(&merged_value)?,
+    };
+
+    Ok(RuntimeConfig {
+        merged,
+        loaded_entries,
+        feature_config,
+    })
+}
+
+fn config_error_reason(error: &ConfigError) -> &'static str {
+    match error {
+        ConfigError::Io(io_error) if io_error.kind() == std::io::ErrorKind::PermissionDenied => {
+            "permission_denied"
+        }
+        ConfigError::Io(_) => "io_error",
+        ConfigError::Parse(_) => "parse_error",
     }
 }
 
@@ -1078,16 +1263,27 @@ struct ParsedConfigFile {
     source: String,
 }
 
-fn read_optional_json_object(path: &Path) -> Result<Option<ParsedConfigFile>, ConfigError> {
+enum OptionalConfigFile {
+    Loaded(ParsedConfigFile),
+    NotFound,
+    Skipped {
+        reason: String,
+        detail: Option<String>,
+    },
+}
+
+fn read_optional_json_object(path: &Path) -> Result<OptionalConfigFile, ConfigError> {
     let is_legacy_config = path.file_name().and_then(|name| name.to_str()) == Some(".claw.json");
     let contents = match fs::read_to_string(path) {
         Ok(contents) => contents,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            return Ok(OptionalConfigFile::NotFound);
+        }
         Err(error) => return Err(ConfigError::Io(error)),
     };
 
     if contents.trim().is_empty() {
-        return Ok(Some(ParsedConfigFile {
+        return Ok(OptionalConfigFile::Loaded(ParsedConfigFile {
             object: BTreeMap::new(),
             source: contents,
         }));
@@ -1095,19 +1291,30 @@ fn read_optional_json_object(path: &Path) -> Result<Option<ParsedConfigFile>, Co
 
     let parsed = match JsonValue::parse(&contents) {
         Ok(parsed) => parsed,
-        Err(_error) if is_legacy_config => return Ok(None),
+        Err(error) if is_legacy_config => {
+            return Ok(OptionalConfigFile::Skipped {
+                reason: "legacy_invalid_json".to_string(),
+                detail: Some(format!("{}: {error}", path.display())),
+            });
+        }
         Err(error) => return Err(ConfigError::Parse(format!("{}: {error}", path.display()))),
     };
     let Some(object) = parsed.as_object() else {
         if is_legacy_config {
-            return Ok(None);
+            return Ok(OptionalConfigFile::Skipped {
+                reason: "legacy_non_object".to_string(),
+                detail: Some(format!(
+                    "{}: top-level legacy settings value is not a JSON object",
+                    path.display()
+                )),
+            });
         }
         return Err(ConfigError::Parse(format!(
             "{}: top-level settings value must be a JSON object",
             path.display()
         )));
     };
-    Ok(Some(ParsedConfigFile {
+    Ok(OptionalConfigFile::Loaded(ParsedConfigFile {
         object: object.clone(),
         source: contents,
     }))
@@ -1784,8 +1991,8 @@ fn deep_merge_objects(
 #[cfg(test)]
 mod tests {
     use super::{
-        deep_merge_objects, parse_permission_mode_label, ConfigLoader, ConfigSource,
-        McpServerConfig, McpTransport, ResolvedPermissionMode, RuntimeFeatureConfig,
+        deep_merge_objects, parse_permission_mode_label, ConfigFileStatus, ConfigLoader,
+        ConfigSource, McpServerConfig, McpTransport, ResolvedPermissionMode, RuntimeFeatureConfig,
         RuntimeHookCommand, RuntimeHookConfig, RuntimePluginConfig, CLAW_SETTINGS_SCHEMA_NAME,
     };
     use crate::json::JsonValue;
@@ -1974,6 +2181,86 @@ mod tests {
         assert!(error
             .to_string()
             .contains("command must be a non-empty string"));
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn inspect_classifies_missing_loaded_and_legacy_skipped_files() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(cwd.join(".claw")).expect("project config dir");
+        fs::create_dir_all(&home).expect("home config dir");
+        fs::write(cwd.join(".claw.json"), "{not json").expect("write legacy config");
+        fs::write(
+            cwd.join(".claw").join("settings.json"),
+            r#"{"model":"opus"}"#,
+        )
+        .expect("write project settings");
+
+        let inspection = ConfigLoader::new(&cwd, &home).inspect_collecting_warnings();
+
+        assert!(
+            inspection.load_error.is_none(),
+            "{:?}",
+            inspection.load_error
+        );
+        assert!(inspection.runtime_config.is_some());
+        let loaded = inspection
+            .files
+            .iter()
+            .find(|file| file.status == ConfigFileStatus::Loaded)
+            .expect("loaded file");
+        assert!(loaded.loaded);
+        assert!(loaded.reason.is_none());
+        let missing = inspection
+            .files
+            .iter()
+            .find(|file| file.status == ConfigFileStatus::NotFound)
+            .expect("missing file");
+        assert_eq!(missing.reason.as_deref(), Some("not_found"));
+        let skipped = inspection
+            .files
+            .iter()
+            .find(|file| file.status == ConfigFileStatus::Skipped)
+            .expect("skipped legacy file");
+        assert_eq!(skipped.reason.as_deref(), Some("legacy_invalid_json"));
+        assert!(!skipped.loaded);
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn inspect_reports_parse_errors_but_keeps_valid_merged_config() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(cwd.join(".claw")).expect("project config dir");
+        fs::create_dir_all(&home).expect("home config dir");
+        fs::write(home.join("settings.json"), r#"{"model":"sonnet"}"#)
+            .expect("write user settings");
+        fs::write(cwd.join(".claw").join("settings.json"), "{not json")
+            .expect("write invalid project settings");
+
+        let inspection = ConfigLoader::new(&cwd, &home).inspect_collecting_warnings();
+
+        assert!(inspection
+            .load_error
+            .as_deref()
+            .is_some_and(|error| error.contains("settings.json")));
+        let runtime_config = inspection.runtime_config.expect("valid files still merge");
+        assert_eq!(runtime_config.model(), Some("sonnet"));
+        let error_file = inspection
+            .files
+            .iter()
+            .find(|file| file.status == ConfigFileStatus::LoadError)
+            .expect("load error file");
+        assert_eq!(error_file.reason.as_deref(), Some("parse_error"));
+        assert!(error_file
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("settings.json")));
+
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }
 

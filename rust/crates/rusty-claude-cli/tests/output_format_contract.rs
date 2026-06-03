@@ -1459,6 +1459,114 @@ fn config_json_reports_deprecations_structurally_without_stderr_duplicate_815() 
 }
 
 #[test]
+fn config_json_reports_structured_unloaded_file_reasons_407() {
+    let root = unique_temp_dir("config-file-status-407");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(root.join(".claw")).expect("workspace config should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+    fs::write(root.join(".claw.json"), "{not json").expect("legacy skip fixture should write");
+    fs::write(
+        root.join(".claw").join("settings.json"),
+        r#"{"model":"opus"}"#,
+    )
+    .expect("project config fixture should write");
+
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+    ];
+    let output = run_claw(&root, &["--output-format", "json", "config"], &envs);
+    assert!(
+        output.status.success(),
+        "stdout:\n{}\n\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("stdout valid json");
+
+    assert_eq!(parsed["kind"], "config");
+    assert_eq!(parsed["status"], "ok");
+    assert_eq!(parsed["loaded_files"], 1);
+    assert_eq!(parsed["merged_keys"], parsed["merged_key_count"]);
+    assert_eq!(
+        parsed["merged_keys_meaning"].as_str(),
+        Some("count of top-level keys in the effective merged JSON object")
+    );
+    assert!(parsed["load_error"].is_null());
+
+    let files = parsed["files"].as_array().expect("files array");
+    let loaded = files
+        .iter()
+        .find(|file| file["loaded"] == true)
+        .expect("loaded config file");
+    assert_eq!(loaded["status"], "loaded");
+    assert!(loaded.get("reason").is_none());
+    let missing = files
+        .iter()
+        .find(|file| file["status"] == "not_found")
+        .expect("missing config file");
+    assert_eq!(missing["loaded"], false);
+    assert_eq!(missing["reason"], "not_found");
+    assert_eq!(missing["skip_reason"], "not_found");
+    let skipped = files
+        .iter()
+        .find(|file| file["status"] == "skipped")
+        .expect("skipped legacy config file");
+    assert_eq!(skipped["loaded"], false);
+    assert_eq!(skipped["reason"], "legacy_invalid_json");
+    assert_eq!(skipped["skip_reason"], "legacy_invalid_json");
+    assert!(skipped["detail"].as_str().is_some());
+}
+
+#[test]
+fn config_json_list_reports_parse_errors_without_dropping_file_statuses_407() {
+    let root = unique_temp_dir("config-file-load-error-407");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(root.join(".claw")).expect("workspace config should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+    fs::write(config_home.join("settings.json"), r#"{"model":"sonnet"}"#)
+        .expect("user config fixture should write");
+    fs::write(root.join(".claw").join("settings.json"), "{not json")
+        .expect("invalid project config fixture should write");
+
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+    ];
+    let output = run_claw(&root, &["--output-format", "json", "config"], &envs);
+    assert!(
+        output.status.success(),
+        "config list should be best-effort even with one parse-broken file; stdout:\n{}\n\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("stdout valid json");
+
+    assert_eq!(parsed["status"], "error");
+    assert!(parsed["load_error"].as_str().is_some());
+    assert_eq!(parsed["loaded_files"], 1);
+    let files = parsed["files"].as_array().expect("files array");
+    let error_file = files
+        .iter()
+        .find(|file| file["status"] == "load_error")
+        .expect("load error config file");
+    assert_eq!(error_file["loaded"], false);
+    assert_eq!(error_file["reason"], "parse_error");
+    assert_eq!(error_file["skip_reason"], "parse_error");
+    assert!(error_file["detail"].as_str().is_some());
+}
+
+#[test]
 fn global_json_surfaces_suppress_config_deprecation_stderr_810_821_824() {
     let root = unique_temp_dir("global-json-warning-810-821-824");
     let config_home = root.join("config-home");

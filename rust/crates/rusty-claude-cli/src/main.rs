@@ -55,8 +55,8 @@ use render::{MarkdownStreamState, Spinner, TerminalRenderer};
 use runtime::{
     check_base_commit, format_stale_base_warning, format_usd, load_oauth_credentials,
     load_system_prompt, pricing_for_model, resolve_expected_base, resolve_sandbox_status,
-    ApiClient, ApiRequest, AssistantEvent, BaseCommitState, CompactionConfig, ConfigLoader,
-    ConfigSource, ContentBlock, ConversationMessage, ConversationRuntime, McpServer,
+    ApiClient, ApiRequest, AssistantEvent, BaseCommitState, CompactionConfig, ConfigFileReport,
+    ConfigLoader, ConfigSource, ContentBlock, ConversationMessage, ConversationRuntime, McpServer,
     McpServerManager, McpServerSpec, McpTool, MessageRole, ModelPricing, PermissionMode,
     PermissionPolicy, ProjectContext, PromptCacheEvent, ResolvedPermissionMode, RuntimeError,
     Session, TokenUsage, ToolError, ToolExecutor, UsageTracker,
@@ -417,6 +417,9 @@ fn fallback_hint_for_error_kind(kind: &str) -> Option<&'static str> {
         "missing_credentials" => {
             Some("Set ANTHROPIC_API_KEY or ANTHROPIC_AUTH_TOKEN before running claw.")
         }
+        "config_parse_error" => Some(
+            "Fix the JSON syntax or schema in the referenced .claw/settings.json or .claw.json file, then rerun the command.",
+        ),
         // #787: session load failures have no \n-delimited hint from the OS error path
         "session_load_failed" => Some(
             "Pass a path to a .jsonl session file, not a directory. Managed sessions live in .claw/sessions/.",
@@ -8483,38 +8486,28 @@ fn render_config_json(
 ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
     let cwd = env::current_dir()?;
     let loader = ConfigLoader::default_for(&cwd);
-    let discovered = loader.discover();
-    // #773: use load_collecting_warnings so deprecation warnings are surfaced in the
-    // JSON envelope instead of only as unstructured stderr text.
-    let (runtime_config, config_warnings) = loader.load_collecting_warnings()?;
-
-    let loaded_paths: Vec<_> = runtime_config
-        .loaded_entries()
+    // #773: keep deprecation warnings in the JSON envelope, and #407: include
+    // per-file status/reason/detail for every discovered config path.
+    let inspection = loader.inspect_collecting_warnings();
+    if section.is_some() {
+        if let Some(error) = &inspection.load_error {
+            return Err(error.clone().into());
+        }
+    }
+    let runtime_config = inspection
+        .runtime_config
+        .clone()
+        .unwrap_or_else(runtime::RuntimeConfig::empty);
+    let loaded_files = runtime_config.loaded_entries().len();
+    let merged_keys = runtime_config.merged().len();
+    let files: Vec<_> = inspection
+        .files
         .iter()
-        .map(|e| e.path.display().to_string())
+        .map(config_file_report_json)
         .collect();
 
-    let files: Vec<_> = discovered
-        .iter()
-        .map(|e| {
-            let source = match e.source {
-                ConfigSource::User => "user",
-                ConfigSource::Project => "project",
-                ConfigSource::Local => "local",
-            };
-            let is_loaded = runtime_config
-                .loaded_entries()
-                .iter()
-                .any(|le| le.path == e.path);
-            serde_json::json!({
-                "path": e.path.display().to_string(),
-                "source": source,
-                "loaded": is_loaded,
-            })
-        })
-        .collect();
-
-    let warnings_json: Vec<serde_json::Value> = config_warnings
+    let warnings_json: Vec<serde_json::Value> = inspection
+        .warnings
         .iter()
         .map(|w| serde_json::Value::String(w.clone()))
         .collect();
@@ -8522,14 +8515,15 @@ fn render_config_json(
     let base = serde_json::json!({
         "kind": "config",
         "action": if section.is_some() { "show" } else { "list" },
-        "status": "ok",
+        "status": if inspection.load_error.is_some() { "error" } else { "ok" },
         "cwd": cwd.display().to_string(),
-        "loaded_files": loaded_paths.len(),
-        "merged_keys": runtime_config.merged().len(),
+        "loaded_files": loaded_files,
+        "merged_keys": merged_keys,
+        "merged_key_count": merged_keys,
+        "merged_keys_meaning": "count of top-level keys in the effective merged JSON object",
         "files": files,
-        // #773: deprecation warnings surfaced structurally so JSON-mode callers
-        // don't need to strip unstructured text from stderr
         "warnings": warnings_json,
+        "load_error": inspection.load_error.clone(),
     });
 
     if let Some(section) = section {
@@ -8576,8 +8570,8 @@ fn render_config_json(
                     "hint": hint,
                     "supported_sections": ["env", "hooks", "model", "plugins", "mcp", "sandbox", "permissions", "skills", "agents", "settings"],
                     "cwd": cwd.display().to_string(),
-                    "loaded_files": loaded_paths.len(),
-                    "files": files,
+                    "loaded_files": loaded_files,
+                    "files": base["files"].clone(),
                 }));
             }
         };
@@ -8598,6 +8592,45 @@ fn render_config_json(
     }
 
     Ok(base)
+}
+
+fn config_file_report_json(file: &ConfigFileReport) -> serde_json::Value {
+    let source = match file.entry.source {
+        ConfigSource::User => "user",
+        ConfigSource::Project => "project",
+        ConfigSource::Local => "local",
+    };
+    let mut object = serde_json::Map::new();
+    object.insert(
+        "path".to_string(),
+        serde_json::Value::String(file.entry.path.display().to_string()),
+    );
+    object.insert(
+        "source".to_string(),
+        serde_json::Value::String(source.to_string()),
+    );
+    object.insert("loaded".to_string(), serde_json::Value::Bool(file.loaded));
+    object.insert(
+        "status".to_string(),
+        serde_json::Value::String(file.status.as_str().to_string()),
+    );
+    if let Some(reason) = &file.reason {
+        object.insert(
+            "reason".to_string(),
+            serde_json::Value::String(reason.clone()),
+        );
+        object.insert(
+            "skip_reason".to_string(),
+            serde_json::Value::String(reason.clone()),
+        );
+    }
+    if let Some(detail) = &file.detail {
+        object.insert(
+            "detail".to_string(),
+            serde_json::Value::String(detail.clone()),
+        );
+    }
+    serde_json::Value::Object(object)
 }
 
 fn render_memory_report() -> Result<String, Box<dyn std::error::Error>> {
