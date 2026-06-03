@@ -125,6 +125,133 @@ fn doctor_help_text_stays_plaintext_and_local_702() {
 }
 
 #[test]
+fn resume_session_compact_help_short_circuits_before_config_or_auth_427() {
+    let root = unique_temp_dir("session-help-local-427");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(root.join(".claw")).expect("project config dir should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+    fs::write(root.join(".claw").join("settings.json"), "{").expect("broken config should write");
+
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("ANTHROPIC_API_KEY", ""),
+        ("ANTHROPIC_AUTH_TOKEN", ""),
+        ("OPENAI_API_KEY", ""),
+    ];
+
+    let text_cases: &[(&[&str], &str)] = &[
+        (&["resume", "--help"], "Resume\n"),
+        (&["--resume", "--help"], "Resume\n"),
+        (&["session", "--help"], "Session\n"),
+        (&["compact", "--help"], "Compact\n"),
+    ];
+    for (args, heading) in text_cases {
+        let output = run_claw(&root, args, &envs);
+        assert!(
+            output.status.success(),
+            "{args:?} should exit 0 before auth/config; stdout:\n{}\n\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stdout.starts_with(heading), "{args:?} stdout: {stdout}");
+        assert!(stdout.contains("Usage"), "{args:?} stdout: {stdout}");
+        assert!(
+            !stdout.contains("missing_credentials") && !stderr.contains("missing_credentials"),
+            "{args:?} must not hit provider auth: stdout={stdout:?} stderr={stderr:?}"
+        );
+        assert!(
+            !stdout.contains("config_parse_error") && stderr.is_empty(),
+            "{args:?} must not load broken config: stdout={stdout:?} stderr={stderr:?}"
+        );
+        serde_json::from_str::<Value>(&stdout).expect_err("text help should remain plaintext");
+    }
+
+    let json_cases: &[(&[&str], &str)] = &[
+        (&["resume", "--help", "--output-format", "json"], "resume"),
+        (&["--resume", "--help", "--output-format", "json"], "resume"),
+        (&["session", "--help", "--output-format", "json"], "session"),
+        (&["compact", "--help", "--output-format", "json"], "compact"),
+    ];
+    for (args, topic) in json_cases {
+        let parsed = assert_json_command_with_env(&root, args, &envs);
+        assert_eq!(parsed["kind"], "help", "{args:?}: {parsed}");
+        assert_eq!(parsed["status"], "ok", "{args:?}: {parsed}");
+        assert_eq!(parsed["topic"], *topic, "{args:?}: {parsed}");
+        assert!(
+            parsed["message"]
+                .as_str()
+                .is_some_and(|message| message.contains("Usage")),
+            "{args:?} should include static usage text: {parsed}"
+        );
+    }
+}
+
+#[test]
+fn resume_missing_session_json_reports_local_store_before_auth_427() {
+    let root = unique_temp_dir("resume-missing-local-427");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("ANTHROPIC_API_KEY", ""),
+        ("ANTHROPIC_AUTH_TOKEN", ""),
+        ("OPENAI_API_KEY", ""),
+    ];
+
+    let output = run_claw(
+        &root,
+        &[
+            "resume",
+            "definitely-missing-session",
+            "--output-format",
+            "json",
+        ],
+        &envs,
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "missing session should exit 1"
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.is_empty(),
+        "JSON missing-session stderr should be empty: {stderr:?}"
+    );
+    assert!(
+        !stdout.contains("missing_credentials") && !stderr.contains("missing_credentials"),
+        "missing session must not reach provider auth: stdout={stdout:?} stderr={stderr:?}"
+    );
+    let parsed: Value = serde_json::from_str(stdout.trim())
+        .unwrap_or_else(|_| panic!("resume missing session must emit JSON, got: {stdout:?}"));
+    assert_eq!(parsed["error_kind"], "session_not_found", "{parsed}");
+    assert_eq!(parsed["action"], "restore", "{parsed}");
+    assert!(
+        parsed["sessions_dir"]
+            .as_str()
+            .is_some_and(|path| path.contains(".claw") && path.contains("sessions")),
+        "missing-session JSON should expose the searched sessions_dir: {parsed}"
+    );
+}
+
+#[test]
 fn version_emits_json_when_requested() {
     let root = unique_temp_dir("version-json");
     fs::create_dir_all(&root).expect("temp dir should exist");

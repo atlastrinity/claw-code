@@ -870,6 +870,9 @@ enum LocalHelpTopic {
     // `claw <subcommand> --help` has one consistent contract.
     Init,
     State,
+    Resume,
+    Session,
+    Compact,
     Export,
     Version,
     SystemPrompt,
@@ -1132,6 +1135,10 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 "acp" => Some(LocalHelpTopic::Acp),
                 "init" => Some(LocalHelpTopic::Init),
                 "state" => Some(LocalHelpTopic::State),
+                "resume" => Some(LocalHelpTopic::Resume),
+                "session" => Some(LocalHelpTopic::Session),
+                "compact" => Some(LocalHelpTopic::Compact),
+                "--resume" => Some(LocalHelpTopic::Resume),
                 "export" => Some(LocalHelpTopic::Export),
                 "version" => Some(LocalHelpTopic::Version),
                 "system-prompt" => Some(LocalHelpTopic::SystemPrompt),
@@ -1218,11 +1225,14 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             allow_broad_cwd,
         });
     }
+    if let Some(action) = parse_local_help_action(&rest, output_format) {
+        return action;
+    }
     if rest.first().map(String::as_str) == Some("--resume") {
         return parse_resume_args(&rest[1..], output_format);
     }
-    if let Some(action) = parse_local_help_action(&rest, output_format) {
-        return action;
+    if rest.first().map(String::as_str) == Some("resume") {
+        return parse_resume_args(&rest[1..], output_format);
     }
     // #696: `claw compact` is the bare name of the interactive `/compact`
     // slash command, not a prompt. When extra args such as `--help` appear
@@ -1580,6 +1590,9 @@ fn parse_local_help_action(
         "system-prompt" => LocalHelpTopic::SystemPrompt,
         "dump-manifests" => LocalHelpTopic::DumpManifests,
         "bootstrap-plan" => LocalHelpTopic::BootstrapPlan,
+        "resume" | "--resume" => LocalHelpTopic::Resume,
+        "session" => LocalHelpTopic::Session,
+        "compact" => LocalHelpTopic::Compact,
         "model" | "models" => LocalHelpTopic::Model,
         "settings" => LocalHelpTopic::Settings,
         _ => return None,
@@ -1642,6 +1655,9 @@ fn parse_single_word_command_alias(
                 "system-prompt" => Some(LocalHelpTopic::SystemPrompt),
                 "dump-manifests" => Some(LocalHelpTopic::DumpManifests),
                 "bootstrap-plan" => Some(LocalHelpTopic::BootstrapPlan),
+                "resume" => Some(LocalHelpTopic::Resume),
+                "session" => Some(LocalHelpTopic::Session),
+                "compact" => Some(LocalHelpTopic::Compact),
                 "agents" | "agent" => Some(LocalHelpTopic::Agents),
                 "skills" | "skill" => Some(LocalHelpTopic::Skills),
                 "plugins" | "plugin" | "marketplace" => Some(LocalHelpTopic::Plugins),
@@ -1693,6 +1709,9 @@ fn parse_single_word_command_alias(
             "system-prompt" => Some(LocalHelpTopic::SystemPrompt),
             "dump-manifests" => Some(LocalHelpTopic::DumpManifests),
             "bootstrap-plan" => Some(LocalHelpTopic::BootstrapPlan),
+            "resume" => Some(LocalHelpTopic::Resume),
+            "session" => Some(LocalHelpTopic::Session),
+            "compact" => Some(LocalHelpTopic::Compact),
             "agents" | "agent" => Some(LocalHelpTopic::Agents),
             "skills" | "skill" => Some(LocalHelpTopic::Skills),
             "plugins" | "plugin" | "marketplace" => Some(LocalHelpTopic::Plugins),
@@ -3652,6 +3671,7 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                 // #787: fall back to kind-derived hint when message has no \n delimiter
                 let hint =
                     inline_hint.or_else(|| fallback_hint_for_error_kind(kind).map(String::from));
+                let sessions_dir = sessions_dir().ok().map(|path| path.display().to_string());
                 // #819: JSON mode resume errors go to stdout for parity with other
                 // non-interactive command guards.
                 println!(
@@ -3664,6 +3684,7 @@ fn resume_session(session_path: &Path, commands: &[String], output_format: CliOu
                         "error": short_reason,
                         "exit_code": 1,
                         "hint": hint,
+                        "sessions_dir": sessions_dir,
                     })
                 );
             } else {
@@ -8161,6 +8182,25 @@ fn render_help_topic(topic: LocalHelpTopic) -> String {
   Exit codes       0 if state file exists and parses; 1 with actionable hint otherwise
   Related          claw status · ROADMAP #139 (this worker-concept contract)"
             .to_string(),
+        LocalHelpTopic::Resume => format!(
+            "Resume\n  Usage            claw resume [session-path|session-id|{LATEST_SESSION_REFERENCE}] [/slash-command ...] [--output-format <format>]\n  Alias            claw --resume [session-path|session-id|{LATEST_SESSION_REFERENCE}]\n  Purpose          restore or inspect a saved session without starting a new provider turn\n  Output           session restore or resume-safe command output; missing sessions return session_not_found\n  Formats          text (default), json\n  Related          /resume · /session list · claw --resume {LATEST_SESSION_REFERENCE} /status"
+        ),
+        LocalHelpTopic::Session => "Session
+  Usage            claw session --help [--output-format <format>]
+  Purpose          show /session command guidance without loading config, credentials, or a session
+  Actions          list · exists <id> · switch <id> · fork <name> · delete <id>
+  Direct use       run /session in the REPL or claw --resume SESSION.jsonl /session <action>
+  Formats          text (default), json
+  Related          claw resume · claw export · .claw/sessions/"
+            .to_string(),
+        LocalHelpTopic::Compact => "Compact
+  Usage            claw compact --help [--output-format <format>]
+  Purpose          show compaction guidance without loading config, credentials, or a session
+  Direct use       run /compact in the REPL or claw --resume SESSION.jsonl /compact
+  Output           compaction removes older tool-detail messages when the selected session is large enough
+  Formats          text (default), json
+  Related          claw resume · /compact · /status"
+            .to_string(),
         LocalHelpTopic::Export => "Export
   Usage            claw export [--session <id|latest>] [--output <path>] [--output-format <format>]
   Purpose          serialize a managed session to JSON for review, transfer, or archival
@@ -8256,6 +8296,9 @@ fn local_help_topic_command(topic: LocalHelpTopic) -> &'static str {
         LocalHelpTopic::Acp => "acp",
         LocalHelpTopic::Init => "init",
         LocalHelpTopic::State => "state",
+        LocalHelpTopic::Resume => "resume",
+        LocalHelpTopic::Session => "session",
+        LocalHelpTopic::Compact => "compact",
         LocalHelpTopic::Export => "export",
         LocalHelpTopic::Version => "version",
         LocalHelpTopic::SystemPrompt => "system-prompt",
