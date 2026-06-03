@@ -2068,6 +2068,9 @@ fn validate_model_syntax(model: &str) -> Result<(), String> {
             trimmed
         ));
     }
+    if is_bare_provider_model(trimmed) {
+        return Ok(());
+    }
     // Check provider/model format: provider_id/model_id
     let parts: Vec<&str> = trimmed.split('/').collect();
     if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
@@ -2092,6 +2095,10 @@ fn validate_model_syntax(model: &str) -> Result<(), String> {
         return Err(err_msg);
     }
     Ok(())
+}
+
+fn is_bare_provider_model(model: &str) -> bool {
+    model.starts_with("claude-") || model.starts_with("gpt-")
 }
 
 fn config_alias_for_current_dir(alias: &str) -> Option<String> {
@@ -12450,6 +12457,12 @@ mod tests {
     }
 
     #[test]
+    fn default_model_alias_uses_anthropic_routing_prefix() {
+        assert_eq!(DEFAULT_MODEL, "anthropic/claude-opus-4-6");
+        assert_eq!(resolve_model_alias("opus"), "anthropic/claude-opus-4-6");
+    }
+
+    #[test]
     fn user_defined_aliases_resolve_before_provider_dispatch() {
         // given
         let _guard = env_lock();
@@ -12953,6 +12966,19 @@ mod tests {
                     Some("anthropic/claude-opus-4-6"),
                     "--model= form should also preserve raw input"
                 );
+            }
+            other => panic!("expected CliAction::Status, got: {other:?}"),
+        }
+        match parse_args(&["--model=claude-opus-4-6".to_string(), "status".to_string()])
+            .expect("bare Anthropic model should parse")
+        {
+            CliAction::Status {
+                model,
+                model_flag_raw,
+                ..
+            } => {
+                assert_eq!(model, "claude-opus-4-6");
+                assert_eq!(model_flag_raw.as_deref(), Some("claude-opus-4-6"));
             }
             other => panic!("expected CliAction::Status, got: {other:?}"),
         }
@@ -13481,22 +13507,19 @@ mod tests {
             !err_other.contains("--output-format json"),
             "unrelated args should not trigger --json hint: {err_other}"
         );
-        // #154: model syntax error should hint at provider prefix when applicable
-        let err_gpt = parse_args(&[
+        // #424: bare canonical GPT model ids should parse and route via provider
+        // detection instead of forcing the local-only `openai/` routing prefix.
+        match parse_args(&[
             "prompt".to_string(),
             "test".to_string(),
             "--model".to_string(),
             "gpt-4".to_string(),
         ])
-        .expect_err("`--model gpt-4` should fail with OpenAI hint");
-        assert!(
-            err_gpt.contains("Did you mean `openai/gpt-4`?"),
-            "GPT model error should hint openai/ prefix: {err_gpt}"
-        );
-        assert!(
-            err_gpt.contains("OPENAI_API_KEY"),
-            "GPT model error should mention env var: {err_gpt}"
-        );
+        .expect("`--model gpt-4` should parse as a bare OpenAI model")
+        {
+            CliAction::Prompt { model, .. } => assert_eq!(model, "gpt-4"),
+            other => panic!("expected CliAction::Prompt, got: {other:?}"),
+        }
         let err_qwen = parse_args(&[
             "prompt".to_string(),
             "test".to_string(),
