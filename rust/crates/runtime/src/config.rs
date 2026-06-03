@@ -167,6 +167,29 @@ pub struct RuntimeFeatureConfig {
 
 /// Controls which external AI coding framework rules are imported into the system prompt.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum RulesImportConfig {
+    /// Import from all supported frameworks when files are detected.
+    #[default]
+    Auto,
+    /// Do not import external framework rules; keep Claw instruction files only.
+    None,
+    /// Import only the named frameworks.
+    List(Vec<String>),
+}
+
+impl RulesImportConfig {
+    #[must_use]
+    pub fn should_import(&self, framework: &str) -> bool {
+        match self {
+            Self::Auto => true,
+            Self::None => false,
+            Self::List(frameworks) => frameworks
+                .iter()
+                .any(|candidate| candidate.eq_ignore_ascii_case(framework)),
+        }
+    }
+}
+
 /// Stored provider configuration from the setup wizard.
 ///
 /// Represents the `provider` section in `~/.claw/settings.json`, used as a
@@ -199,29 +222,6 @@ impl RuntimeProviderConfig {
     #[must_use]
     pub fn model(&self) -> Option<&str> {
         self.model.as_deref()
-    }
-}
-
-pub enum RulesImportConfig {
-    /// Import from all supported frameworks when files are detected.
-    #[default]
-    Auto,
-    /// Do not import external framework rules; keep Claw instruction files only.
-    None,
-    /// Import only the named frameworks.
-    List(Vec<String>),
-}
-
-impl RulesImportConfig {
-    #[must_use]
-    pub fn should_import(&self, framework: &str) -> bool {
-        match self {
-            Self::Auto => true,
-            Self::None => false,
-            Self::List(frameworks) => frameworks
-                .iter()
-                .any(|candidate| candidate.eq_ignore_ascii_case(framework)),
-        }
     }
 }
 
@@ -913,6 +913,11 @@ impl RuntimeConfig {
     #[must_use]
     pub fn rules_import(&self) -> &RulesImportConfig {
         &self.feature_config.rules_import
+    }
+
+    #[must_use]
+    pub fn provider(&self) -> &RuntimeProviderConfig {
+        &self.feature_config.provider
     }
 
     /// Merge config-level default trusted roots with per-call roots.
