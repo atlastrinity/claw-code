@@ -211,7 +211,7 @@ pub fn resolve_model_alias(model: &str) -> String {
         .find_map(|(alias, metadata)| {
             (*alias == lower).then_some(match metadata.provider {
                 ProviderKind::Anthropic => match *alias {
-                    "opus" => "claude-opus-4-6",
+                    "opus" => "claude-opus-4-7",
                     "sonnet" => "claude-sonnet-4-6",
                     "haiku" => "claude-haiku-4-5-20251213",
                     _ => trimmed,
@@ -620,7 +620,7 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
     let canonical = resolve_model_alias(model);
     let base_model = canonical.rsplit('/').next().unwrap_or(canonical.as_str());
     match base_model {
-        "claude-opus-4-6" => Some(ModelTokenLimit {
+        "claude-opus-4-7" | "claude-opus-4-6" => Some(ModelTokenLimit {
             max_output_tokens: 32_000,
             context_window_tokens: 200_000,
         }),

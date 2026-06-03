@@ -67,7 +67,7 @@ use tools::{
     execute_tool, mvp_tool_specs, GlobalToolRegistry, RuntimeToolDefinition, ToolSearchOutput,
 };
 
-const DEFAULT_MODEL: &str = "anthropic/claude-opus-4-6";
+const DEFAULT_MODEL: &str = "anthropic/claude-opus-4-7";
 
 /// #148: Model provenance for `claw status` JSON/text output. Records where
 /// the resolved model string came from so claws don't have to re-read argv
@@ -77,7 +77,7 @@ const DEFAULT_MODEL: &str = "anthropic/claude-opus-4-6";
 enum ModelSource {
     /// Explicit `--model` / `--model=` CLI flag.
     Flag,
-    /// `ANTHROPIC_MODEL` environment variable (when no flag was passed).
+    /// Runtime model environment variable (when no flag was passed).
     Env,
     /// `model` key in `.claw.json` / `.claw/settings.json` (when neither
     /// flag nor env set it).
@@ -105,6 +105,15 @@ struct ModelProvenance {
     raw: Option<String>,
     /// Where the resolved model string originated.
     source: ModelSource,
+    /// Alias-expanded target when `raw` differs from `resolved`.
+    alias_resolved_to: Option<String>,
+    /// Environment variable that supplied the model, when source is Env.
+    env_var: Option<String>,
+}
+
+struct EnvModel {
+    name: &'static str,
+    value: String,
 }
 
 impl ModelProvenance {
@@ -113,49 +122,90 @@ impl ModelProvenance {
             resolved: DEFAULT_MODEL.to_string(),
             raw: None,
             source: ModelSource::Default,
+            alias_resolved_to: None,
+            env_var: None,
         }
     }
 
-    fn from_flag(raw: &str) -> Self {
+    fn from_flag(raw: &str, resolved: &str) -> Self {
+        Self::from_resolved(raw, resolved, ModelSource::Flag, None)
+    }
+
+    fn from_raw(raw: &str, source: ModelSource, env_var: Option<&str>) -> Self {
+        let resolved = resolve_model_alias_with_config(raw);
+        Self::from_resolved(raw, &resolved, source, env_var)
+    }
+
+    fn from_resolved(
+        raw: &str,
+        resolved: &str,
+        source: ModelSource,
+        env_var: Option<&str>,
+    ) -> Self {
+        let raw_trimmed = raw.trim();
+        let alias_resolved_to = (raw_trimmed != resolved).then(|| resolved.to_string());
         Self {
-            resolved: resolve_model_alias_with_config(raw),
+            resolved: resolved.to_string(),
             raw: Some(raw.to_string()),
-            source: ModelSource::Flag,
+            source,
+            alias_resolved_to,
+            env_var: env_var.map(str::to_string),
         }
     }
 
-    fn from_env_or_config_or_default(cli_model: &str) -> Self {
+    fn from_env_or_config_or_default(cli_model: &str) -> Result<Self, String> {
         // Only called when no --model flag was passed. Probe env first,
         // then config, else fall back to default. Mirrors the logic in
         // resolve_repl_model() but captures the source.
         if cli_model != DEFAULT_MODEL {
-            // Already resolved from some prior path; treat as flag.
-            return Self {
-                resolved: cli_model.to_string(),
-                raw: Some(cli_model.to_string()),
-                source: ModelSource::Flag,
-            };
+            let provenance = Self::from_resolved(cli_model, cli_model, ModelSource::Flag, None);
+            provenance.validate()?;
+            return Ok(provenance);
         }
-        if let Some(env_model) = env::var("ANTHROPIC_MODEL")
-            .ok()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-        {
-            return Self {
-                resolved: resolve_model_alias_with_config(&env_model),
-                raw: Some(env_model),
-                source: ModelSource::Env,
-            };
+        if let Some(env_model) = env_model_for_runtime() {
+            let provenance =
+                Self::from_raw(&env_model.value, ModelSource::Env, Some(env_model.name));
+            provenance.validate()?;
+            return Ok(provenance);
         }
         if let Some(config_model) = config_model_for_current_dir() {
-            return Self {
-                resolved: resolve_model_alias_with_config(&config_model),
-                raw: Some(config_model),
-                source: ModelSource::Config,
-            };
+            let provenance = Self::from_raw(&config_model, ModelSource::Config, None);
+            provenance.validate()?;
+            return Ok(provenance);
         }
-        Self::default_fallback()
+        Ok(Self::default_fallback())
     }
+
+    fn validate(&self) -> Result<(), String> {
+        validate_model_syntax(&self.resolved).map_err(|error| {
+            let source = match self.source {
+                ModelSource::Flag => "--model",
+                ModelSource::Env => self.env_var.as_deref().unwrap_or("environment"),
+                ModelSource::Config => "config model",
+                ModelSource::Default => "default model",
+            };
+            if let Some(raw) = &self.raw {
+                format!(
+                    "invalid_model: {source} model `{raw}` is invalid after alias resolution to `{}`.\n{error}",
+                    self.resolved
+                )
+            } else {
+                error
+            }
+        })
+    }
+}
+
+fn env_model_for_runtime() -> Option<EnvModel> {
+    ["CLAW_MODEL", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_MODEL"]
+        .into_iter()
+        .find_map(|name| {
+            env::var(name)
+                .ok()
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .map(|value| EnvModel { name, value })
+        })
 }
 
 fn max_tokens_for_model(model: &str) -> u32 {
@@ -307,6 +357,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "missing_flag_value"
     } else if message.starts_with("invalid_flag_value:") {
         "invalid_flag_value"
+    } else if message.starts_with("invalid_model:") {
+        "invalid_model"
     } else if message.contains("invalid model syntax") {
         "invalid_model_syntax"
     } else if message.contains("is not yet implemented") {
@@ -625,7 +677,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 None
             };
             let effective_prompt = merge_prompt_with_stdin(&prompt, stdin_context.as_deref());
-            let mut cli = LiveCli::new(model, true, allowed_tools, permission_mode)?;
+            let resolved_model = resolve_repl_model(model)?;
+            let mut cli = LiveCli::new(resolved_model, true, allowed_tools, permission_mode)?;
             cli.set_reasoning_effort(reasoning_effort);
             cli.run_turn_with_output(&effective_prompt, output_format, compact)?;
         }
@@ -2062,7 +2115,7 @@ fn levenshtein_distance(left: &str, right: &str) -> usize {
 
 fn resolve_model_alias(model: &str) -> &str {
     match model {
-        "opus" => "anthropic/claude-opus-4-6",
+        "opus" => "anthropic/claude-opus-4-7",
         "sonnet" => "anthropic/claude-sonnet-4-6",
         "haiku" => "anthropic/claude-haiku-4-5-20251213",
         _ => model,
@@ -2225,21 +2278,37 @@ fn config_model_for_current_dir() -> Option<String> {
     loader.load().ok()?.model().map(ToOwned::to_owned)
 }
 
-fn resolve_repl_model(cli_model: String) -> String {
-    if cli_model != DEFAULT_MODEL {
-        return cli_model;
-    }
-    if let Some(env_model) = env::var("ANTHROPIC_MODEL")
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-    {
-        return resolve_model_alias_with_config(&env_model);
-    }
-    if let Some(config_model) = config_model_for_current_dir() {
-        return resolve_model_alias_with_config(&config_model);
-    }
-    cli_model
+fn resolve_repl_model(cli_model: String) -> Result<String, String> {
+    Ok(ModelProvenance::from_env_or_config_or_default(&cli_model)?.resolved)
+}
+
+fn print_model_validation_warning_status(
+    error: &str,
+    usage: StatusUsage,
+    permission_mode: &str,
+    context: &StatusContext,
+    allowed_tools: Option<&AllowedToolSet>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let kind = classify_error_kind(error);
+    let (short_reason, inline_hint) = split_error_hint(error);
+    let hint = inline_hint.or_else(|| fallback_hint_for_error_kind(kind).map(String::from));
+    let mut value = status_json_value(None, usage, permission_mode, context, None, allowed_tools);
+    let object = value
+        .as_object_mut()
+        .expect("status_json_value should render an object");
+    object.insert("status".to_string(), serde_json::json!("warn"));
+    object.insert("error_kind".to_string(), serde_json::json!(kind));
+    object.insert(
+        "model_validation_error".to_string(),
+        serde_json::json!(short_reason),
+    );
+    object.insert(
+        "model_validation_error_kind".to_string(),
+        serde_json::json!(kind),
+    );
+    object.insert("model_validation_hint".to_string(), serde_json::json!(hint));
+    println!("{}", serde_json::to_string_pretty(&value)?);
+    Ok(())
 }
 
 fn provider_label(kind: ProviderKind) -> &'static str {
@@ -5199,7 +5268,7 @@ fn run_repl(
 ) -> Result<(), Box<dyn std::error::Error>> {
     enforce_broad_cwd_policy(allow_broad_cwd, CliOutputFormat::Text)?;
     run_stale_base_preflight(base_commit.as_deref());
-    let resolved_model = resolve_repl_model(model);
+    let resolved_model = resolve_repl_model(model)?;
     let mut cli = LiveCli::new(resolved_model, true, allowed_tools, permission_mode)?;
     cli.set_reasoning_effort(reasoning_effort);
     let mut editor =
@@ -7567,13 +7636,24 @@ fn print_status_snapshot(
     // #148: resolve model provenance. If user passed --model, source is
     // "flag" with the raw input preserved. Otherwise probe env -> config
     // -> default and record the winning source.
-    let provenance = match model_flag_raw {
-        Some(raw) => ModelProvenance {
-            resolved: model.to_string(),
-            raw: Some(raw.to_string()),
-            source: ModelSource::Flag,
-        },
+    let provenance_result = match model_flag_raw {
+        Some(raw) => Ok(ModelProvenance::from_flag(raw, model)),
         None => ModelProvenance::from_env_or_config_or_default(model),
+    };
+    let provenance = match provenance_result {
+        Ok(provenance) => provenance,
+        Err(error) => match output_format {
+            CliOutputFormat::Json => {
+                return print_model_validation_warning_status(
+                    &error,
+                    usage,
+                    permission_mode.as_str(),
+                    &context,
+                    allowed_tools,
+                );
+            }
+            CliOutputFormat::Text => return Err(error.into()),
+        },
     };
     match output_format {
         CliOutputFormat::Text => println!(
@@ -7624,6 +7704,8 @@ fn status_json_value(
     let degraded = context.config_load_error.is_some();
     let model_source = provenance.map(|p| p.source.as_str());
     let model_raw = provenance.and_then(|p| p.raw.clone());
+    let model_alias_resolved_to = provenance.and_then(|p| p.alias_resolved_to.clone());
+    let model_env_var = provenance.and_then(|p| p.env_var.clone());
     // #732: always emit an array (empty when unrestricted) so callers can do
     // `.allowed_tools.entries | length > 0` without a null-check first.
     let allowed_tool_entries = allowed_tools
@@ -7638,6 +7720,8 @@ fn status_json_value(
         "model": model,
         "model_source": model_source,
         "model_raw": model_raw,
+        "model_alias_resolved_to": model_alias_resolved_to,
+        "model_env_var": model_env_var,
         "permission_mode": permission_mode,
         "allowed_tools": {
             "source": if allowed_tools.is_some() { "flag" } else { "default" },
@@ -7808,9 +7892,22 @@ fn format_status_report(
     let model_source_line = provenance
         .map(|p| match &p.raw {
             Some(raw) if raw != model => {
-                format!("\n  Model source     {} (raw: {raw})", p.source.as_str())
+                let env_suffix = p
+                    .env_var
+                    .as_deref()
+                    .map_or(String::new(), |name| format!(" via {name}"));
+                format!(
+                    "\n  Model source     {}{env_suffix} (raw: {raw}, alias: {model})",
+                    p.source.as_str()
+                )
             }
-            Some(_) => format!("\n  Model source     {}", p.source.as_str()),
+            Some(_) => {
+                let env_suffix = p
+                    .env_var
+                    .as_deref()
+                    .map_or(String::new(), |name| format!(" via {name}"));
+                format!("\n  Model source     {}{env_suffix}", p.source.as_str())
+            }
             None => format!("\n  Model source     {}", p.source.as_str()),
         })
         .unwrap_or_default();
@@ -12423,7 +12520,7 @@ mod tests {
             parse_args(&args).expect("args should parse"),
             CliAction::Prompt {
                 prompt: "explain this".to_string(),
-                model: "anthropic/claude-opus-4-6".to_string(),
+                model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Json,
                 allowed_tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
@@ -12497,7 +12594,7 @@ mod tests {
             parse_args(&args).expect("args should parse"),
             CliAction::Prompt {
                 prompt: "explain this".to_string(),
-                model: "anthropic/claude-opus-4-6".to_string(),
+                model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
@@ -12511,7 +12608,7 @@ mod tests {
 
     #[test]
     fn resolves_known_model_aliases() {
-        assert_eq!(resolve_model_alias("opus"), "anthropic/claude-opus-4-6");
+        assert_eq!(resolve_model_alias("opus"), "anthropic/claude-opus-4-7");
         assert_eq!(resolve_model_alias("sonnet"), "anthropic/claude-sonnet-4-6");
         assert_eq!(
             resolve_model_alias("haiku"),
@@ -12522,8 +12619,8 @@ mod tests {
 
     #[test]
     fn default_model_alias_uses_anthropic_routing_prefix() {
-        assert_eq!(DEFAULT_MODEL, "anthropic/claude-opus-4-6");
-        assert_eq!(resolve_model_alias("opus"), "anthropic/claude-opus-4-6");
+        assert_eq!(DEFAULT_MODEL, "anthropic/claude-opus-4-7");
+        assert_eq!(resolve_model_alias("opus"), "anthropic/claude-opus-4-7");
     }
 
     #[test]
@@ -12559,7 +12656,7 @@ mod tests {
 
         // then
         assert_eq!(direct, "anthropic/claude-haiku-4-5-20251213");
-        assert_eq!(chained, "anthropic/claude-opus-4-6");
+        assert_eq!(chained, "anthropic/claude-opus-4-7");
         assert_eq!(cross_provider, "grok-3-mini");
         assert_eq!(unknown, "unknown-model");
         assert_eq!(builtin, "anthropic/claude-haiku-4-5-20251213");
@@ -14209,7 +14306,7 @@ mod tests {
             .expect("prompt shorthand should still work"),
             CliAction::Prompt {
                 prompt: "please debug this".to_string(),
-                model: "anthropic/claude-opus-4-6".to_string(),
+                model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,
                 permission_mode: crate::default_permission_mode(),
@@ -14793,7 +14890,7 @@ mod tests {
     fn resolve_repl_model_returns_user_supplied_model_unchanged_when_explicit() {
         let user_model = "anthropic/claude-sonnet-4-6".to_string();
 
-        let resolved = resolve_repl_model(user_model);
+        let resolved = resolve_repl_model(user_model).expect("explicit model should resolve");
 
         assert_eq!(resolved, "anthropic/claude-sonnet-4-6");
     }
@@ -14809,7 +14906,8 @@ mod tests {
         std::env::remove_var("ANTHROPIC_MODEL");
         std::env::set_var("ANTHROPIC_MODEL", "sonnet");
 
-        let resolved = with_current_dir(&root, || resolve_repl_model(DEFAULT_MODEL.to_string()));
+        let resolved = with_current_dir(&root, || resolve_repl_model(DEFAULT_MODEL.to_string()))
+            .expect("env model should resolve");
 
         assert_eq!(resolved, "anthropic/claude-sonnet-4-6");
 
@@ -14828,7 +14926,8 @@ mod tests {
         std::env::set_var("CLAW_CONFIG_HOME", &config_home);
         std::env::remove_var("ANTHROPIC_MODEL");
 
-        let resolved = with_current_dir(&root, || resolve_repl_model(DEFAULT_MODEL.to_string()));
+        let resolved = with_current_dir(&root, || resolve_repl_model(DEFAULT_MODEL.to_string()))
+            .expect("default model should resolve");
 
         assert_eq!(resolved, DEFAULT_MODEL);
 
@@ -17020,7 +17119,7 @@ mod alias_resolution_tests {
         // Built-in aliases should resolve to their full IDs
         assert_eq!(
             resolve_model_alias_with_config("opus"),
-            "anthropic/claude-opus-4-6"
+            "anthropic/claude-opus-4-7"
         );
         assert_eq!(
             resolve_model_alias_with_config("sonnet"),

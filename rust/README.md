@@ -15,7 +15,7 @@ cargo run -p rusty-claude-cli -- --help
 cargo build --workspace
 
 # Run the interactive REPL
-cargo run -p rusty-claude-cli -- --model claude-opus-4-6
+cargo run -p rusty-claude-cli -- --model claude-opus-4-7
 
 # One-shot prompt
 cargo run -p rusty-claude-cli -- prompt "explain this codebase"
@@ -109,7 +109,7 @@ Short names resolve to the latest model versions:
 
 | Alias | Resolves To |
 |-------|------------|
-| `opus` | `claude-opus-4-6` |
+| `opus` | `claude-opus-4-7` |
 | `sonnet` | `claude-sonnet-4-6` |
 | `haiku` | `claude-haiku-4-5-20251213` |
 
@@ -210,7 +210,7 @@ rust/
 - **~20K lines** of Rust
 - **9 crates** in workspace
 - **Binary name:** `claw`
-- **Default model:** `claude-opus-4-6`
+- **Default model:** `claude-opus-4-7`
 - **Default permissions:** `danger-full-access`
 
 ## License

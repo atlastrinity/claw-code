@@ -203,7 +203,7 @@ Supported permission modes:
 
 Model aliases currently supported by the CLI:
 
-- `opus` → `claude-opus-4-6`
+- `opus` → `claude-opus-4-7`
 - `sonnet` → `claude-sonnet-4-6`
 - `haiku` → `claude-haiku-4-5-20251213`
 
@@ -360,7 +360,7 @@ These are the models registered in the built-in alias table with known token lim
 
 | Alias | Resolved model name | Provider | Max output tokens | Context window |
 |---|---|---|---|---|
-| `opus` | `claude-opus-4-6` | Anthropic | 32 000 | 200 000 |
+| `opus` | `claude-opus-4-7` | Anthropic | 32 000 | 200 000 |
 | `sonnet` | `claude-sonnet-4-6` | Anthropic | 64 000 | 200 000 |
 | `haiku` | `claude-haiku-4-5-20251213` | Anthropic | 64 000 | 200 000 |
 | `grok` / `grok-3` | `grok-3` | xAI | 64 000 | 131 072 |
@@ -382,13 +382,15 @@ You can add custom aliases in any settings file (`~/.claw/settings.json`, `.claw
 {
   "aliases": {
     "fast": "claude-haiku-4-5-20251213",
-    "smart": "claude-opus-4-6",
+    "smart": "claude-opus-4-7",
     "cheap": "grok-3-mini"
   }
 }
 ```
 
 Local project settings override user-level settings. Aliases resolve through the built-in table, so `"fast": "haiku"` also works.
+
+Model selection precedence is CLI flag, environment, config, then default. The environment model slot accepts `CLAW_MODEL`, `ANTHROPIC_MODEL`, and `ANTHROPIC_DEFAULT_MODEL` in that order; aliases from those variables are resolved and validated before provider startup. `claw --output-format json status` exposes `model_raw`, `model_alias_resolved_to`, and `model_env_var` so automation can see the winning value.
 
 ### How provider detection works
 

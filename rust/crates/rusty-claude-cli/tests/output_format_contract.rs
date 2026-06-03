@@ -308,6 +308,84 @@ fn status_json_surfaces_permission_mode_override_for_security_audit() {
 }
 
 #[test]
+fn status_json_accepts_namespaced_model_env_and_surfaces_alias_426() {
+    let root = unique_temp_dir("status-model-env-426");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("CLAW_MODEL", "opus"),
+        ("ANTHROPIC_MODEL", ""),
+        ("ANTHROPIC_DEFAULT_MODEL", ""),
+    ];
+    let parsed = assert_json_command_with_env(&root, &["--output-format", "json", "status"], &envs);
+
+    assert_eq!(parsed["status"], "ok");
+    assert_eq!(parsed["model"], "anthropic/claude-opus-4-7");
+    assert_eq!(parsed["model_source"], "env");
+    assert_eq!(parsed["model_raw"], "opus");
+    assert_eq!(
+        parsed["model_alias_resolved_to"],
+        "anthropic/claude-opus-4-7"
+    );
+    assert_eq!(parsed["model_env_var"], "CLAW_MODEL");
+}
+
+#[test]
+fn status_json_warns_on_invalid_model_env_426() {
+    let root = unique_temp_dir("status-invalid-model-env-426");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+        ("CLAW_MODEL", ""),
+        ("ANTHROPIC_MODEL", "bogus-model-xyz"),
+        ("ANTHROPIC_DEFAULT_MODEL", ""),
+    ];
+    let output = run_claw(&root, &["--output-format", "json", "status"], &envs);
+    assert!(
+        output.status.success(),
+        "invalid env model should produce status warn, not process abort; stdout:\n{}\n\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let parsed: Value = serde_json::from_slice(&output.stdout).expect("stdout valid json");
+
+    assert_eq!(parsed["kind"], "status");
+    assert_eq!(parsed["status"], "warn");
+    assert_eq!(parsed["model"], Value::Null);
+    assert_eq!(parsed["model_validation_error_kind"], "invalid_model");
+    assert_eq!(parsed["error_kind"], "invalid_model");
+    assert!(
+        parsed["model_validation_error"]
+            .as_str()
+            .is_some_and(|message| message.contains("ANTHROPIC_MODEL")
+                && message.contains("bogus-model-xyz")),
+        "warning should name env var and raw model: {parsed}"
+    );
+    assert!(
+        parsed["workspace"].is_object(),
+        "status warning should keep local context: {parsed}"
+    );
+}
+
+#[test]
 fn acp_guidance_emits_json_when_requested() {
     let root = unique_temp_dir("acp-json");
     fs::create_dir_all(&root).expect("temp dir should exist");
