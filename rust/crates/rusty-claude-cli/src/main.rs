@@ -4691,6 +4691,16 @@ fn print_system_prompt(
 
 ",
     );
+    // #418: filter out the internal boundary sentinel from the sections array
+    // and expose the boundary index as a structured field.
+    let filtered_sections: Vec<&str> = sections
+        .iter()
+        .filter(|s| !s.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"))
+        .map(|s| s.as_str())
+        .collect();
+    let boundary_index = sections
+        .iter()
+        .position(|s| s.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     match output_format {
         CliOutputFormat::Text => println!("{message}"),
         CliOutputFormat::Json => println!(
@@ -4700,13 +4710,15 @@ fn print_system_prompt(
                 "action": "show",
                 "status": "ok",
                 "message": message,
-                "sections": sections,
+                "sections": filtered_sections,
+                "boundary_index": boundary_index,
                 "memory_file_count": memory_files.len(),
                 "memory_files": memory_files_json(&memory_files),
             }))?
         ),
     }
     Ok(())
+
 }
 
 fn print_version(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
