@@ -1919,6 +1919,25 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             .unwrap_or_else(permission_mode_provenance_for_current_dir)
     };
 
+    // #98: --compact is only meaningful for prompt mode. When a known non-prompt
+    // subcommand is being dispatched, reject --compact so callers don't silently
+    // lose the flag.
+    if compact
+        && rest
+            .first()
+            .map(|s| s.as_str())
+            .is_some_and(|s| s != "prompt")
+    {
+        // Allow compact for the default prompt fallback (unknown tokens).
+        // Only reject for known top-level subcommands that don't use compact.
+        let first = rest[0].as_str();
+        if is_known_top_level_subcommand(first) && first != "prompt" {
+            return Err(format!(
+                "invalid_flag_value: --compact is only supported with prompt mode.\nUsage: claw --compact \"<prompt>\" or echo \"<prompt>\" | claw --compact"
+            ));
+        }
+    }
+
     match rest[0].as_str() {
         "dump-manifests" => parse_dump_manifests_args(&rest[1..], output_format),
         "bootstrap-plan" => Ok(CliAction::BootstrapPlan { output_format }),
