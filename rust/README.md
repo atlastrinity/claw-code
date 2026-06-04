@@ -122,7 +122,7 @@ claw [OPTIONS] [COMMAND]
 
 Flags:
   --model MODEL
-  --output-format text|json
+  --output-format text|json  (case-insensitive; CLAW_OUTPUT_FORMAT supplies the default, flags override env)
   --permission-mode MODE
   --cwd PATH, -C PATH, --directory PATH
   --dangerously-skip-permissions, --skip-permissions
@@ -147,6 +147,7 @@ Top-level commands:
 ```
 
 `claw acp` is a local discoverability surface for editor-first users: it reports the current ACP/Zed status without starting the runtime. As of April 16, 2026, claw-code does **not** ship an ACP/Zed daemon or JSON-RPC entrypoint yet, and `claw acp serve` is only a status alias until the real protocol surface lands. Status queries exit 0 and expose the same machine-readable contract via `--output-format json`; malformed ACP invocations exit 1 with `kind: unsupported_acp_invocation`.
+`--output-format` accepts `text` or `json` in any casing. `CLAW_OUTPUT_FORMAT=json` selects JSON as the default for non-interactive commands, explicit flags override it, repeated flags warn on stderr, and status JSON exposes `format_source`, `format_raw`, and `format_overridden`. Help and doctor output also surface `CLAW_LOG` / `RUST_LOG` as the logging environment knobs.
 `claw dump-manifests` is self-contained: it emits the Rust resolver inventory for the selected workspace (commands, tools, agents, skills, and bootstrap phases) without requiring an upstream Claude Code TypeScript checkout. Use `--manifests-dir PATH` only to scope resolver discovery to another directory.
 
 The command surface is moving quickly. For the canonical live help text, run:

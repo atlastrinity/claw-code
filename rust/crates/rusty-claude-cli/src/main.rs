@@ -26,7 +26,7 @@ use std::ops::{Deref, DerefMut};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant, UNIX_EPOCH};
 
@@ -313,10 +313,7 @@ fn main() {
         // When --output-format json is active, emit errors as JSON so downstream
         // tools can parse failures the same way they parse successes (ROADMAP #42).
         let argv: Vec<String> = std::env::args().collect();
-        let json_output = argv
-            .windows(2)
-            .any(|w| w[0] == "--output-format" && w[1] == "json")
-            || argv.iter().any(|a| a == "--output-format=json");
+        let json_output = raw_args_request_json_output(&argv[1..]);
         if json_output {
             // #77/#696: classify error by prefix so downstream claws can route
             // without regex-scraping prose. Keep the legacy `type`/`kind`
@@ -356,6 +353,14 @@ fn main() {
                             serde_json::json!(error.reason.as_str()),
                         );
                     }
+                }
+            } else if kind == "invalid_output_format" {
+                if let Some(object) = error_json.as_object_mut() {
+                    object.insert(
+                        "value".to_string(),
+                        serde_json::json!(invalid_output_format_value(&message)),
+                    );
+                    object.insert("expected".to_string(), serde_json::json!(["text", "json"]));
                 }
             } else if kind == "invalid_tool_name" {
                 let (tool_name, available, aliases) = invalid_tool_name_details(&message);
@@ -442,6 +447,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "invalid_cwd"
     } else if message.starts_with("invalid_output_path:") {
         "invalid_output_path"
+    } else if message.starts_with("invalid_output_format:") {
+        "invalid_output_format"
     } else if message.starts_with("invalid_tool_name:") {
         "invalid_tool_name"
     } else if message.contains("unrecognized argument") || message.contains("unknown option") {
@@ -586,6 +593,15 @@ fn invalid_tool_name_details(message: &str) -> (Option<String>, Vec<String>, Val
     (tool_name, available, Value::Object(aliases))
 }
 
+fn invalid_output_format_value(message: &str) -> Option<String> {
+    message
+        .strip_prefix("invalid_output_format: unsupported value for --output-format:")
+        .and_then(|rest| rest.lines().next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 /// #781: derive a stable fallback hint from a classified error kind when the error
 /// message itself has no `\n`-delimited hint. Returns `None` for kinds where the
 /// message is self-explanatory or no canonical remediation exists.
@@ -631,6 +647,7 @@ fn fallback_hint_for_error_kind(kind: &str) -> Option<&'static str> {
         "invalid_tool_name" => Some(
             "Use canonical snake_case tool names from `available` or documented aliases from `tool_aliases`.",
         ),
+        "invalid_output_format" => Some("Use --output-format text or --output-format json."),
         _ => None,
     }
 }
@@ -953,10 +970,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     // #824: suppress config deprecation prose warnings to stderr when JSON
     // output mode is active.  Scan the raw argv before parse_args so the
     // suppression is in place before any settings file is loaded.
-    let json_mode = args
-        .windows(2)
-        .any(|w| w[0] == "--output-format" && w[1] == "json")
-        || args.iter().any(|a| a == "--output-format=json");
+    let json_mode = raw_args_request_json_output(&args);
     if json_mode {
         runtime::suppress_config_warnings_for_json_mode();
     }
@@ -1257,14 +1271,139 @@ enum CliOutputFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OutputFormatSource {
+    Default,
+    Env,
+    Flag,
+}
+
+impl OutputFormatSource {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::Env => "env",
+            Self::Flag => "flag",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct OutputFormatSelection {
+    format: CliOutputFormat,
+    source: OutputFormatSource,
+    raw: Option<String>,
+    overridden: Vec<String>,
+}
+
+impl Default for OutputFormatSelection {
+    fn default() -> Self {
+        Self {
+            format: CliOutputFormat::Text,
+            source: OutputFormatSource::Default,
+            raw: None,
+            overridden: Vec::new(),
+        }
+    }
+}
+
+static OUTPUT_FORMAT_SELECTION: OnceLock<Mutex<OutputFormatSelection>> = OnceLock::new();
+
+fn output_format_selection_cell() -> &'static Mutex<OutputFormatSelection> {
+    OUTPUT_FORMAT_SELECTION.get_or_init(|| Mutex::new(OutputFormatSelection::default()))
+}
+
+fn set_current_output_format_selection(selection: &OutputFormatSelection) {
+    *output_format_selection_cell()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = selection.clone();
+}
+
+fn current_output_format_selection() -> OutputFormatSelection {
+    output_format_selection_cell()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone()
+}
+
+fn cli_has_output_format_flag(args: &[String]) -> bool {
+    args.iter()
+        .any(|arg| arg == "--output-format" || arg.starts_with("--output-format="))
+}
+
+fn raw_args_request_json_output(args: &[String]) -> bool {
+    let mut values = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
+        if arg == "--output-format" {
+            if let Some(value) = args.get(index + 1) {
+                values.push(value.as_str());
+            }
+            index += 2;
+            continue;
+        }
+        if let Some(value) = arg.strip_prefix("--output-format=") {
+            values.push(value);
+        }
+        index += 1;
+    }
+    if let Some(value) = values.last() {
+        let value = value.trim();
+        return !value.eq_ignore_ascii_case("text");
+    }
+    env::var("CLAW_OUTPUT_FORMAT").ok().is_some_and(|value| {
+        let value = value.trim();
+        !value.is_empty() && !value.eq_ignore_ascii_case("text")
+    })
+}
+
+fn output_format_selection_from_env() -> Result<OutputFormatSelection, String> {
+    match env::var("CLAW_OUTPUT_FORMAT") {
+        Ok(raw) if !raw.trim().is_empty() => Ok(OutputFormatSelection {
+            format: CliOutputFormat::parse(&raw)?,
+            source: OutputFormatSource::Env,
+            raw: Some(raw),
+            overridden: Vec::new(),
+        }),
+        _ => Ok(OutputFormatSelection::default()),
+    }
+}
+
+fn apply_output_format_flag(
+    selection: &mut OutputFormatSelection,
+    value: &str,
+) -> Result<CliOutputFormat, String> {
+    let parsed = CliOutputFormat::parse(value)?;
+    if selection.source == OutputFormatSource::Flag {
+        let previous = selection
+            .raw
+            .clone()
+            .unwrap_or_else(|| selection.format.as_str().to_string());
+        eprintln!("warning: --output-format specified multiple times; using last value '{value}'");
+        selection.overridden.push(previous);
+    }
+    selection.format = parsed;
+    selection.source = OutputFormatSource::Flag;
+    selection.raw = Some(value.to_string());
+    set_current_output_format_selection(selection);
+    Ok(parsed)
+}
 impl CliOutputFormat {
     fn parse(value: &str) -> Result<Self, String> {
-        match value {
-            "text" => Ok(Self::Text),
-            "json" => Ok(Self::Json),
+        match value.trim() {
+            value if value.eq_ignore_ascii_case("text") => Ok(Self::Text),
+            value if value.eq_ignore_ascii_case("json") => Ok(Self::Json),
             other => Err(format!(
-                "unsupported value for --output-format: {other} (expected text or json)"
+                "invalid_output_format: unsupported value for --output-format: {other}\nExpected: text, json\nHint: Use --output-format text or --output-format json."
             )),
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Json => "json",
         }
     }
 }
@@ -1275,7 +1414,13 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     // #148: when user passes --model/--model=, capture the raw input so we
     // can attribute source: "flag" later. None means no flag was supplied.
     let mut model_flag_raw: Option<String> = None;
-    let mut output_format = CliOutputFormat::Text;
+    let mut output_format_selection = if cli_has_output_format_flag(args) {
+        OutputFormatSelection::default()
+    } else {
+        output_format_selection_from_env()?
+    };
+    set_current_output_format_selection(&output_format_selection);
+    let mut output_format = output_format_selection.format;
     let mut permission_mode_override = None;
     let mut wants_help = false;
     let mut wants_version = false;
@@ -1339,7 +1484,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 let value = args
                     .get(index + 1)
                     .ok_or_else(|| "missing_flag_value: missing value for --output-format.\nUsage: --output-format text  or  --output-format json".to_string())?;
-                output_format = CliOutputFormat::parse(value)?;
+                output_format = apply_output_format_flag(&mut output_format_selection, value)?;
                 index += 2;
             }
             "--permission-mode" => {
@@ -1350,7 +1495,8 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 index += 2;
             }
             flag if flag.starts_with("--output-format=") => {
-                output_format = CliOutputFormat::parse(&flag[16..])?;
+                output_format =
+                    apply_output_format_flag(&mut output_format_selection, &flag[16..])?;
                 index += 1;
             }
             flag if flag.starts_with("--permission-mode=") => {
@@ -2767,6 +2913,7 @@ fn print_model_validation_warning_status(
     let kind = classify_error_kind(error);
     let (short_reason, inline_hint) = split_error_hint(error);
     let hint = inline_hint.or_else(|| fallback_hint_for_error_kind(kind).map(String::from));
+    let format_selection = current_output_format_selection();
     let mut value = status_json_value(
         None,
         usage,
@@ -2775,6 +2922,7 @@ fn print_model_validation_warning_status(
         None,
         None,
         allowed_tools,
+        Some(&format_selection),
     );
     let object = value
         .as_object_mut()
@@ -3968,6 +4116,15 @@ fn check_system_health(cwd: &Path, config: Option<&runtime::RuntimeConfig>) -> D
         format!("Version          {}", VERSION),
         format!("Build target     {}", BUILD_TARGET.unwrap_or("<unknown>")),
         format!("Git SHA          {}", GIT_SHA.unwrap_or("<unknown>")),
+        format!(
+            "Output format env  CLAW_OUTPUT_FORMAT={}",
+            env::var("CLAW_OUTPUT_FORMAT").unwrap_or_else(|_| "<unset>".to_string())
+        ),
+        format!(
+            "Logging env      CLAW_LOG={} RUST_LOG={}",
+            env::var("CLAW_LOG").unwrap_or_else(|_| "<unset>".to_string()),
+            env::var("RUST_LOG").unwrap_or_else(|_| "<unset>".to_string())
+        ),
     ];
     if let Some(model) = default_model {
         details.push(format!("Default model    {model}"));
@@ -3998,6 +4155,12 @@ fn check_system_health(cwd: &Path, config: Option<&runtime::RuntimeConfig>) -> D
             binary_provenance.json_value(),
         ),
         ("default_model".to_string(), json!(default_model)),
+        (
+            "claw_output_format".to_string(),
+            json!(env::var("CLAW_OUTPUT_FORMAT").ok()),
+        ),
+        ("claw_log".to_string(), json!(env::var("CLAW_LOG").ok())),
+        ("rust_log".to_string(), json!(env::var("RUST_LOG").ok())),
     ]))
 }
 
@@ -5443,6 +5606,7 @@ fn run_resume_command(
                     default_permission_mode().as_str(),
                     &context,
                     None, // #148: resumed sessions don't have flag provenance
+                    None,
                     None,
                     None,
                 )),
@@ -8258,6 +8422,7 @@ fn print_status_snapshot(
             CliOutputFormat::Text => return Err(error.into()),
         },
     };
+    let format_selection = current_output_format_selection();
     match output_format {
         CliOutputFormat::Text => println!(
             "{}",
@@ -8280,6 +8445,7 @@ fn print_status_snapshot(
                 Some(&provenance),
                 Some(&permission_mode),
                 allowed_tools,
+                Some(&format_selection),
             ))?
         ),
     }
@@ -8299,6 +8465,7 @@ fn status_json_value(
     provenance: Option<&ModelProvenance>,
     permission_provenance: Option<&PermissionModeProvenance>,
     allowed_tools: Option<&AllowedToolSet>,
+    format_selection: Option<&OutputFormatSelection>,
 ) -> serde_json::Value {
     // #143: top-level `status` marker so claws can distinguish
     // a clean run from a degraded run (config parse failed but other fields
@@ -8317,6 +8484,7 @@ fn status_json_value(
     let tool_registry = GlobalToolRegistry::builtin();
     let available_tool_names = tool_registry.canonical_allowed_tool_names();
     let tool_aliases = allowed_tool_aliases_json(&tool_registry);
+    let output_format_selection = format_selection.cloned().unwrap_or_default();
     // #732: always emit an array (empty when unrestricted) so callers can do
     // `.allowed_tools.entries | length > 0` without a null-check first.
     let allowed_tool_entries = allowed_tools
@@ -8343,6 +8511,9 @@ fn status_json_value(
             "available": available_tool_names,
             "aliases": tool_aliases,
         },
+        "format_source": output_format_selection.source.as_str(),
+        "format_raw": output_format_selection.raw,
+        "format_overridden": output_format_selection.overridden,
         "binary_provenance": context.binary_provenance.json_value(),
         "usage": {
             "messages": usage.message_count,
@@ -12529,7 +12700,15 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         out,
-        "  --output-format FORMAT     Non-interactive output format: text or json"
+        "  --output-format FORMAT     Non-interactive output format: text or json (case-insensitive)"
+    )?;
+    writeln!(
+        out,
+        "                              CLAW_OUTPUT_FORMAT sets the default; flags override env"
+    )?;
+    writeln!(
+        out,
+        "                              Log env vars: CLAW_LOG or RUST_LOG"
     )?;
     writeln!(
         out,
@@ -14205,6 +14384,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         assert_eq!(
             json.get("status").and_then(|v| v.as_str()),
@@ -14279,6 +14459,7 @@ mod tests {
             None,
             None,
             Some(&allowed),
+            None,
         );
         assert_eq!(
             restricted_json
@@ -14308,6 +14489,7 @@ mod tests {
             usage,
             "workspace-write",
             &clean_context,
+            None,
             None,
             None,
             None,
@@ -14589,6 +14771,12 @@ mod tests {
         assert_eq!(
             classify_error_kind("invalid_tool_name: unsupported tool in --allowedTools: teleport"),
             "invalid_tool_name"
+        );
+        assert_eq!(
+            classify_error_kind(
+                "invalid_output_format: unsupported value for --output-format: YAML"
+            ),
+            "invalid_output_format"
         );
         assert_eq!(
             classify_error_kind(
@@ -16116,6 +16304,7 @@ mod tests {
             },
             "workspace-write",
             &context,
+            None,
             None,
             None,
             None,
