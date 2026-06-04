@@ -570,6 +570,30 @@ Runtime config is loaded in this order, with later entries overriding earlier on
 
 The list is also the precedence chain: project-local settings override project settings, project settings override the legacy project `.claw.json`, and project files override user files. `claw --output-format json config` includes each discovered file's `precedence_rank`, `wins_for_keys`, and `shadowed_keys` so automation can see which file controls each effective key without reimplementing the merge order.
 
+## MCP server validation
+
+`claw mcp --output-format json` loads valid `mcpServers` entries even when sibling entries are malformed. The JSON list envelope distinguishes the total configured entries from the valid and invalid subsets:
+
+```json
+{
+  "configured_servers": 1,
+  "total_configured": 2,
+  "valid_count": 1,
+  "invalid_count": 1,
+  "servers": [{ "name": "valid-server", "valid": true }],
+  "invalid_servers": [
+    {
+      "name": "missing-command",
+      "error_field": "command",
+      "reason": ".claw.json: mcpServers.missing-command: missing string field command",
+      "valid": false
+    }
+  ]
+}
+```
+
+`status --output-format json` mirrors this under `mcp_validation`, and `doctor --output-format json` includes an `mcp validation` check so automation can repair every rejected server entry without losing usable MCP servers.
+
 ## Hook configuration
 
 `hooks.PreToolUse`, `hooks.PostToolUse`, and `hooks.PostToolUseFailure` accept either legacy command strings or object-style entries with a `matcher` and nested command hooks:

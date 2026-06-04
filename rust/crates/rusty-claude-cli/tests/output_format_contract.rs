@@ -111,6 +111,7 @@ fn assert_doctor_help_json_contract(parsed: &Value) {
     assert!(checks.iter().any(|check| check == "auth"));
     assert!(checks.iter().any(|check| check == "boot preflight"));
     assert!(checks.iter().any(|check| check == "memory"));
+    assert!(checks.iter().any(|check| check == "mcp validation"));
 }
 
 #[test]
@@ -1458,7 +1459,7 @@ fn doctor_and_resume_status_emit_json_when_requested() {
         .is_some_and(|available| available.iter().any(|name| name == "web_fetch")));
 
     let checks = doctor["checks"].as_array().expect("doctor checks");
-    assert_eq!(checks.len(), 9);
+    assert_eq!(checks.len(), 10);
     let check_names = checks
         .iter()
         .map(|check| {
@@ -1479,6 +1480,7 @@ fn doctor_and_resume_status_emit_json_when_requested() {
         vec![
             "auth",
             "config",
+            "mcp validation",
             "install source",
             "workspace",
             "memory",
@@ -1822,6 +1824,12 @@ fn mcp_json_reports_required_optional_and_redacts_secret_values() {
     assert_eq!(list["action"], "list");
     assert_eq!(list["status"], "ok");
     assert_eq!(list["configured_servers"], 2);
+    assert_eq!(list["total_configured"], 2);
+    assert_eq!(list["valid_count"], 2);
+    assert_eq!(list["invalid_count"], 0);
+    assert!(list["invalid_servers"]
+        .as_array()
+        .is_some_and(Vec::is_empty));
     let servers = list["servers"].as_array().expect("servers array");
     let required = servers
         .iter()
@@ -1832,6 +1840,8 @@ fn mcp_json_reports_required_optional_and_redacts_secret_values() {
         .find(|server| server["name"] == "optional-remote")
         .expect("optional remote server should be listed");
     assert_eq!(required["required"], true);
+    assert_eq!(required["valid"], true);
+    assert_eq!(optional["valid"], true);
     assert_eq!(optional["required"], false);
     assert_eq!(required["details"]["env_keys"][0], "TOKEN");
     assert_eq!(optional["details"]["header_keys"][0], "Authorization");
@@ -1850,6 +1860,10 @@ fn mcp_json_reports_required_optional_and_redacts_secret_values() {
     assert_eq!(show["action"], "show");
     assert_eq!(show["status"], "ok");
     assert_eq!(show["server"]["required"], false);
+    assert_eq!(show["server"]["valid"], true);
+    assert_eq!(show["total_configured"], 2);
+    assert_eq!(show["valid_count"], 2);
+    assert_eq!(show["invalid_count"], 0);
     assert_eq!(show["server"]["details"]["header_keys"][0], "Authorization");
     let show_text = serde_json::to_string(&show).expect("mcp show json should serialize");
     assert!(!show_text.contains("secret-header-value"));
@@ -1859,18 +1873,29 @@ fn mcp_json_reports_required_optional_and_redacts_secret_values() {
 #[test]
 fn mcp_degraded_config_and_failed_usage_are_distinct_json_contracts() {
     let root = unique_temp_dir("mcp-degraded-vs-failed");
+    let workspace = root.join("workspace");
     let config_home = root.join("config-home");
     let home = root.join("home");
-    fs::create_dir_all(&root).expect("workspace should exist");
+    fs::create_dir_all(&workspace).expect("workspace should exist");
     fs::create_dir_all(&config_home).expect("config home should exist");
     fs::create_dir_all(&home).expect("home should exist");
     fs::write(
-        root.join(".claw.json"),
+        workspace.join(".claw.json"),
         r#"{
           "mcpServers": {
+            "valid-server": {
+              "command": "/bin/echo",
+              "args": ["hello"]
+            },
             "missing-command": {
               "args": ["arg-only-no-command"],
               "required": true
+            },
+            "empty-command": {
+              "command": ""
+            },
+            "wrong-type-command": {
+              "command": 42
             }
           }
         }"#,
@@ -1884,18 +1909,56 @@ fn mcp_degraded_config_and_failed_usage_are_distinct_json_contracts() {
         ("HOME", home.to_str().expect("home")),
     ];
 
-    let degraded = assert_json_command_with_env(&root, &["--output-format", "json", "mcp"], &envs);
+    let degraded =
+        assert_json_command_with_env(&workspace, &["--output-format", "json", "mcp"], &envs);
     assert_eq!(degraded["kind"], "mcp");
     assert_eq!(degraded["action"], "list");
     assert_eq!(degraded["status"], "degraded");
-    assert!(degraded["config_load_error"]
+    assert!(degraded["config_load_error"].is_null());
+    assert_eq!(degraded["configured_servers"], 1);
+    assert_eq!(degraded["total_configured"], 4);
+    assert_eq!(degraded["valid_count"], 1);
+    assert_eq!(degraded["invalid_count"], 3);
+    assert_eq!(degraded["servers"][0]["name"], "valid-server");
+    assert_eq!(degraded["servers"][0]["valid"], true);
+    assert_eq!(degraded["invalid_servers"][0]["name"], "empty-command");
+    assert_eq!(degraded["invalid_servers"][0]["error_field"], "command");
+    assert!(degraded["invalid_servers"][0]["reason"]
         .as_str()
-        .is_some_and(|error| error.contains("mcpServers.missing-command")));
-    assert_eq!(degraded["configured_servers"], 0);
-    assert!(degraded["servers"].as_array().expect("servers").is_empty());
+        .is_some_and(|error| error.contains("non-empty string")));
+    assert_eq!(degraded["invalid_servers"][1]["name"], "missing-command");
+    assert_eq!(degraded["invalid_servers"][1]["error_field"], "command");
+    assert!(degraded["invalid_servers"][1]["reason"]
+        .as_str()
+        .is_some_and(|error| error.contains("missing string field command")));
+    assert_eq!(degraded["invalid_servers"][2]["name"], "wrong-type-command");
+    assert_eq!(degraded["invalid_servers"][2]["error_field"], "command");
+
+    let status =
+        assert_json_command_with_env(&workspace, &["--output-format", "json", "status"], &envs);
+    assert_eq!(status["status"], "degraded");
+    assert!(status["config_load_error"].is_null());
+    assert_eq!(status["mcp_validation"]["total_configured"], 4);
+    assert_eq!(status["mcp_validation"]["valid_count"], 1);
+    assert_eq!(status["mcp_validation"]["invalid_count"], 3);
+
+    let doctor =
+        assert_json_command_with_env(&workspace, &["--output-format", "json", "doctor"], &envs);
+    let mcp_validation = doctor["checks"]
+        .as_array()
+        .expect("doctor checks")
+        .iter()
+        .find(|check| check["name"] == "mcp validation")
+        .expect("mcp validation check");
+    assert_eq!(mcp_validation["status"], "warn");
+    assert_eq!(mcp_validation["invalid_count"], 3);
+    assert_eq!(
+        mcp_validation["invalid_servers"][0]["name"],
+        "empty-command"
+    );
 
     let failed_output = run_claw(
-        &root,
+        &workspace,
         &["--output-format", "json", "mcp", "list", "extra"],
         &envs,
     );

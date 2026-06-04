@@ -207,9 +207,19 @@ pub struct RuntimePermissionRuleConfig {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct McpConfigCollection {
     servers: BTreeMap<String, ScopedMcpServerConfig>,
+    invalid_servers: Vec<McpInvalidServerConfig>,
+    total_configured: usize,
 }
 
-/// MCP server config paired with the scope that defined it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpInvalidServerConfig {
+    pub name: String,
+    pub scope: ConfigSource,
+    pub path: PathBuf,
+    pub error_field: String,
+    pub reason: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopedMcpServerConfig {
     pub required: bool,
@@ -386,7 +396,7 @@ impl ConfigLoader {
     pub fn load(&self) -> Result<RuntimeConfig, ConfigError> {
         let mut merged = BTreeMap::new();
         let mut loaded_entries = Vec::new();
-        let mut mcp_servers = BTreeMap::new();
+        let mut mcp = McpConfigCollection::default();
         let mut all_warnings = Vec::new();
 
         for entry in self.discover() {
@@ -405,7 +415,7 @@ impl ConfigLoader {
             }
             all_warnings.extend(validation.warnings);
             validate_optional_hooks_config(&parsed.object, &entry.path)?;
-            merge_mcp_servers(&mut mcp_servers, entry.source, &parsed.object, &entry.path)?;
+            merge_mcp_servers(&mut mcp, entry.source, &parsed.object, &entry.path)?;
             deep_merge_objects(&mut merged, &parsed.object);
             loaded_entries.push(entry);
         }
@@ -414,7 +424,7 @@ impl ConfigLoader {
             emit_config_warning_once(&warning.to_string());
         }
 
-        build_runtime_config(merged, loaded_entries, mcp_servers)
+        build_runtime_config(merged, loaded_entries, mcp)
     }
 
     /// Like [`load`] but also returns the list of validation warnings collected during
@@ -425,7 +435,7 @@ impl ConfigLoader {
     pub fn load_collecting_warnings(&self) -> Result<(RuntimeConfig, Vec<String>), ConfigError> {
         let mut merged = BTreeMap::new();
         let mut loaded_entries = Vec::new();
-        let mut mcp_servers = BTreeMap::new();
+        let mut mcp = McpConfigCollection::default();
         let mut all_warnings: Vec<String> = Vec::new();
 
         for entry in self.discover() {
@@ -444,12 +454,12 @@ impl ConfigLoader {
             }
             all_warnings.extend(validation.warnings.iter().map(|w| w.to_string()));
             validate_optional_hooks_config(&parsed.object, &entry.path)?;
-            merge_mcp_servers(&mut mcp_servers, entry.source, &parsed.object, &entry.path)?;
+            merge_mcp_servers(&mut mcp, entry.source, &parsed.object, &entry.path)?;
             deep_merge_objects(&mut merged, &parsed.object);
             loaded_entries.push(entry);
         }
 
-        let config = build_runtime_config(merged, loaded_entries, mcp_servers)?;
+        let config = build_runtime_config(merged, loaded_entries, mcp)?;
         Ok((config, all_warnings))
     }
 
@@ -462,7 +472,7 @@ impl ConfigLoader {
     pub fn inspect_collecting_warnings(&self) -> ConfigInspection {
         let mut merged = BTreeMap::new();
         let mut loaded_entries = Vec::new();
-        let mut mcp_servers = BTreeMap::new();
+        let mut mcp = McpConfigCollection::default();
         let mut warnings = Vec::new();
         let mut files = Vec::new();
         let mut load_error = None;
@@ -546,7 +556,7 @@ impl ConfigLoader {
             }
 
             if let Err(error) =
-                merge_mcp_servers(&mut mcp_servers, entry.source, &parsed.object, &entry.path)
+                merge_mcp_servers(&mut mcp, entry.source, &parsed.object, &entry.path)
             {
                 let detail = error.to_string();
                 load_error.get_or_insert_with(|| detail.clone());
@@ -567,7 +577,7 @@ impl ConfigLoader {
 
         annotate_config_file_precedence(&mut files);
 
-        let runtime_config = match build_runtime_config(merged, loaded_entries, mcp_servers) {
+        let runtime_config = match build_runtime_config(merged, loaded_entries, mcp) {
             Ok(config) => Some(config),
             Err(error) => {
                 load_error.get_or_insert_with(|| error.to_string());
@@ -703,16 +713,14 @@ fn collect_config_key_paths_for_value(prefix: &str, value: &JsonValue, keys: &mu
 fn build_runtime_config(
     merged: BTreeMap<String, JsonValue>,
     loaded_entries: Vec<ConfigEntry>,
-    mcp_servers: BTreeMap<String, ScopedMcpServerConfig>,
+    mcp: McpConfigCollection,
 ) -> Result<RuntimeConfig, ConfigError> {
     let merged_value = JsonValue::Object(merged.clone());
 
     let feature_config = RuntimeFeatureConfig {
         hooks: parse_optional_hooks_config(&merged_value)?,
         plugins: parse_optional_plugin_config(&merged_value)?,
-        mcp: McpConfigCollection {
-            servers: mcp_servers,
-        },
+        mcp,
         oauth: parse_optional_oauth_config(&merged_value, "merged settings.oauth")?,
         model: parse_optional_model(&merged_value),
         aliases: parse_optional_aliases(&merged_value)?,
@@ -1331,6 +1339,31 @@ impl McpConfigCollection {
     }
 
     #[must_use]
+    pub fn invalid_servers(&self) -> &[McpInvalidServerConfig] {
+        &self.invalid_servers
+    }
+
+    #[must_use]
+    pub fn total_configured(&self) -> usize {
+        self.total_configured
+    }
+
+    #[must_use]
+    pub fn valid_count(&self) -> usize {
+        self.servers.len()
+    }
+
+    #[must_use]
+    pub fn invalid_count(&self) -> usize {
+        self.invalid_servers.len()
+    }
+
+    #[must_use]
+    pub fn has_invalid_servers(&self) -> bool {
+        !self.invalid_servers.is_empty()
+    }
+
+    #[must_use]
     pub fn get(&self, name: &str) -> Option<&ScopedMcpServerConfig> {
         self.servers.get(name)
     }
@@ -1421,7 +1454,7 @@ fn read_optional_json_object(path: &Path) -> Result<OptionalConfigFile, ConfigEr
 }
 
 fn merge_mcp_servers(
-    target: &mut BTreeMap<String, ScopedMcpServerConfig>,
+    target: &mut McpConfigCollection,
     source: ConfigSource,
     root: &BTreeMap<String, JsonValue>,
     path: &Path,
@@ -1430,25 +1463,144 @@ fn merge_mcp_servers(
         return Ok(());
     };
     let servers = expect_object(mcp_servers, &format!("{}: mcpServers", path.display()))?;
+    target.total_configured += servers.len();
     for (name, value) in servers {
-        let parsed = parse_mcp_server_config(
-            name,
-            value,
-            &format!("{}: mcpServers.{name}", path.display()),
-        )?;
-        target.insert(
+        let context = format!("{}: mcpServers.{name}", path.display());
+        let Ok(object) = expect_object(value, &context) else {
+            let error = expect_object(value, &context).expect_err("object parse must fail");
+            target.servers.remove(name);
+            target
+                .invalid_servers
+                .push(mcp_invalid_server(name, source, path, &context, &error));
+            continue;
+        };
+        let required = match optional_bool(object, "required", &context) {
+            Ok(required) => required.unwrap_or(false),
+            Err(error) => {
+                target.servers.remove(name);
+                target
+                    .invalid_servers
+                    .push(mcp_invalid_server(name, source, path, &context, &error));
+                continue;
+            }
+        };
+        if let Err(error) = validate_mcp_server_keys(name, object, &context) {
+            target.servers.remove(name);
+            target
+                .invalid_servers
+                .push(mcp_invalid_server(name, source, path, &context, &error));
+            continue;
+        }
+        let parsed = match parse_mcp_server_config(name, value, &context) {
+            Ok(parsed) => parsed,
+            Err(error) => {
+                target.servers.remove(name);
+                target
+                    .invalid_servers
+                    .push(mcp_invalid_server(name, source, path, &context, &error));
+                continue;
+            }
+        };
+        target.servers.insert(
             name.clone(),
             ScopedMcpServerConfig {
-                required: optional_bool(
-                    expect_object(value, &format!("{}: mcpServers.{name}", path.display()))?,
-                    "required",
-                    &format!("{}: mcpServers.{name}", path.display()),
-                )?
-                .unwrap_or(false),
+                required,
                 scope: source,
                 config: parsed,
             },
         );
+    }
+    Ok(())
+}
+
+fn mcp_invalid_server(
+    name: &str,
+    source: ConfigSource,
+    path: &Path,
+    context: &str,
+    error: &ConfigError,
+) -> McpInvalidServerConfig {
+    let reason = config_error_detail(error);
+    McpInvalidServerConfig {
+        name: name.to_string(),
+        scope: source,
+        path: path.to_path_buf(),
+        error_field: mcp_error_field(name, context, &reason),
+        reason,
+    }
+}
+
+fn config_error_detail(error: &ConfigError) -> String {
+    match error {
+        ConfigError::Io(error) => error.to_string(),
+        ConfigError::Parse(reason) => reason.clone(),
+    }
+}
+
+fn mcp_error_field(name: &str, context: &str, reason: &str) -> String {
+    if let Some(field) = reason
+        .split("missing string field ")
+        .nth(1)
+        .and_then(|tail| tail.split_whitespace().next())
+    {
+        return field
+            .trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+            .to_string();
+    }
+    if let Some(field) = reason
+        .split("field ")
+        .nth(1)
+        .and_then(|tail| tail.split_whitespace().next())
+    {
+        return field
+            .trim_matches(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+            .to_string();
+    }
+    reason
+        .split_once(context)
+        .and_then(|(_, tail)| tail.trim_start_matches('.').split(':').next())
+        .filter(|field| !field.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("mcpServers.{name}"))
+}
+
+fn validate_mcp_server_keys(
+    server_name: &str,
+    object: &BTreeMap<String, JsonValue>,
+    context: &str,
+) -> Result<(), ConfigError> {
+    let server_type =
+        optional_string(object, "type", context)?.unwrap_or_else(|| infer_mcp_server_type(object));
+    let allowed = match server_type {
+        "stdio" => &[
+            "type",
+            "command",
+            "args",
+            "env",
+            "toolCallTimeoutMs",
+            "required",
+        ][..],
+        "sse" | "http" => &[
+            "type",
+            "url",
+            "headers",
+            "headersHelper",
+            "oauth",
+            "required",
+        ][..],
+        "ws" => &["type", "url", "headers", "headersHelper", "required"][..],
+        "sdk" => &["type", "name", "required"][..],
+        "claudeai-proxy" => &["type", "url", "id", "required"][..],
+        other => {
+            return Err(ConfigError::Parse(format!(
+                "{context}: unsupported MCP server type for {server_name}: {other}"
+            )));
+        }
+    };
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+        return Err(ConfigError::Parse(format!(
+            "{context}: unknown MCP server field {key}"
+        )));
     }
     Ok(())
 }
@@ -1719,7 +1871,7 @@ fn parse_mcp_server_config(
         optional_string(object, "type", context)?.unwrap_or_else(|| infer_mcp_server_type(object));
     match server_type {
         "stdio" => Ok(McpServerConfig::Stdio(McpStdioServerConfig {
-            command: expect_string(object, "command", context)?.to_string(),
+            command: expect_non_empty_string(object, "command", context)?.to_string(),
             args: optional_string_array(object, "args", context)?.unwrap_or_default(),
             env: optional_string_map(object, "env", context)?.unwrap_or_default(),
             tool_call_timeout_ms: optional_u64(object, "toolCallTimeoutMs", context)?,
@@ -1792,6 +1944,20 @@ fn expect_object<'a>(
     value
         .as_object()
         .ok_or_else(|| ConfigError::Parse(format!("{context}: expected JSON object")))
+}
+
+fn expect_non_empty_string<'a>(
+    object: &'a BTreeMap<String, JsonValue>,
+    key: &str,
+    context: &str,
+) -> Result<&'a str, ConfigError> {
+    let value = expect_string(object, key, context)?;
+    if value.trim().is_empty() {
+        return Err(ConfigError::Parse(format!(
+            "{context}: field {key} must be a non-empty string"
+        )));
+    }
+    Ok(value)
 }
 
 fn expect_string<'a>(
@@ -2843,7 +3009,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_invalid_mcp_server_shapes() {
+    fn records_invalid_mcp_server_shapes_without_rejecting_config_440() {
         // given
         let root = temp_dir();
         let cwd = root.join("project");
@@ -2857,14 +3023,68 @@ mod tests {
         .expect("write broken settings");
 
         // when
-        let error = ConfigLoader::new(&cwd, &home)
+        let loaded = ConfigLoader::new(&cwd, &home)
             .load()
-            .expect_err("config should fail");
+            .expect("invalid MCP entries should not block otherwise loadable config");
 
         // then
-        assert!(error
-            .to_string()
+        assert!(loaded.mcp().servers().is_empty());
+        assert_eq!(loaded.mcp().total_configured(), 1);
+        assert_eq!(loaded.mcp().invalid_count(), 1);
+        let invalid = &loaded.mcp().invalid_servers()[0];
+        assert_eq!(invalid.name, "broken");
+        assert_eq!(invalid.error_field, "url");
+        assert!(invalid
+            .reason
             .contains("mcpServers.broken: missing string field url"));
+
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn loads_valid_mcp_servers_and_collects_all_invalid_siblings_440() {
+        let root = temp_dir();
+        let cwd = root.join("project");
+        let home = root.join("home").join(".claw");
+        fs::create_dir_all(&home).expect("home config dir");
+        fs::create_dir_all(&cwd).expect("project dir");
+        fs::write(
+            home.join("settings.json"),
+            r#"{
+              "mcpServers": {
+                "valid-server": {"command": "/bin/echo", "args": ["hello"]},
+                "missing-command": {"args": ["arg-only"]},
+                "empty-command": {"command": ""},
+                "wrong-type-command": {"command": 42},
+                "extra-unknown-field": {"command": "/bin/echo", "extra": true}
+              }
+            }"#,
+        )
+        .expect("write mixed settings");
+
+        let loaded = ConfigLoader::new(&cwd, &home)
+            .load()
+            .expect("valid MCP entries should load beside invalid siblings");
+
+        assert_eq!(loaded.mcp().total_configured(), 5);
+        assert_eq!(loaded.mcp().valid_count(), 1);
+        assert_eq!(loaded.mcp().invalid_count(), 4);
+        assert!(loaded.mcp().get("valid-server").is_some());
+        let invalid_names = loaded
+            .mcp()
+            .invalid_servers()
+            .iter()
+            .map(|server| server.name.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            invalid_names,
+            vec![
+                "empty-command",
+                "extra-unknown-field",
+                "missing-command",
+                "wrong-type-command",
+            ]
+        );
 
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }

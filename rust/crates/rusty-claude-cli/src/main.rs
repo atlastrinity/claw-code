@@ -56,10 +56,10 @@ use runtime::{
     load_system_prompt, load_system_prompt_with_context, pricing_for_model, resolve_expected_base,
     resolve_sandbox_status, ApiClient, ApiRequest, AssistantEvent, BaseCommitState,
     CompactionConfig, ConfigFileReport, ConfigLoader, ConfigSource, ContentBlock, ContextFile,
-    ConversationMessage, ConversationRuntime, McpServer, McpServerManager, McpServerSpec, McpTool,
-    MessageRole, ModelPricing, PermissionMode, PermissionPolicy, ProjectContext, PromptCacheEvent,
-    ResolvedPermissionMode, RuntimeError, Session, TokenUsage, ToolError, ToolExecutor,
-    UsageTracker,
+    ConversationMessage, ConversationRuntime, McpConfigCollection, McpInvalidServerConfig,
+    McpServer, McpServerManager, McpServerSpec, McpTool, MessageRole, ModelPricing, PermissionMode,
+    PermissionPolicy, ProjectContext, PromptCacheEvent, ResolvedPermissionMode, RuntimeError,
+    Session, TokenUsage, ToolError, ToolExecutor, UsageTracker,
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -3498,6 +3498,11 @@ fn render_doctor_report(
         project_root.as_deref(),
         &project_context.instruction_files,
     );
+    let mcp_validation = config
+        .as_ref()
+        .ok()
+        .map(|runtime_config| McpValidationSummary::from_collection(runtime_config.mcp()))
+        .unwrap_or_default();
     let context = StatusContext {
         cwd: cwd.clone(),
         session_path: None,
@@ -3526,11 +3531,13 @@ fn render_doctor_report(
         // fed into health renderers that don't read config_load_error.
         config_load_error: config.as_ref().err().map(ToString::to_string),
         config_load_error_kind: None,
+        mcp_validation: mcp_validation.clone(),
     };
     Ok(DoctorReport {
         checks: vec![
             check_auth_health(),
             check_config_health(&config_loader, config.as_ref()),
+            check_mcp_validation_health(&mcp_validation),
             check_install_source_health(),
             check_workspace_health(&context),
             check_memory_health(&context),
@@ -3791,8 +3798,14 @@ fn check_config_health(
             }
             details.push(format!(
                 "MCP servers       {}",
-                runtime_config.mcp().servers().len()
+                runtime_config.mcp().valid_count()
             ));
+            if runtime_config.mcp().invalid_count() > 0 {
+                details.push(format!(
+                    "MCP invalid       {}",
+                    runtime_config.mcp().invalid_count()
+                ));
+            }
             if present_paths.is_empty() {
                 details.push("Discovered files  <none> (defaults active)".to_string());
             } else {
@@ -3819,7 +3832,11 @@ fn check_config_health(
                 ("resolved_model".to_string(), json!(runtime_config.model())),
                 (
                     "mcp_servers".to_string(),
-                    json!(runtime_config.mcp().servers().len()),
+                    json!(runtime_config.mcp().valid_count()),
+                ),
+                (
+                    "mcp_invalid_servers".to_string(),
+                    json!(runtime_config.mcp().invalid_count()),
                 ),
             ]))
         }
@@ -3849,6 +3866,56 @@ fn check_config_health(
             ("load_error".to_string(), json!(error.to_string())),
         ])),
     }
+}
+
+fn check_mcp_validation_health(summary: &McpValidationSummary) -> DiagnosticCheck {
+    let mut details = vec![
+        format!("Total entries     {}", summary.total_configured),
+        format!("Valid entries     {}", summary.valid_count),
+        format!("Invalid entries   {}", summary.invalid_count()),
+    ];
+    details.extend(
+        summary
+            .invalid_servers
+            .iter()
+            .map(|server| format!("Invalid server   {} ({})", server.name, server.reason)),
+    );
+
+    DiagnosticCheck::new(
+        "MCP validation",
+        if summary.has_invalid_servers() {
+            DiagnosticLevel::Warn
+        } else {
+            DiagnosticLevel::Ok
+        },
+        if summary.has_invalid_servers() {
+            format!(
+                "{} MCP server entries are invalid; {} valid entries remain loaded",
+                summary.invalid_count(),
+                summary.valid_count
+            )
+        } else {
+            format!("{} MCP server entries validated", summary.valid_count)
+        },
+    )
+    .with_hint(if summary.has_invalid_servers() {
+        "Inspect `claw mcp list --output-format json` invalid_servers and fix each rejected mcpServers entry."
+    } else {
+        ""
+    })
+    .with_details(details)
+    .with_data(Map::from_iter([
+        (
+            "total_configured".to_string(),
+            json!(summary.total_configured),
+        ),
+        ("valid_count".to_string(), json!(summary.valid_count)),
+        ("invalid_count".to_string(), json!(summary.invalid_count())),
+        (
+            "invalid_servers".to_string(),
+            Value::Array(invalid_mcp_servers_json(&summary.invalid_servers)),
+        ),
+    ]))
 }
 
 fn check_permission_health(permission_mode: PermissionModeProvenance) -> DiagnosticCheck {
@@ -4796,6 +4863,65 @@ impl MemoryFileSummary {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct McpValidationSummary {
+    total_configured: usize,
+    valid_count: usize,
+    invalid_servers: Vec<McpInvalidServerConfig>,
+}
+
+impl McpValidationSummary {
+    fn from_collection(collection: &McpConfigCollection) -> Self {
+        Self {
+            total_configured: collection.total_configured(),
+            valid_count: collection.valid_count(),
+            invalid_servers: collection.invalid_servers().to_vec(),
+        }
+    }
+
+    fn invalid_count(&self) -> usize {
+        self.invalid_servers.len()
+    }
+
+    fn has_invalid_servers(&self) -> bool {
+        !self.invalid_servers.is_empty()
+    }
+
+    fn json_value(&self) -> serde_json::Value {
+        json!({
+            "total_configured": self.total_configured,
+            "valid_count": self.valid_count,
+            "invalid_count": self.invalid_count(),
+            "invalid_servers": invalid_mcp_servers_json(&self.invalid_servers),
+        })
+    }
+}
+
+fn invalid_mcp_servers_json(invalid_servers: &[McpInvalidServerConfig]) -> Vec<serde_json::Value> {
+    invalid_servers
+        .iter()
+        .map(|server| {
+            json!({
+                "name": &server.name,
+                "scope": config_source_json_value(server.scope),
+                "path": server.path.display().to_string(),
+                "error_field": &server.error_field,
+                "reason": &server.reason,
+                "valid": false,
+            })
+        })
+        .collect()
+}
+
+fn config_source_json_value(source: ConfigSource) -> serde_json::Value {
+    let id = match source {
+        ConfigSource::User => "user",
+        ConfigSource::Project => "project",
+        ConfigSource::Local => "local",
+    };
+    json!({"id": id, "label": id})
+}
+
 fn memory_file_summaries_for(
     cwd: &Path,
     project_root: Option<&Path>,
@@ -4933,6 +5059,7 @@ struct StatusContext {
     /// readable string so downstream claws can switch on the kind token
     /// instead of regex-scraping the prose.
     config_load_error_kind: Option<&'static str>,
+    mcp_validation: McpValidationSummary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -6132,6 +6259,7 @@ fn run_resume_command(
                     "load_failures": payload.load_failures.len(),
                 },
                 "config_load_error": payload.config_load_error,
+                "mcp_validation": payload.mcp_validation.json_value(),
                 "plugins": payload.plugins,
                 "load_failures": payload.load_failures,
             });
@@ -8040,6 +8168,7 @@ impl LiveCli {
                         "load_failures": payload.load_failures.len(),
                     },
                     "config_load_error": payload.config_load_error,
+                    "mcp_validation": payload.mcp_validation.json_value(),
                     "plugins": filtered_plugins,
                     "load_failures": payload.load_failures,
                 });
@@ -8843,9 +8972,10 @@ fn status_json_value(
     json!({
         "kind": "status",
         "action": "show",
-        "status": if degraded { "degraded" } else { "ok" },
+        "status": if degraded || context.mcp_validation.has_invalid_servers() { "degraded" } else { "ok" },
         "config_load_error": context.config_load_error,
         "config_load_error_kind": context.config_load_error_kind,
+        "mcp_validation": context.mcp_validation.json_value(),
         "model": model,
         "model_source": model_source,
         "model_raw": model_raw,
@@ -8912,6 +9042,7 @@ fn status_json_value(
             "memory_file_count": context.memory_file_count,
             "memory_files": memory_files_json(&context.memory_files),
             "unloaded_memory_files": context.unloaded_memory_files,
+            "mcp_validation": context.mcp_validation.json_value(),
         },
         "sandbox": {
             "enabled": context.sandbox_status.enabled,
@@ -8985,6 +9116,11 @@ fn status_context(
         project_root.as_deref(),
         &project_context.instruction_files,
     );
+    let mcp_validation = runtime_config
+        .as_ref()
+        .ok()
+        .map(|runtime_config| McpValidationSummary::from_collection(runtime_config.mcp()))
+        .unwrap_or_default();
     Ok(StatusContext {
         cwd: cwd.clone(),
         session_path: session_path.map(Path::to_path_buf),
@@ -9008,6 +9144,7 @@ fn status_context(
         binary_provenance: binary_provenance_for(Some(&cwd)),
         config_load_error,
         config_load_error_kind,
+        mcp_validation,
     })
 }
 
@@ -9590,7 +9727,7 @@ fn render_doctor_help_json() -> serde_json::Value {
         "requires_session_resume": false,
         "mutates_workspace": false,
         "output_fields": ["kind", "action", "status", "message", "report", "has_failures", "summary", "checks", "allowed_tools"],
-        "check_names": ["auth", "config", "install source", "workspace", "memory", "boot preflight", "sandbox", "permissions", "system"],
+        "check_names": ["auth", "config", "mcp validation", "install source", "workspace", "memory", "boot preflight", "sandbox", "permissions", "system"],
         "status_values": ["ok", "warn", "fail"],
         "options": [
             {
@@ -10920,6 +11057,7 @@ struct PluginsCommandPayload {
     reload_runtime: bool,
     status: &'static str,
     config_load_error: Option<String>,
+    mcp_validation: McpValidationSummary,
     plugins: Vec<Value>,
     load_failures: Vec<Value>,
 }
@@ -10932,9 +11070,16 @@ fn plugins_command_payload_for(
 ) -> Result<PluginsCommandPayload, Box<dyn std::error::Error>> {
     let loader = ConfigLoader::default_for(cwd);
     let loaded_config = load_config_with_warning_mode(&loader, config_warning_mode);
-    let (runtime_config, config_load_error) = match loaded_config {
-        Ok(runtime_config) => (runtime_config, None),
-        Err(error) => (runtime::RuntimeConfig::empty(), Some(error.to_string())),
+    let (runtime_config, config_load_error, mcp_validation) = match loaded_config {
+        Ok(runtime_config) => {
+            let mcp_validation = McpValidationSummary::from_collection(runtime_config.mcp());
+            (runtime_config, None, mcp_validation)
+        }
+        Err(error) => (
+            runtime::RuntimeConfig::empty(),
+            Some(error.to_string()),
+            McpValidationSummary::default(),
+        ),
     };
     let mut manager = build_plugin_manager(cwd, &loader, &runtime_config);
     let result = handle_plugins_slash_command(action, target, &mut manager)?;
@@ -10942,6 +11087,7 @@ fn plugins_command_payload_for(
     Ok(plugins_command_payload_from_result(
         result,
         config_load_error,
+        mcp_validation,
         &report,
     ))
 }
@@ -10949,10 +11095,14 @@ fn plugins_command_payload_for(
 fn plugins_command_payload_from_result(
     result: PluginsCommandResult,
     config_load_error: Option<String>,
+    mcp_validation: McpValidationSummary,
     report: &plugins::PluginRegistryReport,
 ) -> PluginsCommandPayload {
     let failures = report.failures();
-    let status = if config_load_error.is_some() || !failures.is_empty() {
+    let status = if config_load_error.is_some()
+        || mcp_validation.has_invalid_servers()
+        || !failures.is_empty()
+    {
         "degraded"
     } else {
         "ok"
@@ -10962,6 +11112,11 @@ fn plugins_command_payload_from_result(
             "Config load error\n  Status           fail\n  Summary          runtime config failed to load; reporting partial plugins view\n  Details          {error}\n  Hint             `claw doctor` classifies config parse errors; fix the listed field and rerun\n\n{}",
             result.message
         ),
+        None if mcp_validation.has_invalid_servers() => format!(
+            "MCP validation\n  Status           warn\n  Summary          {} MCP server entries are invalid; reporting plugins with valid MCP siblings only\n  Hint             Inspect `claw mcp list --output-format json` invalid_servers and fix each rejected mcpServers entry.\n\n{}",
+            mcp_validation.invalid_count(),
+            result.message
+        ),
         None => result.message,
     };
     PluginsCommandPayload {
@@ -10969,6 +11124,7 @@ fn plugins_command_payload_from_result(
         reload_runtime: result.reload_runtime,
         status,
         config_load_error,
+        mcp_validation,
         plugins: report.summaries().iter().map(plugin_summary_json).collect(),
         load_failures: failures.iter().map(plugin_load_failure_json).collect(),
     }
@@ -14726,9 +14882,10 @@ mod tests {
     }
 
     #[test]
-    fn plugins_degrades_gracefully_on_malformed_mcp_config() {
-        // Keep the plugins surface consistent with status/doctor/mcp: a bad
-        // MCP entry should not make local plugin introspection unusable.
+    fn plugins_degrades_on_invalid_mcp_server_without_global_config_error_440() {
+        // #440: invalid MCP entries should not make local plugin introspection
+        // unusable, and should surface as validation metadata instead of a
+        // whole-config parse failure.
         let _guard = env_lock();
         let root = temp_dir();
         let cwd = root.join("project-with-malformed-mcp-for-plugins");
@@ -14761,16 +14918,19 @@ mod tests {
         }
 
         assert_eq!(payload.status, "degraded");
-        let err = payload
-            .config_load_error
-            .as_deref()
-            .expect("config_load_error should be populated");
-        assert!(
-            err.contains("mcpServers.missing-command"),
-            "config_load_error should name the malformed MCP field: {err}"
+        assert!(payload.config_load_error.is_none());
+        assert_eq!(payload.mcp_validation.total_configured, 1);
+        assert_eq!(payload.mcp_validation.valid_count, 0);
+        assert_eq!(payload.mcp_validation.invalid_count(), 1);
+        assert_eq!(
+            payload.mcp_validation.invalid_servers[0].name,
+            "missing-command"
         );
-        assert!(payload.message.contains("Config load error"));
-        assert!(payload.message.contains("partial plugins view"));
+        assert!(payload.mcp_validation.invalid_servers[0]
+            .reason
+            .contains("missing string field command"));
+        assert!(payload.message.contains("MCP validation"));
+        assert!(payload.message.contains("valid MCP siblings only"));
         assert!(payload.message.contains("Plugins"));
 
         let _ = std::fs::remove_dir_all(root);
@@ -14786,14 +14946,13 @@ mod tests {
         let root = temp_dir();
         let cwd = root.join("project-with-malformed-mcp");
         std::fs::create_dir_all(&cwd).expect("project dir should exist");
-        // One valid server + one malformed entry missing `command`.
+        // Top-level `mcpServers` shape errors still degrade through the
+        // config_load_error path; per-server errors are handled by the #440
+        // MCP validation summary instead.
         std::fs::write(
             cwd.join(".claw.json"),
             r#"{
-  "mcpServers": {
-    "everything": {"command": "npx", "args": ["-y", "@modelcontextprotocol/server-everything"]},
-    "missing-command": {"args": ["arg-only-no-command"]}
-  }
+  "mcpServers": "not-an-object"
 }
 "#,
         )
@@ -14804,17 +14963,17 @@ mod tests {
                 .expect("status_context should not hard-fail on config parse errors (#143)")
         });
 
-        // Phase 1 contract: config_load_error is populated with the parse error.
+        // Config-shape errors still populate config_load_error.
         let err = context
             .config_load_error
             .as_ref()
-            .expect("config_load_error should be Some when config parse fails");
+            .expect("config_load_error should be Some when config shape parsing fails");
         assert!(
-            err.contains("mcpServers.missing-command"),
-            "config_load_error should name the malformed field path: {err}"
+            err.contains("mcpServers"),
+            "config_load_error should name the malformed mcpServers path: {err}"
         );
         assert!(
-            err.contains("missing string field command"),
+            err.contains("must be an object"),
             "config_load_error should carry the underlying parse error: {err}"
         );
 
@@ -14856,7 +15015,7 @@ mod tests {
         assert!(
             json.get("config_load_error")
                 .and_then(|v| v.as_str())
-                .is_some_and(|s| s.contains("mcpServers.missing-command")),
+                .is_some_and(|s| s.contains("mcpServers")),
             "config_load_error should surface in JSON output: {json}"
         );
         // Independent fields still populated.
@@ -16576,6 +16735,7 @@ mod tests {
                 binary_provenance: super::binary_provenance_for(None),
                 config_load_error: None,
                 config_load_error_kind: None,
+                mcp_validation: super::McpValidationSummary::default(),
             },
             None, // #148
             None,
@@ -16726,6 +16886,7 @@ mod tests {
             binary_provenance: super::binary_provenance_for(None),
             config_load_error: None,
             config_load_error_kind: None,
+            mcp_validation: super::McpValidationSummary::default(),
         };
 
         let check = super::check_workspace_health(&context);
@@ -16775,6 +16936,7 @@ mod tests {
             binary_provenance: super::binary_provenance_for(None),
             config_load_error: None,
             config_load_error_kind: None,
+            mcp_validation: super::McpValidationSummary::default(),
         };
 
         let check = super::check_memory_health(&context);
@@ -16816,6 +16978,7 @@ mod tests {
             binary_provenance: super::binary_provenance_for(None),
             config_load_error: None,
             config_load_error_kind: None,
+            mcp_validation: super::McpValidationSummary::default(),
         };
 
         let value = status_json_value(
