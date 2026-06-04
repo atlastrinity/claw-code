@@ -4268,7 +4268,14 @@ fn check_workspace_health(context: &StatusContext) -> DiagnosticCheck {
             "Git branch       {}",
             context.git_branch.as_deref().unwrap_or("unknown")
         ),
-        format!("Git state        {}", context.git_summary.headline()),
+        format!(
+            "Git state        {}",
+            if context.project_root.is_some() {
+                context.git_summary.headline()
+            } else {
+                "no git repo".to_string()
+            }
+        ),
         format!("Changed files    {}", context.git_summary.changed_files),
         format!(
             "Memory files     {} · config files loaded {}/{}",
@@ -4305,7 +4312,11 @@ fn check_workspace_health(context: &StatusContext) -> DiagnosticCheck {
         ("git_branch".to_string(), json!(context.git_branch)),
         (
             "git_state".to_string(),
-            json!(context.git_summary.headline()),
+            json!(if context.project_root.is_some() {
+                context.git_summary.headline()
+            } else {
+                "no_git_repo".to_string()
+            }),
         ),
         (
             "changed_files".to_string(),
@@ -9407,7 +9418,7 @@ fn status_json_value(
             "cwd": context.cwd,
             "project_root": context.project_root,
             "git_branch": context.git_branch,
-            "git_state": context.git_summary.headline(),
+            "git_state": if context.project_root.is_some() { context.git_summary.headline() } else { "no_git_repo".to_string() },
             // #408: changed_files counts ALL non-clean files (staged + unstaged + untracked + conflicted)
             "changed_files": context.git_summary.changed_files,
             "is_clean": context.git_summary.changed_files == 0,
@@ -9654,7 +9665,11 @@ fn format_status_report(
                 .as_ref()
                 .map_or_else(|| "unknown".to_string(), |path| path.display().to_string()),
             context.git_branch.as_deref().unwrap_or("unknown"),
-            context.git_summary.headline(),
+            if context.project_root.is_some() {
+                context.git_summary.headline()
+            } else {
+                "no_git_repo".to_string()
+            },
             context.git_summary.changed_files,
             context.git_summary.staged_files,
             context.git_summary.unstaged_files,
