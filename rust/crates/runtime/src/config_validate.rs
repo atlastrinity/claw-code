@@ -475,6 +475,17 @@ fn validate_hook_entry_format(
 
 fn suggest_field(input: &str, candidates: &[&str]) -> Option<String> {
     let input_lower = input.to_ascii_lowercase();
+    // #461: prefix-aware matching — if input is a prefix of a candidate,
+    // treat it as distance 0 (perfect prefix match) to avoid edit-distance
+    // misranking (e.g., "mcp" → "env" instead of "mcpServers").
+    let prefix_match = candidates
+        .iter()
+        .filter(|c| c.to_ascii_lowercase().starts_with(&input_lower))
+        .min_by_key(|c| c.len())
+        .map(|name| name.to_string());
+    if prefix_match.is_some() {
+        return prefix_match;
+    }
     candidates
         .iter()
         .filter_map(|candidate| {
