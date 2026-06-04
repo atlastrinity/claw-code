@@ -14847,7 +14847,7 @@ mod tests {
         let args = vec![
             "system-prompt".to_string(),
             "--cwd".to_string(),
-            "/tmp/project".to_string(),
+            "/tmp".to_string(),
             "--date".to_string(),
             "2026-04-01".to_string(),
         ];
@@ -14859,7 +14859,7 @@ mod tests {
         assert_eq!(
             action,
             CliAction::PrintSystemPrompt {
-                cwd: PathBuf::from("/tmp/project"),
+                cwd: PathBuf::from("/tmp"),
                 date: "2026-04-01".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
