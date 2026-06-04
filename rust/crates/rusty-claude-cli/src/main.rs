@@ -10492,6 +10492,22 @@ fn render_config_report(section: Option<&str>) -> Result<String, Box<dyn std::er
             "skills" => runtime_config.get("skills").map(|value| value.render()),
             "agents" => runtime_config.get("agents").map(|value| value.render()),
             "settings" => Some(runtime_config.as_json().render()),
+            // #344: /config help shows available sections
+            "help" => {
+                lines.push("Available config sections:".to_string());
+                lines.push("  env          Environment variables".to_string());
+                lines.push("  hooks        Hook configuration".to_string());
+                lines.push("  model        Model configuration".to_string());
+                lines.push("  plugins      Plugin configuration".to_string());
+                lines.push("  mcp          MCP server configuration".to_string());
+                lines.push("  sandbox      Sandbox configuration".to_string());
+                lines.push("  permissions  Permission rules".to_string());
+                lines.push("  skills       Skills configuration".to_string());
+                lines.push("  agents       Agent configuration".to_string());
+                lines.push("  settings     Full merged settings".to_string());
+                lines.push(format!("  Loaded keys: {}", runtime_config.merged().len()));
+                return Ok(lines.join("\n"));
+            }
             other => {
                 lines.push(format!(
                     "  Unsupported config section '{other}'. Use: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents, or settings."
@@ -10604,10 +10620,21 @@ fn render_config_json(
             "skills" => runtime_config.get("skills").map(|v| v.render()),
             "agents" => runtime_config.get("agents").map(|v| v.render()),
             "settings" => Some(runtime_config.as_json().render()),
+            // #344: /config help returns structured section list
+            "help" => {
+                return Ok(serde_json::json!({
+                    "kind": "config",
+                    "action": "help",
+                    "status": "ok",
+                    "section": "help",
+                    "available_sections": ["env", "hooks", "model", "plugins", "mcp", "sandbox", "permissions", "skills", "agents", "settings"],
+                    "loaded_keys": runtime_config.merged().len(),
+                }));
+            }
             other => {
                 // #741: populate hint field for unsupported section errors so callers reading
                 // .hint get actionable guidance instead of null
-                let hint = if matches!(other, "list" | "show" | "help" | "info") {
+                let hint = if matches!(other, "list" | "show" | "info") {
                     format!(
                         "'claw config {other}' is not a subcommand. To list all config: `claw config`. To inspect a section: `claw config <section>` where section is one of: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents, settings."
                     )

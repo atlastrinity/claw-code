@@ -1572,7 +1572,10 @@ fn parse_clear_args(args: &[&str]) -> Result<bool, SlashCommandParseError> {
 fn parse_config_section(args: &[&str]) -> Result<Option<String>, SlashCommandParseError> {
     let section = optional_single_arg("config", args, "[env|hooks|model|plugins]")?;
     if let Some(section) = section {
-        if matches!(section.as_str(), "env" | "hooks" | "model" | "plugins") {
+        if matches!(
+            section.as_str(),
+            "env" | "hooks" | "model" | "plugins" | "help"
+        ) {
             return Ok(Some(section));
         }
         return Err(command_error(
