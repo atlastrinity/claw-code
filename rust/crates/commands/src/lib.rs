@@ -2193,6 +2193,13 @@ pub(crate) struct SkillMetadataDrift {
     pub(crate) path: PathBuf,
 }
 
+/// Loaded skill definitions plus any metadata drift entries.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct SkillCollection {
+    pub(crate) skills: Vec<SkillSummary>,
+    pub(crate) metadata_drift: Vec<SkillMetadataDrift>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SkillOrigin {
     SkillsDir,
@@ -2808,8 +2815,8 @@ pub fn handle_skills_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
     match normalize_optional_args(args) {
         None | Some("list") => {
             let roots = discover_skill_roots(cwd);
-            let skills = load_skills_from_roots(&roots)?;
-            Ok(render_skills_report_json_with_action(&skills, "list"))
+            let collection = load_skills_from_roots_with_drift(&roots)?;
+            Ok(render_skills_report_json_with_action(&collection, "list"))
         }
         Some(args) if args.starts_with("list ") => {
             let filter = args["list ".len()..].trim().to_lowercase();
@@ -2826,17 +2833,25 @@ pub fn handle_skills_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
                 }));
             }
             let roots = discover_skill_roots(cwd);
-            let skills = load_skills_from_roots(&roots)?;
-            let filtered: Vec<_> = skills
+            let collection = load_skills_from_roots_with_drift(&roots)?;
+            let filtered_skills: Vec<_> = collection
+                .skills
                 .into_iter()
                 .filter(|s| s.name.to_lowercase().contains(&filter))
                 .collect();
-            Ok(render_skills_report_json_with_action(&filtered, "list"))
+            let filtered_collection = SkillCollection {
+                skills: filtered_skills,
+                metadata_drift: collection.metadata_drift,
+            };
+            Ok(render_skills_report_json_with_action(
+                &filtered_collection,
+                "list",
+            ))
         }
         Some("show" | "info" | "describe") => {
             let roots = discover_skill_roots(cwd);
-            let skills = load_skills_from_roots(&roots)?;
-            Ok(render_skills_report_json_with_action(&skills, "show"))
+            let collection = load_skills_from_roots_with_drift(&roots)?;
+            Ok(render_skills_report_json_with_action(&collection, "show"))
         }
         Some(args)
             if args.starts_with("show ")
@@ -2867,8 +2882,9 @@ pub fn handle_skills_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
                 }));
             }
             let roots = discover_skill_roots(cwd);
-            let skills = load_skills_from_roots(&roots)?;
-            let matched: Vec<_> = skills
+            let collection = load_skills_from_roots_with_drift(&roots)?;
+            let matched: Vec<_> = collection
+                .skills
                 .into_iter()
                 .filter(|s| s.name.to_lowercase() == name)
                 .collect();
@@ -2885,7 +2901,14 @@ pub fn handle_skills_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
                     "hint": "Run `claw skills list` to see available skills.",
                 }));
             }
-            Ok(render_skills_report_json_with_action(&matched, "show"))
+            let matched_collection = SkillCollection {
+                skills: matched,
+                metadata_drift: collection.metadata_drift,
+            };
+            Ok(render_skills_report_json_with_action(
+                &matched_collection,
+                "show",
+            ))
         }
         Some("install") => Ok(render_skills_missing_argument_json(
             "install",
@@ -4028,7 +4051,15 @@ fn load_agents_from_roots_with_invalids(
 }
 
 fn load_skills_from_roots(roots: &[SkillRoot]) -> std::io::Result<Vec<SkillSummary>> {
+    let collection = load_skills_from_roots_with_drift(roots)?;
+    Ok(collection.skills)
+}
+
+/// Load skill definitions from all roots, collecting metadata drift entries
+/// where the frontmatter name differs from the directory name.
+fn load_skills_from_roots_with_drift(roots: &[SkillRoot]) -> std::io::Result<SkillCollection> {
     let mut skills = Vec::new();
+    let mut metadata_drift = Vec::new();
     let mut active_sources = BTreeMap::<String, DefinitionSource>::new();
 
     for root in roots {
@@ -4047,6 +4078,16 @@ fn load_skills_from_roots(roots: &[SkillRoot]) -> std::io::Result<Vec<SkillSumma
                     let contents = fs::read_to_string(skill_path)?;
                     let dir_name = entry.file_name().to_string_lossy().to_string();
                     let (name, description) = parse_skill_frontmatter(&contents);
+                    // #445: detect name/dir mismatch
+                    if let Some(ref frontmatter_name) = name {
+                        if frontmatter_name != &dir_name {
+                            metadata_drift.push(SkillMetadataDrift {
+                                dir_name: dir_name.clone(),
+                                frontmatter_name: frontmatter_name.clone(),
+                                path: entry.path(),
+                            });
+                        }
+                    }
                     root_skills.push(SkillSummary {
                         name: name.unwrap_or_else(|| dir_name.clone()),
                         description,
@@ -4105,7 +4146,10 @@ fn load_skills_from_roots(roots: &[SkillRoot]) -> std::io::Result<Vec<SkillSumma
         }
     }
 
-    Ok(skills)
+    Ok(SkillCollection {
+        skills,
+        metadata_drift,
+    })
 }
 
 fn parse_toml_string(contents: &str, key: &str) -> Option<String> {
@@ -4431,21 +4475,32 @@ fn render_skills_report(skills: &[SkillSummary]) -> String {
     lines.join("\n").trim_end().to_string()
 }
 
-fn render_skills_report_json_with_action(skills: &[SkillSummary], action: &str) -> Value {
+fn render_skills_report_json_with_action(collection: &SkillCollection, action: &str) -> Value {
+    let skills = &collection.skills;
+    let metadata_drift = &collection.metadata_drift;
     let active = skills
         .iter()
         .filter(|skill| skill.shadowed_by.is_none())
         .count();
+    let has_drift = !metadata_drift.is_empty();
+    let status = if has_drift { "degraded" } else { "ok" };
     json!({
         "kind": "skills",
-        "status": "ok",
+        "status": status,
         "action": action,
+        "valid_count": skills.len(),
+        "metadata_drift_count": metadata_drift.len(),
         "summary": {
             "total": skills.len(),
             "active": active,
             "shadowed": skills.len().saturating_sub(active),
         },
         "skills": skills.iter().map(skill_summary_json).collect::<Vec<_>>(),
+        "metadata_drift": metadata_drift.iter().map(|drift| json!({
+            "dir_name": &drift.dir_name,
+            "frontmatter_name": &drift.frontmatter_name,
+            "path": drift.path.display().to_string(),
+        })).collect::<Vec<_>>(),
     })
 }
 
@@ -6431,7 +6486,10 @@ mod tests {
             },
         ];
         let report = super::render_skills_report_json_with_action(
-            &load_skills_from_roots(&roots).expect("skills should load"),
+            &super::SkillCollection {
+                skills: load_skills_from_roots(&roots).expect("skills should load"),
+                metadata_drift: Vec::new(),
+            },
             "list",
         );
         assert_eq!(report["kind"], "skills");
