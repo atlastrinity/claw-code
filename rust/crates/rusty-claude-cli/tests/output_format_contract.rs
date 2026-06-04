@@ -3365,7 +3365,7 @@ fn config_unsupported_section_json_hint_741() {
     fs::create_dir_all(&root).expect("temp dir");
     let bin = env!("CARGO_BIN_EXE_claw");
 
-    for section in &["list", "show", "bogus", "help"] {
+    for section in &["list", "show", "bogus"] {
         let output = Command::new(bin)
             .current_dir(&root)
             .args(["--output-format", "json", "config", section])
@@ -3401,6 +3401,36 @@ fn config_unsupported_section_json_hint_741() {
             "config {section} JSON must include supported_sections (#741)"
         );
     }
+}
+
+#[test]
+fn config_help_returns_structured_section_list_344() {
+    // #344: /config help should return a structured section list, not an error
+    use std::process::Command;
+    let root = unique_temp_dir("config-help");
+    fs::create_dir_all(&root).expect("temp dir");
+    let bin = env!("CARGO_BIN_EXE_claw");
+    let output = Command::new(bin)
+        .current_dir(&root)
+        .args(["--output-format", "json", "config", "help"])
+        .output()
+        .expect("claw config help should run");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value =
+        serde_json::from_str(stdout.trim()).expect("config help should emit valid JSON");
+    assert_eq!(parsed["kind"], "config", "config help kind must be config");
+    assert_eq!(
+        parsed["status"], "ok",
+        "config help must return status:ok (#344)"
+    );
+    assert_eq!(
+        parsed["section"], "help",
+        "config help section must be help"
+    );
+    let sections = parsed["available_sections"]
+        .as_array()
+        .expect("config help must have available_sections array");
+    assert!(!sections.is_empty(), "available_sections must not be empty");
 }
 
 #[test]
