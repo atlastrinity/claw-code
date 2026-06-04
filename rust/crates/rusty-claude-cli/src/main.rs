@@ -63,7 +63,8 @@ use runtime::{
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
 use tools::{
-    execute_tool, mvp_tool_specs, GlobalToolRegistry, RuntimeToolDefinition, ToolSearchOutput,
+    canonical_allowed_tool_name, execute_tool, mvp_tool_specs, GlobalToolRegistry,
+    RuntimeToolDefinition, ToolSearchOutput,
 };
 
 const DEFAULT_MODEL: &str = "anthropic/claude-opus-4-7";
@@ -356,6 +357,19 @@ fn main() {
                         );
                     }
                 }
+            } else if kind == "invalid_tool_name" {
+                let (tool_name, available, aliases) = invalid_tool_name_details(&message);
+                if let Some(object) = error_json.as_object_mut() {
+                    if let Some(tool_name) = tool_name {
+                        object.insert("tool_name".to_string(), serde_json::json!(tool_name));
+                    }
+                    object.insert("available".to_string(), serde_json::json!(available));
+                    object.insert("tool_aliases".to_string(), aliases);
+                }
+            } else if kind == "missing_argument" && message.contains("--allowedTools") {
+                if let Some(object) = error_json.as_object_mut() {
+                    object.insert("argument".to_string(), serde_json::json!("--allowedTools"));
+                }
             }
             // #819/#820/#823: JSON mode error envelopes must go to stdout so machine
             // consumers can parse failures from stdout byte 0 (parity with all
@@ -428,6 +442,8 @@ fn classify_error_kind(message: &str) -> &'static str {
         "invalid_cwd"
     } else if message.starts_with("invalid_output_path:") {
         "invalid_output_path"
+    } else if message.starts_with("invalid_tool_name:") {
+        "invalid_tool_name"
     } else if message.contains("unrecognized argument") || message.contains("unknown option") {
         "cli_parse"
     } else if message.starts_with("missing_flag_value:") {
@@ -534,6 +550,42 @@ fn split_error_hint(message: &str) -> (String, Option<String>) {
     }
 }
 
+fn invalid_tool_name_details(message: &str) -> (Option<String>, Vec<String>, Value) {
+    let tool_name = message
+        .strip_prefix("invalid_tool_name: unsupported tool in --allowedTools:")
+        .and_then(|rest| rest.lines().next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned);
+    let available = message
+        .lines()
+        .find_map(|line| line.strip_prefix("Available:"))
+        .map(|line| {
+            line.split(',')
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(ToOwned::to_owned)
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    let aliases = message
+        .lines()
+        .find_map(|line| line.strip_prefix("Aliases:"))
+        .map(|line| {
+            line.split(',')
+                .filter_map(|entry| entry.trim().split_once('='))
+                .map(|(alias, canonical)| {
+                    (
+                        alias.trim().to_string(),
+                        Value::String(canonical.trim().to_string()),
+                    )
+                })
+                .collect::<Map<_, _>>()
+        })
+        .unwrap_or_default();
+    (tool_name, available, Value::Object(aliases))
+}
+
 /// #781: derive a stable fallback hint from a classified error kind when the error
 /// message itself has no `\n`-delimited hint. Returns `None` for kinds where the
 /// message is self-explanatory or no canonical remediation exists.
@@ -575,6 +627,9 @@ fn fallback_hint_for_error_kind(kind: &str) -> Option<&'static str> {
         ),
         "invalid_install_source" => Some(
             "Pass a local skill directory containing SKILL.md or a standalone markdown file.",
+        ),
+        "invalid_tool_name" => Some(
+            "Use canonical snake_case tool names from `available` or documented aliases from `tool_aliases`.",
         ),
         _ => None,
     }
@@ -1404,16 +1459,27 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             "--allowedTools" | "--allowed-tools" => {
                 let value = args
                     .get(index + 1)
-                    .ok_or_else(|| "missing_flag_value: missing value for --allowedTools.\nUsage: --allowedTools <tool-name>  e.g. --allowedTools Bash".to_string())?;
+                    .ok_or_else(allowed_tools_missing_error)?;
+                if value.starts_with('-') || is_known_top_level_subcommand(value) {
+                    return Err(allowed_tools_missing_error());
+                }
                 allowed_tool_values.push(value.clone());
                 index += 2;
             }
             flag if flag.starts_with("--allowedTools=") => {
-                allowed_tool_values.push(flag[15..].to_string());
+                let value = flag[15..].to_string();
+                if value.trim().is_empty() {
+                    return Err(allowed_tools_missing_error());
+                }
+                allowed_tool_values.push(value);
                 index += 1;
             }
             flag if flag.starts_with("--allowed-tools=") => {
-                allowed_tool_values.push(flag[16..].to_string());
+                let value = flag[16..].to_string();
+                if value.trim().is_empty() {
+                    return Err(allowed_tools_missing_error());
+                }
+                allowed_tool_values.push(value);
                 index += 1;
             }
             other if rest.is_empty() && other.starts_with('-') => {
@@ -2391,6 +2457,41 @@ fn suggest_similar_subcommand(input: &str) -> Option<Vec<String>> {
     (!suggestions.is_empty()).then_some(suggestions)
 }
 
+fn is_known_top_level_subcommand(value: &str) -> bool {
+    matches!(
+        value,
+        "help"
+            | "version"
+            | "status"
+            | "sandbox"
+            | "doctor"
+            | "state"
+            | "dump-manifests"
+            | "bootstrap-plan"
+            | "agents"
+            | "agent"
+            | "mcp"
+            | "skills"
+            | "skill"
+            | "plugins"
+            | "plugin"
+            | "marketplace"
+            | "system-prompt"
+            | "acp"
+            | "init"
+            | "export"
+            | "prompt"
+            | "resume"
+            | "session"
+            | "compact"
+            | "config"
+            | "model"
+            | "models"
+            | "settings"
+            | "diff"
+    )
+}
+
 fn common_prefix_len(left: &str, right: &str) -> usize {
     left.chars()
         .zip(right.chars())
@@ -2547,6 +2648,20 @@ fn normalize_allowed_tools(values: &[String]) -> Result<Option<AllowedToolSet>, 
         return Ok(None);
     }
     current_tool_registry()?.normalize_allowed_tools(values)
+}
+
+fn allowed_tools_missing_error() -> String {
+    "missing_argument: --allowedTools requires a tool list before subcommands or flags.\nUsage: --allowedTools <tool-name>[,<tool-name>...]  e.g. --allowedTools read,glob".to_string()
+}
+
+fn allowed_tool_aliases_json(registry: &GlobalToolRegistry) -> Value {
+    Value::Object(
+        registry
+            .allowed_tool_aliases()
+            .into_iter()
+            .map(|(alias, canonical)| (alias, Value::String(canonical)))
+            .collect(),
+    )
 }
 
 fn current_tool_registry() -> Result<GlobalToolRegistry, String> {
@@ -3089,6 +3204,7 @@ impl DoctorReport {
     fn json_value(&self) -> Value {
         let report = self.render();
         let (ok_count, warn_count, fail_count) = self.counts();
+        let tool_registry = GlobalToolRegistry::builtin();
         json!({
             "kind": "doctor",
             "action": "doctor",
@@ -3107,6 +3223,10 @@ impl DoctorReport {
                 .iter()
                 .map(DiagnosticCheck::json_value)
                 .collect::<Vec<_>>(),
+            "allowed_tools": {
+                "available": tool_registry.canonical_allowed_tool_names(),
+                "aliases": allowed_tool_aliases_json(&tool_registry),
+            },
         })
     }
 }
@@ -8194,6 +8314,9 @@ fn status_json_value(
     let model_env_var = provenance.and_then(|p| p.env_var.clone());
     let permission_mode_source = permission_provenance.map(|p| p.source.as_str());
     let permission_mode_env_var = permission_provenance.and_then(|p| p.env_var);
+    let tool_registry = GlobalToolRegistry::builtin();
+    let available_tool_names = tool_registry.canonical_allowed_tool_names();
+    let tool_aliases = allowed_tool_aliases_json(&tool_registry);
     // #732: always emit an array (empty when unrestricted) so callers can do
     // `.allowed_tools.entries | length > 0` without a null-check first.
     let allowed_tool_entries = allowed_tools
@@ -8217,6 +8340,8 @@ fn status_json_value(
             "source": if allowed_tools.is_some() { "flag" } else { "default" },
             "restricted": allowed_tools.is_some(),
             "entries": allowed_tool_entries,
+            "available": available_tool_names,
+            "aliases": tool_aliases,
         },
         "binary_provenance": context.binary_provenance.json_value(),
         "usage": {
@@ -8919,7 +9044,7 @@ fn render_doctor_help_json() -> serde_json::Value {
         "requires_provider_request": false,
         "requires_session_resume": false,
         "mutates_workspace": false,
-        "output_fields": ["kind", "action", "status", "message", "report", "has_failures", "summary", "checks"],
+        "output_fields": ["kind", "action", "status", "message", "report", "has_failures", "summary", "checks", "allowed_tools"],
         "check_names": ["auth", "config", "install source", "workspace", "boot preflight", "sandbox", "permissions", "system"],
         "status_values": ["ok", "warn", "fail"],
         "options": [
@@ -12217,7 +12342,7 @@ impl ToolExecutor for CliToolExecutor {
         if self
             .allowed_tools
             .as_ref()
-            .is_some_and(|allowed| !allowed.contains(tool_name))
+            .is_some_and(|allowed| !allowed.contains(&canonical_allowed_tool_name(tool_name)))
         {
             return Err(ToolError::new(format!(
                 "tool `{tool_name}` is not enabled by the current --allowedTools setting"
@@ -12422,7 +12547,11 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         out,
         "  --dangerously-skip-permissions, --skip-permissions  Skip all permission checks"
     )?;
-    writeln!(out, "  --allowedTools TOOLS       Restrict enabled tools (repeatable; comma-separated aliases supported)")?;
+    writeln!(
+        out,
+        "  --allowedTools TOOLS       Restrict enabled tools by canonical snake_case name or alias"
+    )?;
+    writeln!(out, "                              Examples: read, glob, web_fetch, WebFetch; status JSON exposes aliases")?;
     writeln!(
         out,
         "  --version, -V              Print version and build information locally"
@@ -13347,12 +13476,40 @@ mod tests {
     }
 
     #[test]
+    fn rejects_allowed_tools_followed_by_subcommand_or_flag_432() {
+        let _env_guard = env_lock();
+        let _cwd_guard = cwd_guard();
+        for args in [
+            vec!["--allowedTools".to_string(), "status".to_string()],
+            vec![
+                "--allowedTools".to_string(),
+                "status".to_string(),
+                "--output-format".to_string(),
+                "json".to_string(),
+            ],
+            vec!["--allowedTools".to_string(), "--output-format".to_string()],
+            vec!["--allowedTools=".to_string()],
+        ] {
+            let error = parse_args(&args).expect_err("allowedTools missing value should reject");
+            assert!(
+                error.starts_with("missing_argument: --allowedTools requires a tool list"),
+                "unexpected error for {args:?}: {error}"
+            );
+        }
+    }
+
+    #[test]
     fn rejects_unknown_allowed_tools() {
         let _env_guard = env_lock();
         let _cwd_guard = cwd_guard();
         let error = parse_args(&["--allowedTools".to_string(), "teleport".to_string()])
             .expect_err("tool should be rejected");
+        assert!(error.starts_with("invalid_tool_name:"));
         assert!(error.contains("unsupported tool in --allowedTools: teleport"));
+        assert!(error.contains("Available: "));
+        assert!(error.contains("web_fetch"));
+        assert!(error.contains("Aliases: "));
+        assert!(error.contains("WebFetch=web_fetch"));
     }
 
     #[test]
@@ -14097,6 +14254,18 @@ mod tests {
             Some(false),
             "default status should expose unrestricted tool state: {json}"
         );
+        assert_eq!(
+            json.pointer("/allowed_tools/available/0")
+                .and_then(|v| v.as_str()),
+            Some("agent"),
+            "status JSON should expose canonical snake_case available tools: {json}"
+        );
+        assert_eq!(
+            json.pointer("/allowed_tools/aliases/WebFetch")
+                .and_then(|v| v.as_str()),
+            Some("web_fetch"),
+            "status JSON should expose allowed-tool aliases: {json}"
+        );
 
         let allowed: super::AllowedToolSet = ["read_file", "grep_search"]
             .into_iter()
@@ -14416,6 +14585,10 @@ mod tests {
         assert_eq!(
             classify_error_kind("invalid_install_source: bogus"),
             "invalid_install_source"
+        );
+        assert_eq!(
+            classify_error_kind("invalid_tool_name: unsupported tool in --allowedTools: teleport"),
+            "invalid_tool_name"
         );
         assert_eq!(
             classify_error_kind(
@@ -17206,7 +17379,7 @@ UU conflicted.rs",
             .expect("mcp tools should be allow-listable")
             .expect("allow-list should exist");
         assert!(allowed.contains("mcp__alpha__echo"));
-        assert!(allowed.contains("MCPTool"));
+        assert!(allowed.contains("mcp_tool"));
 
         let mut executor = CliToolExecutor::new(
             None,

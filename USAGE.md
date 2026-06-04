@@ -198,6 +198,8 @@ cd rust
 
 Global workspace override flags: `--cwd PATH`, `-C PATH`, and `--directory PATH` are accepted before any subcommand. They are validated before command dispatch and take precedence over the process `$PWD`; invalid paths return typed `invalid_cwd` JSON errors in JSON mode.
 
+`--allowedTools` accepts canonical snake_case tool names (for example `read_file`, `glob_search`, `web_fetch`) plus documented aliases such as `read`, `glob`, `Read`, and `WebFetch`. `claw status --output-format json` exposes `allowed_tools.available` and `allowed_tools.aliases`, and invalid values return typed `invalid_tool_name` JSON with `tool_name`, `available`, and `tool_aliases`. A missing value before a subcommand or another flag returns `missing_argument` with `argument:"--allowedTools"`.
+
 Supported permission modes (default: `workspace-write`):
 
 - `read-only` allows inspection-only local tools such as file reads, glob/grep searches, local skills, and status-style reporting. It does not allow workspace mutation, network-fetch/search tools, or arbitrary command execution.

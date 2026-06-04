@@ -126,7 +126,7 @@ Flags:
   --permission-mode MODE
   --cwd PATH, -C PATH, --directory PATH
   --dangerously-skip-permissions, --skip-permissions
-  --allowedTools TOOLS
+  --allowedTools TOOLS        canonical snake_case names or aliases; status JSON exposes allowed_tools.available/aliases
   --resume [SESSION.jsonl|session-id|latest]
   --version, -V
 

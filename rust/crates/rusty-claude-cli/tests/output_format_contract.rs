@@ -1252,9 +1252,13 @@ fn doctor_and_resume_status_emit_json_when_requested() {
     assert!(summary["ok"].as_u64().is_some());
     assert!(summary["warnings"].as_u64().is_some());
     assert!(summary["failures"].as_u64().is_some());
+    assert_eq!(doctor["allowed_tools"]["aliases"]["WebFetch"], "web_fetch");
+    assert!(doctor["allowed_tools"]["available"]
+        .as_array()
+        .is_some_and(|available| available.iter().any(|name| name == "web_fetch")));
 
     let checks = doctor["checks"].as_array().expect("doctor checks");
-    assert_eq!(checks.len(), 7);
+    assert_eq!(checks.len(), 8);
     let check_names = checks
         .iter()
         .map(|check| {
@@ -1279,6 +1283,7 @@ fn doctor_and_resume_status_emit_json_when_requested() {
             "workspace",
             "boot preflight",
             "sandbox",
+            "permissions",
             "system"
         ]
     );
@@ -2716,6 +2721,52 @@ fn flag_value_errors_have_error_kind_and_hint_756() {
         parsed2["hint"].as_str().map_or(false, |h| !h.is_empty()),
         "missing --model hint must be non-empty (#756): {parsed2}"
     );
+}
+
+#[test]
+fn allowed_tools_errors_have_typed_json_and_alias_map_432() {
+    let root = unique_temp_dir("allowed-tools-432");
+    fs::create_dir_all(&root).expect("temp dir");
+
+    let missing = run_claw(
+        &root,
+        &["--allowedTools", "status", "--output-format", "json"],
+        &[],
+    );
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(
+        missing.stderr.is_empty(),
+        "JSON missing allowedTools value must keep stderr empty: {}",
+        String::from_utf8_lossy(&missing.stderr)
+    );
+    let missing_json = parse_json_stdout(&missing, "allowedTools subcommand missing value");
+    assert_eq!(missing_json["error_kind"], "missing_argument");
+    assert_eq!(missing_json["argument"], "--allowedTools");
+    assert!(missing_json["hint"]
+        .as_str()
+        .is_some_and(|hint| { hint.contains("--allowedTools") && hint.contains("read,glob") }));
+
+    let invalid = run_claw(
+        &root,
+        &["--output-format", "json", "--allowedTools", "teleport"],
+        &[],
+    );
+    assert_eq!(invalid.status.code(), Some(1));
+    assert!(
+        invalid.stderr.is_empty(),
+        "JSON invalid allowedTools value must keep stderr empty: {}",
+        String::from_utf8_lossy(&invalid.stderr)
+    );
+    let invalid_json = parse_json_stdout(&invalid, "allowedTools invalid tool");
+    assert_eq!(invalid_json["error_kind"], "invalid_tool_name");
+    assert_eq!(invalid_json["tool_name"], "teleport");
+    assert!(invalid_json["available"]
+        .as_array()
+        .is_some_and(|available| available.iter().any(|name| name == "web_fetch")));
+    assert_eq!(invalid_json["tool_aliases"]["WebFetch"], "web_fetch");
+    assert!(invalid_json["hint"]
+        .as_str()
+        .is_some_and(|hint| { hint.contains("canonical snake_case") && hint.contains("aliases") }));
 }
 
 #[test]
