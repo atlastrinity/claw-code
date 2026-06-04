@@ -6796,6 +6796,30 @@ fn run_resume_command(
                 })),
             })
         }
+        // #343: /model is resume-safe — returns model configuration
+        SlashCommand::Model { model } => {
+            let configured_model = config_model_for_current_dir();
+            let resolved_config_model = configured_model
+                .as_deref()
+                .map(resolve_model_alias_with_config);
+            Ok(ResumeCommandOutcome {
+                session: session.clone(),
+                message: Some(format!(
+                    "Models\n  Default          {}\n  Config model     {}",
+                    DEFAULT_MODEL,
+                    configured_model.as_deref().unwrap_or("<unset>")
+                )),
+                json: Some(serde_json::json!({
+                    "kind": "models",
+                    "action": "list",
+                    "status": "ok",
+                    "default_model": DEFAULT_MODEL,
+                    "configured_model": configured_model,
+                    "resolved_model": resolved_config_model,
+                    "requested_model": model,
+                })),
+            })
+        }
         SlashCommand::Bughunter { .. }
         | SlashCommand::Commit { .. }
         | SlashCommand::Pr { .. }
@@ -6804,7 +6828,6 @@ fn run_resume_command(
         | SlashCommand::Teleport { .. }
         | SlashCommand::DebugToolCall { .. }
         | SlashCommand::Resume { .. }
-        | SlashCommand::Model { .. }
         | SlashCommand::Permissions { .. }
         | SlashCommand::Login
         | SlashCommand::Logout
