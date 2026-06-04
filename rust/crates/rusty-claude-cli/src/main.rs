@@ -1210,7 +1210,6 @@ enum CliAction {
         permission_mode: PermissionModeProvenance,
         output_format: CliOutputFormat,
         allowed_tools: Option<AllowedToolSet>,
-
     },
     Sandbox {
         output_format: CliOutputFormat,
@@ -1530,7 +1529,11 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     .ok_or_else(|| "missing_flag_value: missing value for --model.\nUsage: --model <provider/model>  e.g. --model anthropic/claude-opus-4-7".to_string())?;
                 // #468: track duplicate --model flags
                 if model_flag_raw.is_some() {
-                    push_duplicate_flag(&format!("--model (previous: {}, new: {})", model_flag_raw.as_deref().unwrap_or(""), value));
+                    push_duplicate_flag(&format!(
+                        "--model (previous: {}, new: {})",
+                        model_flag_raw.as_deref().unwrap_or(""),
+                        value
+                    ));
                 }
                 let resolved = resolve_model_alias_with_config(value);
                 debug!("Resolved --model '{}' -> '{}'", value, resolved);
@@ -1554,7 +1557,9 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     .get(index + 1)
                     .ok_or_else(|| "missing_flag_value: missing value for --output-format.\nUsage: --output-format text  or  --output-format json".to_string())?;
                 // #468: track duplicate --output-format flags
-                if output_format != CliOutputFormat::Text || output_format_selection.format != CliOutputFormat::Text {
+                if output_format != CliOutputFormat::Text
+                    || output_format_selection.format != CliOutputFormat::Text
+                {
                     push_duplicate_flag("--output-format (overwriting previous value)");
                 }
                 output_format = apply_output_format_flag(&mut output_format_selection, value)?;
@@ -2392,7 +2397,9 @@ fn parse_single_word_command_alias(
         return None;
     }
     // Known CLI subcommands that don't accept additional arguments
-    const CLI_SUBCOMMANDS: &[&str] = &["help", "version", "status", "sandbox", "doctor", "state", "config", "diff"];
+    const CLI_SUBCOMMANDS: &[&str] = &[
+        "help", "version", "status", "sandbox", "doctor", "state", "config", "diff",
+    ];
     if rest.len() > 1 && !CLI_SUBCOMMANDS.contains(&rest[0].as_str()) {
         return None;
     }
@@ -4759,7 +4766,6 @@ fn print_system_prompt(
         ),
     }
     Ok(())
-
 }
 
 fn print_version(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
@@ -10217,9 +10223,11 @@ fn render_config_json(
     let loaded_files = runtime_config.loaded_entries().len();
     let merged_keys = runtime_config.merged().len();
     // #415: expose actual merged key-value pairs, not just count
-    let merged_json_str = serde_json::json!(runtime_config.merged().iter().map(|(k, v)| {
-        (k.clone(), serde_json::Value::String(v.render()))
-    }).collect::<serde_json::Map<String, serde_json::Value>>());
+    let merged_json_str = serde_json::json!(runtime_config
+        .merged()
+        .iter()
+        .map(|(k, v)| { (k.clone(), serde_json::Value::String(v.render())) })
+        .collect::<serde_json::Map<String, serde_json::Value>>());
     let files: Vec<_> = inspection
         .files
         .iter()
