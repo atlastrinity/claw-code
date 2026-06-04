@@ -5190,31 +5190,48 @@ fn mcp_oauth_json(oauth: Option<&McpOAuthConfig>) -> Value {
 }
 
 fn mcp_server_details_json(config: &McpServerConfig) -> Value {
+    // #90: redact sensitive fields — args/url/headers_helper can contain
+    // credentials. Show structure without leaking secrets.
     match config {
         McpServerConfig::Stdio(config) => json!({
             "command": &config.command,
-            "args": &config.args,
+            "args_count": config.args.len(),
             "env_keys": config.env.keys().cloned().collect::<Vec<_>>(),
             "tool_call_timeout_ms": config.tool_call_timeout_ms,
         }),
-        McpServerConfig::Sse(config) | McpServerConfig::Http(config) => json!({
-            "url": &config.url,
-            "header_keys": config.headers.keys().cloned().collect::<Vec<_>>(),
-            "headers_helper": &config.headers_helper,
-            "oauth": mcp_oauth_json(config.oauth.as_ref()),
-        }),
-        McpServerConfig::Ws(config) => json!({
-            "url": &config.url,
-            "header_keys": config.headers.keys().cloned().collect::<Vec<_>>(),
-            "headers_helper": &config.headers_helper,
-        }),
+        McpServerConfig::Sse(config) | McpServerConfig::Http(config) => {
+            let redacted_url = redact_url(&config.url);
+            json!({
+                "url": redacted_url,
+                "header_keys": config.headers.keys().cloned().collect::<Vec<_>>(),
+                "headers_helper_configured": config.headers_helper.is_some(),
+                "oauth": mcp_oauth_json(config.oauth.as_ref()),
+            })
+        }
+        McpServerConfig::Ws(config) => {
+            let redacted_url = redact_url(&config.url);
+            json!({
+                "url": redacted_url,
+                "header_keys": config.headers.keys().cloned().collect::<Vec<_>>(),
+                "headers_helper_configured": config.headers_helper.is_some(),
+            })
+        }
         McpServerConfig::Sdk(config) => json!({
             "name": &config.name,
         }),
         McpServerConfig::ManagedProxy(config) => json!({
-            "url": &config.url,
+            "url": redact_url(&config.url),
             "id": &config.id,
         }),
+    }
+}
+
+fn redact_url(url: &str) -> String {
+    // #90: strip query params which may contain tokens, keep scheme+host+path
+    if let Some(query_start) = url.find('?') {
+        format!("{}?...", &url[..query_start])
+    } else {
+        url.to_string()
     }
 }
 
