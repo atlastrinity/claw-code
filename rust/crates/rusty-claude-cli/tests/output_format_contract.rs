@@ -112,6 +112,7 @@ fn assert_doctor_help_json_contract(parsed: &Value) {
     assert!(checks.iter().any(|check| check == "boot preflight"));
     assert!(checks.iter().any(|check| check == "memory"));
     assert!(checks.iter().any(|check| check == "mcp validation"));
+    assert!(checks.iter().any(|check| check == "hook validation"));
 }
 
 #[test]
@@ -1459,7 +1460,7 @@ fn doctor_and_resume_status_emit_json_when_requested() {
         .is_some_and(|available| available.iter().any(|name| name == "web_fetch")));
 
     let checks = doctor["checks"].as_array().expect("doctor checks");
-    assert_eq!(checks.len(), 10);
+    assert_eq!(checks.len(), 11);
     let check_names = checks
         .iter()
         .map(|check| {
@@ -1481,6 +1482,7 @@ fn doctor_and_resume_status_emit_json_when_requested() {
             "auth",
             "config",
             "mcp validation",
+            "hook validation",
             "install source",
             "workspace",
             "memory",

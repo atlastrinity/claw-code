@@ -1,3 +1,4 @@
+#![recursion_limit = "256"]
 #![allow(
     dead_code,
     unused_imports,
@@ -59,7 +60,7 @@ use runtime::{
     ConversationMessage, ConversationRuntime, McpConfigCollection, McpInvalidServerConfig,
     McpServer, McpServerManager, McpServerSpec, McpTool, MessageRole, ModelPricing, PermissionMode,
     PermissionPolicy, ProjectContext, PromptCacheEvent, ResolvedPermissionMode, RuntimeError,
-    Session, TokenUsage, ToolError, ToolExecutor, UsageTracker,
+    RuntimeInvalidHookConfig, Session, TokenUsage, ToolError, ToolExecutor, UsageTracker,
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -3503,6 +3504,11 @@ fn render_doctor_report(
         .ok()
         .map(|runtime_config| McpValidationSummary::from_collection(runtime_config.mcp()))
         .unwrap_or_default();
+    let hook_validation = config
+        .as_ref()
+        .ok()
+        .map(HookValidationSummary::from_config)
+        .unwrap_or_default();
     let context = StatusContext {
         cwd: cwd.clone(),
         session_path: None,
@@ -3532,12 +3538,14 @@ fn render_doctor_report(
         config_load_error: config.as_ref().err().map(ToString::to_string),
         config_load_error_kind: None,
         mcp_validation: mcp_validation.clone(),
+        hook_validation: hook_validation.clone(),
     };
     Ok(DoctorReport {
         checks: vec![
             check_auth_health(),
             check_config_health(&config_loader, config.as_ref()),
             check_mcp_validation_health(&mcp_validation),
+            check_hook_validation_health(&hook_validation),
             check_install_source_health(),
             check_workspace_health(&context),
             check_memory_health(&context),
@@ -3838,6 +3846,10 @@ fn check_config_health(
                     "mcp_invalid_servers".to_string(),
                     json!(runtime_config.mcp().invalid_count()),
                 ),
+                (
+                    "hook_invalid_entries".to_string(),
+                    json!(runtime_config.hooks().invalid_count()),
+                ),
             ]))
         }
         Err(error) => DiagnosticCheck::new(
@@ -3914,6 +3926,51 @@ fn check_mcp_validation_health(summary: &McpValidationSummary) -> DiagnosticChec
         (
             "invalid_servers".to_string(),
             Value::Array(invalid_mcp_servers_json(&summary.invalid_servers)),
+        ),
+    ]))
+}
+
+fn check_hook_validation_health(summary: &HookValidationSummary) -> DiagnosticCheck {
+    let mut details = vec![
+        format!("Valid entries     {}", summary.valid_count),
+        format!("Invalid entries   {}", summary.invalid_count()),
+    ];
+    details.extend(
+        summary
+            .invalid_hooks
+            .iter()
+            .map(|hook| format!("Invalid hook     {} ({})", hook.event, hook.reason)),
+    );
+
+    DiagnosticCheck::new(
+        "Hook validation",
+        if summary.has_invalid_hooks() {
+            DiagnosticLevel::Warn
+        } else {
+            DiagnosticLevel::Ok
+        },
+        if summary.has_invalid_hooks() {
+            format!(
+                "{} hook entries are invalid; {} valid entries remain loaded",
+                summary.invalid_count(),
+                summary.valid_count
+            )
+        } else {
+            format!("{} hook entries validated", summary.valid_count)
+        },
+    )
+    .with_hint(if summary.has_invalid_hooks() {
+        "Inspect `claw status --output-format json` hook_validation.invalid_hooks and fix each rejected hooks entry."
+    } else {
+        ""
+    })
+    .with_details(details)
+    .with_data(Map::from_iter([
+        ("valid_count".to_string(), json!(summary.valid_count)),
+        ("invalid_count".to_string(), json!(summary.invalid_count())),
+        (
+            "invalid_hooks".to_string(),
+            Value::Array(invalid_hooks_json(&summary.invalid_hooks)),
         ),
     ]))
 }
@@ -4897,6 +4954,57 @@ impl McpValidationSummary {
     }
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct HookValidationSummary {
+    valid_count: usize,
+    invalid_hooks: Vec<RuntimeInvalidHookConfig>,
+}
+
+impl HookValidationSummary {
+    fn from_config(config: &runtime::RuntimeConfig) -> Self {
+        let hooks = config.hooks();
+        Self {
+            valid_count: hooks.pre_tool_use_entries().len()
+                + hooks.post_tool_use_entries().len()
+                + hooks.post_tool_use_failure_entries().len(),
+            invalid_hooks: hooks.invalid_hooks().to_vec(),
+        }
+    }
+
+    fn invalid_count(&self) -> usize {
+        self.invalid_hooks.len()
+    }
+
+    fn has_invalid_hooks(&self) -> bool {
+        !self.invalid_hooks.is_empty()
+    }
+
+    fn json_value(&self) -> serde_json::Value {
+        json!({
+            "valid_count": self.valid_count,
+            "invalid_count": self.invalid_count(),
+            "invalid_hooks": invalid_hooks_json(&self.invalid_hooks),
+        })
+    }
+}
+
+fn invalid_hooks_json(invalid_hooks: &[RuntimeInvalidHookConfig]) -> Vec<serde_json::Value> {
+    invalid_hooks
+        .iter()
+        .map(|hook| {
+            json!({
+                "event": &hook.event,
+                "index": hook.index,
+                "hook_index": hook.hook_index,
+                "kind": &hook.kind,
+                "error_field": &hook.error_field,
+                "reason": &hook.reason,
+                "valid": false,
+            })
+        })
+        .collect()
+}
+
 fn invalid_mcp_servers_json(invalid_servers: &[McpInvalidServerConfig]) -> Vec<serde_json::Value> {
     invalid_servers
         .iter()
@@ -5060,6 +5168,7 @@ struct StatusContext {
     /// instead of regex-scraping the prose.
     config_load_error_kind: Option<&'static str>,
     mcp_validation: McpValidationSummary,
+    hook_validation: HookValidationSummary,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -8972,10 +9081,11 @@ fn status_json_value(
     json!({
         "kind": "status",
         "action": "show",
-        "status": if degraded || context.mcp_validation.has_invalid_servers() { "degraded" } else { "ok" },
+        "status": if degraded || context.mcp_validation.has_invalid_servers() || context.hook_validation.has_invalid_hooks() { "degraded" } else { "ok" },
         "config_load_error": context.config_load_error,
         "config_load_error_kind": context.config_load_error_kind,
         "mcp_validation": context.mcp_validation.json_value(),
+        "hook_validation": context.hook_validation.json_value(),
         "model": model,
         "model_source": model_source,
         "model_raw": model_raw,
@@ -9043,6 +9153,7 @@ fn status_json_value(
             "memory_files": memory_files_json(&context.memory_files),
             "unloaded_memory_files": context.unloaded_memory_files,
             "mcp_validation": context.mcp_validation.json_value(),
+            "hook_validation": context.hook_validation.json_value(),
         },
         "sandbox": {
             "enabled": context.sandbox_status.enabled,
@@ -9121,6 +9232,11 @@ fn status_context(
         .ok()
         .map(|runtime_config| McpValidationSummary::from_collection(runtime_config.mcp()))
         .unwrap_or_default();
+    let hook_validation = runtime_config
+        .as_ref()
+        .ok()
+        .map(HookValidationSummary::from_config)
+        .unwrap_or_default();
     Ok(StatusContext {
         cwd: cwd.clone(),
         session_path: session_path.map(Path::to_path_buf),
@@ -9145,6 +9261,7 @@ fn status_context(
         config_load_error,
         config_load_error_kind,
         mcp_validation,
+        hook_validation,
     })
 }
 
@@ -9727,7 +9844,7 @@ fn render_doctor_help_json() -> serde_json::Value {
         "requires_session_resume": false,
         "mutates_workspace": false,
         "output_fields": ["kind", "action", "status", "message", "report", "has_failures", "summary", "checks", "allowed_tools"],
-        "check_names": ["auth", "config", "mcp validation", "install source", "workspace", "memory", "boot preflight", "sandbox", "permissions", "system"],
+        "check_names": ["auth", "config", "mcp validation", "hook validation", "install source", "workspace", "memory", "boot preflight", "sandbox", "permissions", "system"],
         "status_values": ["ok", "warn", "fail"],
         "options": [
             {
@@ -9981,10 +10098,19 @@ fn render_config_json(
         .map(|w| serde_json::Value::String(w.clone()))
         .collect();
 
+    let hook_validation = HookValidationSummary::from_config(&runtime_config);
+    let has_hook_issues = hook_validation.has_invalid_hooks();
+    let status_value = if inspection.load_error.is_some() {
+        "error"
+    } else if has_hook_issues {
+        "degraded"
+    } else {
+        "ok"
+    };
     let base = serde_json::json!({
         "kind": "config",
         "action": if section.is_some() { "show" } else { "list" },
-        "status": if inspection.load_error.is_some() { "error" } else { "ok" },
+        "status": status_value,
         "cwd": cwd.display().to_string(),
         "loaded_files": loaded_files,
         "merged_keys": merged_keys,
@@ -9993,6 +10119,7 @@ fn render_config_json(
         "files": files,
         "warnings": warnings_json,
         "load_error": inspection.load_error.clone(),
+        "hook_validation": hook_validation.json_value(),
     });
 
     if let Some(section) = section {
@@ -16736,6 +16863,7 @@ mod tests {
                 config_load_error: None,
                 config_load_error_kind: None,
                 mcp_validation: super::McpValidationSummary::default(),
+                hook_validation: super::HookValidationSummary::default(),
             },
             None, // #148
             None,
@@ -16887,6 +17015,7 @@ mod tests {
             config_load_error: None,
             config_load_error_kind: None,
             mcp_validation: super::McpValidationSummary::default(),
+            hook_validation: super::HookValidationSummary::default(),
         };
 
         let check = super::check_workspace_health(&context);
@@ -16937,6 +17066,7 @@ mod tests {
             config_load_error: None,
             config_load_error_kind: None,
             mcp_validation: super::McpValidationSummary::default(),
+            hook_validation: super::HookValidationSummary::default(),
         };
 
         let check = super::check_memory_health(&context);
@@ -16979,6 +17109,7 @@ mod tests {
             config_load_error: None,
             config_load_error_kind: None,
             mcp_validation: super::McpValidationSummary::default(),
+            hook_validation: super::HookValidationSummary::default(),
         };
 
         let value = status_json_value(
