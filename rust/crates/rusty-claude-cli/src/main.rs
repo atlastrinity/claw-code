@@ -10172,6 +10172,10 @@ fn render_config_json(
         .unwrap_or_else(runtime::RuntimeConfig::empty);
     let loaded_files = runtime_config.loaded_entries().len();
     let merged_keys = runtime_config.merged().len();
+    // #415: expose actual merged key-value pairs, not just count
+    let merged_json_str = serde_json::json!(runtime_config.merged().iter().map(|(k, v)| {
+        (k.clone(), serde_json::Value::String(v.render()))
+    }).collect::<serde_json::Map<String, serde_json::Value>>());
     let files: Vec<_> = inspection
         .files
         .iter()
@@ -10201,7 +10205,9 @@ fn render_config_json(
         "loaded_files": loaded_files,
         "merged_keys": merged_keys,
         "merged_key_count": merged_keys,
+        "merged": merged_json_str,
         "merged_keys_meaning": "count of top-level keys in the effective merged JSON object",
+
         "files": files,
         "warnings": warnings_json,
         "load_error": inspection.load_error.clone(),
