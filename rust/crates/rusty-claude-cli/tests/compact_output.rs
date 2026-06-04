@@ -360,8 +360,8 @@ fn prompt_subcommand_stdin_flag_appends_pipe_context_423() {
 }
 
 #[test]
-fn compact_subcommand_json_help_fails_fast_when_stdin_closed() {
-    let workspace = unique_temp_dir("compact-nontty-json-help");
+fn compact_subcommand_json_fails_fast_when_stdin_closed() {
+    let workspace = unique_temp_dir("compact-nontty-json");
     let config_home = workspace.join("config-home");
     let home = workspace.join("home");
     fs::create_dir_all(&workspace).expect("workspace should exist");
@@ -372,19 +372,19 @@ fn compact_subcommand_json_help_fails_fast_when_stdin_closed() {
         &workspace,
         &config_home,
         &home,
-        &["compact", "--output-format", "json", "--help"],
+        &["compact", "--output-format", "json"],
         Duration::from_secs(2),
     );
 
     assert!(
         !output.status.success(),
-        "compact json help should fail non-zero"
+        "compact json should fail non-zero"
     );
     // #819/#820/#823: JSON abort envelopes route to stdout
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf8");
     assert!(
         stderr.trim().is_empty() || !stderr.trim_start().starts_with('{'),
-        "compact json help should not emit JSON envelope to stderr (#819/#820/#823): {stderr}"
+        "compact json should not emit JSON envelope to stderr (#819/#820/#823): {stderr}"
     );
     let stdout = String::from_utf8(output.stdout).expect("stdout should be utf8");
     let parsed: Value =
