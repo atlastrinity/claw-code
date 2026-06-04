@@ -301,6 +301,17 @@ const CLI_OPTION_SUGGESTIONS: &[&str] = &[
     "-p",
 ];
 
+fn is_registered_cli_flag_token(value: &str) -> bool {
+    let flag = value.split_once('=').map_or(value, |(flag, _)| flag);
+    CLI_OPTION_SUGGESTIONS.contains(&flag)
+}
+
+fn should_reject_unknown_option_like(value: &str) -> bool {
+    is_registered_cli_flag_token(value)
+        || (value.starts_with("--")
+            && suggest_closest_term(value, CLI_OPTION_SUGGESTIONS).is_some())
+}
+
 type AllowedToolSet = BTreeSet<String>;
 type RuntimePluginStateBuildOutput = (
     Option<Arc<Mutex<RuntimeMcpState>>>,
@@ -1328,6 +1339,7 @@ fn current_output_format_selection() -> OutputFormatSelection {
 
 fn cli_has_output_format_flag(args: &[String]) -> bool {
     args.iter()
+        .take_while(|arg| arg.as_str() != "--")
         .any(|arg| arg == "--output-format" || arg.starts_with("--output-format="))
 }
 
@@ -1336,6 +1348,9 @@ fn raw_args_request_json_output(args: &[String]) -> bool {
     let mut index = 0;
     while index < args.len() {
         let arg = &args[index];
+        if arg == "--" {
+            break;
+        }
         if arg == "--output-format" {
             if let Some(value) = args.get(index + 1) {
                 values.push(value.as_str());
@@ -1433,6 +1448,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
     // flag parsing. None until `-p <text>` is seen.
     let mut short_p_prompt: Option<String> = None;
     let mut rest: Vec<String> = Vec::new();
+    let mut positional_after_separator = false;
     let mut index = 0;
 
     while index < args.len() {
@@ -1548,6 +1564,11 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 allow_broad_cwd = true;
                 index += 1;
             }
+            "--" => {
+                positional_after_separator = true;
+                rest.extend(args[index + 1..].iter().cloned());
+                break;
+            }
             "-p" => {
                 // Claw Code compat: -p "prompt" = one-shot prompt.
                 // #755: consume exactly one token so subsequent flags like
@@ -1629,7 +1650,11 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 index += 1;
             }
             other if rest.is_empty() && other.starts_with('-') => {
-                return Err(format_unknown_option(other))
+                if should_reject_unknown_option_like(other) {
+                    return Err(format_unknown_option(other));
+                }
+                rest.push(other.to_string());
+                index += 1;
             }
             other => {
                 rest.push(other.to_string());
@@ -1700,6 +1725,21 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             compact,
             base_commit,
             reasoning_effort,
+            allow_broad_cwd,
+        });
+    }
+
+    if positional_after_separator && !rest.is_empty() {
+        let permission_mode = permission_mode_override.unwrap_or_else(default_permission_mode);
+        return Ok(CliAction::Prompt {
+            prompt: rest.join(" "),
+            model,
+            output_format,
+            allowed_tools,
+            permission_mode,
+            compact,
+            base_commit,
+            reasoning_effort: reasoning_effort.clone(),
             allow_broad_cwd,
         });
     }
@@ -2042,9 +2082,7 @@ Usage: claw prompt <text>  or  echo '<text>' | claw prompt".to_string());
             allow_broad_cwd,
         ),
         other => {
-            if looks_like_subcommand_typo(other)
-                && (rest.len() == 1 || output_format == CliOutputFormat::Json)
-            {
+            if !other.starts_with('-') && looks_like_subcommand_typo(other) && rest.len() == 1 {
                 // #825/#826: emit command_not_found before provider startup for
                 // command-shaped tokens that do not match known subcommands.
                 // Text-mode multi-word prompt shorthand remains available, but
@@ -2393,13 +2431,10 @@ fn parse_direct_slash_cli_action(
     let raw = rest.join(" ");
     match SlashCommand::parse(&raw) {
         Ok(Some(SlashCommand::Help)) => Ok(CliAction::Help { output_format }),
-        Ok(Some(SlashCommand::Status)) => Ok(CliAction::Status {
-            model,
-            model_flag_raw: None,
-            permission_mode,
-            output_format,
-            allowed_tools,
-        }),
+        Ok(Some(SlashCommand::Status)) => Err(
+            "interactive_only: /status requires a live session.\nStart `claw` and run it there, or use `claw --resume SESSION.jsonl /status` / `claw --resume latest /status`."
+                .to_string(),
+        ),
         Ok(Some(SlashCommand::Sandbox)) => Ok(CliAction::Sandbox { output_format }),
         Ok(Some(SlashCommand::Diff)) => Ok(CliAction::Diff { output_format }),
         Ok(Some(SlashCommand::Version)) => Ok(CliAction::Version { output_format }),
@@ -2482,6 +2517,9 @@ fn parse_direct_slash_cli_action(
 }
 
 fn format_unknown_option(option: &str) -> String {
+    if option == "--" {
+        return "end_of_flags: `--` terminates flag parsing. Pass literal prompt text after it, for example `claw -- \"-literal prompt\"`.\nRun `claw --help` for usage.".to_string();
+    }
     let mut message = format!("unknown option: {option}");
     if let Some(suggestion) = suggest_closest_term(option, CLI_OPTION_SUGGESTIONS) {
         message.push_str("\nDid you mean ");
@@ -12645,6 +12683,10 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "      Shorthand non-interactive prompt mode")?;
     writeln!(
         out,
+        "      Use `--` before TEXT when the prompt itself starts with '-' or '--'"
+    )?;
+    writeln!(
+        out,
         "  claw --resume [SESSION.jsonl|session-id|latest] [/status] [/compact] [...]"
     )?;
     writeln!(
@@ -13412,6 +13454,67 @@ mod tests {
                 allow_broad_cwd: false,
             }
         );
+    }
+
+    #[test]
+    fn parses_dash_prefixed_prompt_text_434() {
+        let _guard = env_lock();
+        std::env::remove_var("RUSTY_CLAUDE_PERMISSION_MODE");
+
+        assert_eq!(
+            parse_args(&["--".to_string(), "-prompt-with-dash".to_string()])
+                .expect("-- should terminate flag parsing"),
+            CliAction::Prompt {
+                prompt: "-prompt-with-dash".to_string(),
+                model: DEFAULT_MODEL.to_string(),
+                output_format: CliOutputFormat::Text,
+                allowed_tools: None,
+                permission_mode: PermissionMode::WorkspaceWrite,
+                compact: false,
+                base_commit: None,
+                reasoning_effort: None,
+                allow_broad_cwd: false,
+            }
+        );
+
+        assert_eq!(
+            parse_args(&["-not-a-flag".to_string()])
+                .expect("unknown dash-prefixed shorthand prompt should parse as prompt text"),
+            CliAction::Prompt {
+                prompt: "-not-a-flag".to_string(),
+                model: DEFAULT_MODEL.to_string(),
+                output_format: CliOutputFormat::Text,
+                allowed_tools: None,
+                permission_mode: PermissionMode::WorkspaceWrite,
+                compact: false,
+                base_commit: None,
+                reasoning_effort: None,
+                allow_broad_cwd: false,
+            }
+        );
+
+        assert_eq!(
+            parse_args(&["--bogus-flag-like".to_string(), "literal".to_string()])
+                .expect("unknown double-dash text should stay eligible for prompt shorthand"),
+            CliAction::Prompt {
+                prompt: "--bogus-flag-like literal".to_string(),
+                model: DEFAULT_MODEL.to_string(),
+                output_format: CliOutputFormat::Text,
+                allowed_tools: None,
+                permission_mode: PermissionMode::WorkspaceWrite,
+                compact: false,
+                base_commit: None,
+                reasoning_effort: None,
+                allow_broad_cwd: false,
+            }
+        );
+
+        assert!(parse_args(&["--".to_string()]).is_ok());
+
+        let error = parse_args(&["--resum".to_string()])
+            .expect_err("nearby real flags should still be rejected as unknown options");
+        assert!(error.contains("unknown option: --resum"));
+        assert!(error.contains("Did you mean --resume?"));
     }
 
     #[test]

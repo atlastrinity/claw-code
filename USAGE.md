@@ -99,6 +99,12 @@ cd rust
 ./target/debug/claw "explain rust/crates/runtime/src/lib.rs"
 ```
 
+Use the POSIX `--` end-of-flags separator when the shorthand prompt itself begins with `-` or `--`:
+
+```bash
+./target/debug/claw -- "-summarize this dash-prefixed text"
+```
+
 ### JSON output for scripting
 
 ```bash
