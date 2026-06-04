@@ -6569,7 +6569,7 @@ fn enforce_broad_cwd_policy(
         );
         match output_format {
             CliOutputFormat::Json => {
-                eprintln!(
+                println!(
                     "{}",
                     serde_json::json!({
                         "kind": "broad_cwd",
