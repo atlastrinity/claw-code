@@ -1565,8 +1565,13 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 index += 1;
             }
             "--" => {
-                positional_after_separator = true;
-                rest.extend(args[index + 1..].iter().cloned());
+                if rest.is_empty() {
+                    positional_after_separator = true;
+                    rest.extend(args[index + 1..].iter().cloned());
+                } else {
+                    rest.push("--".to_string());
+                    rest.extend(args[index + 1..].iter().cloned());
+                }
                 break;
             }
             "-p" => {
@@ -2082,7 +2087,11 @@ Usage: claw prompt <text>  or  echo '<text>' | claw prompt".to_string());
             allow_broad_cwd,
         ),
         other => {
-            if !other.starts_with('-') && looks_like_subcommand_typo(other) && rest.len() == 1 {
+            if !other.starts_with('-')
+                && looks_like_subcommand_typo(other)
+                && (rest.len() == 1
+                    || (output_format == CliOutputFormat::Json && model_flag_raw.is_none()))
+            {
                 // #825/#826: emit command_not_found before provider startup for
                 // command-shaped tokens that do not match known subcommands.
                 // Text-mode multi-word prompt shorthand remains available, but
@@ -2431,10 +2440,13 @@ fn parse_direct_slash_cli_action(
     let raw = rest.join(" ");
     match SlashCommand::parse(&raw) {
         Ok(Some(SlashCommand::Help)) => Ok(CliAction::Help { output_format }),
-        Ok(Some(SlashCommand::Status)) => Err(
-            "interactive_only: /status requires a live session.\nStart `claw` and run it there, or use `claw --resume SESSION.jsonl /status` / `claw --resume latest /status`."
-                .to_string(),
-        ),
+        Ok(Some(SlashCommand::Status)) => Ok(CliAction::Status {
+            model,
+            model_flag_raw: None,
+            permission_mode,
+            output_format,
+            allowed_tools,
+        }),
         Ok(Some(SlashCommand::Sandbox)) => Ok(CliAction::Sandbox { output_format }),
         Ok(Some(SlashCommand::Diff)) => Ok(CliAction::Diff { output_format }),
         Ok(Some(SlashCommand::Version)) => Ok(CliAction::Version { output_format }),
@@ -15464,16 +15476,15 @@ mod tests {
                 allow_broad_cwd: false,
             }
         );
-        let error = parse_args(&["/status".to_string()])
-            .expect_err("/status should remain REPL-only when invoked directly");
-        // #829: prefix changed from "interactive-only" to "interactive_only:"
-        assert!(
-            error.contains("interactive_only:"),
-            "expected interactive_only: prefix, got: {error}"
-        );
-        assert!(
-            error.contains("claw --resume SESSION.jsonl /status"),
-            "expected --resume suggestion for resume-safe /status, got: {error}"
+        assert_eq!(
+            parse_args(&["/status".to_string()]).expect("/status should parse as local status"),
+            CliAction::Status {
+                model: DEFAULT_MODEL.to_string(),
+                model_flag_raw: None,
+                permission_mode: PermissionModeProvenance::default_fallback(),
+                output_format: CliOutputFormat::Text,
+                allowed_tools: None,
+            }
         );
     }
 
