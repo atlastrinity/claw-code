@@ -6249,7 +6249,7 @@ fn run_resume_command(
             session: session.clone(),
             message: Some(render_repl_help()),
             json: Some(
-                serde_json::json!({ "kind": "help", "action": "help", "status": "ok", "text": render_repl_help() }),
+                serde_json::json!({ "kind": "help", "action": "help", "status": "ok", "message": render_repl_help() }),
             ),
         }),
         SlashCommand::Compact => {

@@ -4492,10 +4492,12 @@ fn render_skills_report_json_with_action(collection: &SkillCollection, action: &
         .count();
     let has_drift = !metadata_drift.is_empty();
     let status = if has_drift { "degraded" } else { "ok" };
+    // #410: add `count` field for polymorphic consumption parity with agents list
     json!({
         "kind": "skills",
         "status": status,
         "action": action,
+        "count": skills.len(),
         "valid_count": skills.len(),
         "metadata_drift_count": metadata_drift.len(),
         "summary": {
@@ -4684,6 +4686,7 @@ fn render_mcp_summary_report_json(cwd: &Path, mcp: &McpConfigCollection) -> Valu
     json!({
         "kind": "mcp",
         "action": "list",
+        "count": mcp.valid_count(),
         "working_directory": cwd.display().to_string(),
         "configured_servers": mcp.valid_count(),
         "total_configured": mcp.total_configured(),
