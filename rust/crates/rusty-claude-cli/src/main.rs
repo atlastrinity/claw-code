@@ -5729,6 +5729,31 @@ struct GitWorkspaceSummary {
     unstaged_files: usize,
     untracked_files: usize,
     conflicted_files: usize,
+    /// #89: detected mid-operation git state (rebase, merge, cherry-pick, bisect)
+    operation: GitOperation,
+}
+
+/// #89: mid-operation git states detected from branch header in `git status --short --branch`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum GitOperation {
+    #[default]
+    None,
+    Rebase,
+    Merge,
+    CherryPick,
+    Bisect,
+}
+
+impl GitOperation {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "",
+            Self::Rebase => "rebase-in-progress",
+            Self::Merge => "merge-in-progress",
+            Self::CherryPick => "cherry-pick-in-progress",
+            Self::Bisect => "bisect-in-progress",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5806,8 +5831,18 @@ impl GitWorkspaceSummary {
     }
 
     fn headline(self) -> String {
+        // #89: prefix with operation state when mid-operation
+        let op_prefix = if self.operation != GitOperation::None {
+            format!("{}, ", self.operation.as_str())
+        } else {
+            String::new()
+        };
         if self.is_clean() {
-            "clean".to_string()
+            if self.operation != GitOperation::None {
+                format!("{op_prefix}clean")
+            } else {
+                "clean".to_string()
+            }
         } else {
             let mut details = Vec::new();
             if self.staged_files > 0 {
@@ -5823,7 +5858,7 @@ impl GitWorkspaceSummary {
                 details.push(format!("{} conflicted", self.conflicted_files));
             }
             format!(
-                "dirty · {} files · {}",
+                "{op_prefix}dirty · {} files · {}",
                 self.changed_files,
                 details.join(", ")
             )
@@ -6129,7 +6164,26 @@ fn parse_git_workspace_summary(status: Option<&str>) -> GitWorkspaceSummary {
     };
 
     for line in status.lines() {
-        if line.starts_with("## ") || line.trim().is_empty() {
+        if line.starts_with("## ") {
+            // #89: detect mid-operation states from branch header
+            // git status --short --branch shows:
+            //   "## HEAD (no branch, rebasing feature-branch)"
+            //   "## main [merge-in-progress]"
+            //   "## HEAD (no branch, cherry-pick-in-progress)"
+            //   "## main (no branch, bisect-in-progress)"
+            let header = line.to_ascii_lowercase();
+            if header.contains("rebasing") {
+                summary.operation = GitOperation::Rebase;
+            } else if header.contains("merge-in-progress") {
+                summary.operation = GitOperation::Merge;
+            } else if header.contains("cherry-pick-in-progress") {
+                summary.operation = GitOperation::CherryPick;
+            } else if header.contains("bisect-in-progress") {
+                summary.operation = GitOperation::Bisect;
+            }
+            continue;
+        }
+        if line.trim().is_empty() {
             continue;
         }
 
@@ -9433,6 +9487,12 @@ fn status_json_value(
             "changed_files": context.git_summary.changed_files,
             "is_clean": context.git_summary.changed_files == 0,
             "staged_files": context.git_summary.staged_files,
+            // #89: mid-operation git state (rebase, merge, cherry-pick, bisect)
+            "git_operation": if context.git_summary.operation != GitOperation::None {
+                Some(context.git_summary.operation.as_str())
+            } else {
+                None::<&str>
+            },
 
             "unstaged_files": context.git_summary.unstaged_files,
             "untracked_files": context.git_summary.untracked_files,
@@ -13907,10 +13967,11 @@ mod tests {
         run_resume_command, short_tool_id, slash_command_completion_candidates_with_sessions,
         split_error_hint, status_context, status_json_value, summarize_tool_payload_for_markdown,
         try_resolve_bare_skill_prompt, validate_no_args, write_mcp_server_fixture, CliAction,
-        CliOutputFormat, CliToolExecutor, GitWorkspaceSummary, InternalPromptProgressEvent,
-        InternalPromptProgressState, LiveCli, LocalHelpTopic, PermissionModeProvenance,
-        PromptHistoryEntry, SessionLifecycleKind, SessionLifecycleSummary, SlashCommand,
-        StatusUsage, TmuxPaneSnapshot, DEFAULT_MODEL, LATEST_SESSION_REFERENCE, STUB_COMMANDS,
+        CliOutputFormat, CliToolExecutor, GitOperation, GitWorkspaceSummary,
+        InternalPromptProgressEvent, InternalPromptProgressState, LiveCli, LocalHelpTopic,
+        PermissionModeProvenance, PromptHistoryEntry, SessionLifecycleKind,
+        SessionLifecycleSummary, SlashCommand, StatusUsage, TmuxPaneSnapshot, DEFAULT_MODEL,
+        LATEST_SESSION_REFERENCE, STUB_COMMANDS,
     };
     use api::{ApiError, MessageResponse, OutputContentBlock, Usage};
     use plugins::{
@@ -17250,6 +17311,7 @@ mod tests {
                     unstaged_files: 1,
                     untracked_files: 1,
                     conflicted_files: 0,
+                    operation: GitOperation::None,
                 },
                 branch_freshness: test_branch_freshness(),
                 stale_base_state: super::BaseCommitState::NoExpectedBase,
@@ -17621,6 +17683,7 @@ mod tests {
             unstaged_files: 1,
             untracked_files: 0,
             conflicted_files: 0,
+            operation: GitOperation::None,
         };
 
         let preflight = format_commit_preflight_report(Some("feature/ux"), summary);
@@ -17744,6 +17807,7 @@ UU conflicted.rs",
                 unstaged_files: 2,
                 untracked_files: 1,
                 conflicted_files: 1,
+                operation: GitOperation::None,
             }
         );
         assert_eq!(
