@@ -201,18 +201,12 @@ impl SessionStore {
         }
         // Distinguish between "no sessions at all" and "sessions exist but
         // all are empty" so the user gets a clear signal about what to do.
-        let has_any_session = self
-            .list_sessions()?
-            .iter()
-            .any(|s| s.id != exclude)
-            || self
-                .scan_global_sessions()?
-                .iter()
-                .any(|s| s.id != exclude);
+        let has_any_session = self.list_sessions()?.iter().any(|s| s.id != exclude)
+            || self.scan_global_sessions()?.iter().any(|s| s.id != exclude);
         if has_any_session {
-            return Err(SessionControlError::Format(
-                format_all_sessions_empty(&self.sessions_root),
-            ));
+            return Err(SessionControlError::Format(format_all_sessions_empty(
+                &self.sessions_root,
+            )));
         }
         Err(SessionControlError::Format(format_no_managed_sessions(
             &self.sessions_root,
@@ -1308,7 +1302,10 @@ mod tests {
 
         // when — latest_session should fail with the "all sessions empty" message
         let result = store.latest_session();
-        assert!(result.is_err(), "latest_session should fail when all sessions are empty");
+        assert!(
+            result.is_err(),
+            "latest_session should fail when all sessions are empty"
+        );
         let err_msg = result.unwrap_err().to_string();
         assert!(
             err_msg.contains("all sessions are empty"),
@@ -1319,6 +1316,82 @@ mod tests {
             "error should mention '0 messages', got: {err_msg}"
         );
 
+        fs::remove_dir_all(base).expect("temp dir should clean up");
+    }
+
+    #[test]
+    fn latest_session_excluding_skips_excluded_id_and_returns_previous() {
+        // given — two sessions WITH messages, newest excluded
+        let base = temp_dir();
+        fs::create_dir_all(&base).expect("base dir should exist");
+        let store = SessionStore::from_cwd(&base).expect("store should build");
+        let older = persist_session_via_store(&store, "older work");
+        wait_for_next_millisecond();
+        let newer = persist_session_via_store(&store, "newer work");
+
+        // when — exclude the newest session
+        let latest = store
+            .latest_session_excluding(Some(&newer.session_id))
+            .expect("latest excluding newest should resolve");
+
+        // then — the older session wins because the newest is skipped
+        assert_eq!(
+            latest.id, older.session_id,
+            "excluded id must be skipped, returning the previous session"
+        );
+        fs::remove_dir_all(base).expect("temp dir should clean up");
+    }
+
+    #[test]
+    fn latest_session_filters_out_zero_message_sessions() {
+        // given — one empty (0-message) session and one non-empty session
+        let base = temp_dir();
+        fs::create_dir_all(&base).expect("base dir should exist");
+        let store = SessionStore::from_cwd(&base).expect("store should build");
+
+        let empty_handle = store.create_handle("empty-session");
+        Session::new()
+            .with_persistence_path(empty_handle.path.clone())
+            .save_to_path(&empty_handle.path)
+            .expect("empty session should save");
+        wait_for_next_millisecond();
+        let non_empty = persist_session_via_store(&store, "real conversation");
+
+        // when
+        let latest = store.latest_session().expect("latest should resolve");
+
+        // then — the non-empty session wins; the 0-message one is filtered out
+        assert_eq!(
+            latest.id, non_empty.session_id,
+            "0-message session must be filtered out, non-empty session wins"
+        );
+        assert!(
+            latest.message_count > 0,
+            "resolved session must have messages"
+        );
+        fs::remove_dir_all(base).expect("temp dir should clean up");
+    }
+
+    #[test]
+    fn resolve_reference_excluding_latest_skips_excluded_id() {
+        // given — two sessions WITH messages
+        let base = temp_dir();
+        fs::create_dir_all(&base).expect("base dir should exist");
+        let store = SessionStore::from_cwd(&base).expect("store should build");
+        let older = persist_session_via_store(&store, "older work");
+        wait_for_next_millisecond();
+        let newer = persist_session_via_store(&store, "newer work");
+
+        // when — resolve the "latest" alias while excluding the newest session
+        let handle = store
+            .resolve_reference_excluding("latest", Some(&newer.session_id))
+            .expect("latest alias excluding newest should resolve");
+
+        // then — the excluded id is skipped, so the older session resolves
+        assert_eq!(
+            handle.id, older.session_id,
+            "excluded id must be skipped when resolving the latest alias"
+        );
         fs::remove_dir_all(base).expect("temp dir should clean up");
     }
 
