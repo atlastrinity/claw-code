@@ -51,7 +51,7 @@ cd rust
 ```
 
 **Note:** Diagnostic verbs (`doctor`, `status`, `sandbox`, `version`) support `--output-format json` for machine-readable output. Invalid suffix arguments (e.g., `--json`) are now rejected at parse time rather than falling through to prompt dispatch.
-`version --output-format json` reports structured build provenance including full `git_sha`, derived `git_sha_short`, `is_dirty`, `branch`, `commit_date`, `commit_timestamp`, `rustc_version`, runtime `executable_path`, and `binary_provenance`; JSON keeps the prose report in `human_readable` instead of duplicating it under `message`.
+`version --output-format json` reports structured build provenance including full `git_sha`, derived `git_sha_short`, `is_dirty`, `branch`, `commit_date`, `commit_timestamp`, `rustc_version`, runtime `executable_path`, and `binary_provenance`; JSON keeps the prose report in `human_readable` instead of duplicating it under `message`. `status --output-format json` exposes `workspace.memory_files[]` with `path`, `source`, `chars`, and `contributes` for every loaded project memory file.
 
 ### Initialize a repository
 
@@ -594,10 +594,12 @@ Object-style matchers are optional. When present, they match tool names case-ins
 
 ## Project instruction rules
 
-In addition to root instruction files such as `CLAUDE.md`, `AGENTS.md`, `.claw/CLAUDE.md`, `.claude/CLAUDE.md`, and `.claw/instructions.md`, `claw` loads sorted Markdown/text rule files from:
+In addition to root instruction files such as `CLAUDE.md`, `CLAW.md`, `AGENTS.md`, `.claw/CLAUDE.md`, `.claude/CLAUDE.md`, and `.claw/instructions.md`, `claw` loads sorted Markdown/text rule files from:
 
 - `<repo>/.claw/rules/` (`.md`, `.txt`, `.mdc`) for shared project rules.
 - `<repo>/.claw/rules.local/` for personal local rules; this path is gitignored.
+
+Root instruction-file priority is `CLAUDE.md`, then `CLAW.md`, then `AGENTS.md` for each discovered directory. All loaded files contribute to the system prompt and to `status --output-format json` as `workspace.memory_files:[{path, source, chars, contributes}]`; `claw doctor --output-format json` includes a `memory` check so automation can detect loaded and unexpected unloaded memory-file candidates without parsing prompt text.
 
 By default, `claw` also imports detected rules from common AI coding tools such as Cursor (`.cursorrules`, `.cursor/rules/`), GitHub Copilot (`.github/copilot-instructions.md`), Windsurf, Plandex, and Crush. Control this with `rulesImport` in any settings file:
 

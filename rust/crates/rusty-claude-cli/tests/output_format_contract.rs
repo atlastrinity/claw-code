@@ -110,6 +110,7 @@ fn assert_doctor_help_json_contract(parsed: &Value) {
     let checks = parsed["check_names"].as_array().expect("check_names");
     assert!(checks.iter().any(|check| check == "auth"));
     assert!(checks.iter().any(|check| check == "boot preflight"));
+    assert!(checks.iter().any(|check| check == "memory"));
 }
 
 #[test]
@@ -1271,6 +1272,70 @@ fn bootstrap_and_system_prompt_emit_json_when_requested() {
 }
 
 #[test]
+fn memory_files_load_claude_claw_agents_and_surface_json_438() {
+    let root = unique_temp_dir("memory-files-438");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(&root).expect("temp dir should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+    fs::write(root.join("CLAUDE.md"), "MARKER-FROM-CLAUDE-MD\n").expect("write CLAUDE.md");
+    fs::write(root.join("CLAW.md"), "MARKER-FROM-CLAW-MD\n").expect("write CLAW.md");
+    fs::write(root.join("AGENTS.md"), "MARKER-FROM-AGENTS-MD\n").expect("write AGENTS.md");
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+    ];
+
+    let status = assert_json_command_with_env(&root, &["--output-format", "json", "status"], &envs);
+    assert_eq!(status["workspace"]["memory_file_count"], 3);
+    let memory_files = status["workspace"]["memory_files"]
+        .as_array()
+        .expect("status memory files");
+    let sources = memory_files
+        .iter()
+        .map(|file| file["source"].as_str().expect("memory source"))
+        .collect::<Vec<_>>();
+    assert_eq!(sources, vec!["claude_md", "claw_md", "agents_md"]);
+    assert!(memory_files
+        .iter()
+        .all(|file| file["path"].as_str().is_some()));
+    assert!(memory_files
+        .iter()
+        .all(|file| file["chars"].as_u64().unwrap_or(0) > 0));
+    assert!(memory_files
+        .iter()
+        .all(|file| file["contributes"].as_bool() == Some(true)));
+
+    let prompt =
+        assert_json_command_with_env(&root, &["--output-format", "json", "system-prompt"], &envs);
+    let message = prompt["message"].as_str().expect("prompt message");
+    assert!(message.contains("MARKER-FROM-CLAUDE-MD"));
+    assert!(message.contains("MARKER-FROM-CLAW-MD"));
+    assert!(message.contains("MARKER-FROM-AGENTS-MD"));
+    assert_eq!(prompt["memory_file_count"], 3);
+    assert_eq!(prompt["memory_files"][1]["source"], "claw_md");
+
+    let doctor = assert_json_command_with_env(&root, &["--output-format", "json", "doctor"], &envs);
+    let memory = doctor["checks"]
+        .as_array()
+        .expect("doctor checks")
+        .iter()
+        .find(|check| check["name"] == "memory")
+        .expect("memory check");
+    assert_eq!(memory["status"], "ok");
+    assert_eq!(memory["memory_file_count"], 3);
+    assert_eq!(memory["memory_files"][2]["source"], "agents_md");
+    assert!(memory["unloaded_memory_files"]
+        .as_array()
+        .expect("unloaded memory files")
+        .is_empty());
+}
+
+#[test]
 fn dump_manifests_and_init_emit_json_when_requested() {
     let root = unique_temp_dir("manifest-init-json");
     fs::create_dir_all(&root).expect("temp dir should exist");
@@ -1325,7 +1390,7 @@ fn doctor_and_resume_status_emit_json_when_requested() {
         .is_some_and(|available| available.iter().any(|name| name == "web_fetch")));
 
     let checks = doctor["checks"].as_array().expect("doctor checks");
-    assert_eq!(checks.len(), 8);
+    assert_eq!(checks.len(), 9);
     let check_names = checks
         .iter()
         .map(|check| {
@@ -1348,6 +1413,7 @@ fn doctor_and_resume_status_emit_json_when_requested() {
             "config",
             "install source",
             "workspace",
+            "memory",
             "boot preflight",
             "sandbox",
             "permissions",

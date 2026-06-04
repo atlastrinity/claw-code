@@ -53,12 +53,13 @@ use plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
 use render::{MarkdownStreamState, Spinner, TerminalRenderer};
 use runtime::{
     check_base_commit, format_stale_base_warning, format_usd, load_oauth_credentials,
-    load_system_prompt, pricing_for_model, resolve_expected_base, resolve_sandbox_status,
-    ApiClient, ApiRequest, AssistantEvent, BaseCommitState, CompactionConfig, ConfigFileReport,
-    ConfigLoader, ConfigSource, ContentBlock, ConversationMessage, ConversationRuntime, McpServer,
-    McpServerManager, McpServerSpec, McpTool, MessageRole, ModelPricing, PermissionMode,
-    PermissionPolicy, ProjectContext, PromptCacheEvent, ResolvedPermissionMode, RuntimeError,
-    Session, TokenUsage, ToolError, ToolExecutor, UsageTracker,
+    load_system_prompt, load_system_prompt_with_context, pricing_for_model, resolve_expected_base,
+    resolve_sandbox_status, ApiClient, ApiRequest, AssistantEvent, BaseCommitState,
+    CompactionConfig, ConfigFileReport, ConfigLoader, ConfigSource, ContentBlock, ContextFile,
+    ConversationMessage, ConversationRuntime, McpServer, McpServerManager, McpServerSpec, McpTool,
+    MessageRole, ModelPricing, PermissionMode, PermissionPolicy, ProjectContext, PromptCacheEvent,
+    ResolvedPermissionMode, RuntimeError, Session, TokenUsage, ToolError, ToolExecutor,
+    UsageTracker,
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -3501,6 +3502,11 @@ fn render_doctor_report(
             .map_or(0, |runtime_config| runtime_config.loaded_entries().len()),
         discovered_config_files: discovered_config.len(),
         memory_file_count: project_context.instruction_files.len(),
+        memory_files: memory_file_summaries(&project_context.instruction_files),
+        unloaded_memory_files: unloaded_memory_candidates(
+            &cwd,
+            &memory_file_summaries(&project_context.instruction_files),
+        ),
         project_root,
         git_branch,
         git_summary,
@@ -3521,6 +3527,7 @@ fn render_doctor_report(
             check_config_health(&config_loader, config.as_ref()),
             check_install_source_health(),
             check_workspace_health(&context),
+            check_memory_health(&context),
             check_boot_preflight_health(&context),
             check_sandbox_health(&context.sandbox_status),
             check_permission_health(permission_mode),
@@ -3976,6 +3983,19 @@ fn check_workspace_health(context: &StatusContext) -> DiagnosticCheck {
             context.memory_file_count, context.loaded_config_files, context.discovered_config_files
         ),
         format!(
+            "Loaded memory    {}",
+            if context.memory_files.is_empty() {
+                "<none>".to_string()
+            } else {
+                context
+                    .memory_files
+                    .iter()
+                    .map(|file| format!("{}:{}", file.source, file.path))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            }
+        ),
+        format!(
             "Stale base      {}",
             stale_base_warning.as_deref().unwrap_or("ok")
         ),
@@ -4004,6 +4024,14 @@ fn check_workspace_health(context: &StatusContext) -> DiagnosticCheck {
             json!(context.memory_file_count),
         ),
         (
+            "memory_files".to_string(),
+            Value::Array(memory_files_json(&context.memory_files)),
+        ),
+        (
+            "unloaded_memory_files".to_string(),
+            json!(context.unloaded_memory_files),
+        ),
+        (
             "loaded_config_files".to_string(),
             json!(context.loaded_config_files),
         ),
@@ -4014,6 +4042,57 @@ fn check_workspace_health(context: &StatusContext) -> DiagnosticCheck {
         (
             "stale_base".to_string(),
             stale_base_json_value(&context.stale_base_state),
+        ),
+    ]))
+}
+
+fn check_memory_health(context: &StatusContext) -> DiagnosticCheck {
+    let has_unloaded = !context.unloaded_memory_files.is_empty();
+    let mut details = vec![format!("Loaded files     {}", context.memory_file_count)];
+    details.extend(context.memory_files.iter().map(|file| {
+        format!(
+            "Loaded          {} ({}, chars={})",
+            file.path, file.source, file.chars
+        )
+    }));
+    details.extend(
+        context
+            .unloaded_memory_files
+            .iter()
+            .map(|path| format!("Unloaded        {path}")),
+    );
+
+    DiagnosticCheck::new(
+        "Memory",
+        if has_unloaded {
+            DiagnosticLevel::Warn
+        } else {
+            DiagnosticLevel::Ok
+        },
+        if has_unloaded {
+            "some workspace memory files exist but were not loaded".to_string()
+        } else {
+            format!("{} workspace memory files loaded", context.memory_file_count)
+        },
+    )
+    .with_hint(if has_unloaded {
+        "Move instructions into CLAUDE.md, CLAW.md, or AGENTS.md within the current workspace ancestry, or inspect workspace.memory_files in `claw status --output-format json`."
+    } else {
+        ""
+    })
+    .with_details(details)
+    .with_data(Map::from_iter([
+        (
+            "memory_file_count".to_string(),
+            json!(context.memory_file_count),
+        ),
+        (
+            "memory_files".to_string(),
+            Value::Array(memory_files_json(&context.memory_files)),
+        ),
+        (
+            "unloaded_memory_files".to_string(),
+            json!(context.unloaded_memory_files),
         ),
     ]))
 }
@@ -4413,13 +4492,14 @@ fn print_system_prompt(
     model: &str,
     output_format: CliOutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let sections = load_system_prompt(
+    let (sections, project_context) = load_system_prompt_with_context(
         cwd,
         date,
         env::consts::OS,
         "unknown",
         model_family_identity_for(model),
     )?;
+    let memory_files = memory_file_summaries(&project_context.instruction_files);
     let message = sections.join(
         "
 
@@ -4435,6 +4515,8 @@ fn print_system_prompt(
                 "status": "ok",
                 "message": message,
                 "sections": sections,
+                "memory_file_count": memory_files.len(),
+                "memory_files": memory_files_json(&memory_files),
             }))?
         ),
     }
@@ -4672,6 +4754,63 @@ struct ResumeCommandOutcome {
     json: Option<serde_json::Value>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct MemoryFileSummary {
+    path: String,
+    source: String,
+    chars: usize,
+    contributes: bool,
+}
+
+impl MemoryFileSummary {
+    fn json_value(&self) -> serde_json::Value {
+        json!({
+            "path": self.path,
+            "source": self.source,
+            "chars": self.chars,
+            "contributes": self.contributes,
+        })
+    }
+}
+
+fn memory_file_summaries(files: &[ContextFile]) -> Vec<MemoryFileSummary> {
+    files
+        .iter()
+        .map(|file| MemoryFileSummary {
+            path: file.path.display().to_string(),
+            source: file.source().to_string(),
+            chars: file.char_count(),
+            contributes: true,
+        })
+        .collect()
+}
+
+fn memory_files_json(files: &[MemoryFileSummary]) -> Vec<serde_json::Value> {
+    files.iter().map(MemoryFileSummary::json_value).collect()
+}
+
+fn unloaded_memory_candidates(cwd: &Path, files: &[MemoryFileSummary]) -> Vec<String> {
+    let mut loaded = files
+        .iter()
+        .map(|file| PathBuf::from(&file.path))
+        .collect::<Vec<_>>();
+    loaded.sort();
+
+    let mut missing = Vec::new();
+    let mut cursor = Some(cwd);
+    while let Some(dir) = cursor {
+        for name in ["CLAW.md", "AGENTS.md"] {
+            let candidate = dir.join(name);
+            if candidate.is_file() && !loaded.iter().any(|path| path == &candidate) {
+                missing.push(candidate.display().to_string());
+            }
+        }
+        cursor = dir.parent();
+    }
+    missing.sort();
+    missing.dedup();
+    missing
+}
 #[derive(Debug, Clone)]
 struct StatusContext {
     cwd: PathBuf,
@@ -4679,6 +4818,8 @@ struct StatusContext {
     loaded_config_files: usize,
     discovered_config_files: usize,
     memory_file_count: usize,
+    memory_files: Vec<MemoryFileSummary>,
+    unloaded_memory_files: Vec<String>,
     project_root: Option<PathBuf>,
     git_branch: Option<String>,
     git_summary: GitWorkspaceSummary,
@@ -8677,6 +8818,8 @@ fn status_json_value(
             "loaded_config_files": context.loaded_config_files,
             "discovered_config_files": context.discovered_config_files,
             "memory_file_count": context.memory_file_count,
+            "memory_files": memory_files_json(&context.memory_files),
+            "unloaded_memory_files": context.unloaded_memory_files,
         },
         "sandbox": {
             "enabled": context.sandbox_status.enabled,
@@ -8751,6 +8894,11 @@ fn status_context(
         loaded_config_files,
         discovered_config_files,
         memory_file_count: project_context.instruction_files.len(),
+        memory_files: memory_file_summaries(&project_context.instruction_files),
+        unloaded_memory_files: unloaded_memory_candidates(
+            &cwd,
+            &memory_file_summaries(&project_context.instruction_files),
+        ),
         project_root,
         git_branch,
         git_summary,
@@ -8866,6 +9014,7 @@ fn format_status_report(
   Boot preflight   {}
   Config files     loaded {}/{}
   Memory files     {}
+  Loaded memory    {}
   Suggested flow   /status → /diff → /commit",
             context.cwd.display(),
             context
@@ -8892,6 +9041,16 @@ fn format_status_report(
             context.loaded_config_files,
             context.discovered_config_files,
             context.memory_file_count,
+            if context.memory_files.is_empty() {
+                "<none>".to_string()
+            } else {
+                context
+                    .memory_files
+                    .iter()
+                    .map(|file| format!("{}:{}", file.source, file.path))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            },
         ),
         format_sandbox_report(&context.sandbox_status),
     ]);
@@ -9325,7 +9484,7 @@ fn render_doctor_help_json() -> serde_json::Value {
         "command": "doctor",
         "schema_version": "1.0",
         "usage": "claw doctor [--output-format <format>]",
-        "purpose": "diagnose local auth, config, workspace, permissions, sandbox, boot preflight, and build metadata",
+        "purpose": "diagnose local auth, config, workspace memory, permissions, sandbox, boot preflight, and build metadata",
         "formats": ["text", "json"],
         "local_only": true,
         "requires_credentials": false,
@@ -9333,7 +9492,7 @@ fn render_doctor_help_json() -> serde_json::Value {
         "requires_session_resume": false,
         "mutates_workspace": false,
         "output_fields": ["kind", "action", "status", "message", "report", "has_failures", "summary", "checks", "allowed_tools"],
-        "check_names": ["auth", "config", "install source", "workspace", "boot preflight", "sandbox", "permissions", "system"],
+        "check_names": ["auth", "config", "install source", "workspace", "memory", "boot preflight", "sandbox", "permissions", "system"],
         "status_values": ["ok", "warn", "fail"],
         "options": [
             {
@@ -9745,7 +9904,7 @@ fn render_memory_report() -> Result<String, Box<dyn std::error::Error>> {
     if project_context.instruction_files.is_empty() {
         lines.push("Discovered files".to_string());
         lines.push(
-            "  No CLAUDE instruction files discovered in the current directory ancestry."
+            "  No CLAUDE.md, CLAW.md, AGENTS.md, or scoped instruction files discovered in the current directory ancestry."
                 .to_string(),
         );
     } else {
@@ -9759,8 +9918,10 @@ fn render_memory_report() -> Result<String, Box<dyn std::error::Error>> {
             };
             lines.push(format!("  {}. {}", index + 1, file.path.display(),));
             lines.push(format!(
-                "     lines={} preview={}",
+                "     source={} lines={} chars={} preview={}",
+                file.source(),
                 file.content.lines().count(),
+                file.char_count(),
                 preview
             ));
         }
@@ -16283,6 +16444,13 @@ mod tests {
                 loaded_config_files: 2,
                 discovered_config_files: 3,
                 memory_file_count: 4,
+                memory_files: vec![super::MemoryFileSummary {
+                    path: "/tmp/project/CLAUDE.md".to_string(),
+                    source: "claude_md".to_string(),
+                    chars: 42,
+                    contributes: true,
+                }],
+                unloaded_memory_files: Vec::new(),
                 project_root: Some(PathBuf::from("/tmp")),
                 git_branch: Some("main".to_string()),
                 git_summary: GitWorkspaceSummary {
@@ -16327,6 +16495,7 @@ mod tests {
             status.contains("Git state        dirty · 3 files · 1 staged, 1 unstaged, 1 untracked")
         );
         assert!(status.contains("Changed files    3"));
+        assert!(status.contains("Loaded memory    claude_md:/tmp/project/CLAUDE.md"));
         assert!(status.contains("Staged           1"));
         assert!(status.contains("Unstaged         1"));
         assert!(status.contains("Untracked        1"));
@@ -16433,6 +16602,8 @@ mod tests {
             loaded_config_files: 0,
             discovered_config_files: 0,
             memory_file_count: 0,
+            memory_files: Vec::new(),
+            unloaded_memory_files: Vec::new(),
             project_root: Some(PathBuf::from("/tmp/project")),
             git_branch: Some("feature/stale-base".to_string()),
             git_summary: GitWorkspaceSummary::default(),
@@ -16468,6 +16639,52 @@ mod tests {
     }
 
     #[test]
+    fn memory_health_surfaces_loaded_and_unloaded_files_438() {
+        let context = super::StatusContext {
+            cwd: PathBuf::from("/tmp/project"),
+            session_path: None,
+            loaded_config_files: 0,
+            discovered_config_files: 0,
+            memory_file_count: 1,
+            memory_files: vec![super::MemoryFileSummary {
+                path: "/tmp/project/CLAUDE.md".to_string(),
+                source: "claude_md".to_string(),
+                chars: 12,
+                contributes: true,
+            }],
+            unloaded_memory_files: vec!["/tmp/project/AGENTS.md".to_string()],
+            project_root: Some(PathBuf::from("/tmp/project")),
+            git_branch: Some("main".to_string()),
+            git_summary: GitWorkspaceSummary::default(),
+            branch_freshness: test_branch_freshness(),
+            stale_base_state: super::BaseCommitState::NoExpectedBase,
+            session_lifecycle: SessionLifecycleSummary {
+                kind: SessionLifecycleKind::SavedOnly,
+                pane_id: None,
+                pane_command: None,
+                pane_path: None,
+                workspace_dirty: false,
+                abandoned: false,
+            },
+            boot_preflight: test_boot_preflight(),
+            sandbox_status: runtime::SandboxStatus::default(),
+            binary_provenance: super::binary_provenance_for(None),
+            config_load_error: None,
+            config_load_error_kind: None,
+        };
+
+        let check = super::check_memory_health(&context);
+
+        assert_eq!(check.level, super::DiagnosticLevel::Warn);
+        assert_eq!(check.data["memory_file_count"], 1);
+        assert_eq!(check.data["memory_files"][0]["source"], "claude_md");
+        assert_eq!(
+            check.data["unloaded_memory_files"][0],
+            "/tmp/project/AGENTS.md"
+        );
+    }
+
+    #[test]
     fn status_json_surfaces_session_lifecycle_for_clawhip() {
         let context = super::StatusContext {
             cwd: PathBuf::from("/tmp/project"),
@@ -16475,6 +16692,8 @@ mod tests {
             loaded_config_files: 0,
             discovered_config_files: 0,
             memory_file_count: 0,
+            memory_files: Vec::new(),
+            unloaded_memory_files: Vec::new(),
             project_root: Some(PathBuf::from("/tmp/project")),
             git_branch: Some("feature/session-lifecycle".to_string()),
             git_summary: GitWorkspaceSummary::default(),
