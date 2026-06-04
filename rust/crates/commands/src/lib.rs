@@ -3308,7 +3308,15 @@ fn render_mcp_report_json_for(
                 "use `claw mcp show <server>` to inspect a server",
             ))
         }
-        Some(args) => Ok(render_mcp_usage_json(Some(args))),
+        Some(args) => {
+            // #681: unsupported mutation verbs (add, remove, delete, enable, disable)
+            // and other unknown sub-actions return a typed error instead of help with exit 0.
+            let verb = args.split_whitespace().next().unwrap_or(args);
+            Ok(render_mcp_unsupported_action_json(
+                args,
+                &format!("`{verb}` is not a supported MCP sub-action; supported actions: list, show, help"),
+            ))
+        }
     }
 }
 
