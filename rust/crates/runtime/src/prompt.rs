@@ -290,12 +290,7 @@ fn discover_instruction_files(
     cwd: &Path,
     rules_import: &RulesImportConfig,
 ) -> std::io::Result<Vec<ContextFile>> {
-    let mut directories = Vec::new();
-    let mut cursor = Some(cwd);
-    while let Some(dir) = cursor {
-        directories.push(dir.to_path_buf());
-        cursor = dir.parent();
-    }
+    let mut directories = instruction_discovery_dirs(cwd);
     directories.reverse();
 
     let mut files = Vec::new();
@@ -316,6 +311,32 @@ fn discover_instruction_files(
         push_framework_imports(&mut files, &dir, rules_import)?
     }
     Ok(dedupe_instruction_files(files))
+}
+
+fn instruction_discovery_dirs(cwd: &Path) -> Vec<PathBuf> {
+    let boundary = nearest_git_root(cwd).unwrap_or_else(|| cwd.to_path_buf());
+    let mut directories = Vec::new();
+    let mut cursor = Some(cwd);
+    while let Some(dir) = cursor {
+        directories.push(dir.to_path_buf());
+        if dir == boundary {
+            break;
+        }
+        cursor = dir.parent();
+    }
+    directories
+}
+
+fn nearest_git_root(cwd: &Path) -> Option<PathBuf> {
+    let mut cursor = Some(cwd);
+    while let Some(dir) = cursor {
+        let git_marker = dir.join(".git");
+        if git_marker.is_dir() || git_marker.is_file() {
+            return Some(dir.to_path_buf());
+        }
+        cursor = dir.parent();
+    }
+    None
 }
 
 fn push_context_file(files: &mut Vec<ContextFile>, path: PathBuf) -> std::io::Result<()> {
@@ -812,6 +833,7 @@ mod tests {
         let root = temp_dir();
         let nested = root.join("apps").join("api");
         fs::create_dir_all(nested.join(".claw")).expect("nested claw dir");
+        fs::create_dir(root.join(".git")).expect("git boundary");
         fs::write(root.join("CLAUDE.md"), "root instructions").expect("write root instructions");
         fs::write(root.join("CLAUDE.local.md"), "local instructions")
             .expect("write local instructions");
@@ -926,6 +948,7 @@ mod tests {
         let root = temp_dir();
         let nested = root.join("apps").join("api");
         fs::create_dir_all(&nested).expect("nested dir");
+        fs::create_dir(root.join(".git")).expect("git boundary");
         fs::write(root.join("CLAUDE.md"), "same rules\n\n").expect("write root");
         fs::write(nested.join("CLAUDE.md"), "same rules\n").expect("write nested");
 
@@ -935,6 +958,50 @@ mod tests {
             normalize_instruction_content(&context.instruction_files[0].content),
             "same rules"
         );
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn discovery_stops_at_git_root_boundary_439() {
+        let root = temp_dir();
+        let repo = root.join("repo");
+        let nested = repo.join("subproj").join("deep").join("nest");
+        fs::create_dir_all(&nested).expect("nested dir");
+        fs::create_dir(repo.join(".git")).expect("git boundary");
+        fs::write(root.join("CLAUDE.md"), "PARENT_CLAUDE").expect("write parent");
+        fs::write(repo.join("CLAUDE.md"), "REPO_CLAUDE").expect("write repo");
+        fs::write(repo.join("subproj").join("CLAUDE.md"), "CHILD_CLAUDE").expect("write child");
+        fs::write(
+            repo.join("subproj").join("deep").join("CLAUDE.md"),
+            "DEEP_CLAUDE",
+        )
+        .expect("write deep");
+
+        let context = ProjectContext::discover(&nested, "2026-03-31").expect("context should load");
+        let rendered = render_instruction_files(&context.instruction_files);
+
+        assert!(!rendered.contains("PARENT_CLAUDE"));
+        assert!(rendered.contains("REPO_CLAUDE"));
+        assert!(rendered.contains("CHILD_CLAUDE"));
+        assert!(rendered.contains("DEEP_CLAUDE"));
+        assert_eq!(context.instruction_files.len(), 3);
+        fs::remove_dir_all(root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn discovery_without_git_root_stays_cwd_local_439() {
+        let root = temp_dir();
+        let nested = root.join("scratch");
+        fs::create_dir_all(&nested).expect("nested dir");
+        fs::write(root.join("CLAUDE.md"), "PARENT_CLAUDE").expect("write parent");
+        fs::write(nested.join("CLAUDE.md"), "SCRATCH_CLAUDE").expect("write scratch");
+
+        let context = ProjectContext::discover(&nested, "2026-03-31").expect("context should load");
+        let rendered = render_instruction_files(&context.instruction_files);
+
+        assert!(!rendered.contains("PARENT_CLAUDE"));
+        assert!(rendered.contains("SCRATCH_CLAUDE"));
+        assert_eq!(context.instruction_files.len(), 1);
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }
 

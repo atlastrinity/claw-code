@@ -1309,6 +1309,15 @@ fn memory_files_load_claude_claw_agents_and_surface_json_438() {
     assert!(memory_files
         .iter()
         .all(|file| file["contributes"].as_bool() == Some(true)));
+    assert!(memory_files
+        .iter()
+        .all(|file| file["origin"].as_str() == Some("workspace")));
+    assert!(memory_files
+        .iter()
+        .all(|file| file["scope_path"].as_str().is_some()));
+    assert!(memory_files
+        .iter()
+        .all(|file| file["outside_project"].as_bool() == Some(false)));
 
     let prompt =
         assert_json_command_with_env(&root, &["--output-format", "json", "system-prompt"], &envs);
@@ -1333,6 +1342,65 @@ fn memory_files_load_claude_claw_agents_and_surface_json_438() {
         .as_array()
         .expect("unloaded memory files")
         .is_empty());
+}
+
+#[test]
+fn memory_discovery_stops_at_git_root_and_reports_origins_439() {
+    let root = unique_temp_dir("memory-boundary-439");
+    let repo = root.join("repo");
+    let nested = repo.join("subproj").join("deep").join("nest");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(&nested).expect("nested dir should exist");
+    fs::create_dir_all(&config_home).expect("config home should exist");
+    fs::create_dir_all(&home).expect("home should exist");
+    Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&repo)
+        .output()
+        .expect("git init should launch");
+    fs::write(root.join("CLAUDE.md"), "PARENT_CLAUDE").expect("write parent");
+    fs::write(repo.join("CLAUDE.md"), "REPO_CLAUDE").expect("write repo");
+    fs::write(repo.join("subproj").join("CLAUDE.md"), "CHILD_CLAUDE").expect("write child");
+    fs::write(
+        repo.join("subproj").join("deep").join("CLAUDE.md"),
+        "DEEP_CLAUDE",
+    )
+    .expect("write deep");
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("utf8 config home"),
+        ),
+        ("HOME", home.to_str().expect("utf8 home")),
+    ];
+
+    let status =
+        assert_json_command_with_env(&nested, &["--output-format", "json", "status"], &envs);
+    assert_eq!(status["workspace"]["memory_file_count"], 3);
+    let memory_files = status["workspace"]["memory_files"]
+        .as_array()
+        .expect("memory files");
+    let origins = memory_files
+        .iter()
+        .map(|file| file["origin"].as_str().expect("origin"))
+        .collect::<Vec<_>>();
+    assert_eq!(origins, vec!["ancestor", "ancestor", "parent_dir"]);
+    let serialized = serde_json::to_string(memory_files).expect("memory files serialize");
+    assert!(!serialized.contains("PARENT_CLAUDE"));
+    assert!(!serialized.contains(root.join("CLAUDE.md").to_str().expect("parent path")));
+
+    let prompt = assert_json_command_with_env(
+        &nested,
+        &["--output-format", "json", "system-prompt"],
+        &envs,
+    );
+    let message = prompt["message"].as_str().expect("prompt message");
+    assert!(!message.contains("PARENT_CLAUDE"));
+    assert!(message.contains("REPO_CLAUDE"));
+    assert!(message.contains("CHILD_CLAUDE"));
+    assert!(message.contains("DEEP_CLAUDE"));
+    assert_eq!(prompt["memory_files"][0]["origin"], "ancestor");
 }
 
 #[test]

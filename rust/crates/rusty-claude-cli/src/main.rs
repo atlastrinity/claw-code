@@ -3493,6 +3493,11 @@ fn render_doctor_report(
         config.as_ref().ok(),
         config.as_ref().err().map(ToString::to_string).as_deref(),
     );
+    let memory_files = memory_file_summaries_for(
+        &cwd,
+        project_root.as_deref(),
+        &project_context.instruction_files,
+    );
     let context = StatusContext {
         cwd: cwd.clone(),
         session_path: None,
@@ -3502,10 +3507,11 @@ fn render_doctor_report(
             .map_or(0, |runtime_config| runtime_config.loaded_entries().len()),
         discovered_config_files: discovered_config.len(),
         memory_file_count: project_context.instruction_files.len(),
-        memory_files: memory_file_summaries(&project_context.instruction_files),
+        memory_files: memory_files.clone(),
         unloaded_memory_files: unloaded_memory_candidates(
             &cwd,
-            &memory_file_summaries(&project_context.instruction_files),
+            project_root.as_deref(),
+            &memory_files,
         ),
         project_root,
         git_branch,
@@ -4048,6 +4054,7 @@ fn check_workspace_health(context: &StatusContext) -> DiagnosticCheck {
 
 fn check_memory_health(context: &StatusContext) -> DiagnosticCheck {
     let has_unloaded = !context.unloaded_memory_files.is_empty();
+    let has_outside_project = context.memory_files.iter().any(|file| file.outside_project);
     let mut details = vec![format!("Loaded files     {}", context.memory_file_count)];
     details.extend(context.memory_files.iter().map(|file| {
         format!(
@@ -4064,18 +4071,22 @@ fn check_memory_health(context: &StatusContext) -> DiagnosticCheck {
 
     DiagnosticCheck::new(
         "Memory",
-        if has_unloaded {
+        if has_unloaded || has_outside_project {
             DiagnosticLevel::Warn
         } else {
             DiagnosticLevel::Ok
         },
-        if has_unloaded {
+        if has_outside_project {
+            "memory files outside the current git project are loaded".to_string()
+        } else if has_unloaded {
             "some workspace memory files exist but were not loaded".to_string()
         } else {
             format!("{} workspace memory files loaded", context.memory_file_count)
         },
     )
-    .with_hint(if has_unloaded {
+    .with_hint(if has_outside_project {
+        "Inspect workspace.memory_files in `claw status --output-format json`; move unintended ancestor instructions inside the git project or run from the intended workspace root."
+    } else if has_unloaded {
         "Move instructions into CLAUDE.md, CLAW.md, or AGENTS.md within the current workspace ancestry, or inspect workspace.memory_files in `claw status --output-format json`."
     } else {
         ""
@@ -4499,7 +4510,13 @@ fn print_system_prompt(
         "unknown",
         model_family_identity_for(model),
     )?;
-    let memory_files = memory_file_summaries(&project_context.instruction_files);
+    let (project_root, _) =
+        parse_git_status_metadata_for(&project_context.cwd, project_context.git_status.as_deref());
+    let memory_files = memory_file_summaries_for(
+        &project_context.cwd,
+        project_root.as_deref(),
+        &project_context.instruction_files,
+    );
     let message = sections.join(
         "
 
@@ -4759,6 +4776,9 @@ struct MemoryFileSummary {
     path: String,
     source: String,
     chars: usize,
+    origin: String,
+    scope_path: String,
+    outside_project: bool,
     contributes: bool,
 }
 
@@ -4768,34 +4788,103 @@ impl MemoryFileSummary {
             "path": self.path,
             "source": self.source,
             "chars": self.chars,
+            "origin": self.origin,
+            "scope_path": self.scope_path,
+            "outside_project": self.outside_project,
             "contributes": self.contributes,
         })
     }
 }
 
-fn memory_file_summaries(files: &[ContextFile]) -> Vec<MemoryFileSummary> {
+fn memory_file_summaries_for(
+    cwd: &Path,
+    project_root: Option<&Path>,
+    files: &[ContextFile],
+) -> Vec<MemoryFileSummary> {
+    let cwd = cwd.canonicalize().unwrap_or_else(|_| cwd.to_path_buf());
+    let project_root =
+        project_root.map(|path| path.canonicalize().unwrap_or_else(|_| path.to_path_buf()));
     files
         .iter()
-        .map(|file| MemoryFileSummary {
-            path: file.path.display().to_string(),
-            source: file.source().to_string(),
-            chars: file.char_count(),
-            contributes: true,
+        .map(|file| {
+            let path = file
+                .path
+                .canonicalize()
+                .unwrap_or_else(|_| file.path.clone());
+            let scope_path = memory_scope_path(&path);
+            let origin = memory_origin(&cwd, project_root.as_deref(), &scope_path);
+            let outside_project = project_root
+                .as_ref()
+                .is_some_and(|root| !path.starts_with(root));
+            MemoryFileSummary {
+                path: file.path.display().to_string(),
+                source: file.source().to_string(),
+                origin: origin.to_string(),
+                scope_path: scope_path.display().to_string(),
+                chars: file.char_count(),
+                outside_project,
+                contributes: true,
+            }
         })
         .collect()
+}
+
+fn memory_scope_path(path: &Path) -> PathBuf {
+    let Some(parent) = path.parent() else {
+        return PathBuf::from(".");
+    };
+    let parent_name = parent.file_name().and_then(|name| name.to_str());
+    if matches!(parent_name, Some(".claw" | ".claude")) {
+        return parent.parent().unwrap_or(parent).to_path_buf();
+    }
+    if matches!(parent_name, Some("rules" | "rules.local")) {
+        if let Some(grandparent) = parent.parent() {
+            if grandparent.file_name().and_then(|name| name.to_str()) == Some(".claw") {
+                return grandparent.parent().unwrap_or(grandparent).to_path_buf();
+            }
+        }
+    }
+    parent.to_path_buf()
+}
+
+fn memory_origin(cwd: &Path, project_root: Option<&Path>, scope_path: &Path) -> &'static str {
+    if scope_path == cwd {
+        return "workspace";
+    }
+    if project_root.is_some_and(|root| !scope_path.starts_with(root)) {
+        return "outside_project";
+    }
+    if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+        let home = home.canonicalize().unwrap_or(home);
+        if scope_path == home {
+            return "home";
+        }
+    }
+    if cwd.parent().is_some_and(|parent| parent == scope_path) {
+        return "parent_dir";
+    }
+    if cwd.starts_with(scope_path) {
+        return "ancestor";
+    }
+    "workspace"
 }
 
 fn memory_files_json(files: &[MemoryFileSummary]) -> Vec<serde_json::Value> {
     files.iter().map(MemoryFileSummary::json_value).collect()
 }
 
-fn unloaded_memory_candidates(cwd: &Path, files: &[MemoryFileSummary]) -> Vec<String> {
+fn unloaded_memory_candidates(
+    cwd: &Path,
+    project_root: Option<&Path>,
+    files: &[MemoryFileSummary],
+) -> Vec<String> {
     let mut loaded = files
         .iter()
         .map(|file| PathBuf::from(&file.path))
         .collect::<Vec<_>>();
     loaded.sort();
 
+    let boundary = project_root.unwrap_or(cwd);
     let mut missing = Vec::new();
     let mut cursor = Some(cwd);
     while let Some(dir) = cursor {
@@ -4804,6 +4893,9 @@ fn unloaded_memory_candidates(cwd: &Path, files: &[MemoryFileSummary]) -> Vec<St
             if candidate.is_file() && !loaded.iter().any(|path| path == &candidate) {
                 missing.push(candidate.display().to_string());
             }
+        }
+        if dir == boundary {
+            break;
         }
         cursor = dir.parent();
     }
@@ -8888,16 +8980,22 @@ fn status_context(
         runtime_config.as_ref().ok(),
         config_load_error.as_deref(),
     );
+    let memory_files = memory_file_summaries_for(
+        &cwd,
+        project_root.as_deref(),
+        &project_context.instruction_files,
+    );
     Ok(StatusContext {
         cwd: cwd.clone(),
         session_path: session_path.map(Path::to_path_buf),
         loaded_config_files,
         discovered_config_files,
         memory_file_count: project_context.instruction_files.len(),
-        memory_files: memory_file_summaries(&project_context.instruction_files),
+        memory_files: memory_files.clone(),
         unloaded_memory_files: unloaded_memory_candidates(
             &cwd,
-            &memory_file_summaries(&project_context.instruction_files),
+            project_root.as_deref(),
+            &memory_files,
         ),
         project_root,
         git_branch,
@@ -16447,6 +16545,9 @@ mod tests {
                 memory_files: vec![super::MemoryFileSummary {
                     path: "/tmp/project/CLAUDE.md".to_string(),
                     source: "claude_md".to_string(),
+                    origin: "workspace".to_string(),
+                    scope_path: "/tmp/project".to_string(),
+                    outside_project: false,
                     chars: 42,
                     contributes: true,
                 }],
@@ -16649,6 +16750,9 @@ mod tests {
             memory_files: vec![super::MemoryFileSummary {
                 path: "/tmp/project/CLAUDE.md".to_string(),
                 source: "claude_md".to_string(),
+                origin: "workspace".to_string(),
+                scope_path: "/tmp/project".to_string(),
+                outside_project: false,
                 chars: 12,
                 contributes: true,
             }],
