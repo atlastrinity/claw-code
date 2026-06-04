@@ -6760,6 +6760,23 @@ fn run_resume_command(
         SlashCommand::Session { action, target } => {
             run_resumed_session_command(session_path, session, action.as_deref(), target.as_deref())
         }
+        // #341: /tasks is resume-supported — return a no-op with structured JSON
+        SlashCommand::Tasks { args } => {
+            let args_str = args.as_deref().unwrap_or_default();
+            Ok(ResumeCommandOutcome {
+                session: session.clone(),
+                message: Some(format!(
+                    "Tasks\n  Note           Background tasks are only available in the interactive REPL.\n  Command        /tasks {args_str}"
+                )),
+                json: Some(serde_json::json!({
+                    "kind": "tasks",
+                    "action": "list",
+                    "status": "ok",
+                    "note": "Background tasks are only available in the interactive REPL.",
+                    "args": args_str,
+                })),
+            })
+        }
         SlashCommand::Bughunter { .. }
         | SlashCommand::Commit { .. }
         | SlashCommand::Pr { .. }
@@ -6792,7 +6809,6 @@ fn run_resume_command(
         | SlashCommand::PrivacySettings
         | SlashCommand::Plan { .. }
         | SlashCommand::Review { .. }
-        | SlashCommand::Tasks { .. }
         | SlashCommand::Theme { .. }
         | SlashCommand::Voice { .. }
         | SlashCommand::Usage { .. }
