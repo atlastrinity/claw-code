@@ -1598,6 +1598,16 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 let value = args
                     .get(index + 1)
                     .ok_or_else(|| "missing_flag_value: missing value for --base-commit.\nUsage: --base-commit <git-sha>".to_string())?;
+                // #122: validate that base-commit looks like a git SHA (hex, 7-64 chars)
+                if value.len() < 7
+                    || value.len() > 64
+                    || !value.chars().all(|c| c.is_ascii_hexdigit())
+                {
+                    return Err(format!(
+                        "invalid_flag_value: --base-commit expects a hex SHA (7-64 chars), got '{}'.\nUsage: --base-commit <git-sha>",
+                        value
+                    ));
+                }
                 base_commit = Some(value.clone());
                 index += 2;
             }
