@@ -382,9 +382,16 @@ fn main() {
                     object.insert("available".to_string(), serde_json::json!(available));
                     object.insert("tool_aliases".to_string(), aliases);
                 }
-            } else if kind == "missing_argument" && message.contains("--allowedTools") {
+            } else if kind == "missing_argument" {
                 if let Some(object) = error_json.as_object_mut() {
-                    object.insert("argument".to_string(), serde_json::json!("--allowedTools"));
+                    if message.contains("--allowedTools") {
+                        object.insert("argument".to_string(), serde_json::json!("--allowedTools"));
+                    } else if message.contains("prompt or subcommand") {
+                        object.insert(
+                            "argument".to_string(),
+                            serde_json::json!("prompt or subcommand"),
+                        );
+                    }
                 }
             }
             // #819/#820/#823: JSON mode error envelopes must go to stdout so machine
@@ -1751,11 +1758,15 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
 
     if rest.is_empty() {
         let permission_mode = permission_mode_override.unwrap_or_else(default_permission_mode);
+        let stdin_is_terminal = std::io::stdin().is_terminal();
+        if compact && stdin_is_terminal {
+            return Err(compact_missing_argument_error());
+        }
         // When stdin is not a terminal (pipe/redirect) and no prompt is given on the
         // command line, read stdin as the prompt and dispatch as a one-shot Prompt
         // rather than starting the interactive REPL (which would consume the pipe and
         // print the startup banner, then exit without sending anything to the API).
-        if !std::io::stdin().is_terminal() {
+        if !stdin_is_terminal {
             let mut buf = String::new();
             let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf);
             let piped = buf.trim().to_string();
@@ -1766,11 +1777,14 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     allowed_tools,
                     permission_mode,
                     output_format,
-                    compact: false,
+                    compact,
                     base_commit,
                     reasoning_effort,
                     allow_broad_cwd,
                 });
+            }
+            if compact {
+                return Err(compact_missing_argument_error());
             }
             // Non-TTY stdin with no piped content: refuse to start the interactive
             // REPL (it would block forever waiting for input that will never arrive).
@@ -2087,7 +2101,8 @@ Usage: claw prompt <text>  or  echo '<text>' | claw prompt".to_string());
             allow_broad_cwd,
         ),
         other => {
-            if !other.starts_with('-')
+            if !compact
+                && !other.starts_with('-')
                 && looks_like_subcommand_typo(other)
                 && (rest.len() == 1
                     || (output_format == CliOutputFormat::Json && model_flag_raw.is_none()))
@@ -2848,6 +2863,11 @@ fn normalize_allowed_tools(values: &[String]) -> Result<Option<AllowedToolSet>, 
 
 fn allowed_tools_missing_error() -> String {
     "missing_argument: --allowedTools requires a tool list before subcommands or flags.\nUsage: --allowedTools <tool-name>[,<tool-name>...]  e.g. --allowedTools read,glob".to_string()
+}
+
+fn compact_missing_argument_error() -> String {
+    "missing_argument: --compact requires prompt text, piped stdin, or a subcommand. argument: prompt or subcommand\nUsage: claw --compact <prompt>  or  echo '<prompt>' | claw --compact"
+        .to_string()
 }
 
 fn allowed_tool_aliases_json(registry: &GlobalToolRegistry) -> Value {
@@ -13548,6 +13568,21 @@ mod tests {
             parsed,
             CliAction::Prompt {
                 prompt: "summarize this".to_string(),
+                model: DEFAULT_MODEL.to_string(),
+                output_format: CliOutputFormat::Text,
+                allowed_tools: None,
+                permission_mode: PermissionMode::WorkspaceWrite,
+                compact: true,
+                base_commit: None,
+                reasoning_effort: None,
+                allow_broad_cwd: false,
+            }
+        );
+        assert_eq!(
+            parse_args(&["--compact".to_string(), "hello".to_string()])
+                .expect("compact single-word prompt should parse"),
+            CliAction::Prompt {
+                prompt: "hello".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
                 allowed_tools: None,

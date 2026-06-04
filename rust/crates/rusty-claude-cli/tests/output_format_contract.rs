@@ -5424,6 +5424,54 @@ fn multi_word_unknown_subcommand_json_emits_command_not_found_826() {
     );
 }
 
+#[test]
+fn compact_flag_missing_argument_and_shorthand_prompt_contract_435() {
+    let root = unique_temp_dir("compact-flag-435");
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    std::fs::create_dir_all(&root).expect("create temp dir");
+    std::fs::create_dir_all(&config_home).expect("create config home");
+    std::fs::create_dir_all(&home).expect("create home");
+    let envs = [
+        (
+            "CLAW_CONFIG_HOME",
+            config_home.to_str().expect("config home utf8"),
+        ),
+        ("HOME", home.to_str().expect("home utf8")),
+        ("ANTHROPIC_API_KEY", ""),
+        ("ANTHROPIC_AUTH_TOKEN", ""),
+        ("OPENAI_API_KEY", ""),
+    ];
+
+    let missing = run_claw(&root, &["--output-format", "json", "--compact"], &envs);
+    assert_eq!(missing.status.code(), Some(1));
+    assert!(
+        missing.stderr.is_empty(),
+        "compact missing-argument JSON should keep stderr empty: {}",
+        String::from_utf8_lossy(&missing.stderr)
+    );
+    let missing_json = parse_json_stdout(&missing, "compact missing argument");
+    assert_eq!(missing_json["error_kind"], "missing_argument");
+    assert_eq!(missing_json["argument"], "prompt or subcommand");
+
+    let prompt = run_claw(
+        &root,
+        &["--output-format", "json", "--compact", "hello"],
+        &envs,
+    );
+    assert_eq!(prompt.status.code(), Some(1));
+    assert!(
+        prompt.stderr.is_empty(),
+        "compact prompt JSON should keep stderr empty: {}",
+        String::from_utf8_lossy(&prompt.stderr)
+    );
+    let prompt_json = parse_json_stdout(&prompt, "compact shorthand prompt");
+    assert_eq!(
+        prompt_json["error_kind"], "missing_credentials",
+        "--compact hello should stay on the prompt/provider path, not command_not_found: {prompt_json}"
+    );
+}
+
 // #827: direct /unknown-slash-command must emit typed error_kind, not "unknown"
 // Uses the direct-slash CLI path (no session load needed; reproducible on CI).
 #[test]
