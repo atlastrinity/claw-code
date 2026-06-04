@@ -1092,6 +1092,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             print_acp_status(output_format)?;
             std::process::exit(2);
         }
+        CliAction::SessionList { output_format } => run_session_list(output_format)?,
         CliAction::State { output_format } => run_worker_state(output_format)?,
         CliAction::Init { output_format } => run_init(output_format)?,
         // #146: dispatch pure-local introspection. Text mode uses existing
@@ -1189,6 +1190,9 @@ enum CliAction {
         output_format: CliOutputFormat,
     },
     Version {
+        output_format: CliOutputFormat,
+    },
+    SessionList {
         output_format: CliOutputFormat,
     },
     ResumeSession {
@@ -1946,10 +1950,17 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         // had no match arm, and fell to CliAction::Prompt — reaching the credential gate
         // instead of a structured error. Mirror the guard on `permissions`.
         "session" => {
-            let action_hint = rest.get(1).map_or(String::new(), |a| format!(" (got: `{a}`)" ));
-            Err(format!(
-                "interactive_only: `claw session` is a slash command{action_hint}.\nUse `claw --resume SESSION.jsonl /session <action>` or start `claw` and run `/session [list|exists|switch|fork|delete]`."
-            ))
+            // #449: `claw session list` is a pure local filesystem read that
+            // requires no API credentials. Route directly to SessionList instead
+            // of falling through to the resume/auth path.
+            if rest.get(1).map(|s| s.as_str()) == Some("list") {
+                Ok(CliAction::SessionList { output_format })
+            } else {
+                let action_hint = rest.get(1).map_or(String::new(), |a| format!(" (got: `{a}`)" ));
+                Err(format!(
+                    "interactive_only: `claw session` is a slash command{action_hint}.\nUse `claw --resume SESSION.jsonl /session <action>` or start `claw` and run `/session [list|exists|switch|fork|delete]`."
+                ))
+            }
         }
         // #770: same fallthrough gap as #767 — these slash commands had no multi-arg match arm
         // and fell to CliAction::Prompt reaching the credential gate when called with args.
@@ -8921,6 +8932,34 @@ fn render_session_list(active_session_id: &str) -> Result<String, Box<dyn std::e
         ));
     }
     Ok(lines.join("\n"))
+}
+
+/// #449: credentials-free session list that works without API keys.
+/// `claw session list --output-format json` should work in CI/offline.
+fn run_session_list(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
+    let sessions = list_managed_sessions().unwrap_or_default();
+    let session_ids: Vec<String> = sessions.iter().map(|s| s.id.clone()).collect();
+    let session_details = session_details_json(&sessions);
+    match output_format {
+        CliOutputFormat::Text => {
+            let text = render_session_list("").unwrap_or_else(|e| format!("error: {e}"));
+            println!("{text}");
+        }
+        CliOutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "kind": "sessions",
+                    "status": "ok",
+                    "action": "list",
+                    "sessions": session_ids,
+                    "session_details": session_details,
+                    "active": serde_json::Value::Null,
+                })
+            );
+        }
+    }
+    Ok(())
 }
 
 fn format_session_modified_age(modified_epoch_millis: u128) -> String {
