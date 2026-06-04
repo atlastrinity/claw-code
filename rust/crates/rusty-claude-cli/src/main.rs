@@ -2350,8 +2350,15 @@ fn parse_single_word_command_alias(
         return Some(Ok(CliAction::Help { output_format }));
     }
 
-    // #453: fire guard for multi-word commands too (claw cost list, claw model list, etc.)
+    // #453: fire guard for multi-word CLI subcommands too (claw cost list, claw model list, etc.)
+    // For slash commands that are commonly used as prompts (explain, cost, tokens, etc.),
+    // only fire the guard when there's exactly one token.
     if rest.is_empty() {
+        return None;
+    }
+    // Known CLI subcommands that don't accept additional arguments
+    const CLI_SUBCOMMANDS: &[&str] = &["help", "version", "status", "sandbox", "doctor", "state", "config", "diff"];
+    if rest.len() > 1 && !CLI_SUBCOMMANDS.contains(&rest[0].as_str()) {
         return None;
     }
 
