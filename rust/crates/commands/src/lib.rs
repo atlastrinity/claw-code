@@ -2311,13 +2311,15 @@ pub fn handle_plugins_slash_command(
                 });
             };
             let plugin = resolve_plugin_target(manager, target)?;
+            let already_enabled = plugin.enabled;
             manager.enable(&plugin.metadata.id)?;
             Ok(PluginsCommandResult {
                 message: format!(
-                    "Plugins\n  Result           enabled {}\n  Name             {}\n  Version          {}\n  Status           enabled",
-                    plugin.metadata.id, plugin.metadata.name, plugin.metadata.version
+                    "Plugins\n  Result           {}\n  Name             {}\n  Version          {}\n  Status           enabled",
+                    if already_enabled { "already enabled" } else { "enabled" },
+                    plugin.metadata.name, plugin.metadata.version
                 ),
-                reload_runtime: true,
+                reload_runtime: !already_enabled,
             })
         }
         Some("disable") => {
@@ -2328,13 +2330,15 @@ pub fn handle_plugins_slash_command(
                 });
             };
             let plugin = resolve_plugin_target(manager, target)?;
+            let already_disabled = !plugin.enabled;
             manager.disable(&plugin.metadata.id)?;
             Ok(PluginsCommandResult {
                 message: format!(
-                    "Plugins\n  Result           disabled {}\n  Name             {}\n  Version          {}\n  Status           disabled",
-                    plugin.metadata.id, plugin.metadata.name, plugin.metadata.version
+                    "Plugins\n  Result           {}\n  Name             {}\n  Version          {}\n  Status           disabled",
+                    if already_disabled { "already disabled" } else { "disabled" },
+                    plugin.metadata.name, plugin.metadata.version
                 ),
-                reload_runtime: true,
+                reload_runtime: !already_disabled,
             })
         }
         Some("remove") | Some("uninstall") => {
@@ -7088,7 +7092,7 @@ mod tests {
         let disable = handle_plugins_slash_command(Some("disable"), Some("demo"), &mut manager)
             .expect("disable command should succeed");
         assert!(disable.reload_runtime);
-        assert!(disable.message.contains("disabled demo@external"));
+        assert!(disable.message.contains("Result           disabled"));
         assert!(disable.message.contains("Name             demo"));
         assert!(disable.message.contains("Status           disabled"));
 
@@ -7100,7 +7104,7 @@ mod tests {
         let enable = handle_plugins_slash_command(Some("enable"), Some("demo"), &mut manager)
             .expect("enable command should succeed");
         assert!(enable.reload_runtime);
-        assert!(enable.message.contains("enabled demo@external"));
+        assert!(enable.message.contains("Result           enabled"));
         assert!(enable.message.contains("Name             demo"));
         assert!(enable.message.contains("Status           enabled"));
 
