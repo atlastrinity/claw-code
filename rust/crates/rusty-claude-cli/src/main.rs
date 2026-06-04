@@ -9316,8 +9316,11 @@ fn status_json_value(
             "project_root": context.project_root,
             "git_branch": context.git_branch,
             "git_state": context.git_summary.headline(),
+            // #408: changed_files counts ALL non-clean files (staged + unstaged + untracked + conflicted)
             "changed_files": context.git_summary.changed_files,
+            "is_clean": context.git_summary.changed_files == 0,
             "staged_files": context.git_summary.staged_files,
+
             "unstaged_files": context.git_summary.unstaged_files,
             "untracked_files": context.git_summary.untracked_files,
             "session": context.session_path.as_ref().map_or_else(|| "live-repl".to_string(), |path| path.display().to_string()),
