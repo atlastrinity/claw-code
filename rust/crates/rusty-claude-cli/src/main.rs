@@ -9011,8 +9011,8 @@ fn render_help_topic(topic: LocalHelpTopic) -> String {
             .to_string(),
         LocalHelpTopic::Init => "Init
   Usage            claw init [--output-format <format>]
-  Purpose          create .claw/, .claw.json, .gitignore, and CLAUDE.md in the current project
-  Output           list of created vs. skipped files (idempotent: safe to re-run)
+  Purpose          create .claw/settings.json, .claw.json, .gitignore, and CLAUDE.md in the current project
+  Output           per-artifact created/updated/partial/deferred/skipped status (idempotent: safe to re-run)
   Formats          text (default), json
   Related          claw status · claw doctor"
             .to_string(),
@@ -9774,10 +9774,12 @@ fn init_json_value(report: &crate::init::InitReport, message: &str) -> serde_jso
     // Derive top-level status: "ok" when all artifacts succeeded (created or
     // skipped = idempotent); no failure path exists today so always "ok".
     let status = "ok";
-    // #783: already_initialized lets orchestrators detect the idempotent case
-    // without checking created.len() == 0; hint gives a stable next-action pointer.
+    // #783/#436: already_initialized lets orchestrators detect the idempotent
+    // case without checking every status bucket; deferred session storage does
+    // not make the workspace uninitialized because it is created on first save.
     let already_initialized = report.artifacts_with_status(InitStatus::Created).is_empty()
-        && report.artifacts_with_status(InitStatus::Updated).is_empty();
+        && report.artifacts_with_status(InitStatus::Updated).is_empty()
+        && report.artifacts_with_status(InitStatus::Partial).is_empty();
     let hint = if already_initialized {
         "Workspace already initialised. Run `claw doctor` to verify health, or edit CLAUDE.md to customise guidance."
     } else {
@@ -9792,6 +9794,8 @@ fn init_json_value(report: &crate::init::InitReport, message: &str) -> serde_jso
         "created": report.artifacts_with_status(InitStatus::Created),
         "updated": report.artifacts_with_status(InitStatus::Updated),
         "skipped": report.artifacts_with_status(InitStatus::Skipped),
+        "partial": report.artifacts_with_status(InitStatus::Partial),
+        "deferred": report.artifacts_with_status(InitStatus::Deferred),
         "artifacts": report.artifact_json_entries(),
         "hint": hint,
         "next_step": crate::init::InitReport::NEXT_STEP,

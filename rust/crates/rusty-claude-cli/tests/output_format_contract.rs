@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use runtime::Session;
-use serde_json::Value;
+use serde_json::{json, Value};
 
 static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -3928,6 +3928,41 @@ fn init_json_envelope_has_hint_and_already_initialized_783() {
         hint.contains("CLAUDE.md") || hint.contains("doctor"),
         "fresh-init hint should mention CLAUDE.md or doctor, got: {hint:?}"
     );
+    assert_eq!(
+        parsed["created"],
+        json!([
+            ".claw/",
+            ".claw/settings.json",
+            ".claw.json",
+            ".gitignore",
+            "CLAUDE.md"
+        ]),
+        "fresh init should materialize .claw/settings.json and safe .claw.json"
+    );
+    assert_eq!(
+        parsed["deferred"],
+        json!([".claw/sessions/"]),
+        "session storage should be reported as deferred until first save"
+    );
+    assert_eq!(parsed["partial"], json!([]));
+    let claw_json = fs::read_to_string(root.join(".claw.json")).expect("read .claw.json");
+    assert!(
+        claw_json.contains("\"defaultMode\": \"acceptEdits\""),
+        "init must not scaffold dontAsk in .claw.json: {claw_json}"
+    );
+    assert!(
+        !claw_json.contains("dontAsk"),
+        "init must not scaffold unsafe dontAsk permission mode: {claw_json}"
+    );
+    let settings_json = root.join(".claw").join("settings.json");
+    assert!(
+        settings_json.is_file(),
+        "init should template .claw/settings.json"
+    );
+    assert!(
+        !root.join(".claw").join("sessions").exists(),
+        "sessions directory should remain deferred until first save"
+    );
 
     // Idempotent re-init — already_initialized should be true
     let output2 = run_claw(&root, &["--output-format", "json", "init"], &[]);
@@ -3953,6 +3988,43 @@ fn init_json_envelope_has_hint_and_already_initialized_783() {
     assert!(
         hint2.contains("already") || hint2.contains("doctor"),
         "re-init hint should acknowledge workspace exists, got: {hint2:?}"
+    );
+
+    let existing_claw_root = unique_temp_dir("init-existing-claw-436");
+    fs::create_dir_all(existing_claw_root.join(".claw")).expect("existing .claw dir");
+    let partial_output = run_claw(
+        &existing_claw_root,
+        &["--output-format", "json", "init"],
+        &[],
+    );
+    assert!(
+        partial_output.status.success(),
+        "init with existing .claw should succeed"
+    );
+    let partial_stdout = String::from_utf8_lossy(&partial_output.stdout);
+    let partial: serde_json::Value =
+        serde_json::from_str(partial_stdout.trim()).expect("partial init should emit valid JSON");
+    assert_eq!(
+        partial["partial"],
+        json!([".claw/"]),
+        "existing .claw with newly-created settings should report partial .claw/"
+    );
+    assert_eq!(
+        partial["created"],
+        json!([
+            ".claw/settings.json",
+            ".claw.json",
+            ".gitignore",
+            "CLAUDE.md"
+        ]),
+        "init should still create missing sub-files when .claw already exists"
+    );
+    assert!(
+        existing_claw_root
+            .join(".claw")
+            .join("settings.json")
+            .is_file(),
+        "existing .claw must receive missing settings template"
     );
 }
 
