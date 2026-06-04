@@ -3759,8 +3759,10 @@ fn check_auth_health() -> DiagnosticCheck {
         .with_data(Map::from_iter([
             ("api_key_present".to_string(), json!(api_key_present)),
             ("auth_token_present".to_string(), json!(auth_token_present)),
+            ("openai_key_present".to_string(), json!(openai_key_present)),
             ("prompt_ready".to_string(), json!(prompt_ready)),
             ("prompt_blocked_reason".to_string(), if prompt_ready { Value::Null } else { json!("auth_missing") }),
+
             ("legacy_saved_oauth_present".to_string(), json!(true)),
             (
                 "legacy_saved_oauth_expires_at".to_string(),
@@ -3790,6 +3792,7 @@ fn check_auth_health() -> DiagnosticCheck {
         .with_data(Map::from_iter([
             ("api_key_present".to_string(), json!(api_key_present)),
             ("auth_token_present".to_string(), json!(auth_token_present)),
+            ("openai_key_present".to_string(), json!(openai_key_present)),
             ("prompt_ready".to_string(), json!(prompt_ready)),
             ("prompt_blocked_reason".to_string(), if prompt_ready { Value::Null } else { json!("auth_missing") }),
             ("legacy_saved_oauth_present".to_string(), json!(false)),
@@ -3806,6 +3809,7 @@ fn check_auth_health() -> DiagnosticCheck {
         .with_data(Map::from_iter([
             ("api_key_present".to_string(), json!(api_key_present)),
             ("auth_token_present".to_string(), json!(auth_token_present)),
+            ("openai_key_present".to_string(), json!(openai_key_present)),
             ("prompt_ready".to_string(), json!(prompt_ready)),
             ("prompt_blocked_reason".to_string(), if prompt_ready { Value::Null } else { json!("auth_missing") }),
             ("legacy_saved_oauth_present".to_string(), Value::Null),
