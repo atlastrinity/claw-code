@@ -268,6 +268,12 @@ const DEFAULT_OAUTH_CALLBACK_PORT: u16 = 4545;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const BUILD_TARGET: Option<&str> = option_env!("TARGET");
 const GIT_SHA: Option<&str> = option_env!("GIT_SHA");
+const GIT_SHA_SHORT: Option<&str> = option_env!("GIT_SHA_SHORT");
+const GIT_DIRTY: Option<&str> = option_env!("GIT_DIRTY");
+const GIT_BRANCH: Option<&str> = option_env!("GIT_BRANCH");
+const GIT_COMMIT_DATE: Option<&str> = option_env!("GIT_COMMIT_DATE");
+const GIT_COMMIT_TIMESTAMP: Option<&str> = option_env!("GIT_COMMIT_TIMESTAMP");
+const RUSTC_VERSION: Option<&str> = option_env!("RUSTC_VERSION");
 const INTERNAL_PROGRESS_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(3);
 const POST_TOOL_STALL_TIMEOUT: Duration = Duration::from_secs(10);
 const PRIMARY_SESSION_EXTENSION: &str = "jsonl";
@@ -4452,9 +4458,15 @@ fn version_json_value() -> serde_json::Value {
         "kind": "version",
         "action": "show",
         "status": "ok",
-        "message": render_version_report(),
+        "human_readable": render_version_report(),
         "version": VERSION,
         "git_sha": binary_provenance.git_sha,
+        "git_sha_short": binary_provenance.git_sha_short,
+        "is_dirty": binary_provenance.is_dirty,
+        "branch": binary_provenance.branch,
+        "commit_date": binary_provenance.commit_date,
+        "commit_timestamp": binary_provenance.commit_timestamp,
+        "rustc_version": binary_provenance.rustc_version,
         "target": binary_provenance.target,
         "build_date": binary_provenance.build_date,
         "executable_path": binary_provenance.executable_path,
@@ -4693,6 +4705,12 @@ struct StatusContext {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct BinaryProvenance {
     git_sha: Option<String>,
+    git_sha_short: Option<String>,
+    is_dirty: bool,
+    branch: Option<String>,
+    commit_date: String,
+    commit_timestamp: i64,
+    rustc_version: String,
     target: Option<String>,
     build_date: String,
     executable_path: Option<String>,
@@ -4714,6 +4732,12 @@ impl BinaryProvenance {
         json!({
             "status": self.status(),
             "git_sha": self.git_sha,
+            "git_sha_short": self.git_sha_short,
+            "is_dirty": self.is_dirty,
+            "branch": self.branch,
+            "commit_date": self.commit_date,
+            "commit_timestamp": self.commit_timestamp,
+            "rustc_version": self.rustc_version,
             "target": self.target,
             "build_date": self.build_date,
             "executable_path": self.executable_path,
@@ -4733,18 +4757,35 @@ fn known_build_metadata(value: Option<&str>) -> Option<String> {
     }
 }
 
+fn parse_build_bool(value: Option<&str>) -> bool {
+    value
+        .map(str::trim)
+        .is_some_and(|value| value.eq_ignore_ascii_case("true") || value == "1")
+}
+
+fn parse_build_timestamp(value: Option<&str>) -> i64 {
+    value
+        .and_then(|value| value.trim().parse::<i64>().ok())
+        .unwrap_or(0)
+}
+
 fn binary_provenance_for(cwd: Option<&Path>) -> BinaryProvenance {
     let git_sha = known_build_metadata(GIT_SHA);
+    let git_sha_short = known_build_metadata(GIT_SHA_SHORT).or_else(|| {
+        git_sha
+            .as_ref()
+            .map(|sha| sha.chars().take(12).collect::<String>())
+    });
     let target = known_build_metadata(BUILD_TARGET);
     let workspace_git_sha = cwd.and_then(|cwd| {
-        run_git_capture_in(cwd, &["rev-parse", "--short", "HEAD"])
+        run_git_capture_in(cwd, &["rev-parse", "HEAD"])
             .map(|sha| sha.trim().to_string())
             .filter(|sha| !sha.is_empty())
     });
     let workspace_match = git_sha
         .as_deref()
         .zip(workspace_git_sha.as_deref())
-        .map(|(binary, workspace)| binary.starts_with(workspace) || workspace.starts_with(binary));
+        .map(|(binary, workspace)| binary == workspace);
     let hint = if git_sha.is_none() {
         Some(
             "Build metadata did not include a git SHA; rebuild from a git checkout before filing provenance-sensitive dogfood reports."
@@ -4760,6 +4801,12 @@ fn binary_provenance_for(cwd: Option<&Path>) -> BinaryProvenance {
     };
     BinaryProvenance {
         git_sha,
+        git_sha_short,
+        is_dirty: parse_build_bool(GIT_DIRTY),
+        branch: known_build_metadata(GIT_BRANCH),
+        commit_date: known_build_metadata(GIT_COMMIT_DATE).unwrap_or_else(|| "unknown".to_string()),
+        commit_timestamp: parse_build_timestamp(GIT_COMMIT_TIMESTAMP),
+        rustc_version: known_build_metadata(RUSTC_VERSION).unwrap_or_else(|| "unknown".to_string()),
         target,
         build_date: DEFAULT_DATE.to_string(),
         executable_path: env::current_exe()
@@ -10285,10 +10332,12 @@ fn parse_titled_body(value: &str) -> Option<(String, String)> {
 }
 
 fn render_version_report() -> String {
-    let git_sha = GIT_SHA.unwrap_or("unknown");
+    let git_sha = GIT_SHA_SHORT.or(GIT_SHA).unwrap_or("unknown");
     let target = BUILD_TARGET.unwrap_or("unknown");
+    let branch = GIT_BRANCH.unwrap_or("unknown");
+    let dirty = GIT_DIRTY.unwrap_or("unknown");
     format!(
-        "Claw Code\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
+        "Claw Code\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Branch           {branch}\n  Dirty            {dirty}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
     )
 }
 

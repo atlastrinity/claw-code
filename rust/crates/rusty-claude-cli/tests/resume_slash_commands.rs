@@ -463,6 +463,9 @@ fn resumed_version_command_emits_structured_json() {
     assert!(parsed["version"].as_str().is_some());
     assert!(parsed["git_sha"].as_str().is_some());
     assert!(parsed["target"].as_str().is_some());
+    assert!(parsed["git_sha_short"].as_str().is_some());
+    assert!(parsed.get("message").is_none());
+    assert!(parsed["human_readable"].as_str().is_some());
 }
 
 #[test]

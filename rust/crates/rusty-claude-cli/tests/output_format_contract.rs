@@ -270,29 +270,88 @@ fn version_emits_json_when_requested() {
         "version JSON must have action:show (#711)"
     );
     assert_eq!(parsed["version"], env!("CARGO_PKG_VERSION"));
-    // Provenance fields must be present for binary identification (#507).
+    // Provenance fields must be present for binary identification (#507/#437).
+    assert!(
+        parsed.get("message").is_none(),
+        "version JSON should not duplicate the text report in legacy message; use human_readable instead: {parsed}"
+    );
+    assert!(
+        parsed["human_readable"]
+            .as_str()
+            .is_some_and(|text| text.contains("Claw Code")),
+        "version JSON should keep text output only in human_readable: {parsed}"
+    );
+    let git_sha = parsed["git_sha"]
+        .as_str()
+        .expect("git_sha must be the full build commit SHA in version JSON");
+    assert_eq!(git_sha.len(), 40, "git_sha must not be truncated: {parsed}");
+    assert!(
+        git_sha.chars().all(|ch| ch.is_ascii_hexdigit()),
+        "git_sha must be a hex commit id: {parsed}"
+    );
+    let git_sha_short = parsed["git_sha_short"]
+        .as_str()
+        .expect("version JSON should expose the short SHA as a separate derived field");
+    assert!(
+        git_sha.starts_with(git_sha_short),
+        "git_sha_short should derive from git_sha: {parsed}"
+    );
+    assert!(
+        parsed["is_dirty"].is_boolean(),
+        "is_dirty should be boolean: {parsed}"
+    );
+    assert!(
+        parsed["branch"].is_string() || parsed["branch"].is_null(),
+        "branch should be string|null: {parsed}"
+    );
+    assert!(
+        parsed["commit_date"]
+            .as_str()
+            .is_some_and(|date| date != "unknown" && date.contains('T')),
+        "commit_date should be an ISO-8601 commit timestamp string: {parsed}"
+    );
+    assert!(
+        parsed["commit_timestamp"].as_i64().is_some_and(|ts| ts > 0),
+        "commit_timestamp should be a positive Unix timestamp: {parsed}"
+    );
+    assert!(
+        parsed["rustc_version"]
+            .as_str()
+            .is_some_and(|version| version.starts_with("rustc ")),
+        "rustc_version should identify the compiler: {parsed}"
+    );
     assert!(
         parsed["build_date"].is_string(),
         "build_date must be a string in version JSON"
     );
     assert!(
-        parsed["executable_path"].is_string(),
-        "executable_path must be a string in version JSON so callers can identify which binary is running"
+        parsed["executable_path"].as_str().is_some_and(|path| !path.is_empty()),
+        "executable_path must be a runtime path string so callers can identify which binary is running"
     );
     let binary_provenance = parsed["binary_provenance"]
         .as_object()
-        .expect("version JSON must include binary_provenance object (#797)");
+        .expect("version JSON must include binary_provenance object (#797/#437)");
     assert!(matches!(
         binary_provenance["status"].as_str(),
         Some("known" | "unknown")
     ));
-    assert_eq!(binary_provenance["git_sha"], parsed["git_sha"]);
-    assert_eq!(binary_provenance["target"], parsed["target"]);
-    assert_eq!(binary_provenance["build_date"], parsed["build_date"]);
-    assert_eq!(
-        binary_provenance["executable_path"],
-        parsed["executable_path"]
-    );
+    for key in [
+        "git_sha",
+        "git_sha_short",
+        "is_dirty",
+        "branch",
+        "commit_date",
+        "commit_timestamp",
+        "rustc_version",
+        "target",
+        "build_date",
+        "executable_path",
+    ] {
+        assert_eq!(
+            binary_provenance[key], parsed[key],
+            "binary_provenance.{key} should mirror top-level version field"
+        );
+    }
     assert!(
         binary_provenance["hint"].is_string() || binary_provenance["hint"].is_null(),
         "binary provenance must classify missing/stale lineage with a structured hint field"
@@ -333,6 +392,14 @@ fn version_status_doctor_include_binary_provenance_797() {
     assert!(
         version["binary_provenance"]["workspace_match"].is_boolean()
             || version["binary_provenance"]["workspace_match"].is_null()
+    );
+    let workspace_git_sha = version["binary_provenance"]["workspace_git_sha"]
+        .as_str()
+        .expect("workspace git sha should be a string");
+    assert_eq!(
+        workspace_git_sha.len(),
+        40,
+        "workspace_git_sha should be a full SHA, not a truncated prefix: {version}"
     );
 
     let status = assert_json_command(&root, &["--output-format", "json", "status"]);
@@ -1518,6 +1585,11 @@ fn resumed_version_and_init_emit_structured_json_when_requested() {
     );
     assert_eq!(version["kind"], "version");
     assert_eq!(version["version"], env!("CARGO_PKG_VERSION"));
+    assert!(
+        version.get("message").is_none(),
+        "resumed /version JSON should not include legacy prose message: {version}"
+    );
+    assert!(version["human_readable"].as_str().is_some());
 
     let init = assert_json_command(
         &root,
