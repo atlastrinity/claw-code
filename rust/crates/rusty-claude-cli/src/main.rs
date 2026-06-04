@@ -3625,6 +3625,7 @@ fn render_doctor_report(
     Ok(DoctorReport {
         checks: vec![
             check_auth_health(),
+            check_base_url_health(),
             check_config_health(&config_loader, config.as_ref()),
             check_mcp_validation_health(&mcp_validation),
             check_hook_validation_health(&hook_validation),
@@ -3862,6 +3863,50 @@ fn check_auth_health() -> DiagnosticCheck {
             ("legacy_scopes".to_string(), Value::Null),
             ("legacy_saved_oauth_error".to_string(), json!(error.to_string())),
         ])),
+    }
+}
+
+/// #466: validate provider BASE_URL env vars
+fn check_base_url_health() -> DiagnosticCheck {
+    let base_url_vars = [
+        ("ANTHROPIC_BASE_URL", "https://api.anthropic.com"),
+        ("OPENAI_BASE_URL", "https://api.openai.com"),
+        ("XAI_BASE_URL", "https://api.x.ai"),
+        ("DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com"),
+    ];
+    let mut issues: Vec<String> = Vec::new();
+    let mut details: Vec<String> = Vec::new();
+    for (var_name, default_url) in &base_url_vars {
+        if let Ok(value) = env::var(var_name) {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                issues.push(format!("{var_name} is empty"));
+                details.push(format!(
+                    "{var_name}  empty (will use default: {default_url})"
+                ));
+            } else if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+                issues.push(format!("{var_name}={trimmed} is not a valid HTTP(S) URL"));
+                details.push(format!("{var_name}  invalid ({trimmed})"));
+            } else {
+                details.push(format!("{var_name}  {trimmed}"));
+            }
+        }
+    }
+    if issues.is_empty() {
+        DiagnosticCheck::new(
+            "Base URLs",
+            DiagnosticLevel::Ok,
+            "provider base URL env vars are valid or unset",
+        )
+        .with_details(details)
+    } else {
+        DiagnosticCheck::new(
+            "Base URLs",
+            DiagnosticLevel::Warn,
+            format!("{} base URL issue(s) found", issues.len()),
+        )
+        .with_details(details)
+        .with_hint("Fix the reported BASE_URL env vars or unset them to use provider defaults.")
     }
 }
 
@@ -10011,6 +10056,82 @@ fn render_doctor_help_json() -> serde_json::Value {
     })
 }
 
+/// #683-#692: extract structured metadata from help prose
+fn extract_help_metadata(
+    topic: LocalHelpTopic,
+) -> (
+    Option<String>,      // usage
+    Option<String>,      // purpose
+    Option<String>,      // output description
+    Option<Vec<String>>, // formats
+    Option<Vec<String>>, // related
+    Option<Vec<String>>, // aliases
+    bool,                // local_only
+    bool,                // requires_credentials
+) {
+    let text = render_help_topic(topic);
+    let mut usage = None;
+    let mut purpose = None;
+    let mut output_desc = None;
+    let formats = Some(vec!["text".to_string(), "json".to_string()]);
+    let mut related = None;
+    let mut aliases = None;
+    let local_only = matches!(
+        topic,
+        LocalHelpTopic::Status
+            | LocalHelpTopic::Sandbox
+            | LocalHelpTopic::Doctor
+            | LocalHelpTopic::Version
+            | LocalHelpTopic::State
+            | LocalHelpTopic::Init
+            | LocalHelpTopic::Export
+            | LocalHelpTopic::SystemPrompt
+            | LocalHelpTopic::DumpManifests
+            | LocalHelpTopic::BootstrapPlan
+    );
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("Usage") {
+            let value = rest.trim();
+            if !value.is_empty() {
+                usage = Some(value.to_string());
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("Purpose") {
+            purpose = Some(rest.trim().to_string());
+        } else if let Some(rest) = trimmed.strip_prefix("Output") {
+            output_desc = Some(rest.trim().to_string());
+        } else if let Some(rest) = trimmed.strip_prefix("Aliases") {
+            let parts: Vec<String> = rest
+                .split('·')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !parts.is_empty() {
+                aliases = Some(parts);
+            }
+        } else if let Some(rest) = trimmed.strip_prefix("Related") {
+            let parts: Vec<String> = rest
+                .split('·')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !parts.is_empty() {
+                related = Some(parts);
+            }
+        }
+    }
+    (
+        usage,
+        purpose,
+        output_desc,
+        formats,
+        related,
+        aliases,
+        local_only,
+        !local_only,
+    )
+}
+
 fn render_help_topic_json(topic: LocalHelpTopic) -> serde_json::Value {
     if topic == LocalHelpTopic::Export {
         return render_export_help_json();
@@ -10019,14 +10140,30 @@ fn render_help_topic_json(topic: LocalHelpTopic) -> serde_json::Value {
         return render_doctor_help_json();
     }
 
-    json!({
+    // #683-#692: extract structured metadata from help prose for machine consumption
+    let (usage, purpose, output_desc, formats, related, aliases, local_only, requires_credentials) =
+        extract_help_metadata(topic);
+    let mut obj = serde_json::json!({
         "kind": "help",
         "action": "help",
         "status": "ok",
         "topic": local_help_topic_command(topic),
         "command": local_help_topic_command(topic),
         "message": render_help_topic(topic),
-    })
+        "usage": usage,
+        "purpose": purpose,
+        "formats": formats,
+        "related": related,
+        "local_only": local_only,
+        "requires_credentials": requires_credentials,
+    });
+    if let Some(desc) = output_desc {
+        obj["output_fields"] = serde_json::Value::String(desc);
+    }
+    if let Some(a) = aliases {
+        obj["aliases"] = serde_json::json!(a);
+    }
+    obj
 }
 
 fn print_help_topic(
