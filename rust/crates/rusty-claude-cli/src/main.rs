@@ -4759,28 +4759,96 @@ fn build_rust_resolver_manifest(workspace_dir: &Path) -> Result<Value, Box<dyn s
 }
 
 fn print_bootstrap_plan(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
-    let phases = runtime::BootstrapPlan::claude_code_default()
-        .phases()
-        .iter()
-        .map(|phase| format!("{phase:?}"))
-        .collect::<Vec<_>>();
+    let phases = runtime::BootstrapPlan::claude_code_default();
     match output_format {
         CliOutputFormat::Text => {
-            for phase in &phases {
-                println!("- {phase}");
+            for phase in phases.phases() {
+                println!("- {phase:?}");
             }
         }
-        CliOutputFormat::Json => println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
-                "kind": "bootstrap-plan",
-                "action": "show",
-                "status": "ok",
-                "phases": phases,
-            }))?
-        ),
+        CliOutputFormat::Json => {
+            // #412: emit structured phase objects with label and description
+            let phase_objects: Vec<serde_json::Value> = phases
+                .phases()
+                .iter()
+                .enumerate()
+                .map(|(i, phase)| {
+                    let (label, description) = bootstrap_phase_metadata(phase);
+                    json!({
+                        "id": format!("{phase:?}"),
+                        "label": label,
+                        "description": description,
+                        "order": i,
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "kind": "bootstrap-plan",
+                    "action": "show",
+                    "status": "ok",
+                    "total_phases": phases.phases().len(),
+                    "phases": phase_objects,
+                }))?
+            );
+        }
     }
     Ok(())
+}
+
+fn bootstrap_phase_metadata(phase: &runtime::BootstrapPhase) -> (&'static str, &'static str) {
+    use runtime::BootstrapPhase::*;
+    match phase {
+        CliEntry => (
+            "CLI Entry",
+            "Command-line argument parsing and global flag resolution",
+        ),
+        FastPathVersion => (
+            "Fast-Path Version",
+            "Short-circuit version/help requests before full startup",
+        ),
+        StartupProfiler => (
+            "Startup Profiler",
+            "Instrument startup timing for diagnostics",
+        ),
+        SystemPromptFastPath => (
+            "System Prompt Fast-Path",
+            "Serve system-prompt requests without provider init",
+        ),
+        ChromeMcpFastPath => (
+            "Chrome MCP Fast-Path",
+            "Serve Chrome MCP requests without full runtime",
+        ),
+        DaemonWorkerFastPath => (
+            "Daemon Worker Fast-Path",
+            "Handle daemon worker requests without full init",
+        ),
+        BridgeFastPath => (
+            "Bridge Fast-Path",
+            "Bridge/sibling process communication without full init",
+        ),
+        DaemonFastPath => (
+            "Daemon Fast-Path",
+            "Daemon lifecycle management without full runtime",
+        ),
+        BackgroundSessionFastPath => (
+            "Background Session Fast-Path",
+            "Resume/list background sessions without full init",
+        ),
+        TemplateFastPath => (
+            "Template Fast-Path",
+            "Template rendering without full runtime",
+        ),
+        EnvironmentRunnerFastPath => (
+            "Environment Runner Fast-Path",
+            "Environment/runner dispatch without full init",
+        ),
+        MainRuntime => (
+            "Main Runtime",
+            "Full interactive REPL or one-shot prompt execution",
+        ),
+    }
 }
 
 fn print_system_prompt(
