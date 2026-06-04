@@ -2181,6 +2181,16 @@ struct SkillSummary {
     origin: SkillOrigin,
     // #729: on-disk path parity with AgentSummary
     path: Option<PathBuf>,
+    // #445: directory name for detecting name/dir mismatch
+    dir_name: Option<String>,
+}
+
+/// A skill where the frontmatter name differs from the directory name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SkillMetadataDrift {
+    pub(crate) dir_name: String,
+    pub(crate) frontmatter_name: String,
+    pub(crate) path: PathBuf,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -4035,15 +4045,16 @@ fn load_skills_from_roots(roots: &[SkillRoot]) -> std::io::Result<Vec<SkillSumma
                         continue;
                     }
                     let contents = fs::read_to_string(skill_path)?;
+                    let dir_name = entry.file_name().to_string_lossy().to_string();
                     let (name, description) = parse_skill_frontmatter(&contents);
                     root_skills.push(SkillSummary {
-                        name: name
-                            .unwrap_or_else(|| entry.file_name().to_string_lossy().to_string()),
+                        name: name.unwrap_or_else(|| dir_name.clone()),
                         description,
                         source: root.source,
                         shadowed_by: None,
                         origin: root.origin,
                         path: Some(entry.path()),
+                        dir_name: Some(dir_name),
                     });
                 }
                 SkillOrigin::LegacyCommandsDir => {
@@ -4076,6 +4087,7 @@ fn load_skills_from_roots(roots: &[SkillRoot]) -> std::io::Result<Vec<SkillSumma
                         shadowed_by: None,
                         origin: root.origin,
                         path: Some(markdown_path),
+                        dir_name: None,
                     });
                 }
             }
