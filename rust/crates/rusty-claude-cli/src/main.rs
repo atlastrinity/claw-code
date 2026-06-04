@@ -1084,7 +1084,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             output_format,
             permission_mode,
         } => run_doctor(output_format, permission_mode)?,
-        CliAction::Acp { output_format } => print_acp_status(output_format)?,
+        CliAction::Acp { output_format } => {
+            print_acp_status(output_format)?;
+            std::process::exit(2);
+        }
         CliAction::State { output_format } => run_worker_state(output_format)?,
         CliAction::Init { output_format } => run_init(output_format)?,
         // #146: dispatch pure-local introspection. Text mode uses existing
@@ -2421,7 +2424,7 @@ fn parse_acp_args(args: &[String], output_format: CliOutputFormat) -> Result<Cli
         [] => Ok(CliAction::Acp { output_format }),
         [subcommand] if subcommand == "serve" => Ok(CliAction::Acp { output_format }),
         _ => Err(String::from(
-            "unsupported ACP invocation. Use `claw acp`, `claw acp serve`, `claw --acp`, or `claw -acp`.\nACP/Zed editor integration is currently a discoverability alias only; a real daemon and JSON-RPC endpoint are in ROADMAP tracking.",
+            "unsupported_acp_invocation: unsupported ACP invocation. Use `claw acp` or `claw acp serve`.\nACP/Zed editor integration is not implemented yet; `claw acp serve` reports status only.",
         )),
     }
 }
@@ -9921,7 +9924,7 @@ fn print_help_topic(
 }
 
 fn acp_status_message() -> &'static str {
-    "ACP/Zed editor integration is not implemented in claw-code yet. `claw acp serve` is only a discoverability alias today; it does not launch a daemon, JSON-RPC endpoint, or Zed-specific protocol endpoint. Use the normal terminal surfaces for now and track ROADMAP #76 for real ACP support."
+    "ACP/Zed editor integration is not implemented in claw-code yet. `claw acp serve` reports status only and does not launch a daemon or JSON-RPC endpoint. Use the normal terminal surfaces for now."
 }
 
 fn acp_status_json() -> serde_json::Value {
@@ -9929,11 +9932,8 @@ fn acp_status_json() -> serde_json::Value {
         "schema_version": "1.0",
         "kind": "acp",
         "action": "status",
-        "status": "unsupported",
-        "phase": "discoverability_only",
+        "status": "not_implemented",
         "supported": false,
-        "exit_code": 0,
-        "serve_alias_only": true,
         "message": acp_status_message(),
         "launch_command": serde_json::Value::Null,
         "protocol": {
@@ -9953,13 +9953,6 @@ fn acp_status_json() -> serde_json::Value {
             "unsupported_invocation_kind": "unsupported_acp_invocation"
         },
         "aliases": ["acp", "--acp", "-acp"],
-        "discoverability_tracking": "ROADMAP #64a",
-        "tracking": "ROADMAP #76 / #3033 / #3004",
-        "recommended_workflows": [
-            "claw prompt TEXT",
-            "claw",
-            "claw doctor"
-        ],
     })
 }
 
@@ -9967,7 +9960,7 @@ fn print_acp_status(output_format: CliOutputFormat) -> Result<(), Box<dyn std::e
     match output_format {
         CliOutputFormat::Text => {
             println!(
-                "ACP / Zed\n  Status           unsupported (discoverability only)\n  Exit code        0 for status queries; unsupported invocations exit 1\n  Launch           `claw acp serve` / `claw --acp` / `claw -acp` report status only; no editor daemon or JSON-RPC endpoint is available yet\n  Today            use `claw prompt`, the REPL, or `claw doctor` for local verification\n  Tracking         ROADMAP #76 / #3033 / #3004\n  Message          {}",
+                "ACP / Zed\n  Status           not implemented\n  Launch           `claw acp serve` reports status only; no editor daemon or JSON-RPC endpoint is available yet\n  Today            use `claw prompt`, the REPL, or `claw doctor` for local verification\n  Message          {}",
                 acp_status_message()
             );
         }
@@ -14876,11 +14869,8 @@ mod tests {
         let value = acp_status_json();
         assert_eq!(value["schema_version"], "1.0");
         assert_eq!(value["kind"], "acp");
-        assert_eq!(value["status"], "unsupported");
-        assert_eq!(value["phase"], "discoverability_only");
+        assert_eq!(value["status"], "not_implemented");
         assert_eq!(value["supported"], false);
-        assert_eq!(value["exit_code"], 0);
-        assert_eq!(value["serve_alias_only"], true);
         assert_eq!(value["protocol"]["json_rpc"], false);
         assert_eq!(value["protocol"]["daemon"], false);
         assert_eq!(value["protocol"]["serve_starts_daemon"], false);

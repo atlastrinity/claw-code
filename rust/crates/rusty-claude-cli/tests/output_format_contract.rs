@@ -841,14 +841,19 @@ fn acp_guidance_emits_json_when_requested() {
     let root = unique_temp_dir("acp-json");
     fs::create_dir_all(&root).expect("temp dir should exist");
 
-    let acp = assert_json_command(&root, &["--output-format", "json", "acp"]);
+    // #443: acp serve exits 2 (not implemented) instead of 0
+    let output = run_claw(&root, &["--output-format", "json", "acp"], &[]);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "acp should exit 2 (not implemented)"
+    );
+    let acp: Value =
+        serde_json::from_slice(&output.stdout).expect("acp stdout should be valid json");
     assert_eq!(acp["kind"], "acp");
     assert_eq!(acp["schema_version"], "1.0");
-    assert_eq!(acp["status"], "unsupported");
-    assert_eq!(acp["phase"], "discoverability_only");
+    assert_eq!(acp["status"], "not_implemented");
     assert_eq!(acp["supported"], false);
-    assert_eq!(acp["exit_code"], 0);
-    assert_eq!(acp["serve_alias_only"], true);
     assert_eq!(acp["protocol"]["json_rpc"], false);
     assert_eq!(acp["protocol"]["daemon"], false);
     assert!(acp["protocol"]["endpoint"].is_null());
@@ -856,12 +861,23 @@ fn acp_guidance_emits_json_when_requested() {
         acp["contracts"]["unsupported_invocation_kind"],
         "unsupported_acp_invocation"
     );
-    assert_eq!(acp["discoverability_tracking"], "ROADMAP #64a");
-    assert_eq!(acp["tracking"], "ROADMAP #76 / #3033 / #3004");
+    // #443: internal tracking IDs removed from public JSON
+    assert!(
+        acp.get("discoverability_tracking").is_none(),
+        "discoverability_tracking should be removed (#443)"
+    );
+    assert!(
+        acp.get("tracking").is_none(),
+        "tracking should be removed (#443)"
+    );
+    assert!(
+        acp.get("recommended_workflows").is_none(),
+        "recommended_workflows should be removed (#443)"
+    );
     assert!(acp["message"]
         .as_str()
         .expect("acp message")
-        .contains("discoverability alias"));
+        .contains("not implemented"));
 }
 
 #[test]
@@ -2065,7 +2081,7 @@ fn local_json_surfaces_have_non_empty_action_contract_714() {
             &git_workspace,
             strings(&["--output-format", "json", "diff"]),
         ),
-        (&workspace, strings(&["--output-format", "json", "acp"])),
+        // #443: ACP exits 2 (not implemented); tested separately in acp_guidance_emits_json_when_requested
         (&workspace, strings(&["--output-format", "json", "config"])),
         (
             &workspace,
@@ -4148,8 +4164,8 @@ fn acp_unsupported_invocation_has_hint_782() {
         .expect("hint must be non-null (#782)");
     assert!(!hint.is_empty(), "hint must not be empty");
     assert!(
-        hint.contains("discoverability") || hint.contains("ROADMAP"),
-        "hint should explain the discoverability-only status, got: {hint:?}"
+        hint.contains("not implemented") || hint.contains("unsupported"),
+        "hint should explain the not-implemented status, got: {hint:?}"
     );
 }
 
