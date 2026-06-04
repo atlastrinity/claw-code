@@ -1646,6 +1646,11 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 rest.push("--resume".to_string());
                 index += 1;
             }
+            // #457: --help after --resume should show resume help, not be consumed as session-id
+            "--help" | "-h" if rest.first().map(String::as_str) == Some("--resume") => {
+                wants_help = true;
+                index += 1;
+            }
             flag if rest.is_empty() && flag.starts_with("--resume=") => {
                 rest.push("--resume".to_string());
                 rest.push(flag[9..].to_string());
