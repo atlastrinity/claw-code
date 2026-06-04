@@ -13930,15 +13930,30 @@ fn print_help(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::
     let message = String::from_utf8(buffer)?;
     match output_format {
         CliOutputFormat::Text => print!("{message}"),
-        CliOutputFormat::Json => println!(
-            "{}",
-            serde_json::to_string_pretty(&json!({
-                "kind": "help",
-                "action": "help",
-                "status": "ok",
-                "message": message,
-            }))?
-        ),
+        CliOutputFormat::Json => {
+            // #325: include structured command list in top-level help JSON
+            let commands: Vec<serde_json::Value> = commands::slash_command_specs()
+                .iter()
+                .map(|spec| {
+                    serde_json::json!({
+                        "name": spec.name,
+                        "summary": spec.summary,
+                        "resume_supported": spec.resume_supported,
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&json!({
+                    "kind": "help",
+                    "action": "help",
+                    "status": "ok",
+                    "message": message,
+                    "commands": commands,
+                    "total_commands": commands.len(),
+                }))?
+            );
+        }
     }
     Ok(())
 }
