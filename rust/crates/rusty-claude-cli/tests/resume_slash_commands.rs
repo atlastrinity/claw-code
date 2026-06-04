@@ -530,8 +530,9 @@ fn resumed_help_command_emits_structured_json() {
     let stdout = String::from_utf8(output.stdout).expect("utf8");
     let parsed: Value = serde_json::from_str(stdout.trim()).expect("should be json");
     assert_eq!(parsed["kind"], "help");
-    assert!(parsed["text"].as_str().is_some());
-    let text = parsed["text"].as_str().unwrap();
+    // #338: resume help now uses 'message' field for parity with top-level help
+    assert!(parsed["message"].as_str().is_some());
+    let text = parsed["message"].as_str().unwrap();
     assert!(text.contains("/status"), "help text should list /status");
 }
 
