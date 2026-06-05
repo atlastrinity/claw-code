@@ -175,6 +175,18 @@ impl OpenAiCompatClient {
         self
     }
 
+    /// Replace the internal HTTP client with one that respects the given
+    /// timeout configuration.
+    #[must_use]
+    pub fn with_timeout(mut self, timeout: &crate::http_client::TimeoutConfig) -> Self {
+        self.http = crate::http_client::build_http_client_with_opts(
+            &crate::http_client::ProxyConfig::from_env(),
+            timeout,
+        )
+        .unwrap_or_else(|_| reqwest::Client::new());
+        self
+    }
+
     pub async fn send_message(
         &self,
         request: &MessageRequest,
@@ -217,6 +229,7 @@ impl OpenAiCompatClient {
                         reqwest::StatusCode::from_u16(code.unwrap_or(400))
                             .unwrap_or(reqwest::StatusCode::BAD_REQUEST),
                     ),
+                    retry_after: None,
                 });
             }
         }
@@ -270,7 +283,12 @@ impl OpenAiCompatClient {
                 break retryable_error;
             }
 
-            tokio::time::sleep(self.jittered_backoff_for_attempt(attempts)?).await;
+            let delay = if let Some(retry_after) = retryable_error.retry_after() {
+                retry_after
+            } else {
+                self.jittered_backoff_for_attempt(attempts)?
+            };
+            tokio::time::sleep(delay).await;
         };
 
         Err(ApiError::RetriesExhausted {
@@ -1561,6 +1579,7 @@ fn parse_sse_frame(
                     body: trimmed.chars().take(500).collect(),
                     retryable: false,
                     suggested_action: suggested_action_for_status(status),
+                    retry_after: None,
                 });
             }
         }
@@ -1576,6 +1595,7 @@ fn parse_sse_frame(
                 body: trimmed.chars().take(200).collect(),
                 retryable: false,
                 suggested_action: Some("verify the API endpoint URL is correct".to_string()),
+                retry_after: None,
             });
         }
         return Ok(None);
@@ -1611,6 +1631,7 @@ fn parse_sse_frame(
                 body: payload.clone(),
                 retryable: false,
                 suggested_action: suggested_action_for_status(status),
+                retry_after: None,
             });
         }
     }
@@ -1627,6 +1648,7 @@ fn parse_sse_frame(
             body: payload.chars().take(200).collect(),
             retryable: false,
             suggested_action: Some("verify the API endpoint URL is correct".to_string()),
+            retry_after: None,
         });
     }
     serde_json::from_str::<ChatCompletionChunk>(&payload)
@@ -1678,10 +1700,12 @@ async fn expect_success(response: reqwest::Response) -> Result<reqwest::Response
         return Ok(response);
     }
 
-    let request_id = request_id_from_headers(response.headers());
+    let headers = response.headers().clone();
+    let request_id = request_id_from_headers(&headers);
     let body = response.text().await.unwrap_or_default();
     let parsed_error = serde_json::from_str::<ErrorEnvelope>(&body).ok();
     let retryable = is_retryable_status(status);
+    let retry_after = parse_retry_after(&headers, status);
 
     let suggested_action = suggested_action_for_status(status);
 
@@ -1697,11 +1721,41 @@ async fn expect_success(response: reqwest::Response) -> Result<reqwest::Response
         body,
         retryable,
         suggested_action,
+        retry_after,
     })
+}
+
+fn parse_retry_after(
+    headers: &reqwest::header::HeaderMap,
+    status: reqwest::StatusCode,
+) -> Option<std::time::Duration> {
+    if status != reqwest::StatusCode::TOO_MANY_REQUESTS {
+        return None;
+    }
+    headers
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(std::time::Duration::from_secs)
 }
 
 const fn is_retryable_status(status: reqwest::StatusCode) -> bool {
     matches!(status.as_u16(), 408 | 409 | 429 | 500 | 502 | 503 | 504)
+}
+
+/// Some providers return HTTP 400 with an unparseable body when a gateway
+/// or proxy flakes (e.g. "HTTP 400 from backend (no parseable body)").
+/// These are transient network blips, not actual bad requests, and should
+/// be retried.
+fn is_retryable_400(status: reqwest::StatusCode, body: &str) -> bool {
+    if status != reqwest::StatusCode::BAD_REQUEST {
+        return false;
+    }
+    let lowered = body.to_ascii_lowercase();
+    lowered.contains("no parseable body")
+        || lowered.contains("connection reset")
+        || lowered.contains("broken pipe")
+        || lowered.contains("empty reply from server")
 }
 
 /// Generate a suggested user action based on the HTTP status code and error context.
