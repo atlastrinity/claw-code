@@ -1121,7 +1121,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 println!("{}", render_diff_report()?);
             }
             CliOutputFormat::Json => {
-                let cwd = env::current_dir()?;
+                let cwd = friendly_cwd(env::current_dir()?);
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&render_diff_json_for(&cwd)?)?
@@ -3608,7 +3608,7 @@ fn render_doctor_report(
     config_warning_mode: ConfigWarningMode,
     permission_mode: PermissionModeProvenance,
 ) -> Result<DoctorReport, Box<dyn std::error::Error>> {
-    let cwd = env::current_dir()?;
+    let cwd = friendly_cwd(env::current_dir()?);
     let config_loader = ConfigLoader::default_for(&cwd);
     let config = load_config_with_warning_mode(&config_loader, config_warning_mode);
     let discovered_config = config_loader.discover();
@@ -9589,10 +9589,25 @@ fn status_json_value(
     })
 }
 
+/// #421: Strip macOS `/private` symlink prefix from paths so that
+/// `status`, `doctor`, and `mcp list` JSON output matches the
+/// user-visible invocation cwd instead of the canonicalized path.
+fn friendly_cwd(path: PathBuf) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(stripped) = path.strip_prefix("/private") {
+            if stripped.is_absolute() {
+                return stripped.to_path_buf();
+            }
+        }
+    }
+    path
+}
+
 fn status_context(
     session_path: Option<&Path>,
 ) -> Result<StatusContext, Box<dyn std::error::Error>> {
-    let cwd = env::current_dir()?;
+    let cwd = friendly_cwd(env::current_dir()?);
     let loader = ConfigLoader::default_for(&cwd);
     // #456: count only paths that exist on disk, matching check_config_health behavior.
     let discovered_config_files = loader.discover().iter().filter(|e| e.path.exists()).count();
