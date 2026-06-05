@@ -311,6 +311,36 @@ impl Display for ApiError {
                 f,
                 "failed to parse {provider} response for model {model}: {source}; first 200 chars of body: {body_snippet}"
             ),
+            // #28: enhance 401/403 errors with actionable auth guidance
+            Self::Api {
+                status,
+                error_type,
+                message,
+                request_id,
+                body,
+                ..
+            } if matches!(status.as_u16(), 401 | 403) => {
+                if let (Some(error_type), Some(message)) = (error_type, message) {
+                    write!(f, "api returned {status} ({error_type})")?;
+                    if let Some(request_id) = request_id {
+                        write!(f, " [trace {request_id}]")?;
+                    }
+                    write!(f, ": {message}")?;
+                } else {
+                    write!(f, "api returned {status}")?;
+                    if let Some(request_id) = request_id {
+                        write!(f, " [trace {request_id}]")?;
+                    }
+                    write!(f, ": {body}")?;
+                }
+                write!(
+                    f,
+                    "\nhint: check that your API key is valid and matches the target provider. \
+                     For OpenAI-compatible providers set OPENAI_API_KEY or OPENAI_BASE_URL. \
+                     For Anthropic set ANTHROPIC_API_KEY. \
+                     Run `claw doctor` to verify your credential configuration."
+                )
+            }
             Self::Api {
                 status,
                 error_type,
