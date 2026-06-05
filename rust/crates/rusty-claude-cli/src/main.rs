@@ -6477,14 +6477,16 @@ fn run_resume_command(
                 });
             }
             let backup_path = write_session_clear_backup(session, session_path)?;
+            // #114: preserve the session_id from the file to avoid filename/meta-header
+            // divergence. /clear is "empty this session," not "fork to a new session."
             let previous_session_id = session.session_id.clone();
-            let cleared = new_cli_session()?;
-            let new_session_id = cleared.session_id.clone();
+            let mut cleared = new_cli_session()?;
+            cleared.session_id = previous_session_id.clone();
             cleared.save_to_path(session_path)?;
             Ok(ResumeCommandOutcome {
                 session: cleared,
                 message: Some(format!(
-                    "Session cleared\n  Mode             resumed session reset\n  Previous session {previous_session_id}\n  Backup           {}\n  Resume previous  claw --resume {}\n  New session      {new_session_id}\n  Session file     {}",
+                    "Session cleared\n  Mode             resumed session reset\n  Previous session {previous_session_id}\n  Backup           {}\n  Resume previous  claw --resume {}\n  Session file     {}",
                     backup_path.display(),
                     backup_path.display(),
                     session_path.display()
@@ -6492,7 +6494,7 @@ fn run_resume_command(
                 json: Some(serde_json::json!({
                     "kind": "clear",
                     "previous_session_id": previous_session_id,
-                    "new_session_id": new_session_id,
+                    "new_session_id": previous_session_id,
                     "backup": backup_path.display().to_string(),
                     "session_file": session_path.display().to_string(),
                 })),
