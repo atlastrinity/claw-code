@@ -245,6 +245,7 @@ export ANTHROPIC_AUTH_TOKEN="anthropic-oauth-or-proxy-bearer-token"
 | `sk-ant-*` API key | `ANTHROPIC_API_KEY` | `x-api-key: sk-ant-...` | [console.anthropic.com](https://console.anthropic.com) |
 | OAuth access token (opaque) | `ANTHROPIC_AUTH_TOKEN` | `Authorization: Bearer ...` | an Anthropic-compatible proxy or OAuth flow that mints bearer tokens |
 | OpenRouter key (`sk-or-v1-*`) | `OPENAI_API_KEY` + `OPENAI_BASE_URL=https://openrouter.ai/api/v1` | `Authorization: Bearer ...` | [openrouter.ai/keys](https://openrouter.ai/keys) |
+| Ollama local instance | `OLLAMA_HOST` | no auth header (Ollama requires none) | local Ollama server at `http://127.0.0.1:11434` |
 
 **Why this matters:** if you paste an `sk-ant-*` key into `ANTHROPIC_AUTH_TOKEN`, Anthropic's API will return `401 Invalid bearer token` because `sk-ant-*` keys are rejected over the Bearer header. The fix is a one-line env var swap — move the key to `ANTHROPIC_API_KEY`. Recent `claw` builds detect this exact shape (401 + `sk-ant-*` in the Bearer slot) and append a hint to the error message pointing at the fix.
 
@@ -305,18 +306,18 @@ cd rust
 ### Ollama
 
 ```bash
-export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
-unset OPENAI_API_KEY
+export OLLAMA_HOST="http://127.0.0.1:11434"
 
 cd rust
 ./target/debug/claw --model "llama3.2" prompt "summarize this repository in one sentence"
 ```
 
-For Ollama tags with punctuation (for example `qwen2.5-coder:7b`), `OPENAI_BASE_URL` selects the local OpenAI-compatible route even when `OPENAI_API_KEY` is unset:
+`OLLAMA_HOST` is the preferred env var. Claw routes all models to the local Ollama endpoint automatically, and no API key is needed. The older `OPENAI_BASE_URL` + `OPENAI_API_KEY` workaround is also supported.
+
+For Ollama tags with punctuation (for example `qwen2.5-coder:7b`), both approaches work:
 
 ```bash
-export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
-unset OPENAI_API_KEY
+export OLLAMA_HOST="http://127.0.0.1:11434"
 
 cd rust
 ./target/debug/claw --model "qwen2.5-coder:7b" prompt "reply with ready"

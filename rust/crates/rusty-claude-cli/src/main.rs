@@ -2903,6 +2903,14 @@ fn resolve_model_alias_with_config(model: &str) -> String {
 /// Rejects: empty, whitespace-only, strings with spaces, or invalid chars.
 fn validate_model_syntax(model: &str) -> Result<(), String> {
     let trimmed = model.trim();
+    // Ollama models use names like "qwen3:8b" that don't match provider/model
+    // syntax. Skip strict validation when OLLAMA_HOST is configured.
+    if std::env::var_os("OLLAMA_HOST").is_some() {
+        if trimmed.is_empty() {
+            return Err("invalid model syntax: model string cannot be empty.\nUsage: --model <model-name>  e.g. --model qwen3:8b".to_string());
+        }
+        return Ok(());
+    }
     if trimmed.is_empty() {
         return Err("invalid model syntax: model string cannot be empty.\nUsage: --model <provider/model>  e.g. --model anthropic/claude-opus-4-7".to_string());
     }
@@ -19688,5 +19696,17 @@ mod alias_resolution_tests {
         let model = "openai/gpt-4o";
         assert_eq!(resolve_model_alias_with_config(model), model);
         assert!(validate_model_syntax(model).is_ok());
+    }
+    #[test]
+    fn test_ollama_host_bypasses_model_validation() {
+        // Safety: test sets and clears env var within the test.
+        std::env::set_var("OLLAMA_HOST", "http://127.0.0.1:11434");
+        // Ollama model names with colons pass
+        assert!(validate_model_syntax("qwen3:8b").is_ok());
+        assert!(validate_model_syntax("gemma4:e2b").is_ok());
+        assert!(validate_model_syntax("qwen3.6:27b-nvfp4").is_ok());
+        // Empty model still rejected
+        assert!(validate_model_syntax("").is_err());
+        std::env::remove_var("OLLAMA_HOST");
     }
 }

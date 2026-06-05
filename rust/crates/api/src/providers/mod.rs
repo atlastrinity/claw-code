@@ -351,6 +351,11 @@ fn looks_like_local_openai_model(model: &str) -> bool {
 
 #[must_use]
 pub fn detect_provider_kind(model: &str) -> ProviderKind {
+    // OLLAMA_HOST takes priority: if set, route all models through the local
+    // OpenAI-compatible endpoint regardless of model name or other env vars.
+    if std::env::var_os("OLLAMA_HOST").is_some() {
+        return ProviderKind::OpenAi;
+    }
     let resolved_model = resolve_model_alias(model);
     if let Some(metadata) = metadata_for_model(&resolved_model) {
         return metadata.provider;

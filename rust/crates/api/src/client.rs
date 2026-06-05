@@ -32,16 +32,25 @@ impl ProviderClient {
                 OpenAiCompatConfig::xai(),
             )?)),
             ProviderKind::OpenAi => {
-                // DashScope models (qwen-*) also return ProviderKind::OpenAi because they
-                // speak the OpenAI wire format, but they need the DashScope config which
-                // reads DASHSCOPE_API_KEY and points at dashscope.aliyuncs.com.
-                let config = match providers::metadata_for_model(&resolved_model) {
-                    Some(meta) if meta.auth_env == "DASHSCOPE_API_KEY" => {
-                        OpenAiCompatConfig::dashscope()
-                    }
-                    _ => OpenAiCompatConfig::openai(),
-                };
-                Ok(Self::OpenAi(OpenAiCompatClient::from_env(config)?))
+                // OLLAMA_HOST takes priority: local Ollama needs no API key
+                // and ignores DashScope/OpenAI env-based dispatch.
+                if std::env::var_os("OLLAMA_HOST").is_some() {
+                    Ok(Self::OpenAi(
+                        openai_compat::OpenAiCompatClient::from_ollama_env()
+                            .expect("from_ollama_env always returns Some"),
+                    ))
+                } else {
+                    // DashScope models (qwen-*) also return ProviderKind::OpenAi because they
+                    // speak the OpenAI wire format, but they need the DashScope config which
+                    // reads DASHSCOPE_API_KEY and points at dashscope.aliyuncs.com.
+                    let config = match providers::metadata_for_model(&resolved_model) {
+                        Some(meta) if meta.auth_env == "DASHSCOPE_API_KEY" => {
+                            OpenAiCompatConfig::dashscope()
+                        }
+                        _ => OpenAiCompatConfig::openai(),
+                    };
+                    Ok(Self::OpenAi(OpenAiCompatClient::from_env(config)?))
+                }
             }
         }
     }

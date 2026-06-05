@@ -57,10 +57,11 @@ ollama serve
 In another shell:
 
 ```bash
-export OPENAI_BASE_URL="http://127.0.0.1:11434/v1"
-unset OPENAI_API_KEY
+export OLLAMA_HOST="http://127.0.0.1:11434"
 claw --model "qwen3:latest" prompt "Reply exactly HELLO_WORLD_123"
 ```
+
+`OLLAMA_HOST` is the preferred env var for Ollama. Claw routes all models to the local OpenAI-compatible endpoint automatically when this is set, and no API key is needed. The older `OPENAI_BASE_URL` + `OPENAI_API_KEY` workaround is also supported for existing setups.
 
 If Ollama is running without auth, `unset OPENAI_API_KEY` is acceptable. Use a placeholder token rather than a real cloud API key if your local server requires an Authorization header.
 

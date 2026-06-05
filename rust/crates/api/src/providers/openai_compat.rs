@@ -49,6 +49,14 @@ const XAI_MAX_REQUEST_BODY_BYTES: usize = 52_428_800; // 50MB
 const OPENAI_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const DASHSCOPE_MAX_REQUEST_BODY_BYTES: usize = 6_291_456; // 6MB (observed limit in dogfood)
 
+pub const OLLAMA_CONFIG: OpenAiCompatConfig = OpenAiCompatConfig {
+    provider_name: "Ollama",
+    api_key_env: "OLLAMA_HOST",
+    base_url_env: "OLLAMA_HOST",
+    default_base_url: "http://127.0.0.1:11434/v1",
+    max_request_body_bytes: 104_857_600,
+};
+
 impl OpenAiCompatConfig {
     #[must_use]
     pub const fn xai() -> Self {
@@ -148,6 +156,22 @@ impl OpenAiCompatClient {
             }
         };
         Ok(Self::new(api_key, config).with_base_url(base_url))
+    }
+    /// Create an Ollama client from `OLLAMA_HOST` env var.
+    /// Ollama requires no API key; a placeholder is used for the Authorization header.
+    pub fn from_ollama_env() -> Option<Self> {
+        let host =
+            std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
+        let base_url = format!("{}/v1", host.trim_end_matches('/'));
+        Some(Self {
+            http: build_http_client_or_default(),
+            api_key: "ollama".to_string(),
+            config: OLLAMA_CONFIG,
+            base_url,
+            max_retries: DEFAULT_MAX_RETRIES,
+            initial_backoff: DEFAULT_INITIAL_BACKOFF,
+            max_backoff: DEFAULT_MAX_BACKOFF,
+        })
     }
 
     #[must_use]
