@@ -2097,6 +2097,45 @@ fn parse_optional_oauth_config(
     }))
 }
 
+/// #92: expand `${VAR}` environment variable references and `~/` home directory
+/// prefix in a config string value. Returns the expanded string.
+fn expand_config_value(value: &str) -> String {
+    // Expand ${VAR} and $VAR references from the environment
+    let mut result = String::with_capacity(value.len());
+    let mut chars = value.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '$' {
+            if chars.peek() == Some(&'{') {
+                // ${VAR} form
+                chars.next(); // consume '{'
+                let mut var_name = String::new();
+                for ch in chars.by_ref() {
+                    if ch == '}' {
+                        break;
+                    }
+                    var_name.push(ch);
+                }
+                if let Ok(val) = std::env::var(&var_name) {
+                    result.push_str(&val);
+                }
+            } else {
+                // Bare $ — pass through
+                result.push(c);
+            }
+        } else if c == '~' && result.is_empty() {
+            // ~/... home directory expansion
+            if let Ok(home) = std::env::var("HOME") {
+                result.push_str(&home);
+            } else {
+                result.push(c);
+            }
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
 fn parse_mcp_server_config(
     server_name: &str,
     value: &JsonValue,
@@ -2106,9 +2145,14 @@ fn parse_mcp_server_config(
     let server_type =
         optional_string(object, "type", context)?.unwrap_or_else(|| infer_mcp_server_type(object));
     match server_type {
+        // #92: expand ${VAR} and ~/ in command, args, and url fields
         "stdio" => Ok(McpServerConfig::Stdio(McpStdioServerConfig {
-            command: expect_non_empty_string(object, "command", context)?.to_string(),
-            args: optional_string_array(object, "args", context)?.unwrap_or_default(),
+            command: expand_config_value(expect_non_empty_string(object, "command", context)?),
+            args: optional_string_array(object, "args", context)?
+                .unwrap_or_default()
+                .iter()
+                .map(|a| expand_config_value(a))
+                .collect(),
             env: optional_string_map(object, "env", context)?.unwrap_or_default(),
             tool_call_timeout_ms: optional_u64(object, "toolCallTimeoutMs", context)?,
         })),
@@ -2119,7 +2163,8 @@ fn parse_mcp_server_config(
             object, context,
         )?)),
         "ws" => Ok(McpServerConfig::Ws(McpWebSocketServerConfig {
-            url: expect_string(object, "url", context)?.to_string(),
+            // #92: expand ${VAR} and ~/ in URL
+            url: expand_config_value(expect_string(object, "url", context)?),
             headers: optional_string_map(object, "headers", context)?.unwrap_or_default(),
             headers_helper: optional_string(object, "headersHelper", context)?.map(str::to_string),
         })),
@@ -2127,7 +2172,8 @@ fn parse_mcp_server_config(
             name: expect_string(object, "name", context)?.to_string(),
         })),
         "claudeai-proxy" => Ok(McpServerConfig::ManagedProxy(McpManagedProxyServerConfig {
-            url: expect_string(object, "url", context)?.to_string(),
+            // #92: expand ${VAR} and ~/ in URL
+            url: expand_config_value(expect_string(object, "url", context)?),
             id: expect_string(object, "id", context)?.to_string(),
         })),
         other => Err(ConfigError::Parse(format!(
@@ -2149,7 +2195,8 @@ fn parse_mcp_remote_server_config(
     context: &str,
 ) -> Result<McpRemoteServerConfig, ConfigError> {
     Ok(McpRemoteServerConfig {
-        url: expect_string(object, "url", context)?.to_string(),
+        // #92: expand ${VAR} and ~/ in URL
+        url: expand_config_value(expect_string(object, "url", context)?),
         headers: optional_string_map(object, "headers", context)?.unwrap_or_default(),
         headers_helper: optional_string(object, "headersHelper", context)?.map(str::to_string),
         oauth: parse_optional_mcp_oauth_config(object, context)?,
