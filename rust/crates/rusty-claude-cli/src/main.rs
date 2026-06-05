@@ -9242,7 +9242,23 @@ fn run_resumed_session_command(
                 })),
             })
         }
-        Some("switch" | "fork") => Err("unsupported_resumed_command: /session switch and /session fork require an interactive REPL.\nUsage: claw (then /session switch <id>) or claw --resume <session>".into()),
+        // #113: /session switch and /session fork require an interactive REPL —
+        // return structured JSON instead of a raw error so resume callers can
+        // detect the limitation programmatically.
+        Some(switch_or_fork @ ("switch" | "fork")) => Ok(ResumeCommandOutcome {
+            session: session.clone(),
+            message: Some(format!(
+                "/session {switch_or_fork} requires an interactive REPL.\nUsage: claw (then /session {switch_or_fork} <id>)"
+            )),
+            json: Some(serde_json::json!({
+                "kind": "error",
+                "error_kind": "unsupported_resumed_command",
+                "status": "error",
+                "action": switch_or_fork,
+                "error": format!("/session {switch_or_fork} requires an interactive REPL"),
+                "hint": format!("Start a new claw session and use /session {switch_or_fork} <id> interactively"),
+            })),
+        }),
         Some(other) => Err(format!("unsupported_resumed_command: /session {other} is not supported in resume mode.\nSupported: list, exists, delete").into()),
     }
 }
