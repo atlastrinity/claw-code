@@ -2412,6 +2412,10 @@ fn deep_merge_objects(
             (Some(JsonValue::Object(existing)), JsonValue::Object(incoming)) => {
                 deep_merge_objects(existing, incoming);
             }
+            // #106: concatenate arrays instead of replacing
+            (Some(JsonValue::Array(existing)), JsonValue::Array(incoming)) => {
+                existing.extend(incoming.iter().cloned());
+            }
             _ => {
                 target.insert(key.clone(), value.clone());
             }
@@ -3385,14 +3389,19 @@ mod tests {
             .load()
             .expect("config should load valid hook entries and record invalid siblings");
 
-        assert_eq!(loaded.hooks().pre_tool_use(), &["project".to_string()]);
+        // #106: arrays now concatenate across config layers, so both "base" and "project" are present
+        assert_eq!(
+            loaded.hooks().pre_tool_use(),
+            &["base".to_string(), "project".to_string()]
+        );
         assert_eq!(loaded.hooks().invalid_count(), 1);
         assert_eq!(loaded.hooks().invalid_hooks()[0].event, "PreToolUse");
         assert_eq!(
             loaded.hooks().invalid_hooks()[0].kind,
             "invalid_hooks_config"
         );
-        assert_eq!(loaded.hooks().invalid_hooks()[0].index, Some(1));
+        // #106: invalid entry at index 2 after array concatenation
+        assert_eq!(loaded.hooks().invalid_hooks()[0].index, Some(2));
         assert!(loaded.hooks().invalid_hooks()[0]
             .reason
             .contains("must be a string or hook object"));
