@@ -17,6 +17,7 @@
 mod init;
 mod input;
 mod render;
+mod setup_wizard;
 
 use std::collections::BTreeSet;
 use std::env;
@@ -1095,6 +1096,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         CliAction::SessionList { output_format } => run_session_list(output_format)?,
         CliAction::State { output_format } => run_worker_state(output_format)?,
         CliAction::Init { output_format } => run_init(output_format)?,
+        CliAction::Setup { output_format: _ } => run_setup()?,
         // #146: dispatch pure-local introspection. Text mode uses existing
         // render_config_report/render_diff_report; JSON mode uses the
         // corresponding _json helpers already exposed for resume sessions.
@@ -1238,6 +1240,9 @@ enum CliAction {
     Init {
         output_format: CliOutputFormat,
     },
+    Setup {
+        output_format: CliOutputFormat,
+    },
     // #146: `claw config` and `claw diff` are pure-local read-only
     // introspection commands; wire them as standalone CLI subcommands.
     Config {
@@ -1301,6 +1306,7 @@ enum LocalHelpTopic {
     Model,
     Settings,
     Diff,
+    Setup,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1765,6 +1771,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 "doctor" => Some(LocalHelpTopic::Doctor),
                 "acp" => Some(LocalHelpTopic::Acp),
                 "init" => Some(LocalHelpTopic::Init),
+                "setup" => Some(LocalHelpTopic::Setup),
                 "state" => Some(LocalHelpTopic::State),
                 "resume" => Some(LocalHelpTopic::Resume),
                 "session" => Some(LocalHelpTopic::Session),
@@ -2144,6 +2151,15 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             }
             Ok(CliAction::Init { output_format })
         }
+        "setup" => {
+            if rest.len() > 1 {
+                let extra = rest[1..].join(" ");
+                return Err(format!(
+                    "unexpected extra arguments after `claw setup`: {extra}\nUsage: claw setup"
+                ));
+            }
+            Ok(CliAction::Setup { output_format })
+        }
         "export" => parse_export_args(&rest[1..], output_format),
         "prompt" => {
             let mut read_stdin = false;
@@ -2271,6 +2287,7 @@ fn parse_local_help_action(
         "doctor" => LocalHelpTopic::Doctor,
         "acp" => LocalHelpTopic::Acp,
         "init" => LocalHelpTopic::Init,
+        "setup" => LocalHelpTopic::Setup,
         "state" => LocalHelpTopic::State,
         "export" => LocalHelpTopic::Export,
         "version" => LocalHelpTopic::Version,
@@ -2316,7 +2333,7 @@ fn parse_single_word_command_alias(
     let verb = &rest[0];
     let is_diagnostic = matches!(
         verb.as_str(),
-        "help" | "version" | "status" | "sandbox" | "doctor" | "state"
+        "help" | "version" | "status" | "sandbox" | "doctor" | "setup" | "state"
     );
 
     if is_diagnostic && rest.len() > 1 {
@@ -2336,6 +2353,7 @@ fn parse_single_word_command_alias(
                 "doctor" => Some(LocalHelpTopic::Doctor),
                 "acp" => Some(LocalHelpTopic::Acp),
                 "init" => Some(LocalHelpTopic::Init),
+                "setup" => Some(LocalHelpTopic::Setup),
                 "state" => Some(LocalHelpTopic::State),
                 "export" => Some(LocalHelpTopic::Export),
                 "version" => Some(LocalHelpTopic::Version),
@@ -2390,6 +2408,7 @@ fn parse_single_word_command_alias(
             "doctor" => Some(LocalHelpTopic::Doctor),
             "acp" => Some(LocalHelpTopic::Acp),
             "init" => Some(LocalHelpTopic::Init),
+            "setup" => Some(LocalHelpTopic::Setup),
             "state" => Some(LocalHelpTopic::State),
             "export" => Some(LocalHelpTopic::Export),
             "version" => Some(LocalHelpTopic::Version),
@@ -2452,6 +2471,7 @@ fn parse_single_word_command_alias(
                 .map(PermissionModeProvenance::from_flag)
                 .unwrap_or_else(permission_mode_provenance_for_current_dir),
         })),
+        "setup" => Some(Ok(CliAction::Setup { output_format })),
         "state" => Some(Ok(CliAction::State { output_format })),
         // #146: let `config` and `diff` fall through to parse_subcommand
         // where they are wired as pure-local introspection, instead of
@@ -2744,6 +2764,7 @@ fn suggest_similar_subcommand(input: &str) -> Option<Vec<String>> {
         "status",
         "sandbox",
         "doctor",
+        "setup",
         "state",
         "dump-manifests",
         "bootstrap-plan",
@@ -3715,6 +3736,11 @@ fn run_doctor(
         return Err("doctor found failing checks".into());
     }
     Ok(())
+}
+
+/// Run the interactive setup wizard to configure provider, API key, and model.
+fn run_setup() -> Result<(), Box<dyn std::error::Error>> {
+    setup_wizard::run_setup_wizard()
 }
 
 /// Starts a minimal Model Context Protocol server that exposes claw's
@@ -6888,7 +6914,8 @@ fn run_resume_command(
         | SlashCommand::Tag { .. }
         | SlashCommand::OutputStyle { .. }
         | SlashCommand::AddDir { .. }
-        | SlashCommand::Team { .. } => Err("unsupported resumed slash command".into()),
+        | SlashCommand::Team { .. }
+        | SlashCommand::Setup => Err("unsupported resumed slash command".into()),
     }
 }
 
@@ -8147,6 +8174,12 @@ impl LiveCli {
                     )?
                     .render()
                 );
+                false
+            }
+            SlashCommand::Setup => {
+                if let Err(e) = setup_wizard::run_setup_wizard() {
+                    eprintln!("Setup wizard failed: {e}");
+                }
                 false
             }
             SlashCommand::History { count } => {
@@ -10218,6 +10251,13 @@ fn render_help_topic(topic: LocalHelpTopic) -> String {
   Formats          text (default), json
   Related          /diff · ROADMAP #148"
             .to_string(),
+        LocalHelpTopic::Setup => "Setup
+  Usage            claw setup
+  Aliases          /setup (inside the REPL)
+  Purpose          run the interactive provider setup wizard to configure API key, model, and base URL
+  Output           writes provider settings to ~/.claw/settings.json (0600 permissions)
+  Related          /model · /config · claw doctor"
+            .to_string(),
     }
 }
 
@@ -10245,6 +10285,7 @@ fn local_help_topic_command(topic: LocalHelpTopic) -> &'static str {
         LocalHelpTopic::Model => "models",
         LocalHelpTopic::Settings => "settings",
         LocalHelpTopic::Diff => "diff",
+        LocalHelpTopic::Setup => "setup",
     }
 }
 

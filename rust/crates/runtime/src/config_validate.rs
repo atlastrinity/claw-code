@@ -92,8 +92,6 @@ enum FieldType {
     Bool,
     Object,
     StringArray,
-    HookArray,
-    RulesImport,
     Number,
 }
 
@@ -104,8 +102,6 @@ impl FieldType {
             Self::Bool => "a boolean",
             Self::Object => "an object",
             Self::StringArray => "an array of strings",
-            Self::RulesImport => "a string or an array of strings",
-            Self::HookArray => "an array of strings or hook objects",
             Self::Number => "a number",
         }
     }
@@ -118,13 +114,6 @@ impl FieldType {
             Self::StringArray => value
                 .as_array()
                 .is_some_and(|arr| arr.iter().all(|v| v.as_str().is_some())),
-            Self::HookArray => true,
-            Self::RulesImport => {
-                value.as_str().is_some()
-                    || value
-                        .as_array()
-                        .is_some_and(|arr| arr.iter().all(|v| v.as_str().is_some()))
-            }
             Self::Number => value.as_i64().is_some(),
         }
     }
@@ -213,23 +202,23 @@ const TOP_LEVEL_FIELDS: &[FieldSpec] = &[
         expected: FieldType::Object,
     },
     FieldSpec {
-        name: "rulesImport",
-        expected: FieldType::RulesImport,
+        name: "subagentModel",
+        expected: FieldType::String,
     },
 ];
 
 const HOOKS_FIELDS: &[FieldSpec] = &[
     FieldSpec {
         name: "PreToolUse",
-        expected: FieldType::HookArray,
+        expected: FieldType::StringArray,
     },
     FieldSpec {
         name: "PostToolUse",
-        expected: FieldType::HookArray,
+        expected: FieldType::StringArray,
     },
     FieldSpec {
         name: "PostToolUseFailure",
-        expected: FieldType::HookArray,
+        expected: FieldType::StringArray,
     },
 ];
 
@@ -421,10 +410,9 @@ fn validate_object_keys(
         } else if DEPRECATED_FIELDS.iter().any(|d| d.name == key) {
             // Deprecated key — handled separately, not an unknown-key error.
         } else {
-            // Unknown key — preserve compatibility by surfacing it as a warning
-            // instead of blocking otherwise valid config files.
+            // Unknown key.
             let suggestion = suggest_field(key, &known_names);
-            result.warnings.push(ConfigDiagnostic {
+            result.errors.push(ConfigDiagnostic {
                 path: path_display.to_string(),
                 field: field_path,
                 line: find_key_line(source, key),
@@ -436,56 +424,8 @@ fn validate_object_keys(
     result
 }
 
-/// Emit deprecation warnings for bare string hook entries in the hooks object.
-/// Legacy `["command-string"]` arrays still load but suggest migration to the
-/// structured `{matcher, hooks:[{type, command}]}` form.
-fn validate_hook_entry_format(
-    hooks: &BTreeMap<String, JsonValue>,
-    source: &str,
-    path_display: &str,
-) -> ValidationResult {
-    let mut result = ValidationResult {
-        errors: Vec::new(),
-        warnings: Vec::new(),
-    };
-    for spec in HOOKS_FIELDS {
-        let Some(value) = hooks.get(spec.name) else {
-            continue;
-        };
-        let Some(array) = value.as_array() else {
-            continue;
-        };
-        for item in array {
-            if item.as_str().is_some() {
-                result.warnings.push(ConfigDiagnostic {
-                    path: path_display.to_string(),
-                    field: format!("hooks.{}", spec.name),
-                    line: find_key_line(source, spec.name),
-                    kind: DiagnosticKind::Deprecated {
-                        replacement: "object-style hook entries with hooks:[{type:\"command\",command:\"...\"}]",
-                    },
-                });
-                // One deprecation warning per event is enough
-                break;
-            }
-        }
-    }
-    result
-}
-
 fn suggest_field(input: &str, candidates: &[&str]) -> Option<String> {
     let input_lower = input.to_ascii_lowercase();
-    // #461: prefix-aware matching — if input is a prefix of a candidate,
-    // treat it as distance 0 (perfect prefix match) to avoid edit-distance
-    // misranking (e.g., "mcp" → "env" instead of "mcpServers").
-    let prefix_match = candidates
-        .iter()
-        .filter(|c| c.to_ascii_lowercase().starts_with(&input_lower))
-        .min_by_key(|c| c.len())
-        .map(|name| name.to_string());
-    if prefix_match.is_some() {
-        return prefix_match;
-    }
     candidates
         .iter()
         .filter_map(|candidate| {
@@ -555,7 +495,6 @@ pub fn validate_config_file(
             source,
             &path_display,
         ));
-        result.merge(validate_hook_entry_format(hooks, source, &path_display));
     }
     if let Some(permissions) = object.get("permissions").and_then(JsonValue::as_object) {
         result.merge(validate_object_keys(
@@ -652,11 +591,10 @@ mod tests {
         let result = validate_config_file(object, source, &test_path());
 
         // then
-        assert!(result.errors.is_empty());
-        assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].field, "unknownField");
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].field, "unknownField");
         assert!(matches!(
-            result.warnings[0].kind,
+            result.errors[0].kind,
             DiagnosticKind::UnknownKey { .. }
         ));
     }
@@ -736,10 +674,9 @@ mod tests {
         let result = validate_config_file(object, source, &test_path());
 
         // then
-        assert!(result.errors.is_empty());
-        assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].line, Some(3));
-        assert_eq!(result.warnings[0].field, "badKey");
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].line, Some(3));
+        assert_eq!(result.errors[0].field, "badKey");
     }
 
     #[test]
@@ -760,7 +697,7 @@ mod tests {
     #[test]
     fn validates_nested_hooks_keys() {
         // given
-        let source = r#"{"hooks": {"PreToolUse": [{"hooks":[{"type":"command","command":"cmd"}]}], "BadHook": ["x"]}}"#;
+        let source = r#"{"hooks": {"PreToolUse": ["cmd"], "BadHook": ["x"]}}"#;
         let parsed = JsonValue::parse(source).expect("valid json");
         let object = parsed.as_object().expect("object");
 
@@ -768,64 +705,8 @@ mod tests {
         let result = validate_config_file(object, source, &test_path());
 
         // then
-        assert!(result.errors.is_empty());
-        assert_eq!(
-            result.warnings.len(),
-            1,
-            "expected only the unknown key warning, got {:?}",
-            result.warnings
-        );
-        assert_eq!(result.warnings[0].field, "hooks.BadHook");
-    }
-
-    #[test]
-    fn validates_object_style_hook_entries() {
-        let source = r#"{"hooks":{"PreToolUse":["legacy",{"matcher":"Bash","hooks":[{"type":"command","command":"echo ok"}]}]}}"#;
-        let parsed = JsonValue::parse(source).expect("valid json");
-        let object = parsed.as_object().expect("object");
-
-        let result = validate_config_file(object, source, &test_path());
-
-        assert!(result.errors.is_empty(), "{:?}", result.errors);
-    }
-
-    #[test]
-    fn allows_wrong_hook_entry_types_for_partial_runtime_validation_441() {
-        let source = r#"{"hooks":{"PreToolUse":[42]}}"#;
-        let parsed = JsonValue::parse(source).expect("valid json");
-        let object = parsed.as_object().expect("object");
-
-        let result = validate_config_file(object, source, &test_path());
-
-        assert!(result.errors.is_empty(), "{:?}", result.errors);
-    }
-
-    #[test]
-    fn validates_rules_import_string_and_array_forms() {
-        for source in [
-            r#"{"rulesImport":"auto"}"#,
-            r#"{"rulesImport":"none"}"#,
-            r#"{"rulesImport":["cursor","copilot"]}"#,
-        ] {
-            let parsed = JsonValue::parse(source).expect("valid json");
-            let object = parsed.as_object().expect("object");
-
-            let result = validate_config_file(object, source, &test_path());
-
-            assert!(result.errors.is_empty(), "{source}: {:?}", result.errors);
-        }
-    }
-
-    #[test]
-    fn rejects_rules_import_wrong_type() {
-        let source = r#"{"rulesImport":42}"#;
-        let parsed = JsonValue::parse(source).expect("valid json");
-        let object = parsed.as_object().expect("object");
-
-        let result = validate_config_file(object, source, &test_path());
-
         assert_eq!(result.errors.len(), 1);
-        assert_eq!(result.errors[0].field, "rulesImport");
+        assert_eq!(result.errors[0].field, "hooks.BadHook");
     }
 
     #[test]
@@ -839,9 +720,8 @@ mod tests {
         let result = validate_config_file(object, source, &test_path());
 
         // then
-        assert!(result.errors.is_empty());
-        assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].field, "permissions.denyAll");
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].field, "permissions.denyAll");
     }
 
     #[test]
@@ -855,9 +735,8 @@ mod tests {
         let result = validate_config_file(object, source, &test_path());
 
         // then
-        assert!(result.errors.is_empty());
-        assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].field, "sandbox.containerMode");
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].field, "sandbox.containerMode");
     }
 
     #[test]
@@ -871,9 +750,8 @@ mod tests {
         let result = validate_config_file(object, source, &test_path());
 
         // then
-        assert!(result.errors.is_empty());
-        assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].field, "plugins.autoUpdate");
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].field, "plugins.autoUpdate");
     }
 
     #[test]
@@ -887,9 +765,8 @@ mod tests {
         let result = validate_config_file(object, source, &test_path());
 
         // then
-        assert!(result.errors.is_empty());
-        assert_eq!(result.warnings.len(), 1);
-        assert_eq!(result.warnings[0].field, "oauth.secret");
+        assert_eq!(result.errors.len(), 1);
+        assert_eq!(result.errors[0].field, "oauth.secret");
     }
 
     #[test]
@@ -897,7 +774,7 @@ mod tests {
         // given
         let source = r#"{
   "model": "opus",
-  "hooks": {"PreToolUse": [{"hooks":[{"type":"command","command":"guard"}]}]},
+  "hooks": {"PreToolUse": ["guard"]},
   "permissions": {"defaultMode": "plan", "allow": ["Read"]},
   "mcpServers": {},
   "sandbox": {"enabled": false}
@@ -924,9 +801,8 @@ mod tests {
         let result = validate_config_file(object, source, &test_path());
 
         // then
-        assert!(result.errors.is_empty());
-        assert_eq!(result.warnings.len(), 1);
-        match &result.warnings[0].kind {
+        assert_eq!(result.errors.len(), 1);
+        match &result.errors[0].kind {
             DiagnosticKind::UnknownKey {
                 suggestion: Some(s),
             } => assert_eq!(s, "model"),
@@ -937,7 +813,7 @@ mod tests {
     #[test]
     fn format_diagnostics_includes_all_entries() {
         // given
-        let source = r#"{"model": 42, "badKey": 1}"#;
+        let source = r#"{"permissionMode": "plan", "badKey": 1}"#;
         let parsed = JsonValue::parse(source).expect("valid json");
         let object = parsed.as_object().expect("object");
         let result = validate_config_file(object, source, &test_path());
@@ -949,7 +825,7 @@ mod tests {
         assert!(output.contains("warning:"));
         assert!(output.contains("error:"));
         assert!(output.contains("badKey"));
-        assert!(output.contains("model"));
+        assert!(output.contains("permissionMode"));
     }
 
     #[test]
