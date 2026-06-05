@@ -242,19 +242,13 @@ fn is_read_only_command(command: &str) -> bool {
     // Shell metacharacters that enable command chaining, substitution,
     // piping, redirection, or subshells. Presence of any of these means we
     // cannot reason about the command from its leading token alone.
-    const SHELL_METACHARS: &[char] =
-        &[';', '|', '&', '$', '`', '>', '<', '(', ')', '{', '}', '\n'];
+    const SHELL_METACHARS: &[char] = &[';', '|', '&', '$', '`', '>', '<', '(', ')', '{', '}', '\n'];
     if command.contains(SHELL_METACHARS) {
         return false;
     }
 
     let mut tokens = command.split_whitespace();
-    let first_token = tokens
-        .next()
-        .unwrap_or("")
-        .rsplit('/')
-        .next()
-        .unwrap_or("");
+    let first_token = tokens.next().unwrap_or("").rsplit('/').next().unwrap_or("");
 
     // `git` is only read-only for a curated set of subcommands.
     if first_token == "git" {
@@ -503,7 +497,10 @@ mod tests {
 
     #[test]
     fn workspace_rejects_parent_traversal() {
-        assert!(!is_within_workspace("/workspace/../etc/passwd", "/workspace"));
+        assert!(!is_within_workspace(
+            "/workspace/../etc/passwd",
+            "/workspace"
+        ));
         assert!(!is_within_workspace(
             "/workspace/../../etc/crontab",
             "/workspace"
@@ -514,7 +511,10 @@ mod tests {
             "/workspace"
         ));
         // Legitimate paths still resolve inside.
-        assert!(is_within_workspace("/workspace/./src/main.rs", "/workspace"));
+        assert!(is_within_workspace(
+            "/workspace/./src/main.rs",
+            "/workspace"
+        ));
         assert!(is_within_workspace(
             "/workspace/src/../src/main.rs",
             "/workspace"

@@ -7781,7 +7781,9 @@ impl LiveCli {
                     || error_str.contains("no parseable body")
                     || error_str.contains("exceed_context_size")
                     || error_str.contains("exceeds the available context size")
-                    || error_str.to_ascii_lowercase().contains("context size has been exceeded");
+                    || error_str
+                        .to_ascii_lowercase()
+                        .contains("context size has been exceeded");
 
                 // Also treat "assistant stream produced no content" and reqwest decode failures
                 // as recoverable errors that may benefit from auto-compaction. Some backends (e.g.
@@ -7888,16 +7890,24 @@ impl LiveCli {
                                     || retry_str.contains("no parseable body")
                                     || retry_str.contains("exceed_context_size")
                                     || retry_str.contains("exceeds the available context size")
-                                    || retry_str.to_ascii_lowercase().contains("context size has been exceeded");
-                                let still_no_content = retry_str.contains("assistant stream produced no content")
+                                    || retry_str
+                                        .to_ascii_lowercase()
+                                        .contains("context size has been exceeded");
+                                let still_no_content = retry_str
+                                    .contains("assistant stream produced no content")
                                     || retry_str.contains("Failed to parse input at pos")
                                     || retry_str.contains("error decoding response body");
 
-                                if (still_context_window || still_no_content) && round + 1 < max_compact_rounds {
+                                if (still_context_window || still_no_content)
+                                    && round + 1 < max_compact_rounds
+                                {
                                     // If the retry error reveals the context window, adapt threshold.
-                                    if let Some(window) = extract_context_window_tokens_from_error(&retry_str) {
+                                    if let Some(window) =
+                                        extract_context_window_tokens_from_error(&retry_str)
+                                    {
                                         let threshold: u32 = (window as f64 * 0.7).round() as u32;
-                                        new_runtime.set_auto_compaction_input_tokens_threshold(threshold);
+                                        new_runtime
+                                            .set_auto_compaction_input_tokens_threshold(threshold);
                                     }
 
                                     // The compacted session was still too large for the model's context.
@@ -12831,7 +12841,8 @@ fn extract_context_window_tokens_from_error(error_str: &str) -> Option<u32> {
     // Pattern: "(NNNNNN tokens)" appearing after context-size markers
     for line in error_str.lines() {
         let lowered = line.to_ascii_lowercase();
-        if lowered.contains("context size") || lowered.contains("context length")
+        if lowered.contains("context size")
+            || lowered.contains("context length")
             || lowered.contains("context window")
         {
             // Try parenthesised form: (81920 tokens)
@@ -12839,7 +12850,8 @@ fn extract_context_window_tokens_from_error(error_str: &str) -> Option<u32> {
                 if let Some(end) = lowered.find(")") {
                     if start < end {
                         let inner = &line[start + 1..end];
-                        let digits: String = inner.chars().take_while(|c| c.is_ascii_digit()).collect();
+                        let digits: String =
+                            inner.chars().take_while(|c| c.is_ascii_digit()).collect();
                         if let Ok(n) = digits.parse::<u32>() {
                             if n > 1000 {
                                 return Some(n);
