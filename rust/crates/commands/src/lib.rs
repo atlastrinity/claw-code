@@ -2760,15 +2760,26 @@ pub fn handle_skills_slash_command(args: Option<&str>, cwd: &Path) -> std::io::R
             std::io::ErrorKind::InvalidInput,
             "missing_argument: skills install requires an install source.\nUsage: claw skills install <path>",
         )),
+        // #95: support --project flag for project-level install
         Some(args) if args.starts_with("install ") => {
-            let target = args["install ".len()..].trim();
+            let rest = args["install ".len()..].trim();
+            let (target, project_flag) = if let Some(t) = rest.strip_prefix("--project") {
+                (t.trim_start().trim_start_matches('=').trim(), true)
+            } else {
+                (rest, false)
+            };
             if target.is_empty() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidInput,
-                    "missing_argument: skills install requires an install source.\nUsage: claw skills install <path>",
+                    "missing_argument: skills install requires an install source.\nUsage: claw skills install [--project] <path>",
                 ));
             }
-            let install = install_skill(target, cwd)?;
+            let install = if project_flag {
+                let project_root = cwd.join(".claw").join("skills");
+                install_skill_into(target, cwd, &project_root)?
+            } else {
+                install_skill(target, cwd)?
+            };
             Ok(render_skill_install_report(&install))
         }
         Some("uninstall" | "remove" | "delete") => Err(std::io::Error::new(
@@ -2922,16 +2933,28 @@ pub fn handle_skills_slash_command_json(args: Option<&str>, cwd: &Path) -> std::
             "install_source",
             "Usage: claw skills install <path>",
         )),
+        // #95: support --project flag for project-level install
         Some(args) if args.starts_with("install ") => {
-            let target = args["install ".len()..].trim();
+            let rest = args["install ".len()..].trim();
+            let (target, project_flag) = if let Some(t) = rest.strip_prefix("--project") {
+                (t.trim_start().trim_start_matches('=').trim(), true)
+            } else {
+                (rest, false)
+            };
             if target.is_empty() {
                 return Ok(render_skills_missing_argument_json(
                     "install",
                     "install_source",
-                    "Usage: claw skills install <path>",
+                    "Usage: claw skills install [--project] <path>",
                 ));
             }
-            match install_skill(target, cwd) {
+            let result = if project_flag {
+                let project_root = cwd.join(".claw").join("skills");
+                install_skill_into(target, cwd, &project_root)
+            } else {
+                install_skill(target, cwd)
+            };
+            match result {
                 Ok(install) => Ok(render_skill_install_report_json(&install)),
                 Err(error) => Ok(render_skill_install_error_json(target, &error)),
             }
@@ -4888,12 +4911,12 @@ fn render_agents_usage_json(unexpected: Option<&str>) -> Value {
 fn render_skills_usage(unexpected: Option<&str>) -> String {
     let mut lines = vec![
         "Skills".to_string(),
-        "  Usage            /skills [list|show <name>|install <path>|uninstall <name>|help|<skill> [args]]".to_string(),
+        "  Usage            /skills [list|show <name>|install [--project] <path>|uninstall <name>|help|<skill> [args]]".to_string(),
         "  Alias            /skill".to_string(),
-        "  Direct CLI       claw skills [list|show <name>|install <path>|uninstall <name>|help|<skill> [args]]".to_string(),
+        "  Direct CLI       claw skills [list|show <name>|install [--project] <path>|uninstall <name>|help|<skill> [args]]".to_string(),
         "  Lifecycle        install <path>, uninstall <name>".to_string(),
         "  Invoke           /skills help overview -> $help overview".to_string(),
-        "  Install root     $CLAW_CONFIG_HOME/skills or ~/.claw/skills".to_string(),
+        "  Install root     $CLAW_CONFIG_HOME/skills or ~/.claw/skills (use --project for .claw/skills)".to_string(),
         "  Sources          .claw/skills, .omc/skills, .agents/skills, .codex/skills, .claude/skills, ~/.claw/skills, ~/.omc/skills, ~/.claude/skills/omc-learned, ~/.codex/skills, ~/.claude/skills, legacy /commands".to_string(),
     ];
     if let Some(args) = unexpected {
