@@ -8431,7 +8431,8 @@ impl LiveCli {
             return Ok(false);
         };
 
-        let (handle, session) = load_session_reference(&session_ref)?;
+        let (handle, session) =
+            load_session_reference_excluding(&session_ref, Some(&self.session.id))?;
         let message_count = session.messages.len();
         let session_id = session.session_id.clone();
         let runtime = build_runtime(
@@ -9128,16 +9129,17 @@ fn latest_managed_session() -> Result<ManagedSessionSummary, Box<dyn std::error:
 fn load_session_reference(
     reference: &str,
 ) -> Result<(SessionHandle, Session), Box<dyn std::error::Error>> {
+    load_session_reference_excluding(reference, None)
+}
+
+fn load_session_reference_excluding(
+    reference: &str,
+    exclude_id: Option<&str>,
+) -> Result<(SessionHandle, Session), Box<dyn std::error::Error>> {
     let store = current_session_store()?;
-    // For alias references ("latest", "last", "recent"), allow cross-workspace
-    // resume so /resume latest finds the most recent session globally.
-    // For explicit references, workspace validation is enforced.
-    let result = if runtime::session_control::is_session_reference_alias(reference) {
-        store.load_session_loose(reference)
-    } else {
-        store.load_session(reference)
-    };
-    let loaded = result.map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+    let loaded = store
+        .load_session_excluding(reference, exclude_id)
+        .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
     Ok((
         SessionHandle {
             id: loaded.handle.id,
@@ -18386,16 +18388,26 @@ UU conflicted.rs",
         std::env::set_current_dir(&workspace).expect("switch cwd");
 
         let older = create_managed_session_handle("session-older").expect("older handle");
-        Session::new()
-            .with_persistence_path(older.path.clone())
-            .save_to_path(&older.path)
-            .expect("older session should save");
+        {
+            let mut session = Session::new().with_persistence_path(older.path.clone());
+            session
+                .push_user_text("older session message")
+                .expect("older message should save");
+            session
+                .save_to_path(&older.path)
+                .expect("older session should save");
+        }
         std::thread::sleep(Duration::from_millis(20));
         let newer = create_managed_session_handle("session-newer").expect("newer handle");
-        Session::new()
-            .with_persistence_path(newer.path.clone())
-            .save_to_path(&newer.path)
-            .expect("newer session should save");
+        {
+            let mut session = Session::new().with_persistence_path(newer.path.clone());
+            session
+                .push_user_text("newer session message")
+                .expect("newer message should save");
+            session
+                .save_to_path(&newer.path)
+                .expect("newer session should save");
+        }
 
         let resolved = resolve_session_reference("latest").expect("latest session should resolve");
         assert_eq!(
