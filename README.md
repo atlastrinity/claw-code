@@ -7,9 +7,6 @@
   <a href="https://github.com/Yeachan-Heo/gajae-code">
     <img src="https://img.shields.io/badge/Gajae--Code-red--claw%20agent%20harness-B22222?style=for-the-badge&logo=github&logoColor=white" alt="Gajae-Code banner" />
   </a>
-  <a href="https://github.com/ultraworkers/claw-code">
-    <img src="https://img.shields.io/badge/Claw%20Code-agent--managed%20museum%20artifact-111111?style=for-the-badge&logo=github&logoColor=white" alt="Claw Code banner" />
-  </a>
 </p>
 
 <p align="center">
@@ -19,9 +16,6 @@
   <a href="https://github.com/Yeachan-Heo/gajae-code">
     <img src="https://opengraph.githubassets.com/gajae-code-card/Yeachan-Heo/gajae-code" alt="Gajae-Code GitHub card" width="280" />
   </a>
-  <a href="https://github.com/ultraworkers/claw-code">
-    <img src="https://opengraph.githubassets.com/claw-code-card/ultraworkers/claw-code" alt="Claw Code GitHub card" width="280" />
-  </a>
 </p>
 
 <h3 align="center">start with the real crab-powered harnesses</h3>
@@ -30,8 +24,6 @@
   <a href="https://github.com/code-yeongyu/lazycodex"><b>github.com/code-yeongyu/lazycodex</b></a>
   <br/>
   <a href="https://github.com/Yeachan-Heo/gajae-code"><b>github.com/Yeachan-Heo/gajae-code</b></a>
-  <br/>
-  <a href="https://github.com/ultraworkers/claw-code"><b>github.com/ultraworkers/claw-code</b></a>
 </p>
 
 <p align="center">
@@ -40,9 +32,6 @@
   </a>
   <a href="https://github.com/Yeachan-Heo/gajae-code">
     <img src="https://img.shields.io/badge/Open-Gajae--Code-B22222?style=flat-square&logo=github&logoColor=white" alt="Open Gajae-Code on GitHub" />
-  </a>
-  <a href="https://github.com/ultraworkers/claw-code">
-    <img src="https://img.shields.io/badge/Open-Claw%20Code-111111?style=flat-square&logo=github&logoColor=white" alt="Open Claw Code on GitHub" />
   </a>
 </p>
 
@@ -57,9 +46,9 @@
 
 <p align="center">
   Join the Discords:
-  <a href="https://discord.gg/GtjhvgjnV"><b>harness lab</b></a>
+  <a href="https://discord.gg/GtjhvgjnV"><b>ultraworkers discord</b></a>
   ·
-  <a href="https://discord.gg/4Rt79F7dF"><b>crab tank</b></a>
+  <a href="https://discord.gg/4Rt79F7dF"><b>gajae-code discord</b></a>
 </p>
 
 > [!IMPORTANT]
@@ -69,11 +58,8 @@
 > As already described in the project philosophy, this is not meant to be hand-operated like a normal product repo. It is an **agent-managed exhibit**: the harnesses plan, execute, verify, label, and preserve the artifact while the crabs keep the tank running.
 >
 > If you want to actually run work, start with **[LazyCodex](https://github.com/code-yeongyu/lazycodex)** or **[Gajae-Code](https://github.com/Yeachan-Heo/gajae-code)**. If you want to inspect the strange little fossil of the Claw Code moment, continue below.
-
-> [!NOTE]
-> **Related explanation**
-> For the longer public explanation behind this philosophy, see:
-> <https://x.com/realsigridjin/status/2039472968624185713>
+>
+> For the longer public explanation behind this philosophy, see [here](https://x.com/realsigridjin/status/2039472968624185713).
 
 <p align="center">
   <a href="https://github.com/ultraworkers/claw-code">ultraworkers/claw-code</a>
