@@ -134,6 +134,9 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 
 # 4. Run a prompt
 ./target/debug/claw prompt "say hello"
+
+# 5. Start an interactive session
+./target/debug/claw
 ```
 
 > [!NOTE]
