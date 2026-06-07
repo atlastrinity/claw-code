@@ -548,12 +548,13 @@ async fn openai_compatible_client_honors_http_proxy_for_requests() {
         .with_base_url("http://origin.invalid/v1");
     let response = client
         .send_message(&MessageRequest {
-            model: "gpt-4o".to_string(),
+            model: "openai/gpt-4.1-mini".to_string(),
             ..sample_request(false)
         })
         .await
         .expect("proxy should return the OpenAI-compatible response");
 
+    assert_eq!(response.model, "openai/gpt-4.1-mini");
     assert_eq!(response.total_tokens(), 7);
     let captured = state.lock().await;
     let request = captured.first().expect("proxy should capture request");
@@ -562,6 +563,8 @@ async fn openai_compatible_client_honors_http_proxy_for_requests() {
         request.headers.get("authorization").map(String::as_str),
         Some("Bearer openai-test-key")
     );
+    let body: serde_json::Value = serde_json::from_str(&request.body).expect("json body");
+    assert_eq!(body["model"], json!("openai/gpt-4.1-mini"));
 }
 
 #[allow(clippy::await_holding_lock)]

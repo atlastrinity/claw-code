@@ -828,17 +828,9 @@ mod tests {
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::{Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
 
     static TEMP_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .expect("env lock")
-    }
 
     struct EnvVarGuard {
         key: &'static str,
@@ -1320,7 +1312,7 @@ mod tests {
     #[test]
     fn latest_session_returns_all_empty_error_when_sessions_exist_but_have_no_messages() {
         // given — create sessions with 0 messages (empty)
-        let _env_guard = env_lock();
+        let _env_guard = crate::test_env_lock();
         let base = temp_dir();
         fs::create_dir_all(&base).expect("base dir should exist");
         let isolated_config_home = base.join("config-home");

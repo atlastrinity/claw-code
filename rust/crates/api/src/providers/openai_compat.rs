@@ -16,9 +16,7 @@ use crate::types::{
     ToolChoice, ToolDefinition, ToolResultContentBlock, Usage,
 };
 
-use super::{
-    preflight_message_request, resolve_model_alias, strip_provider_prefix, Provider, ProviderFuture,
-};
+use super::{preflight_message_request, resolve_model_alias, Provider, ProviderFuture};
 
 pub const DEFAULT_XAI_BASE_URL: &str = "https://api.x.ai/v1";
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
@@ -219,13 +217,12 @@ impl OpenAiCompatClient {
     ) -> Result<MessageResponse, ApiError> {
         let original_model = request.model.clone();
         let canonical = resolve_model_alias(&request.model);
-        let downstream_model = strip_provider_prefix(&canonical);
 
         let mut request = MessageRequest {
             stream: false,
             ..request.clone()
         };
-        request.model = downstream_model;
+        request.model = canonical;
 
         preflight_message_request(&request)?;
         let response = self.send_with_retry(&request).await?;
@@ -278,10 +275,9 @@ impl OpenAiCompatClient {
     ) -> Result<MessageStream, ApiError> {
         let original_model = request.model.clone();
         let canonical = resolve_model_alias(&request.model);
-        let downstream_model = strip_provider_prefix(&canonical);
 
         let mut streaming_request = request.clone().with_streaming();
-        streaming_request.model = downstream_model;
+        streaming_request.model = canonical;
 
         preflight_message_request(&streaming_request)?;
         let response = self.send_with_retry(&streaming_request).await?;
