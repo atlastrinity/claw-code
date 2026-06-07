@@ -296,9 +296,6 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
     None
 }
 
-
-
-
 #[must_use]
 pub fn strip_provider_prefix(canonical_model: &str) -> String {
     if let Some(pos) = canonical_model.find('/') {
@@ -307,8 +304,6 @@ pub fn strip_provider_prefix(canonical_model: &str) -> String {
         canonical_model.to_string()
     }
 }
-
-
 
 #[must_use]
 pub fn provider_diagnostics_for_model(model: &str) -> ProviderDiagnostics {

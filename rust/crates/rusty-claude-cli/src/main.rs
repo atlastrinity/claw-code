@@ -13737,8 +13737,15 @@ fn push_output_block(
             };
             *pending_tool = Some((id, name, initial_input));
         }
-        OutputContentBlock::Thinking { thinking, .. } => {
+        OutputContentBlock::Thinking {
+            thinking,
+            signature,
+        } => {
             render_thinking_block_summary(out, Some(thinking.chars().count()), false)?;
+            events.push(AssistantEvent::Thinking {
+                thinking,
+                signature,
+            });
             *block_has_thinking_summary = true;
         }
         OutputContentBlock::RedactedThinking { .. } => {
@@ -19073,6 +19080,13 @@ UU conflicted.rs",
 
         assert!(matches!(
             &events[0],
+            AssistantEvent::Thinking {
+                thinking,
+                signature
+            } if thinking == "step 1" && signature.as_deref() == Some("sig_123")
+        ));
+        assert!(matches!(
+            &events[1],
             AssistantEvent::TextDelta(text) if text == "Final answer"
         ));
         let rendered = String::from_utf8(out).expect("utf8");
