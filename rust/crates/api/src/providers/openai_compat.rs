@@ -572,6 +572,7 @@ impl StreamState {
                 .delta
                 .reasoning_content
                 .filter(|value| !value.is_empty())
+                .or(choice.delta.reasoning.filter(|value| !value.is_empty()))
                 .or(choice
                     .delta
                     .thinking
@@ -827,6 +828,8 @@ struct ChatMessage {
     #[serde(default)]
     reasoning_content: Option<String>,
     #[serde(default)]
+    reasoning: Option<String>,
+    #[serde(default)]
     tool_calls: Vec<ResponseToolCall>,
 }
 
@@ -900,6 +903,8 @@ struct ChunkDelta {
     /// Some providers (GLM, DeepSeek) emit reasoning in `reasoning_content`
     #[serde(default)]
     reasoning_content: Option<String>,
+    #[serde(default)]
+    reasoning: Option<String>,
     #[serde(default)]
     thinking: Option<ThinkingDelta>,
     #[serde(default, deserialize_with = "deserialize_null_as_empty_vec")]
@@ -1510,6 +1515,7 @@ fn normalize_response(
         .message
         .reasoning_content
         .filter(|value| !value.is_empty())
+        .or(choice.message.reasoning.filter(|value| !value.is_empty()))
     {
         content.push(OutputContentBlock::Thinking {
             thinking,
@@ -1992,6 +1998,7 @@ mod tests {
                     role: "assistant".to_string(),
                     content: Some("final answer".to_string()),
                     reasoning_content: Some("hidden thought".to_string()),
+                    reasoning: None,
                     tool_calls: Vec::new(),
                 },
                 finish_reason: Some("stop".to_string()),
@@ -2029,6 +2036,7 @@ mod tests {
                     delta: super::ChunkDelta {
                         content: None,
                         reasoning_content: Some("think".to_string()),
+                        reasoning: None,
                         thinking: None,
                         tool_calls: Vec::new(),
                     },
@@ -2046,6 +2054,7 @@ mod tests {
                         delta: super::ChunkDelta {
                             content: Some(" answer".to_string()),
                             reasoning_content: None,
+                            reasoning: None,
                             thinking: None,
                             tool_calls: Vec::new(),
                         },
