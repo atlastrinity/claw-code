@@ -40,6 +40,11 @@ Or provide an OAuth bearer token directly:
 export ANTHROPIC_AUTH_TOKEN="anthropic-oauth-or-proxy-bearer-token"
 ```
 
+For local OpenAI-compatible servers such as Ollama, including Qwen reasoning
+models, see [`../docs/local-openai-compatible-providers.md`](../docs/local-openai-compatible-providers.md).
+Use the exact model tag exposed by the server, for example `qwen3:latest`, and
+prefer `OLLAMA_HOST` for Ollama-specific local routing.
+
 ## Mock parity harness
 
 The workspace now includes a deterministic Anthropic-compatible mock service and a clean-environment CLI harness for end-to-end parity checks.

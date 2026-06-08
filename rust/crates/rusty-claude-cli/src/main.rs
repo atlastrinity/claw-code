@@ -2939,6 +2939,10 @@ fn validate_model_syntax(model: &str) -> Result<(), String> {
             err_msg.push_str("\nDid you mean `openai/");
             err_msg.push_str(trimmed);
             err_msg.push_str("`? (Requires OPENAI_API_KEY env var)");
+        } else if trimmed.starts_with("qwen") && trimmed.contains(':') {
+            err_msg.push_str("\nFor a local Ollama model, set `OPENAI_BASE_URL=http://127.0.0.1:11434/v1` before using tagged names like `");
+            err_msg.push_str(trimmed);
+            err_msg.push_str("`.");
         } else if trimmed.starts_with("qwen") {
             err_msg.push_str("\nDid you mean `qwen/");
             err_msg.push_str(trimmed);
@@ -19741,6 +19745,28 @@ mod alias_resolution_tests {
         let result = validate_model_syntax(&resolved);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("invalid model syntax"));
+    }
+
+    #[test]
+    fn qwen_invalid_model_hint_mentions_local_ollama_openai_base_url() {
+        let _guard = ollama_env_lock();
+        let _ollama_env = EnvVarGuard::unset("OLLAMA_HOST");
+        let _openai_env = EnvVarGuard::unset("OPENAI_BASE_URL");
+        let result = validate_model_syntax("qwen3:8b");
+
+        let error = result.expect_err("Ollama tag without local base URL should fail");
+        assert!(
+            error.contains("Ollama"),
+            "Qwen Ollama tag error should mention Ollama: {error}"
+        );
+        assert!(
+            error.contains("OPENAI_BASE_URL"),
+            "Qwen Ollama tag error should mention OPENAI_BASE_URL: {error}"
+        );
+        assert!(
+            error.contains("http://127.0.0.1:11434/v1"),
+            "Qwen Ollama tag error should show local Ollama OpenAI URL: {error}"
+        );
     }
 
     #[test]
