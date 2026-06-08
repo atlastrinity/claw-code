@@ -72,6 +72,28 @@ class WorkspacePathScopeTests(unittest.TestCase):
             self.assertFalse(decision.allowed)
             self.assertIn(str(outside.resolve()), decision.resolved or '')
 
+    def test_attached_shell_redirection_targets_are_validated(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workspace = root / 'workspace'
+            outside = root / 'outside'
+            workspace.mkdir()
+            outside.mkdir()
+            (outside / 'secret.txt').write_text('secret')
+
+            self.assertEqual(
+                ('../outside/secret.txt', '../outside/error.log'),
+                extract_path_candidates(
+                    'cat <../outside/secret.txt 2>../outside/error.log'
+                ),
+            )
+            decision = WorkspacePathScope.from_root(workspace).validate_payload(
+                'cat <../outside/secret.txt 2>../outside/error.log'
+            )
+
+            self.assertFalse(decision.allowed)
+            self.assertIn(str(outside.resolve()), decision.resolved or '')
+
     def test_explicit_worktree_roots_are_allowed(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

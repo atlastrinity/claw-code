@@ -11,6 +11,7 @@ _GLOB_META = set('*?[')
 _WINDOWS_DRIVE_RE = re.compile(r'^[A-Za-z]:[\\/]')
 _WINDOWS_UNC_RE = re.compile(r'^(?:\\\\|//)[^\\/]+[\\/][^\\/]+')
 _ENV_ASSIGNMENT_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*=')
+_REDIRECTION_TARGET_RE = re.compile(r'^(?:\d*)?(?:<>|>>?|<)(.+)$|^&>>?(.+)$')
 
 
 @dataclass(frozen=True)
@@ -118,6 +119,7 @@ def extract_path_candidates(payload: str) -> tuple[str, ...]:
     for token in (*tokens, *raw_tokens):
         if not token or token.startswith('-') or _ENV_ASSIGNMENT_RE.match(token):
             continue
+        token = _strip_redirection_operator(token)
         expanded = os.path.expandvars(os.path.expanduser(token))
         if _looks_like_path(token) or _looks_like_path(expanded):
             candidate = expanded if _looks_like_path(expanded) else token
@@ -136,6 +138,13 @@ def _looks_like_path(token: str) -> bool:
         or any(char in token for char in _GLOB_META)
         or _is_windows_absolute(token)
     )
+
+
+def _strip_redirection_operator(token: str) -> str:
+    match = _REDIRECTION_TARGET_RE.match(token)
+    if match is None:
+        return token
+    return next(group for group in match.groups() if group is not None)
 
 
 def _is_windows_absolute(value: str) -> bool:
