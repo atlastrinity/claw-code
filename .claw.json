@@ -3,16 +3,16 @@
     "quick": "openai/qwen2.5:latest"
   },
   "allowedTools": [
-    "mcp_macos-use_macos-use_click_and_traverse",
-    "mcp_macos-use_macos-use_type_and_traverse",
-    "mcp_macos-use_macos-use_scroll_and_traverse",
-    "mcp_macos-use_macos-use_take_screenshot",
-    "mcp_macos-use_screenshot",
-    "mcp_macos-use_execute_command",
-    "mcp_macos-use_terminal",
-    "mcp_macos-use_macos-use_run_applescript",
-    "mcp_macos-use_macos-use_analyze_screen",
-    "mcp_macos-use_ocr"
+    "mcp__macos-use__macos-use_click_and_traverse",
+    "mcp__macos-use__macos-use_type_and_traverse",
+    "mcp__macos-use__macos-use_scroll_and_traverse",
+    "mcp__macos-use__macos-use_take_screenshot",
+    "mcp__macos-use__screenshot",
+    "mcp__macos-use__execute_command",
+    "mcp__macos-use__terminal",
+    "mcp__macos-use__macos-use_run_applescript",
+    "mcp__macos-use__macos-use_analyze_screen",
+    "mcp__macos-use__ocr"
   ],
   "mcpServers": {
     "macos-use": {
