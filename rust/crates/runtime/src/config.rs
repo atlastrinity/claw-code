@@ -876,6 +876,24 @@ impl RuntimeConfig {
     }
 
     #[must_use]
+    pub fn allowed_tools(&self) -> Option<Vec<String>> {
+        let tools = self.merged.get("allowedTools")
+            .or_else(|| self.merged.get("allowed_tools"))?;
+        
+        if let JsonValue::Array(arr) = tools {
+            let mut result = Vec::new();
+            for item in arr {
+                if let JsonValue::String(s) = item {
+                    result.push(s.clone());
+                }
+            }
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
     pub fn model(&self) -> Option<&str> {
         self.feature_config.model.as_deref()
     }
@@ -3677,7 +3695,7 @@ mod tests {
         fs::create_dir_all(&cwd).expect("project dir");
         fs::write(
             &user_settings,
-            "{\n  \"model\": \"opus\",\n  \"allowedTools\": [\"Read\"]\n}\n",
+            "{\n  \"model\": \"opus\",\n  \"unknownKey\": [\"Read\"]\n}\n",
         )
         .expect("write user settings");
 
@@ -3697,7 +3715,7 @@ mod tests {
             "warning should include line number, got: {rendered}"
         );
         assert!(
-            rendered.contains("allowedTools"),
+            rendered.contains("unknownKey"),
             "warning should name the offending field, got: {rendered}"
         );
 

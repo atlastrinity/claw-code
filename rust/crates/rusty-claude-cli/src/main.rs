@@ -7153,6 +7153,7 @@ struct RuntimePluginState {
     tool_registry: GlobalToolRegistry,
     plugin_registry: PluginRegistry,
     mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
+    config_allowed_tools: Option<AllowedToolSet>,
 }
 
 struct RuntimeMcpState {
@@ -11981,11 +11982,16 @@ fn build_runtime_plugin_state_with_loader(
     let (mcp_state, runtime_tools) = build_runtime_mcp_state(runtime_config)?;
     let tool_registry = GlobalToolRegistry::with_plugin_tools(plugin_registry.aggregated_tools()?)?
         .with_runtime_tools(runtime_tools)?;
+    let config_allowed_tools = match runtime_config.allowed_tools() {
+        Some(tools) => tool_registry.normalize_allowed_tools(&tools).unwrap_or(None),
+        None => None,
+    };
     Ok(RuntimePluginState {
         feature_config,
         tool_registry,
         plugin_registry,
         mcp_state,
+        config_allowed_tools,
     })
 }
 
@@ -12412,7 +12418,9 @@ fn build_runtime_with_plugin_state(
         tool_registry,
         plugin_registry,
         mcp_state,
+        config_allowed_tools,
     } = runtime_plugin_state;
+    let effective_allowed_tools = allowed_tools.or(config_allowed_tools);
     plugin_registry.initialize()?;
     let policy = permission_policy(permission_mode, &feature_config, &tool_registry)
         .map_err(std::io::Error::other)?;
@@ -12423,12 +12431,12 @@ fn build_runtime_with_plugin_state(
             model,
             enable_tools,
             emit_output,
-            allowed_tools.clone(),
+            effective_allowed_tools.clone(),
             tool_registry.clone(),
             progress_reporter,
         )?,
         CliToolExecutor::new(
-            allowed_tools.clone(),
+            effective_allowed_tools,
             emit_output,
             tool_registry.clone(),
             mcp_state.clone(),

@@ -1,0 +1,126 @@
+Building for production...
+[0/3] Write sources
+[1/3] Write swift-version--58304C5D6DBC2206.txt
+[3/4] Compiling mcp_server_macos_use main.swift
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:2063:21: [1;33mwarning: [1;39minitialization of immutable value 'timer' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m2061 |[0;0m                 
+[0;36m2062 |[0;0m                 // Create countdown timer
+[0;36m2063 |[0;0m                 let timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true, block: { _ in
+     [0;36m|[0;0m                     `- [1;33mwarning: [1;39minitialization of immutable value 'timer' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m2064 |[0;0m                     // This would need proper async implementation
+[0;36m2065 |[0;0m                 })
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:2509:21: [1;33mwarning: [1;39mvariable 'results' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m2507 |[0;0m                 
+[0;36m2508 |[0;0m                 let fileManager = FileManager.default
+[0;36m2509 |[0;0m                 var results: [Any] = []
+     [0;36m|[0;0m                     `- [1;33mwarning: [1;39mvariable 'results' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m2510 |[0;0m                 
+[0;36m2511 |[0;0m                 do {
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3528:21: [1;33mwarning: [1;39minitialization of immutable value 'language' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m3526 |[0;0m             case voiceControlTool.name:
+[0;36m3527 |[0;0m                 let command = try getRequiredString(from: params.arguments, key: "command")
+[0;36m3528 |[0;0m                 let language = try getOptionalString(from: params.arguments, key: "language") ?? "en-US"
+     [0;36m|[0;0m                     `- [1;33mwarning: [1;39minitialization of immutable value 'language' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m3529 |[0;0m                 let confidence = try getOptionalDouble(from: params.arguments, key: "confidence") ?? 0.7
+[0;36m3530 |[0;0m                 
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3529:21: [1;33mwarning: [1;39minitialization of immutable value 'confidence' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m3527 |[0;0m                 let command = try getRequiredString(from: params.arguments, key: "command")
+[0;36m3528 |[0;0m                 let language = try getOptionalString(from: params.arguments, key: "language") ?? "en-US"
+[0;36m3529 |[0;0m                 let confidence = try getOptionalDouble(from: params.arguments, key: "confidence") ?? 0.7
+     [0;36m|[0;0m                     `- [1;33mwarning: [1;39minitialization of immutable value 'confidence' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m3530 |[0;0m                 
+[0;36m3531 |[0;0m                 // Simple voice command processing
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3537:35: [1;33mwarning: [1;39mimmutable value 'output' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3535 |[0;0m                 if lowerCommand.contains("open") && lowerCommand.contains("safari") {
+[0;36m3536 |[0;0m                     let script = "tell application \"Safari\" to activate"
+[0;36m3537 |[0;0m                     let (success, output, error) = runAppleScriptNonBlocking(script, timeout: 5.0)
+     [0;36m|[0;0m                                   `- [1;33mwarning: [1;39mimmutable value 'output' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3538 |[0;0m                     result = success ? "Opened Safari via voice command" : "Failed to open Safari: \(error ?? "Unknown")"
+[0;36m3539 |[0;0m                 } else if lowerCommand.contains("screenshot") {
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3541:35: [1;33mwarning: [1;39mimmutable value 'output' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3539 |[0;0m                 } else if lowerCommand.contains("screenshot") {
+[0;36m3540 |[0;0m                     let script = "tell application \"System Events\" to keystroke \"3\" using command down"
+[0;36m3541 |[0;0m                     let (success, output, error) = runAppleScriptNonBlocking(script, timeout: 5.0)
+     [0;36m|[0;0m                                   `- [1;33mwarning: [1;39mimmutable value 'output' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3542 |[0;0m                     result = success ? "Took screenshot via voice command" : "Failed to take screenshot: \(error ?? "Unknown")"
+[0;36m3543 |[0;0m                 } else if lowerCommand.contains("type") {
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3546:35: [1;33mwarning: [1;39mimmutable value 'output' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3544 |[0;0m                     let textToType = lowerCommand.replacingOccurrences(of: "type ", with: "")
+[0;36m3545 |[0;0m                     let script = "tell application \"System Events\" to keystroke \"\(textToType)\""
+[0;36m3546 |[0;0m                     let (success, output, error) = runAppleScriptNonBlocking(script, timeout: 5.0)
+     [0;36m|[0;0m                                   `- [1;33mwarning: [1;39mimmutable value 'output' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3547 |[0;0m                     result = success ? "Typed '\(textToType)' via voice command" : "Failed to type: \(error ?? "Unknown")"
+[0;36m3548 |[0;0m                 }
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3555:21: [1;33mwarning: [1;39minitialization of immutable value 'name' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m3553 |[0;0m                 let action = try getRequiredString(from: params.arguments, key: "action")
+[0;36m3554 |[0;0m                 let pid = try getOptionalInt(from: params.arguments, key: "pid")
+[0;36m3555 |[0;0m                 let name = try getOptionalString(from: params.arguments, key: "name")
+     [0;36m|[0;0m                     `- [1;33mwarning: [1;39minitialization of immutable value 'name' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m3556 |[0;0m                 let priority = try getOptionalString(from: params.arguments, key: "priority") ?? "normal"
+[0;36m3557 |[0;0m                 let duration = try getOptionalInt(from: params.arguments, key: "duration") ?? 10
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3579:30: [1;33mwarning: [1;39mimmutable value 'success' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3577 |[0;0m                     if let targetPid = pid {
+[0;36m3578 |[0;0m                         let script = "tell application \"System Events\" to set unix process id of process \(targetPid) to 0"
+[0;36m3579 |[0;0m                         let (success, output, error) = runAppleScriptNonBlocking(script, timeout: 5.0)
+     [0;36m|[0;0m                              `- [1;33mwarning: [1;39mimmutable value 'success' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3580 |[0;0m                                             } else {
+[0;36m3581 |[0;0m                         return CallTool.Result(content: [.text("PID required for kill action")], isError: true)
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3579:39: [1;33mwarning: [1;39mimmutable value 'output' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3577 |[0;0m                     if let targetPid = pid {
+[0;36m3578 |[0;0m                         let script = "tell application \"System Events\" to set unix process id of process \(targetPid) to 0"
+[0;36m3579 |[0;0m                         let (success, output, error) = runAppleScriptNonBlocking(script, timeout: 5.0)
+     [0;36m|[0;0m                                       `- [1;33mwarning: [1;39mimmutable value 'output' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3580 |[0;0m                                             } else {
+[0;36m3581 |[0;0m                         return CallTool.Result(content: [.text("PID required for kill action")], isError: true)
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3579:47: [1;33mwarning: [1;39mimmutable value 'error' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3577 |[0;0m                     if let targetPid = pid {
+[0;36m3578 |[0;0m                         let script = "tell application \"System Events\" to set unix process id of process \(targetPid) to 0"
+[0;36m3579 |[0;0m                         let (success, output, error) = runAppleScriptNonBlocking(script, timeout: 5.0)
+     [0;36m|[0;0m                                               `- [1;33mwarning: [1;39mimmutable value 'error' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3580 |[0;0m                                             } else {
+[0;36m3581 |[0;0m                         return CallTool.Result(content: [.text("PID required for kill action")], isError: true)
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3588:39: [1;33mwarning: [1;39mimmutable value 'output' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3586 |[0;0m                         let priorityValue = priority == "high" ? 15 : priority == "low" ? 5 : 10
+[0;36m3587 |[0;0m                         let script = "tell application \"System Events\" to set unix process id of process \(targetPid) to \(priorityValue)"
+[0;36m3588 |[0;0m                         let (success, output, error) = runAppleScriptNonBlocking(script, timeout: 5.0)
+     [0;36m|[0;0m                                       `- [1;33mwarning: [1;39mimmutable value 'output' was never used; consider replacing with '_' or removing it[0;0m [#no-usage]
+[0;36m3589 |[0;0m                         return CallTool.Result(content: [.text(success ? "Process \(targetPid) priority set to \(priority)" : "Failed to set priority: \(error ?? "Unknown")")])
+[0;36m3590 |[0;0m                     } else {
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3596:25: [1;33mwarning: [1;39minitialization of immutable value 'endTime' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m3594 |[0;0m                 case "monitor":
+[0;36m3595 |[0;0m                     let startTime = Date()
+[0;36m3596 |[0;0m                     let endTime = startTime.addingTimeInterval(TimeInterval(duration))
+     [0;36m|[0;0m                         `- [1;33mwarning: [1;39minitialization of immutable value 'endTime' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m3597 |[0;0m                     let script = """
+[0;36m3598 |[0;0m                         tell application "System Events"
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3623:21: [1;33mwarning: [1;39minitialization of immutable value 'password' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m3621 |[0;0m                 let action = try getRequiredString(from: params.arguments, key: "action")
+[0;36m3622 |[0;0m                 let path = try getRequiredString(from: params.arguments, key: "path")
+[0;36m3623 |[0;0m                 let password = try getRequiredString(from: params.arguments, key: "password")
+     [0;36m|[0;0m                     `- [1;33mwarning: [1;39minitialization of immutable value 'password' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m3624 |[0;0m                 let algorithm = try getOptionalString(from: params.arguments, key: "algorithm") ?? "AES256"
+[0;36m3625 |[0;0m                 let outputPath = try getOptionalString(from: params.arguments, key: "output")
+
+/Users/olegkizyma/Documents/GitHub/atlastrinity/vendor/mcp-server-macos-use/Sources/main.swift:3624:21: [1;33mwarning: [1;39minitialization of immutable value 'algorithm' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m3622 |[0;0m                 let path = try getRequiredString(from: params.arguments, key: "path")
+[0;36m3623 |[0;0m                 let password = try getRequiredString(from: params.arguments, key: "password")
+[0;36m3624 |[0;0m                 let algorithm = try getOptionalString(from: params.arguments, key: "algorithm") ?? "AES256"
+     [0;36m|[0;0m                     `- [1;33mwarning: [1;39minitialization of immutable value 'algorithm' was never used; consider replacing with assignment to '_' or removing it[0;0m [#no-usage]
+[0;36m3625 |[0;0m                 let outputPath = try getOptionalString(from: params.arguments, key: "output")
+[0;36m3626 |[0;0m                 
+[3/5] Write Objects.LinkFileList
+[4/5] Linking mcp-server-macos-use
+Build complete! (13.44s)

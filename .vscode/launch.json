@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:claw-code}/vendor/mcp-server-macos-use",
+            "name": "Debug mcp-server-macos-use (vendor/mcp-server-macos-use)",
+            "program": "${workspaceFolder:claw-code}/vendor/mcp-server-macos-use/.build/debug/mcp-server-macos-use",
+            "preLaunchTask": "swift: Build Debug mcp-server-macos-use (vendor/mcp-server-macos-use)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:claw-code}/vendor/mcp-server-macos-use",
+            "name": "Release mcp-server-macos-use (vendor/mcp-server-macos-use)",
+            "program": "${workspaceFolder:claw-code}/vendor/mcp-server-macos-use/.build/release/mcp-server-macos-use",
+            "preLaunchTask": "swift: Build Release mcp-server-macos-use (vendor/mcp-server-macos-use)"
+        }
+    ]
+}

@@ -1,5 +1,11 @@
 {
   "aliases": {
-    "quick": "haiku"
+    "quick": "openai/qwen2.5:latest"
+  },
+  "mcpServers": {
+    "macos-use": {
+      "command": "/Users/dev/Documents/GitHub/claw-code/vendor/mcp-server-macos-use/.build/release/mcp-server-macos-use",
+      "args": []
+    }
   }
 }

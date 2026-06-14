@@ -1,0 +1,27 @@
+--- rust/crates/rusty-claude-cli/src/main.rs
++++ rust/crates/rusty-claude-cli/src/main.rs
+@@ -12416,16 +12416,18 @@
+         feature_config,
+         tool_registry,
+         plugin_registry,
+         mcp_state,
++        config_allowed_tools,
+     } = runtime_plugin_state;
++    let effective_allowed_tools = allowed_tools.or(config_allowed_tools);
+     plugin_registry.initialize()?;
+     let policy = permission_policy(permission_mode, &feature_config, &tool_registry)
+         .map_err(std::io::Error::other)?;
+     let mut runtime = ConversationRuntime::new_with_features(
+         session,
+         AnthropicRuntimeClient::new(
+             session_id,
+             model,
+             enable_tools,
+             emit_output,
+-            allowed_tools.clone(),
++            effective_allowed_tools.clone(),
+             tool_registry.clone(),
+             progress_reporter,
+         )?,
+-        allowed_tools,
++        effective_allowed_tools,
