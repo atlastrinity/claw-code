@@ -1,0 +1,77 @@
+[
+  {
+    "content": "Test mcp__macos-use__macos-use_click_and_traverse",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_type_and_traverse",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_scroll_and_traverse",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_take_screenshot",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "completed"
+  },
+  {
+    "content": "Test mcp__macos-use__execute_command / terminal",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_run_applescript",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_analyze_screen / ocr",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_press_key_and_traverse",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_right_click_and_traverse",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_double_click_and_traverse",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_open_application_and_traverse",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_spotlight_search",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_get_clipboard",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_set_clipboard",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  },
+  {
+    "content": "Test mcp__macos-use__macos-use_window_management",
+    "activeForm": "Testing mcp-server-macos-use tools",
+    "status": "pending"
+  }
+]

@@ -3671,9 +3671,7 @@ func setupAndStartServer() async throws -> Server {
                     guard let base64 = encodeBase64JPEG(image: finalImage, quality: quality) else {
                         return .init(content: [.text("Failed to encode screenshot")], isError: true)
                     }
-
-                    var content: [Tool.Content] = [.text(base64)]
-
+                    var content: [Tool.Content] = [.image(data: base64, mimeType: "image/jpeg", metadata: nil)]
                     if ocr {
                         let ocrResults = performOCR(on: finalImage)
                         if let jsonString = serializeToJsonString(ocrResults) {
