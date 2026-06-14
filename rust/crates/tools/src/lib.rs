@@ -5375,14 +5375,8 @@ impl ToolExecutor for SubagentToolExecutor {
     }
 }
 
-fn tool_specs_for_allowed_tools(allowed_tools: Option<&BTreeSet<String>>) -> Vec<ToolSpec> {
+fn tool_specs_for_allowed_tools(_allowed_tools: Option<&BTreeSet<String>>) -> Vec<ToolSpec> {
     mvp_tool_specs()
-        .into_iter()
-        .filter(|spec| {
-            allowed_tools
-                .is_none_or(|allowed| allowed.contains(&canonical_allowed_tool_name(spec.name)))
-        })
-        .collect()
 }
 
 fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {

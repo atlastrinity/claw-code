@@ -2,6 +2,18 @@
   "aliases": {
     "quick": "openai/qwen2.5:latest"
   },
+  "allowedTools": [
+    "mcp_macos-use_macos-use_click_and_traverse",
+    "mcp_macos-use_macos-use_type_and_traverse",
+    "mcp_macos-use_macos-use_scroll_and_traverse",
+    "mcp_macos-use_macos-use_take_screenshot",
+    "mcp_macos-use_screenshot",
+    "mcp_macos-use_execute_command",
+    "mcp_macos-use_terminal",
+    "mcp_macos-use_macos-use_run_applescript",
+    "mcp_macos-use_macos-use_analyze_screen",
+    "mcp_macos-use_ocr"
+  ],
   "mcpServers": {
     "macos-use": {
       "command": "/Users/dev/Documents/GitHub/claw-code/vendor/mcp-server-macos-use/.build/release/mcp-server-macos-use",

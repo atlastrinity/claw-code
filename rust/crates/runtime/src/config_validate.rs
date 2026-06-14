@@ -220,6 +220,14 @@ const TOP_LEVEL_FIELDS: &[FieldSpec] = &[
         name: "subagentModel",
         expected: FieldType::String,
     },
+    FieldSpec {
+        name: "allowedTools",
+        expected: FieldType::StringArray,
+    },
+    FieldSpec {
+        name: "allowed_tools",
+        expected: FieldType::StringArray,
+    },
 ];
 
 const HOOKS_FIELDS: &[FieldSpec] = &[
