@@ -253,6 +253,10 @@ impl GlobalToolRegistry {
     pub fn definitions(&self, allowed_tools: Option<&BTreeSet<String>>) -> Vec<ToolDefinition> {
         let builtin = mvp_tool_specs()
             .into_iter()
+            .filter(|spec| {
+                allowed_tools
+                    .is_none_or(|allowed| allowed.contains(&canonical_allowed_tool_name(spec.name)))
+            })
             .map(|spec| ToolDefinition {
                 name: spec.name.to_string(),
                 description: Some(spec.description.to_string()),
