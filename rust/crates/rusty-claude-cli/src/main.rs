@@ -11986,6 +11986,7 @@ fn build_runtime_plugin_state_with_loader(
         Some(tools) => tool_registry.normalize_allowed_tools(&tools).unwrap_or(None),
         None => None,
     };
+    let tool_registry = tool_registry.with_allowed_tools(config_allowed_tools.clone());
     Ok(RuntimePluginState {
         feature_config,
         tool_registry,

@@ -114,6 +114,7 @@ pub struct GlobalToolRegistry {
     plugin_tools: Vec<PluginTool>,
     runtime_tools: Vec<RuntimeToolDefinition>,
     enforcer: Option<PermissionEnforcer>,
+    pub allowed_tools: Option<BTreeSet<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -131,6 +132,7 @@ impl GlobalToolRegistry {
             plugin_tools: Vec::new(),
             runtime_tools: Vec::new(),
             enforcer: None,
+            allowed_tools: None,
         }
     }
 
@@ -157,7 +159,14 @@ impl GlobalToolRegistry {
             plugin_tools,
             runtime_tools: Vec::new(),
             enforcer: None,
+            allowed_tools: None,
         })
+    }
+
+    #[must_use]
+    pub fn with_allowed_tools(mut self, allowed: Option<BTreeSet<String>>) -> Self {
+        self.allowed_tools = allowed;
+        self
     }
 
     pub fn with_runtime_tools(
@@ -409,6 +418,18 @@ impl GlobalToolRegistry {
     }
 
     pub fn execute(&self, name: &str, input: &Value) -> Result<String, String> {
+        if name == "ToolSearch" {
+            let search_input = serde_json::from_value::<ToolSearchInput>(input.clone())
+                .map_err(|e| e.to_string())?;
+            let output = self.search(
+                &search_input.query,
+                search_input.max_results.unwrap_or(5),
+                None,
+                None,
+            );
+            return to_pretty_json(output);
+        }
+
         if mvp_tool_specs().iter().any(|spec| spec.name == name) {
             return execute_tool_with_enforcer(self.enforcer.as_ref(), name, input);
         }
@@ -421,8 +442,20 @@ impl GlobalToolRegistry {
     }
 
     fn searchable_tool_specs(&self) -> Vec<SearchableToolSpec> {
-        let builtin = deferred_tool_specs()
+        let builtin = mvp_tool_specs()
             .into_iter()
+            .filter(|spec| {
+                let is_hardcoded_ignored = matches!(
+                    spec.name,
+                    "bash" | "read_file" | "write_file" | "edit_file" | "glob_search" | "grep_search"
+                );
+                
+                let is_allowed = self.allowed_tools.is_none() || self.allowed_tools.as_ref().is_some_and(|allowed| {
+                    allowed.contains(&canonical_allowed_tool_name(spec.name))
+                });
+                
+                !is_hardcoded_ignored && !is_allowed
+            })
             .map(|spec| SearchableToolSpec {
                 name: spec.name.to_string(),
                 description: spec.description.to_string(),
@@ -5544,18 +5577,6 @@ fn final_assistant_text(summary: &runtime::TurnSummary) -> String {
 #[allow(clippy::needless_pass_by_value)]
 fn execute_tool_search(input: ToolSearchInput) -> ToolSearchOutput {
     GlobalToolRegistry::builtin().search(&input.query, input.max_results.unwrap_or(5), None, None)
-}
-
-fn deferred_tool_specs() -> Vec<ToolSpec> {
-    mvp_tool_specs()
-        .into_iter()
-        .filter(|spec| {
-            !matches!(
-                spec.name,
-                "bash" | "read_file" | "write_file" | "edit_file" | "glob_search" | "grep_search"
-            )
-        })
-        .collect()
 }
 
 fn search_tool_specs(query: &str, max_results: usize, specs: &[SearchableToolSpec]) -> Vec<String> {
