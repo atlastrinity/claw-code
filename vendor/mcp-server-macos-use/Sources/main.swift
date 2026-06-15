@@ -3610,7 +3610,8 @@ func setupAndStartServer() async throws -> Server {
                     try getOptionalString(from: params.arguments, key: "quality") ?? "high"
                 let format = try getOptionalString(from: params.arguments, key: "format") ?? "jpg"
                 let ocr = try getOptionalBool(from: params.arguments, key: "ocr") ?? false
-                let includeImage = try getOptionalBool(from: params.arguments, key: "includeImage") ?? true
+                // When OCR is requested, default to NOT sending the image — text is enough and saves tokens
+                let includeImage = try getOptionalBool(from: params.arguments, key: "includeImage") ?? !ocr
                 let rawMaxDim = try getOptionalDouble(from: params.arguments, key: "maxDimension") ?? 1280.0
                 let maxDimension = CGFloat(rawMaxDim)
 
@@ -3722,12 +3723,12 @@ func setupAndStartServer() async throws -> Server {
 
                     if ocr {
                         let ocrResults = performOCR(on: displayImage)
+                        // Return only plain text — compact and sufficient for AI
                         let textContent = ocrResults.map { $0.text }.joined(separator: "\n")
                         if !textContent.isEmpty {
                             content.append(.text("OCR Text:\n\(textContent)"))
-                        }
-                        if let jsonString = serializeToJsonString(ocrResults) {
-                            content.append(.text("OCR JSON:\n\(jsonString)"))
+                        } else {
+                            content.append(.text("OCR: no text detected on screen"))
                         }
                     }
 
