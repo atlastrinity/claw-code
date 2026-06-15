@@ -60,8 +60,34 @@ struct WindowActionResult: Codable {
 
 // captureMainDisplay(monitor:) defined below with multi-monitor support
 
-func encodeBase64JPEG(image: CGImage, quality: String = "high") -> String? {
-    let bitmapRep = NSBitmapImageRep(cgImage: image)
+/// Downscales a CGImage so that neither dimension exceeds `maxDimension`.
+/// Returns the original image if it already fits within the limit.
+func resizeImageIfNeeded(image: CGImage, maxDimension: CGFloat = 1280) -> CGImage {
+    let width = CGFloat(image.width)
+    let height = CGFloat(image.height)
+    guard max(width, height) > maxDimension else { return image }
+
+    let scale = maxDimension / max(width, height)
+    let newWidth  = Int((width  * scale).rounded())
+    let newHeight = Int((height * scale).rounded())
+
+    let colorSpace  = image.colorSpace ?? CGColorSpaceCreateDeviceRGB()
+    let bitmapInfo  = CGBitmapInfo(rawValue: CGImageAlphaInfo.premultipliedLast.rawValue)
+    guard let ctx = CGContext(
+        data: nil,
+        width: newWidth, height: newHeight,
+        bitsPerComponent: 8, bytesPerRow: 0,
+        space: colorSpace, bitmapInfo: bitmapInfo.rawValue)
+    else { return image }
+
+    ctx.interpolationQuality = .high
+    ctx.draw(image, in: CGRect(x: 0, y: 0, width: newWidth, height: newHeight))
+    return ctx.makeImage() ?? image
+}
+
+func encodeBase64JPEG(image: CGImage, quality: String = "high", maxDimension: CGFloat = 1280) -> String? {
+    let resized = resizeImageIfNeeded(image: image, maxDimension: maxDimension)
+    let bitmapRep = NSBitmapImageRep(cgImage: resized)
     let qualityValue = getQualityValue(quality)
     guard
         let data = bitmapRep.representation(
@@ -1063,19 +1089,27 @@ func setupAndStartServer() async throws -> Server {
             ]),
             "ocr": .object([
                 "type": .string("boolean"),
-                "description": .string("Optional: Run OCR on screenshot and return text"),
+                "description": .string("Optional: Run OCR on screenshot and append extracted text to the result."),
+            ]),
+            "includeImage": .object([
+                "type": .string("boolean"),
+                "description": .string("Optional: Whether to include the Base64 image in the response (default: true). Set to false when you only need OCR text — saves significant context tokens."),
+            ]),
+            "maxDimension": .object([
+                "type": .string("number"),
+                "description": .string("Optional: Maximum width or height in pixels before downscaling (default: 1280). Use lower values (e.g. 800) to further reduce token usage. Use higher values (e.g. 1920) for fine detail."),
             ]),
         ]),
     ])
     let screenshotTool = Tool(
         name: "macos-use_take_screenshot",
         description:
-            "Enhanced screenshot tool with region selection, multi-monitor support, compression, and OCR integration.",
+            "Takes a screenshot. Automatically downscales Retina displays to max 1280px to reduce token usage. Supports region selection, multi-monitor, OCR, and optional image suppression (includeImage: false for OCR-only mode).",
         inputSchema: screenshotSchema
     )
     let screenshotAliasTool = Tool(
         name: "screenshot",
-        description: "Alias for enhanced macos-use_take_screenshot.",
+        description: "Alias for macos-use_take_screenshot.",
         inputSchema: screenshotSchema
     )
 
@@ -1116,7 +1150,7 @@ func setupAndStartServer() async throws -> Server {
             ]),
             "format": .object([
                 "type": .string("string"),
-                "description": .string("Optional output format: 'json', 'text', 'both'"),
+                "description": .string("Optional output format: 'json' (default), 'text' (plain joined), 'both'"),
                 "enum": .array([.string("json"), .string("text"), .string("both")]),
             ]),
         ]),
@@ -1124,17 +1158,17 @@ func setupAndStartServer() async throws -> Server {
     let visionTool = Tool(
         name: "macos-use_analyze_screen",
         description:
-            "Enhanced OCR with region selection, language detection, confidence scores, and multiple output formats.",
+            "Captures the screen and runs OCR. Automatically downscales to max 1280px before processing for speed. Supports region selection, language hints, confidence scores, and multiple output formats. For pure text extraction, use format: 'text' to minimize response size.",
         inputSchema: visionSchema
     )
     let ocrAliasTool = Tool(
         name: "ocr",
-        description: "Alias for enhanced macos-use_analyze_screen.",
+        description: "Alias for macos-use_analyze_screen.",
         inputSchema: visionSchema
     )
     let analyzeAliasTool = Tool(
         name: "analyze",
-        description: "Alias for enhanced macos-use_analyze_screen.",
+        description: "Alias for macos-use_analyze_screen.",
         inputSchema: visionSchema
     )
 
@@ -3574,8 +3608,11 @@ func setupAndStartServer() async throws -> Server {
                 let monitor = try getOptionalInt(from: params.arguments, key: "monitor")
                 let quality =
                     try getOptionalString(from: params.arguments, key: "quality") ?? "high"
-                let format = try getOptionalString(from: params.arguments, key: "format") ?? "png"
+                let format = try getOptionalString(from: params.arguments, key: "format") ?? "jpg"
                 let ocr = try getOptionalBool(from: params.arguments, key: "ocr") ?? false
+                let includeImage = try getOptionalBool(from: params.arguments, key: "includeImage") ?? true
+                let rawMaxDim = try getOptionalDouble(from: params.arguments, key: "maxDimension") ?? 1280.0
+                let maxDimension = CGFloat(rawMaxDim)
 
                 guard let image = captureMainDisplay(monitor: monitor) else {
                     debugLog("error: screenshot: Capture failed, checking permissions...\n", stderr)
@@ -3607,7 +3644,6 @@ func setupAndStartServer() async throws -> Server {
                         let x = xValue.doubleValue, let y = yValue.doubleValue,
                         let width = widthValue.doubleValue, let height = heightValue.doubleValue
                     {
-
                         let rect = CGRect(x: x, y: y, width: width, height: height)
                         if let croppedImage = image.cropping(to: rect) {
                             finalImage = croppedImage
@@ -3615,8 +3651,11 @@ func setupAndStartServer() async throws -> Server {
                     }
                 }
 
+                // Downscale for token efficiency (for display/AI use, not for file saves)
+                let displayImage = path == nil ? resizeImageIfNeeded(image: finalImage, maxDimension: maxDimension) : finalImage
+
                 if let savePath = path {
-                    // Save to file with compression
+                    // Save original (full-res) to file
                     let imageWidth = CGFloat(finalImage.width)
                     let imageHeight = CGFloat(finalImage.height)
                     let nsImage = NSImage(
@@ -3652,7 +3691,7 @@ func setupAndStartServer() async throws -> Server {
                     do {
                         try data.write(to: URL(fileURLWithPath: savePath))
 
-                        var content: [Tool.Content] = [.text("Screenshot saved to: \(savePath)")]
+                        var content: [Tool.Content] = [.text("Screenshot saved to: \(savePath) (\(finalImage.width)x\(finalImage.height))")]
 
                         if ocr {
                             let ocrResults = performOCR(on: finalImage)
@@ -3667,16 +3706,33 @@ func setupAndStartServer() async throws -> Server {
                             content: [.text("Failed to save screenshot: \(error)")], isError: true)
                     }
                 } else {
-                    // Return Base64 with compression
-                    guard let base64 = encodeBase64JPEG(image: finalImage, quality: quality) else {
-                        return .init(content: [.text("Failed to encode screenshot")], isError: true)
-                    }
-                    var content: [Tool.Content] = [.image(data: base64, mimeType: "image/jpeg", metadata: nil)]
-                    if ocr {
-                        let ocrResults = performOCR(on: finalImage)
-                        if let jsonString = serializeToJsonString(ocrResults) {
-                            content.append(.text("\nOCR Results:\n\(jsonString)"))
+                    // Return Base64 (downscaled)
+                    var content: [Tool.Content] = []
+
+                    if includeImage {
+                        guard let base64 = encodeBase64JPEG(image: displayImage, quality: quality, maxDimension: maxDimension) else {
+                            return .init(content: [.text("Failed to encode screenshot")], isError: true)
                         }
+                        content.append(.image(data: base64, mimeType: "image/jpeg", metadata: nil))
+                        let scaleNote = (displayImage.width < image.width)
+                            ? " (downscaled from \(image.width)x\(image.height) to \(displayImage.width)x\(displayImage.height))"
+                            : " (\(image.width)x\(image.height))"
+                        content.append(.text("Screenshot captured\(scaleNote)"))
+                    }
+
+                    if ocr {
+                        let ocrResults = performOCR(on: displayImage)
+                        let textContent = ocrResults.map { $0.text }.joined(separator: "\n")
+                        if !textContent.isEmpty {
+                            content.append(.text("OCR Text:\n\(textContent)"))
+                        }
+                        if let jsonString = serializeToJsonString(ocrResults) {
+                            content.append(.text("OCR JSON:\n\(jsonString)"))
+                        }
+                    }
+
+                    if content.isEmpty {
+                        content.append(.text("Screenshot captured (\(image.width)x\(image.height)) — includeImage was false and ocr was false."))
                     }
 
                     return .init(content: content, isError: false)
@@ -3704,7 +3760,6 @@ func setupAndStartServer() async throws -> Server {
                         let x = xValue.doubleValue, let y = yValue.doubleValue,
                         let width = widthValue.doubleValue, let height = heightValue.doubleValue
                     {
-
                         let rect = CGRect(x: x, y: y, width: width, height: height)
                         if let croppedImage = image.cropping(to: rect) {
                             finalImage = croppedImage
@@ -3712,8 +3767,11 @@ func setupAndStartServer() async throws -> Server {
                     }
                 }
 
+                // Downscale to max 1280px — Vision OCR works well at this resolution and it's faster
+                let ocrImage = resizeImageIfNeeded(image: finalImage, maxDimension: 1280)
+
                 let elements = performOCR(
-                    on: finalImage, language: language, includeConfidence: confidence)
+                    on: ocrImage, language: language, includeConfidence: confidence)
 
                 switch format.lowercased() {
                 case "text":
