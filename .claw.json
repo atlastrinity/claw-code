@@ -4,6 +4,7 @@
   },
   "allowedTools": [
     "mcp__macos-use__macos-use_take_screenshot",
+    "mcp__macos-use__macos-use_analyze_screen",
     "mcp__macos-use__macos-use_click_and_traverse",
     "mcp__macos-use__macos-use_type_and_traverse",
     "mcp__macos-use__macos-use_scroll_and_traverse",

@@ -1161,16 +1161,6 @@ func setupAndStartServer() async throws -> Server {
             "Captures the screen and runs OCR. Automatically downscales to max 1280px before processing for speed. Supports region selection, language hints, confidence scores, and multiple output formats. For pure text extraction, use format: 'text' to minimize response size.",
         inputSchema: visionSchema
     )
-    let ocrAliasTool = Tool(
-        name: "ocr",
-        description: "Alias for macos-use_analyze_screen.",
-        inputSchema: visionSchema
-    )
-    let analyzeAliasTool = Tool(
-        name: "analyze",
-        description: "Alias for macos-use_analyze_screen.",
-        inputSchema: visionSchema
-    )
 
     // *** NEW: Schema and Tool for Press Key ***
     let pressKeySchema: Value = .object([
@@ -2389,16 +2379,6 @@ func setupAndStartServer() async throws -> Server {
         description: "Alias for macos-use_mail_read_inbox.",
         inputSchema: mailReadSchema
     )
-    let performOcrAliasTool = Tool(
-        name: "macos-use_perform_ocr",
-        description: "Alias for macos-use_analyze_screen.",
-        inputSchema: visionSchema
-    )
-    let analyzeUiAliasTool = Tool(
-        name: "macos-use_analyze_ui",
-        description: "Alias for macos-use_analyze_screen.",
-        inputSchema: visionSchema
-    )
     let countdownAliasTool = Tool(
         name: "macos-use_countdown",
         description: "Alias for macos-use_countdown_timer.",
@@ -2426,8 +2406,6 @@ func setupAndStartServer() async throws -> Server {
         screenshotTool,
         screenshotAliasTool,
         visionTool,
-        ocrAliasTool,
-        analyzeAliasTool,
         pressKeyTool,
         scrollTool,
         rightClickTool,
@@ -2488,8 +2466,6 @@ func setupAndStartServer() async throws -> Server {
         notesGetAliasTool,
         notificationAliasTool,
         mailReadAliasTool,
-        performOcrAliasTool,
-        analyzeUiAliasTool,
         countdownAliasTool,
         macosUseExecuteCommandAliasTool,
         openTerminalAliasTool
@@ -2558,6 +2534,7 @@ func setupAndStartServer() async throws -> Server {
         var options = ActionOptions()  // Start with default options
         options.showAnimation = true  // ENABLE ANIMATION BY DEFAULT
         options.animationDuration = 0.8  // 0.8s for good visibility
+        options.traverseAfter = true // CRITICAL FIX: Ensure tools return UI tree after interacting
 
         do {
             // --- Determine Action and Options from MCP Params ---
@@ -3723,10 +3700,13 @@ func setupAndStartServer() async throws -> Server {
 
                     if ocr {
                         let ocrResults = performOCR(on: displayImage)
-                        // Return only plain text — compact and sufficient for AI
-                        let textContent = ocrResults.map { $0.text }.joined(separator: "\n")
+                        // Return text with compact bounding boxes for AI consumption
+                        let textContent = ocrResults.map { 
+                            "[x: \(Int($0.x)), y: \(Int($0.y)), w: \(Int($0.width)), h: \(Int($0.height))] \"\($0.text)\"" 
+                        }.joined(separator: "\n")
+                        
                         if !textContent.isEmpty {
-                            content.append(.text("OCR Text:\n\(textContent)"))
+                            content.append(.text("OCR Results (with coordinates):\n\(textContent)"))
                         } else {
                             content.append(.text("OCR: no text detected on screen"))
                         }
@@ -3739,7 +3719,16 @@ func setupAndStartServer() async throws -> Server {
                     return .init(content: content, isError: false)
                 }
 
-            case visionTool.name, ocrAliasTool.name, analyzeAliasTool.name, performOcrAliasTool.name, analyzeUiAliasTool.name:
+            case visionTool.name:
+                // Clear any red bounding boxes from MacosUseSDK before capturing screen
+                await Task { @MainActor in
+                    for window in NSApplication.shared.windows {
+                        if window.styleMask == [.borderless] && window.level == .floating && !window.isOpaque {
+                            window.close()
+                        }
+                    }
+                }.value
+
                 let region = try getOptionalObject(from: params.arguments, key: "region")
                 let language =
                     try getOptionalString(from: params.arguments, key: "language") ?? "auto"
@@ -3771,23 +3760,27 @@ func setupAndStartServer() async throws -> Server {
                 // Downscale to max 1280px — Vision OCR works well at this resolution and it's faster
                 let ocrImage = resizeImageIfNeeded(image: finalImage, maxDimension: 1280)
 
-                let elements = performOCR(
+                let ocrResults = performOCR(
                     on: ocrImage, language: language, includeConfidence: confidence)
 
                 switch format.lowercased() {
                 case "text":
-                    let textContent = elements.map { $0.text }.joined(separator: "\n")
-                    return .init(content: [.text(textContent)], isError: false)
+                    let plainText = ocrResults.map { 
+                        "[x: \(Int($0.x)), y: \(Int($0.y)), w: \(Int($0.width)), h: \(Int($0.height))] \"\($0.text)\"" 
+                    }.joined(separator: "\n")
+                    return .init(content: [.text(plainText)], isError: false)
                 case "both":
-                    let textContent = elements.map { $0.text }.joined(separator: "\n")
-                    if let jsonString = serializeToJsonString(elements) {
+                    let textContent = ocrResults.map { 
+                        "[x: \(Int($0.x)), y: \(Int($0.y)), w: \(Int($0.width)), h: \(Int($0.height))] \"\($0.text)\"" 
+                    }.joined(separator: "\n")
+                    if let jsonString = serializeToJsonString(ocrResults) {
                         let combined = "Text:\n\(textContent)\n\nJSON:\n\(jsonString)"
                         return .init(content: [.text(combined)], isError: false)
                     } else {
                         return .init(content: [.text(textContent)], isError: false)
                     }
                 default:  // json
-                    guard let jsonString = serializeToJsonString(elements) else {
+                    guard let jsonString = serializeToJsonString(ocrResults) else {
                         return .init(
                             content: [.text("Failed to serialize vision results")], isError: true)
                     }
@@ -4924,7 +4917,22 @@ func setupAndStartServer() async throws -> Server {
                 debugLog(
                     "log: handler(CallTool): executing performAction on MainActor via Task...\n",
                     stderr)
-                return await performAction(action: primaryAction, optionsInput: options)
+                let result = await performAction(action: primaryAction, optionsInput: options)
+                
+                if options.showAnimation {
+                    // Schedule cleanup of red bounding boxes after animation finishes
+                    let delay = max(options.animationDuration, 3.0)
+                    Task {
+                        try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        for window in NSApplication.shared.windows {
+                            if window.styleMask == [.borderless] && window.level == .floating && !window.isOpaque {
+                                window.close()
+                            }
+                        }
+                    }
+                }
+                
+                return result
             }.value
             debugLog("log: handler(CallTool): performAction task completed.\n", stderr)
 
