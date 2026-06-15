@@ -3496,7 +3496,7 @@ fn build_http_client() -> Result<Client, String> {
     Client::builder()
         .timeout(Duration::from_secs(20))
         .redirect(reqwest::redirect::Policy::limited(10))
-        .user_agent("clawd-rust-tools/0.1")
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         .build()
         .map_err(|error| error.to_string())
 }

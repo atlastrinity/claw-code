@@ -1,6 +1,8 @@
 {
+  "model": "local/gemini-2.5-flash",
   "aliases": {
-    "quick": "local/google/gemma-4-31b-it:free"
+    "quick": "local/google/gemma-4-31b-it:free",
+    "llama": "local/meta-llama/llama-3.3-70b-instruct:free"
   },
   "allowedTools": [
     "mcp__macos-use__macos-use_take_screenshot",

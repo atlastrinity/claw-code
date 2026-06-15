@@ -738,8 +738,8 @@ func escapeForAppleScript(_ str: String) -> String {
 // --- Helper to serialize Swift structs to JSON String ---
 func serializeToJsonString<T: Encodable>(_ value: T) -> String? {
     let encoder = JSONEncoder()
-    // Use pretty printing for easier debugging of the output if needed
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+    // Removed pretty printing to drastically reduce token footprint for LLM context
+    encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
     do {
         let jsonData = try encoder.encode(value)
         return String(data: jsonData, encoding: .utf8)
@@ -2532,9 +2532,10 @@ func setupAndStartServer() async throws -> Server {
         // --- Initialize Action and Options ---
         var primaryAction: PrimaryAction = .traverseOnly  // Default action
         var options = ActionOptions()  // Start with default options
-        options.showAnimation = true  // ENABLE ANIMATION BY DEFAULT
+        options.showAnimation = false  // DISABLED BY DEFAULT to prevent freezing with hundreds of overlays
         options.animationDuration = 0.8  // 0.8s for good visibility
-        options.traverseAfter = true // CRITICAL FIX: Ensure tools return UI tree after interacting
+        options.traverseAfter = false // Changed to false to reduce context size; tools must explicitly request traversal if needed.
+        options.onlyVisibleElements = true // Default to true to keep context small
 
         do {
             // --- Determine Action and Options from MCP Params ---
