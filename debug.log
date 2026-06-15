@@ -1,6 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.10s
-     Running `rust/target/debug/claw --model quick --dangerously-skip-permissions prompt hi`
-[error-kind: unknown]
-error: Broken pipe (os error 32)
-
-Run `claw --help` for usage.
