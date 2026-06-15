@@ -460,14 +460,28 @@ impl GlobalToolRegistry {
                 name: spec.name.to_string(),
                 description: spec.description.to_string(),
             });
-        let runtime = self.runtime_tools.iter().map(|tool| SearchableToolSpec {
-            name: tool.name.clone(),
-            description: tool.description.clone().unwrap_or_default(),
-        });
-        let plugin = self.plugin_tools.iter().map(|tool| SearchableToolSpec {
-            name: tool.definition().name.clone(),
-            description: tool.definition().description.clone().unwrap_or_default(),
-        });
+        let runtime = self.runtime_tools.iter()
+            .filter(|tool| {
+                let is_allowed = self.allowed_tools.is_none() || self.allowed_tools.as_ref().is_some_and(|allowed| {
+                    allowed.contains(&canonical_allowed_tool_name(&tool.name))
+                });
+                !is_allowed
+            })
+            .map(|tool| SearchableToolSpec {
+                name: tool.name.clone(),
+                description: tool.description.clone().unwrap_or_default(),
+            });
+        let plugin = self.plugin_tools.iter()
+            .filter(|tool| {
+                let is_allowed = self.allowed_tools.is_none() || self.allowed_tools.as_ref().is_some_and(|allowed| {
+                    allowed.contains(&canonical_allowed_tool_name(&tool.definition().name))
+                });
+                !is_allowed
+            })
+            .map(|tool| SearchableToolSpec {
+                name: tool.definition().name.clone(),
+                description: tool.definition().description.clone().unwrap_or_default(),
+            });
         builtin.chain(runtime).chain(plugin).collect()
     }
 }
