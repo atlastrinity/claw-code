@@ -162,6 +162,94 @@ func performOCR(on image: CGImage, language: String = "auto", includeConfidence:
     return elements
 }
 
+// --- Screen Caching & Diffing State ---
+struct VisionCacheEntry {
+    var hash: UInt64
+    var timestamp: Date
+    var ocrResults: [VisionElement]
+    var compact: Bool
+}
+var visionCache: [String: VisionCacheEntry] = [:]
+
+func computeOCRDiff(old: [VisionElement], new: [VisionElement]) -> (added: [VisionElement], removed: [VisionElement], unchangedCount: Int) {
+    var added: [VisionElement] = []
+    var removed: [VisionElement] = []
+    var usedIndices = Set<Int>()
+    
+    let tolerance: Double = 10.0 // pixels
+    
+    for newEl in new {
+        var foundMatch = false
+        for (i, oldEl) in old.enumerated() {
+            if !usedIndices.contains(i), 
+               newEl.text == oldEl.text,
+               abs(newEl.x - oldEl.x) < tolerance,
+               abs(newEl.y - oldEl.y) < tolerance {
+                foundMatch = true
+                usedIndices.insert(i)
+                break
+            }
+        }
+        if !foundMatch {
+            added.append(newEl)
+        }
+    }
+    
+    for (i, oldEl) in old.enumerated() {
+        if !usedIndices.contains(i) {
+            removed.append(oldEl)
+        }
+    }
+    
+    return (added, removed, usedIndices.count)
+}
+
+func formatOCRElements(_ elements: [VisionElement], compact: Bool) -> String {
+    if elements.isEmpty { return "" }
+    return elements.map { el in
+        if compact {
+            return el.text
+        } else {
+            return "\(Int(round(el.x))),\(Int(round(el.y))),\(Int(round(el.width))),\(Int(round(el.height)))|\(el.text)"
+        }
+    }.joined(separator: "\n")
+}
+
+/// Computes a perceptual hash (dHash) of a CGImage.
+/// Downscales to 9x8, converts to grayscale, and compares adjacent pixels.
+func perceptualHash(of image: CGImage) -> UInt64 {
+    let width = 9
+    let height = 8
+    
+    let colorSpace = CGColorSpaceCreateDeviceGray()
+    guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width, space: colorSpace, bitmapInfo: CGImageAlphaInfo.none.rawValue) else { return 0 }
+    
+    context.interpolationQuality = .high
+    context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+    
+    guard let pixelData = context.data else { return 0 }
+    let data = pixelData.bindMemory(to: UInt8.self, capacity: width * height)
+    
+    var hash: UInt64 = 0
+    var bitIndex: Int = 0
+    
+    for y in 0..<height {
+        for x in 0..<(width - 1) {
+            let leftPixel = data[y * width + x]
+            let rightPixel = data[y * width + x + 1]
+            if leftPixel > rightPixel {
+                hash |= (1 << bitIndex)
+            }
+            bitIndex += 1
+        }
+    }
+    return hash
+}
+
+func hammingDistance(_ a: UInt64, _ b: UInt64) -> Int {
+    return (a ^ b).nonzeroBitCount
+}
+
 /// Merges adjacent OCR elements that are on the same visual line (within `tolerance` px vertical distance).
 /// Vision framework sometimes splits a single text line into multiple observations.
 /// This reduces output token count by consolidating them.
@@ -1286,6 +1374,10 @@ func setupAndStartServer() async throws -> Server {
             "pid": .object([
                 "type": .string("number"),
                 "description": .string("PID of target app. Used for: (1) window-targeted capture instead of full screen — produces smaller images and saves tokens, (2) accessibility tree traversal. Defaults to frontmost app."),
+            ]),
+            "diff": .object([
+                "type": .string("boolean"),
+                "description": .string("When true, checks if the screen has visually changed since the last capture using a perceptual hash. If no change, returns a minimal 'no_change' response instead of the full image/OCR, saving 99% tokens (default: false)."),
             ]),
         ]),
     ])
@@ -3996,6 +4088,27 @@ func setupAndStartServer() async throws -> Server {
                     }
                 }
 
+                // Target identifier for caching
+                let targetKey = usedWindowCapture ? "pid:\(targetPid!)" : "monitor:\(monitor ?? 0)"
+                
+                // Diff check: if requested, compare perceptual hash with last capture
+                let diff = try getOptionalBool(from: params.arguments, key: "diff") ?? false
+                var currentCacheEntry = visionCache[targetKey] ?? VisionCacheEntry(hash: 0, timestamp: .distantPast, ocrResults: [], compact: false)
+                
+                if diff {
+                    let currentHash = perceptualHash(of: finalImage)
+                    if currentCacheEntry.hash != 0 {
+                        let distance = hammingDistance(currentHash, currentCacheEntry.hash)
+                        if distance == 0 {
+                            currentCacheEntry.timestamp = Date()
+                            visionCache[targetKey] = currentCacheEntry
+                            return .init(content: [.text("Vision: no_change (screen is identical to last capture)")], isError: false)
+                        }
+                    }
+                    currentCacheEntry.hash = currentHash
+                    currentCacheEntry.timestamp = Date()
+                }
+
                 // Downscale for AI consumption
                 let processedImage = resizeImageIfNeeded(image: finalImage, maxDimension: maxDimension)
 
@@ -4037,16 +4150,44 @@ func setupAndStartServer() async throws -> Server {
 
                 // OCR
                 if needsOCR && !ocrResults.isEmpty {
-                    if compact {
-                        let textContent = ocrResults.map { $0.text }.joined(separator: "\n")
-                        content.append(.text("OCR:\n\(textContent)"))
+                    var useDiffFormat = false
+                    var diffOutput = ""
+                    
+                    if diff && !currentCacheEntry.ocrResults.isEmpty {
+                        let diffResult = computeOCRDiff(old: currentCacheEntry.ocrResults, new: ocrResults)
+                        let totalChanges = diffResult.added.count + diffResult.removed.count
+                        
+                        // Fallback: if more than 60% of elements changed, diff is too chaotic
+                        // Only use diff if changes are relatively small
+                        if totalChanges < max(10, Int(Double(currentCacheEntry.ocrResults.count) * 0.6)) {
+                            useDiffFormat = true
+                            diffOutput += "OCR Diff (unchanged: \(diffResult.unchangedCount)):\n"
+                            
+                            if !diffResult.added.isEmpty {
+                                diffOutput += "ADDED:\n"
+                                diffOutput += formatOCRElements(diffResult.added, compact: compact) + "\n"
+                            }
+                            if !diffResult.removed.isEmpty {
+                                diffOutput += "REMOVED:\n"
+                                diffOutput += formatOCRElements(diffResult.removed, compact: compact) + "\n"
+                            }
+                        }
+                    }
+                    
+                    currentCacheEntry.ocrResults = ocrResults
+                    currentCacheEntry.compact = compact
+                    visionCache[targetKey] = currentCacheEntry
+                    
+                    if useDiffFormat {
+                        content.append(.text(diffOutput.trimmingCharacters(in: .whitespacesAndNewlines)))
                     } else {
-                        let textContent = ocrResults.map {
-                            "\(Int($0.x)),\(Int($0.y)),\(Int($0.width)),\(Int($0.height))|\($0.text)"
-                        }.joined(separator: "\n")
-                        content.append(.text("OCR (x,y,w,h|text):\n\(textContent)"))
+                        let prefix = compact ? "OCR:" : "OCR (x,y,w,h|text):"
+                        let textContent = formatOCRElements(ocrResults, compact: compact)
+                        content.append(.text("\(prefix)\n\(textContent)"))
                     }
                 } else if needsOCR {
+                    currentCacheEntry.ocrResults = []
+                    visionCache[targetKey] = currentCacheEntry
                     content.append(.text("OCR: no text detected on screen"))
                 }
 
