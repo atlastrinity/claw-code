@@ -1131,6 +1131,10 @@ func setupAndStartServer() async throws -> Server {
                 "type": .string("number"),
                 "description": .string("OPTIONAL. Duration of the animation in seconds."),
             ]),
+            "activateApp": .object([
+                "type": .string("boolean"),
+                "description": .string("OPTIONAL. Activate the app (bring to front) before executing. Default: true."),
+            ]),
         ]),
         "required": .array([.string("x"), .string("y")]),
     ])
@@ -1151,6 +1155,10 @@ func setupAndStartServer() async throws -> Server {
             ]),
             "text": .object([
                 "type": .string("string"), "description": .string("REQUIRED. Text to type."),
+            ]),
+            "activateApp": .object([
+                "type": .string("boolean"),
+                "description": .string("OPTIONAL. Activate the app (bring to front) before executing. Default: true."),
             ]),
             // Add optional options here if needed later
         ]),
@@ -1414,6 +1422,10 @@ func setupAndStartServer() async throws -> Server {
                 ),
                 "items": .object(["type": .string("string")]),  // Items in the array must be strings
             ]),
+            "activateApp": .object([
+                "type": .string("boolean"),
+                "description": .string("OPTIONAL. Activate the app (bring to front) before executing. Default: true."),
+            ]),
             // Add optional ActionOptions overrides here if needed later
         ]),
         "required": .array([.string("keyName")]),
@@ -1474,6 +1486,10 @@ func setupAndStartServer() async throws -> Server {
             "y": .object([
                 "type": .string("number"), "description": .string("REQUIRED. Screen Y coordinate."),
             ]),
+            "activateApp": .object([
+                "type": .string("boolean"),
+                "description": .string("OPTIONAL. Activate the app (bring to front) before executing. Default: true."),
+            ]),
         ]),
         "required": .array([.string("x"), .string("y")]),
     ])
@@ -1529,6 +1545,10 @@ func setupAndStartServer() async throws -> Server {
                 "type": .string("number"),
                 "description": .string(
                     "OPTIONAL. Number of interpolation steps for smooth drag (default 10)."),
+            ]),
+            "activateApp": .object([
+                "type": .string("boolean"),
+                "description": .string("OPTIONAL. Activate the app (bring to front) before executing. Default: true."),
             ]),
         ]),
         "required": .array([
@@ -2812,6 +2832,22 @@ func setupAndStartServer() async throws -> Server {
 
             options = options.validated()
             debugLog("log: handler(CallTool): constructed ActionOptions: \(options)\n", stderr)
+
+            // --- Auto-Activation Logic ---
+            let activateApp = try getOptionalBool(from: params.arguments, key: "activateApp") ?? true
+            if activateApp && convertedPid > 0 {
+                let toolsWithActivation = [
+                    clickTool.name, typeTool.name, pressKeyTool.name,
+                    rightClickTool.name, doubleClickTool.name, tripleClickTool.name,
+                    dragDropTool.name
+                ]
+                if toolsWithActivation.contains(params.name) {
+                    if let app = NSRunningApplication(processIdentifier: pid_t(convertedPid)) {
+                        app.activate(options: .activateIgnoringOtherApps)
+                        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms to let it focus
+                    }
+                }
+            }
 
             switch params.name {
             case openAppTool.name:
