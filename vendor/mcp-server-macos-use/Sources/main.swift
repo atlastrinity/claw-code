@@ -1390,7 +1390,7 @@ func setupAndStartServer() async throws -> Server {
             ]),
             "diff": .object([
                 "type": .string("boolean"),
-                "description": .string("When true, checks if the screen has visually changed since the last capture using a perceptual hash. If no change, returns a minimal 'no_change' response instead of the full image/OCR, saving 99% tokens (default: false)."),
+                "description": .string("When true, checks if the screen has visually changed since the last capture using a perceptual hash. If no change, returns a minimal 'no_change' response instead of the full image/OCR, saving 99% tokens (default: true)."),
             ]),
         ]),
     ])
@@ -1404,6 +1404,7 @@ func setupAndStartServer() async throws -> Server {
         Always prefer capturing a specific application window (using the pid parameter, e.g., pid: 0 for frontmost app) instead of the full screen to save API costs. 
         Only use full screen (monitor parameter) if absolutely necessary.
         Modes: 'smart' (auto-decides if image needed based on OCR richness), 'ocr', 'image', 'full'. Supports region, language hints, and accessibility tree.
+        NOTE: 'diff' is true by default to save tokens. If you MUST force a fresh image capture, explicitly pass diff: false.
         """
         return Tool(
             name: "macos-use_vision",
@@ -4149,7 +4150,7 @@ func setupAndStartServer() async throws -> Server {
                 let targetKey = usedWindowCapture ? "pid:\(targetPid!)" : "monitor:\(monitor ?? 0)"
                 
                 // Diff check: if requested, compare perceptual hash with last capture
-                let diff = try getOptionalBool(from: params.arguments, key: "diff") ?? false
+                let diff = try getOptionalBool(from: params.arguments, key: "diff") ?? true
                 var currentCacheEntry = visionCache[targetKey] ?? VisionCacheEntry(hash: 0, timestamp: .distantPast, ocrResults: [], compact: false)
                 
                 if diff {
