@@ -420,20 +420,7 @@ func openSystemSettings(for category: PrivacyCategory) {
     }
 }
 
-// --- Helper to resolve PID (handles 0 or -1 for frontmost app) ---
-func resolvePid(_ pid: Int?) -> Int {
-    if let p = pid, p > 0 {
-        return p
-    }
-    // Default to frontmost application
-    if let frontmost = NSWorkspace.shared.frontmostApplication {
-        debugLog(
-            "log: resolvePid: using frontmost application '\(frontmost.localizedName ?? "unknown")' (PID: \(frontmost.processIdentifier))\n",
-            stderr)
-        return Int(frontmost.processIdentifier)
-    }
-    return 0
-}
+
 
 // --- Interactive Environment Check ---
 var isInteractive: Bool {
@@ -2676,7 +2663,18 @@ func setupAndStartServer() async throws -> Server {
 
             // PID is optional (defaults to frontmost app if 0, -1 or missing)
             let pidOptionalInt = try getOptionalInt(from: params.arguments, key: "pid")
-            let resolvedPid = resolvePid(pidOptionalInt)
+            
+            let startX = try getOptionalDouble(from: params.arguments, key: "startX")
+            let argX = try getOptionalDouble(from: params.arguments, key: "x")
+            let coordX = startX ?? argX
+            
+            let startY = try getOptionalDouble(from: params.arguments, key: "startY")
+            let argY = try getOptionalDouble(from: params.arguments, key: "y")
+            let coordY = startY ?? argY
+            
+            let xArg = coordX != nil ? CGFloat(coordX!) : nil
+            let yArg = coordY != nil ? CGFloat(coordY!) : nil
+            let resolvedPid = resolvePid(pidOptionalInt, x: xArg, y: yArg)
 
             // Convert to pid_t
             guard let convertedPid = pid_t(exactly: resolvedPid) else {
@@ -3609,6 +3607,8 @@ func setupAndStartServer() async throws -> Server {
                             describing: windowInfo[kCGWindowBounds as String] ?? "")
                         window["layer"] = String(
                             describing: windowInfo[kCGWindowLayer as String] ?? 0)
+                        window["pid"] = String(
+                            describing: windowInfo[kCGWindowOwnerPID as String] ?? 0)
                         window["id"] = String(
                             describing: windowInfo[kCGWindowNumber as String] ?? 0)
 
@@ -5149,8 +5149,7 @@ func setupAndStartServer() async throws -> Server {
     return server
 }
 
-// --- @main Entry Point ---
-@main
+// --- Entry Point ---
 struct MCPServer {
     // Main entry point - Async
     // MARK: - Permission Check
@@ -5229,3 +5228,6 @@ struct MCPServer {
         exit(0)  // Exit cleanly
     }
 }
+
+// Run the server
+await MCPServer.main()
