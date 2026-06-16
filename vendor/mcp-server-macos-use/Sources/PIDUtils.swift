@@ -59,14 +59,14 @@ func adjustDragStartCoordinateIfNeeded(x: Double, y: Double) -> (Double, Double)
                     AXValueGetValue(positionRef as! AXValue, .cgPoint, &position)
                     AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
                     
-                    // Check if the original (x, y) is in the "traffic light" danger zone
-                    // Top-left corner of the window. Traffic lights are within the first 100 pixels horizontally
-                    // and 40 pixels vertically.
-                    let relativeX = x - Double(position.x)
+                    // Check if the original (x, y) is in the title bar area
+                    // Top 40 pixels of the window usually contains the title bar.
+                    // Clicking near the edges (< 5px) can cause resizing instead of dragging.
                     let relativeY = y - Double(position.y)
                     
-                    if relativeX >= 0 && relativeX < 100 && relativeY >= 0 && relativeY < 40 {
-                        // It's in the danger zone. Adjust X to the center of the window title bar
+                    if relativeY >= 0 && relativeY < 40 {
+                        // It's in the title bar zone. Adjust X to the center of the window title bar
+                        // to avoid both traffic lights (left) and resize handles (edges).
                         let newX = Double(position.x) + Double(size.width) / 2.0
                         let newY = Double(position.y) + 15.0 // Safe vertical spot in the title bar
                         

@@ -2745,15 +2745,24 @@ func setupAndStartServer() async throws -> Server {
             case typeTool.name:
                 let text = try getRequiredString(from: params.arguments, key: "text")
                 
-                // Use clipboard (Pasteboard) to type text to avoid keyboard layout issues
-                DispatchQueue.main.sync {
-                    let pasteboard = NSPasteboard.general
-                    pasteboard.clearContents()
-                    pasteboard.setString(text, forType: .string)
+                // Use CGEvent to send Unicode strings directly. This types letter-by-letter
+                // and perfectly handles any keyboard layout (e.g. Ukrainian/English).
+                if let source = CGEventSource(stateID: .hidSystemState) {
+                    for char in text.utf16 {
+                        var uniChar = char
+                        if let eventDown = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: true) {
+                            eventDown.keyboardSetUnicodeString(stringLength: 1, unicodeString: &uniChar)
+                            eventDown.post(tap: .cghidEventTap)
+                        }
+                        if let eventUp = CGEvent(keyboardEventSource: source, virtualKey: 0, keyDown: false) {
+                            eventUp.keyboardSetUnicodeString(stringLength: 1, unicodeString: &uniChar)
+                            eventUp.post(tap: .cghidEventTap)
+                        }
+                        usleep(5000) // 5ms delay between keystrokes
+                    }
                 }
                 
-                // Simulate Cmd+V to paste the text
-                primaryAction = .input(action: .press(keyName: "v", flags: CGEventFlags.maskCommand))
+                primaryAction = .traverseOnly
                 options.pidForTraversal = convertedPid  // Re-affirm
 
             // ... (Other existing cases) ...
