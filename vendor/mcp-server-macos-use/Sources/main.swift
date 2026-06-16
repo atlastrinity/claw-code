@@ -1394,11 +1394,23 @@ func setupAndStartServer() async throws -> Server {
             ]),
         ]),
     ])
-    let unifiedVisionTool = Tool(
-        name: "macos-use_vision",
-        description: "Unified vision tool. Modes: 'smart' (auto-decides if image needed based on OCR richness — best default), 'ocr' (text only, minimal tokens), 'image' (screenshot only), 'full' (image + OCR). When PID is provided, captures only that window instead of full screen for token savings. Supports region selection, language hints, compact output, and optional accessibility tree in a single call.",
-        inputSchema: unifiedVisionSchema
-    )
+    let unifiedVisionTool = {
+        let screenCount = NSScreen.screens.count
+        let monitorIndices = (0..<screenCount).map { String($0) }.joined(separator: ", ")
+        
+        let dynamicDescription = """
+        Unified vision tool. 
+        CRITICAL: There are currently \(screenCount) monitor(s) connected (available indices: \(monitorIndices)). 
+        Always prefer capturing a specific application window (using the pid parameter, e.g., pid: 0 for frontmost app) instead of the full screen to save API costs. 
+        Only use full screen (monitor parameter) if absolutely necessary.
+        Modes: 'smart' (auto-decides if image needed based on OCR richness), 'ocr', 'image', 'full'. Supports region, language hints, and accessibility tree.
+        """
+        return Tool(
+            name: "macos-use_vision",
+            description: dynamicDescription,
+            inputSchema: unifiedVisionSchema
+        )
+    }()
 
     // *** NEW: Schema and Tool for Press Key ***
     let pressKeySchema: Value = .object([
