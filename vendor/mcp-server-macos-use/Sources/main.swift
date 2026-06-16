@@ -2744,7 +2744,16 @@ func setupAndStartServer() async throws -> Server {
 
             case typeTool.name:
                 let text = try getRequiredString(from: params.arguments, key: "text")
-                primaryAction = .input(action: .type(text: text))
+                
+                // Use clipboard (Pasteboard) to type text to avoid keyboard layout issues
+                DispatchQueue.main.sync {
+                    let pasteboard = NSPasteboard.general
+                    pasteboard.clearContents()
+                    pasteboard.setString(text, forType: .string)
+                }
+                
+                // Simulate Cmd+V to paste the text
+                primaryAction = .input(action: .press(keyName: "v", flags: CGEventFlags.maskCommand))
                 options.pidForTraversal = convertedPid  // Re-affirm
 
             // ... (Other existing cases) ...
@@ -4053,14 +4062,24 @@ func setupAndStartServer() async throws -> Server {
                 options.pidForTraversal = convertedPid
 
             case dragDropTool.name:
-                let startX = try getRequiredDouble(from: params.arguments, key: "startX")
-                let startY = try getRequiredDouble(from: params.arguments, key: "startY")
+                let startXRaw = try getRequiredDouble(from: params.arguments, key: "startX")
+                let startYRaw = try getRequiredDouble(from: params.arguments, key: "startY")
                 let endX = try getRequiredDouble(from: params.arguments, key: "endX")
                 let endY = try getRequiredDouble(from: params.arguments, key: "endY")
                 let steps = try getOptionalInt(from: params.arguments, key: "steps") ?? 10
 
+                // Adjust start coordinates if they hit the traffic lights
+                let (startX, startY) = adjustDragStartCoordinateIfNeeded(x: startXRaw, y: startYRaw)
+
                 let start = CGPoint(x: startX, y: startY)
                 let end = CGPoint(x: endX, y: endY)
+
+                // Move mouse to start position and wait ~1 second before grabbing
+                let mouseMove = CGEvent(
+                    mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: start,
+                    mouseButton: .left)
+                mouseMove?.post(tap: .cghidEventTap)
+                try? await Task.sleep(nanoseconds: 1_000_000_000)  // 1s pause
 
                 // Mouse down at start position
                 let mouseDown = CGEvent(

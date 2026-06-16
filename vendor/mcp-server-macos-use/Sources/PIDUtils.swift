@@ -31,3 +31,62 @@ func resolvePid(_ pid: Int?, x: CGFloat? = nil, y: CGFloat? = nil) -> Int {
     }
     return 0
 }
+
+// --- Helper to adjust drag start coordinates to avoid traffic lights ---
+func adjustDragStartCoordinateIfNeeded(x: Double, y: Double) -> (Double, Double) {
+    let systemWideElement = AXUIElementCreateSystemWide()
+    var element: AXUIElement?
+    let error = AXUIElementCopyElementAtPosition(systemWideElement, Float(x), Float(y), &element)
+    
+    if error == .success, let element = element {
+        // Traverse up to find the window
+        var currentElement = element
+        while true {
+            var role: CFTypeRef?
+            if AXUIElementCopyAttributeValue(currentElement, kAXRoleAttribute as CFString, &role) == .success,
+               let roleStr = role as? String, roleStr == "AXWindow" {
+                
+                // Found the window! Get its position and size
+                var positionRef: CFTypeRef?
+                var sizeRef: CFTypeRef?
+                
+                if AXUIElementCopyAttributeValue(currentElement, kAXPositionAttribute as CFString, &positionRef) == .success,
+                   AXUIElementCopyAttributeValue(currentElement, kAXSizeAttribute as CFString, &sizeRef) == .success {
+                    
+                    var position = CGPoint.zero
+                    var size = CGSize.zero
+                    
+                    AXValueGetValue(positionRef as! AXValue, .cgPoint, &position)
+                    AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
+                    
+                    // Check if the original (x, y) is in the "traffic light" danger zone
+                    // Top-left corner of the window. Traffic lights are within the first 100 pixels horizontally
+                    // and 40 pixels vertically.
+                    let relativeX = x - Double(position.x)
+                    let relativeY = y - Double(position.y)
+                    
+                    if relativeX >= 0 && relativeX < 100 && relativeY >= 0 && relativeY < 40 {
+                        // It's in the danger zone. Adjust X to the center of the window title bar
+                        let newX = Double(position.x) + Double(size.width) / 2.0
+                        let newY = Double(position.y) + 15.0 // Safe vertical spot in the title bar
+                        
+                        debugLog("log: adjustDragStartCoordinate: shifting drag start from (\(x), \(y)) to safe title bar area (\(newX), \(newY))\n", stderr)
+                        return (newX, newY)
+                    }
+                }
+                break
+            }
+            
+            // Go to parent
+            var parentRef: CFTypeRef?
+            if AXUIElementCopyAttributeValue(currentElement, kAXParentAttribute as CFString, &parentRef) == .success,
+               let parent = parentRef {
+                currentElement = parent as! AXUIElement
+            } else {
+                break
+            }
+        }
+    }
+    
+    return (x, y)
+}
