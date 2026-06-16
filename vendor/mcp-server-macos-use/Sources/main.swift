@@ -1386,7 +1386,7 @@ func setupAndStartServer() async throws -> Server {
             ]),
             "pid": .object([
                 "type": .string("number"),
-                "description": .string("PID of target app. Used for: (1) window-targeted capture instead of full screen — produces smaller images and saves tokens, (2) accessibility tree traversal. Defaults to frontmost app."),
+                "description": .string("PID of target app. Pass a valid PID to capture only that app's window (saves tokens). Pass 0 to capture the current frontmost app. If omitted, captures the ENTIRE SCREEN (expensive)."),
             ]),
             "diff": .object([
                 "type": .string("boolean"),
@@ -4096,9 +4096,12 @@ func setupAndStartServer() async throws -> Server {
                 // Try window-targeted capture first if PID is provided (smaller image = fewer tokens)
                 var capturedImage: CGImage?
                 var usedWindowCapture = false
-                if let pid = targetPid, pid > 0, let convertedPid = pid_t(exactly: pid) {
-                    capturedImage = captureWindow(pid: convertedPid)
-                    usedWindowCapture = (capturedImage != nil)
+                if let pidArg = targetPid {
+                    let actualPid = resolvePid(pidArg)
+                    if actualPid > 0, let convertedPid = pid_t(exactly: actualPid) {
+                        capturedImage = captureWindow(pid: convertedPid)
+                        usedWindowCapture = (capturedImage != nil)
+                    }
                 }
                 // Fallback to full-screen capture
                 if capturedImage == nil {
