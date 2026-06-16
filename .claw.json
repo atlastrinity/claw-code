@@ -10,18 +10,10 @@
     "edit_file",
     "glob_search",
     "grep_search",
-    "WebFetch",
-    "WebSearch",
     "TodoWrite",
     "Skill",
     "ToolSearch",
-    "MCP",
-    "macos-use_vision",
-    "macos-use_click_and_traverse",
-    "macos-use_type_and_traverse",
-    "macos-use_press_key_and_traverse",
-    "macos-use_scroll_and_traverse",
-    "macos-use_open_application_and_traverse"
+    "macos-use_vision"
   ],
   "mcpServers": {
     "macos-use": {

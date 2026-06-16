@@ -5284,8 +5284,14 @@ func setupAndStartServer() async throws -> Server {
                         set frontProcess to first process whose frontmost is true
                         try
                             set windowName to name of front window of frontProcess
-                            set windowBounds to bounds of front window of frontProcess
-                            return windowName & "|" & (item 1 of windowBounds as string) & "," & (item 2 of windowBounds as string) & "," & (item 3 of windowBounds as string) & "," & (item 4 of windowBounds as string)
+                            try
+                                set windowBounds to bounds of front window of frontProcess
+                                return windowName & "|" & (item 1 of windowBounds as string) & "," & (item 2 of windowBounds as string) & "," & (item 3 of windowBounds as string) & "," & (item 4 of windowBounds as string)
+                            on error
+                                set wPos to position of front window of frontProcess
+                                set wSize to size of front window of frontProcess
+                                return windowName & "|" & (item 1 of wPos as string) & "," & (item 2 of wPos as string) & "," & (((item 1 of wPos) + (item 1 of wSize)) as string) & "," & (((item 2 of wPos) + (item 2 of wSize)) as string)
+                            end try
                         on error
                             return (name of frontProcess) & "|N/A,N/A,N/A,N/A"
                         end try
