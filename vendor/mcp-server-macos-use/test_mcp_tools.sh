@@ -157,11 +157,7 @@ EXPECTED_TOOLS=(
     "macos-use_window_management"
     "execute_command"
     "terminal"
-    "macos-use_take_screenshot"
-    "screenshot"
-    "macos-use_analyze_screen"
-    "ocr"
-    "analyze"
+
     "macos-use_set_clipboard"
     "macos-use_get_clipboard"
     "macos-use_system_control"
@@ -323,71 +319,7 @@ TOOL_REQ='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"macos-
 RESPONSE=$(send_mcp_request "$TEST_NAME" "$INIT_REQ" "$TOOL_REQ")
 check_response "$TEST_NAME" "$RESPONSE" "ownerName" || true
 
-# -----------------------------------------------------------------------------
-# Test 14: macos-use_take_screenshot
-# -----------------------------------------------------------------------------
-TEST_NAME="14. macos-use_take_screenshot"
-TOOL_REQ='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"macos-use_take_screenshot","arguments":{}}}'
-RESPONSE=$(send_mcp_request "$TEST_NAME" "$INIT_REQ" "$TOOL_REQ" 15)
-# Base64 encoded JPEG should start with /9j/ or similar
-if echo "$RESPONSE" | grep -qE '(\/9j\/|JFIF|isError.*false|Failed to capture screen|isError.*true)'; then
-    echo -e "${GREEN}[PASS]${NC} $TEST_NAME (base64 image returned)"
-    PASSED=$((PASSED + 1))
-    RESULTS+=("PASS: $TEST_NAME")
-else
-    echo -e "${RED}[FAIL]${NC} $TEST_NAME - No valid base64 image found"
-    FAILED=$((FAILED + 1))
-    RESULTS+=("FAIL: $TEST_NAME")
-fi
 
-# -----------------------------------------------------------------------------
-# Test 15: screenshot alias
-# -----------------------------------------------------------------------------
-TEST_NAME="15. screenshot alias"
-TOOL_REQ='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"screenshot","arguments":{}}}'
-RESPONSE=$(send_mcp_request "$TEST_NAME" "$INIT_REQ" "$TOOL_REQ" 15)
-if echo "$RESPONSE" | grep -qE '(\/9j\/|JFIF|isError.*false|Failed to capture screen|isError.*true)'; then
-    echo -e "${GREEN}[PASS]${NC} $TEST_NAME"
-    PASSED=$((PASSED + 1))
-    RESULTS+=("PASS: $TEST_NAME")
-else
-    echo -e "${RED}[FAIL]${NC} $TEST_NAME"
-    FAILED=$((FAILED + 1))
-    RESULTS+=("FAIL: $TEST_NAME")
-fi
-
-# -----------------------------------------------------------------------------
-# Test 16: macos-use_analyze_screen (OCR)
-# -----------------------------------------------------------------------------
-TEST_NAME="16. macos-use_analyze_screen (OCR)"
-TOOL_REQ='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"macos-use_analyze_screen","arguments":{}}}'
-RESPONSE=$(send_mcp_request "$TEST_NAME" "$INIT_REQ" "$TOOL_REQ" 20)
-# OCR should return JSON array with text, confidence, coordinates
-if echo "$RESPONSE" | grep -qE '(confidence|text|\[\])'; then
-    echo -e "${GREEN}[PASS]${NC} $TEST_NAME (OCR results returned)"
-    PASSED=$((PASSED + 1))
-    RESULTS+=("PASS: $TEST_NAME")
-else
-    echo -e "${RED}[FAIL]${NC} $TEST_NAME - No OCR results"
-    FAILED=$((FAILED + 1))
-    RESULTS+=("FAIL: $TEST_NAME")
-fi
-
-# -----------------------------------------------------------------------------
-# Test 17: ocr alias
-# -----------------------------------------------------------------------------
-TEST_NAME="17. ocr alias"
-TOOL_REQ='{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"ocr","arguments":{}}}'
-RESPONSE=$(send_mcp_request "$TEST_NAME" "$INIT_REQ" "$TOOL_REQ" 20)
-if echo "$RESPONSE" | grep -qE '(confidence|text|\[\])'; then
-    echo -e "${GREEN}[PASS]${NC} $TEST_NAME"
-    PASSED=$((PASSED + 1))
-    RESULTS+=("PASS: $TEST_NAME")
-else
-    echo -e "${RED}[FAIL]${NC} $TEST_NAME"
-    FAILED=$((FAILED + 1))
-    RESULTS+=("FAIL: $TEST_NAME")
-fi
 
 # -----------------------------------------------------------------------------
 # Test 18: macos-use_run_applescript

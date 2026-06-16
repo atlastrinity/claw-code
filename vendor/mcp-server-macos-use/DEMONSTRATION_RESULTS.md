@@ -16,7 +16,6 @@
 4. **macos-use_system_control** - System volume/brightness control
 5. **macos-use_get_time** - Time with timezone support
 6. **macos-use_list_running_apps** - Process listing
-7. **macos-use_take_screenshot** - Screenshot capture
 8. **macos-use_process_management** - Advanced process control
 9. **macos-use_system_monitoring** - Real-time system monitoring
 10. **macos-use_list_tools_dynamic** - Dynamic tool listing

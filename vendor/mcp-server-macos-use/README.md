@@ -121,6 +121,5 @@ Happy to tailor the server for your needs, feel free to open an issue or reach o
   - `macos-use_list_running_apps` - Lists all running applications with PIDs and metadata
   - `macos-use_list_browser_tabs` - Lists open browser tabs with titles and URLs  
   - `macos-use_list_all_windows` - Lists all open windows with positions
-- Enhanced **Vision/OCR** capabilities with `macos-use_analyze_screen`
 - Total tools increased from 39 to 42
 - Improved system state monitoring for better verification capabilities

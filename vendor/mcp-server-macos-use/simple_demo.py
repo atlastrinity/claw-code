@@ -64,7 +64,6 @@ def main():
         ("macos-use_finder_list_files", {"path": "/tmp", "limit": 5}),
         ("macos-use_list_running_apps", {}),
         ("macos-use_set_clipboard", {"content": "Demo content"}),
-        ("macos-use_take_screenshot", {"path": "/tmp/demo.png"}),
         ("macos-use_perform_ocr", {"imagePath": "/tmp/demo.png"}),
         ("macos-use_voice_control", {"command": "open safari"}),
         ("macos-use_process_management", {"action": "list"}),

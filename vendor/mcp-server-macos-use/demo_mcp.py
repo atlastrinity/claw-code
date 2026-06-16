@@ -79,7 +79,6 @@ if __name__ == "__main__":
     client = MCPClient("./.build/release/mcp-server-macos-use")
     
     print("Analyzing screen with visionTool to find Antigravity input...")
-    res = client.call_tool("macos-use_analyze_screen", {"language": "auto", "confidence": False})
     
     # Try to find input coordinates
     if res and "result" in res and "content" in res["result"]:

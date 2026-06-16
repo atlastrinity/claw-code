@@ -86,7 +86,6 @@ async def demo_all_tools():
         ("macos-use_get_clipboard", {}),
         ("macos-use_clipboard_history", {"action": "list", "limit": 5}),
         # Screenshots & OCR (3 tools)
-        ("macos-use_take_screenshot", {"path": "/tmp/demo_screenshot.png", "format": "png"}),
         ("macos-use_perform_ocr", {"imagePath": "/tmp/demo_screenshot.png"}),
         ("macos-use_analyze_ui", {"imagePath": "/tmp/demo_screenshot.png"}),
         # NEW: Advanced Tools (5 tools)
