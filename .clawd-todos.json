@@ -1,22 +1,87 @@
 [
   {
-    "content": "Plan the WiFi utility using networksetup commands",
-    "activeForm": "Projecting the WiFi utility structure and commands",
-    "status": "in_progress"
-  },
-  {
-    "content": "Implement the utility in Python/Bash in .sandbox-tmp/",
-    "activeForm": "Writing the script to .sandbox-tmp/",
+    "content": "Initialize a new Tauri project in the network-manager-ui directory",
+    "activeForm": "Initialize a new Tauri project in the network-manager-ui directory",
     "status": "pending"
   },
   {
-    "content": "Test the script with a dry-run mode and timeout",
-    "activeForm": "Dry-run and verification",
+    "content": "Set up React, TypeScript, and Vite for the frontend",
+    "activeForm": "Set up React, TypeScript, and Vite for the frontend",
     "status": "pending"
   },
   {
-    "content": "Run the script to display current Wi-Fi status",
-    "activeForm": "Final execution",
+    "content": "Set up Tailwind CSS for rapid UI styling",
+    "activeForm": "Set up Tailwind CSS for rapid UI styling",
+    "status": "pending"
+  },
+  {
+    "content": "Set up the Rust backend (add dependencies: libusb/rusb, serde, tokio)",
+    "activeForm": "Set up the Rust backend (add dependencies: libusb/rusb, serde, tokio)",
+    "status": "pending"
+  },
+  {
+    "content": "Create a network/scanner.rs module for obtaining a list of available Wi-Fi networks",
+    "activeForm": "Create a network/scanner.rs module for obtaining a list of available Wi-Fi networks",
+    "status": "pending"
+  },
+  {
+    "content": "Create a hardware/alfa.rs module for detecting the connected Alfa USB modem and reading its parameters (MAC address, status)",
+    "activeForm": "Create a hardware/alfa.rs module for detecting the connected Alfa USB modem and reading its parameters (MAC address, status)",
+    "status": "pending"
+  },
+  {
+    "content": "Create a system/stats.rs module for obtaining real-time upload/download speed and ping",
+    "activeForm": "Create a system/stats.rs module for obtaining real-time upload/download speed and ping",
+    "status": "pending"
+  },
+  {
+    "content": "Set up Tauri IPC commands for passing data from Rust to React",
+    "activeForm": "Set up Tauri IPC commands for passing data from Rust to React",
+    "status": "pending"
+  },
+  {
+    "content": "Create Dashboard.tsx — main screen with key indicators",
+    "activeForm": "Create Dashboard.tsx — main screen with key indicators",
+    "status": "pending"
+  },
+  {
+    "content": "Integrate a charting library (e.g., Recharts)",
+    "activeForm": "Integrate a charting library (e.g., Recharts)",
+    "status": "pending"
+  },
+  {
+    "content": "Create SignalBars.tsx — widgets showing signal level as stylish animated bars",
+    "activeForm": "Create SignalBars.tsx — widgets showing signal level as stylish animated bars",
+    "status": "pending"
+  },
+  {
+    "content": "Create HardwareStatus.tsx — panel for displaying the status of the connected Alfa modem",
+    "activeForm": "Create HardwareStatus.tsx — panel for displaying the status of the connected Alfa modem",
+    "status": "pending"
+  },
+  {
+    "content": "Connect frontend components to Tauri IPC functions for displaying real data",
+    "activeForm": "Connect frontend components to Tauri IPC functions for displaying real data",
+    "status": "pending"
+  },
+  {
+    "content": "Test the network scanner on the target OS",
+    "activeForm": "Test the network scanner on the target OS",
+    "status": "pending"
+  },
+  {
+    "content": "Verify the correctness of the widgets (graphical bars) when network speed changes",
+    "activeForm": "Verify the correctness of the widgets (graphical bars) when network speed changes",
+    "status": "pending"
+  },
+  {
+    "content": "Connect the Alfa modem and ensure the utility sees it and interacts correctly",
+    "activeForm": "Connect the Alfa modem and ensure the utility sees it and interacts correctly",
+    "status": "pending"
+  },
+  {
+    "content": "Polish the UI/UX (animations, color scheme \"hacker/cyberpunk\" or dark theme)",
+    "activeForm": "Polish the UI/UX (animations, color scheme \"hacker/cyberpunk\" or dark theme)",
     "status": "pending"
   }
 ]

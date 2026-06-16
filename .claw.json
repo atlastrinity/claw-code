@@ -1,16 +1,9 @@
 {
-  "model": "local/gemini-2.5-flash",
   "aliases": {
-    "quick": "local/google/gemma-4-31b-it:free",
+    "quick": "local/nvidia/nemotron-3-super-120b-a12b:free",
     "llama": "local/meta-llama/llama-3.3-70b-instruct:free"
   },
   "allowedTools": [
-    "mcp__macos-use__macos-use_take_screenshot",
-    "mcp__macos-use__macos-use_refresh_traversal",
-    "mcp__macos-use__macos-use_click_and_traverse",
-    "mcp__macos-use__macos-use_type_and_traverse",
-    "mcp__macos-use__macos-use_scroll_and_traverse",
-    "mcp__macos-use__macos-use_press_key_and_traverse",
     "bash",
     "read_file",
     "write_file",
@@ -22,7 +15,6 @@
     "TodoWrite",
     "Skill",
     "ToolSearch",
-    "AskUserQuestion",
     "MCP"
   ],
   "mcpServers": {

@@ -147,10 +147,57 @@ func performOCR(on image: CGImage, language: String = "auto", includeConfidence:
     request.recognitionLevel = .accurate
     request.usesLanguageCorrection = true
 
+    // Apply language hints to improve OCR accuracy for non-English text
+    switch language.lowercased() {
+    case "en": request.recognitionLanguages = ["en-US"]
+    case "uk": request.recognitionLanguages = ["uk-UA", "en-US"]
+    case "ru": request.recognitionLanguages = ["ru-RU", "en-US"]
+    case "auto": break // Let Vision framework auto-detect
+    default: break
+    }
+
     let handler = VNImageRequestHandler(cgImage: image, options: [:])
     try? handler.perform([request])
 
     return elements
+}
+
+/// Merges adjacent OCR elements that are on the same visual line (within `tolerance` px vertical distance).
+/// Vision framework sometimes splits a single text line into multiple observations.
+/// This reduces output token count by consolidating them.
+func mergeAdjacentOCRElements(_ elements: [VisionElement], tolerance: Double = 8.0) -> [VisionElement] {
+    guard !elements.isEmpty else { return [] }
+    // Sort by Y (top-to-bottom), then X (left-to-right)
+    let sorted = elements.sorted { a, b in
+        if abs(a.y - b.y) < tolerance { return a.x < b.x }
+        return a.y < b.y
+    }
+    var merged: [VisionElement] = []
+    var current = sorted[0]
+    for i in 1..<sorted.count {
+        let next = sorted[i]
+        // Same line: within vertical tolerance
+        if abs(next.y - current.y) < tolerance {
+            // Merge: extend bounding box, concatenate text
+            let minX = min(current.x, next.x)
+            let maxRight = max(current.x + current.width, next.x + next.width)
+            let minY = min(current.y, next.y)
+            let maxBottom = max(current.y + current.height, next.y + next.height)
+            current = VisionElement(
+                text: current.text + " " + next.text,
+                confidence: nil,
+                x: minX,
+                y: minY,
+                width: maxRight - minX,
+                height: maxBottom - minY
+            )
+        } else {
+            merged.append(current)
+            current = next
+        }
+    }
+    merged.append(current)
+    return merged
 }
 
 // --- Helper for Shell execution ---
@@ -725,6 +772,31 @@ func captureMainDisplay(monitor: Int? = nil) -> CGImage? {
     return CGDisplayCreateImage(displays[idx])
 }
 
+/// Captures only the window owned by the given PID, instead of the full screen.
+/// Returns nil if no on-screen window is found for this PID.
+/// This produces a much smaller image than full-screen capture, saving tokens.
+func captureWindow(pid: pid_t) -> CGImage? {
+    guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+        return nil
+    }
+    // Find the first on-screen window for this PID (prefer largest)
+    var bestWindow: (id: CGWindowID, area: CGFloat) = (0, 0)
+    for windowInfo in windowList {
+        guard let ownerPID = windowInfo[kCGWindowOwnerPID as String] as? Int,
+              ownerPID == Int(pid),
+              let windowID = windowInfo[kCGWindowNumber as String] as? CGWindowID,
+              let bounds = windowInfo[kCGWindowBounds as String] as? [String: CGFloat],
+              let w = bounds["Width"], let h = bounds["Height"] else {
+            continue
+        }
+        let area = w * h
+        if area > bestWindow.area {
+            bestWindow = (windowID, area)
+        }
+    }
+    guard bestWindow.id != 0 else { return nil }
+    return CGWindowListCreateImage(.null, .optionIncludingWindow, bestWindow.id, [.boundsIgnoreFraming])
+}
 
 
 // --- Helper for safe AppleScript string escaping ---
@@ -1097,14 +1169,18 @@ func setupAndStartServer() async throws -> Server {
             ]),
             "maxDimension": .object([
                 "type": .string("number"),
-                "description": .string("Optional: Maximum width or height in pixels before downscaling (default: 1280). Use lower values (e.g. 800) to further reduce token usage. Use higher values (e.g. 1920) for fine detail."),
+                "description": .string("Optional: Maximum width or height in pixels before downscaling (default: 1024). Use lower values (e.g. 800) to further reduce token usage. Use higher values (e.g. 1920) for fine detail."),
+            ]),
+            "compact": .object([
+                "type": .string("boolean"),
+                "description": .string("Optional: When true, OCR returns only text lines without coordinates. Drastically reduces token count when coordinate info is not needed (default: false)."),
             ]),
         ]),
     ])
     let screenshotTool = Tool(
         name: "macos-use_take_screenshot",
         description:
-            "Takes a screenshot. Automatically downscales Retina displays to max 1280px to reduce token usage. Supports region selection, multi-monitor, OCR, and optional image suppression (includeImage: false for OCR-only mode).",
+            "Takes a screenshot. Automatically downscales Retina displays to max 1024px to reduce token usage. Supports region selection, multi-monitor, OCR, compact mode, and optional image suppression (includeImage: false for OCR-only mode).",
         inputSchema: screenshotSchema
     )
     let screenshotAliasTool = Tool(
@@ -1158,8 +1234,65 @@ func setupAndStartServer() async throws -> Server {
     let visionTool = Tool(
         name: "macos-use_analyze_screen",
         description:
-            "Captures the screen and runs OCR. Automatically downscales to max 1280px before processing for speed. Supports region selection, language hints, confidence scores, and multiple output formats. For pure text extraction, use format: 'text' to minimize response size.",
+            "Captures the screen and runs OCR. Automatically downscales to max 1024px before processing for speed. Supports region selection, language hints, confidence scores, and multiple output formats. For pure text extraction, use format: 'text' to minimize response size.",
         inputSchema: visionSchema
+    )
+
+    // *** NEW: Unified Vision Tool — combines screenshot + OCR + accessibility in one call ***
+    let unifiedVisionSchema: Value = .object([
+        "type": .string("object"),
+        "properties": .object([
+            "mode": .object([
+                "type": .string("string"),
+                "description": .string("Vision mode: 'smart' (default, auto-decides image inclusion based on OCR richness), 'ocr' (text only, minimum tokens), 'image' (screenshot only), 'full' (image + OCR)."),
+                "enum": .array([.string("smart"), .string("ocr"), .string("image"), .string("full")]),
+            ]),
+            "region": .object([
+                "type": .string("object"),
+                "description": .string("Optional region: {x, y, width, height}"),
+                "properties": .object([
+                    "x": .object(["type": .string("number")]),
+                    "y": .object(["type": .string("number")]),
+                    "width": .object(["type": .string("number")]),
+                    "height": .object(["type": .string("number")]),
+                ]),
+            ]),
+            "monitor": .object([
+                "type": .string("number"),
+                "description": .string("Optional monitor index (0 for main)."),
+            ]),
+            "maxDimension": .object([
+                "type": .string("number"),
+                "description": .string("Max width/height in px before downscaling (default: 1024)."),
+            ]),
+            "quality": .object([
+                "type": .string("string"),
+                "description": .string("JPEG quality: 'low', 'medium' (default), 'high'."),
+                "enum": .array([.string("low"), .string("medium"), .string("high")]),
+            ]),
+            "language": .object([
+                "type": .string("string"),
+                "description": .string("OCR language hint: 'en', 'uk', 'ru', 'auto' (default)."),
+                "enum": .array([.string("en"), .string("uk"), .string("ru"), .string("auto")]),
+            ]),
+            "compact": .object([
+                "type": .string("boolean"),
+                "description": .string("When true, OCR returns only text lines without coordinates (default: false)."),
+            ]),
+            "withAccessibility": .object([
+                "type": .string("boolean"),
+                "description": .string("When true, also returns the accessibility tree of the frontmost app in the same call (default: false)."),
+            ]),
+            "pid": .object([
+                "type": .string("number"),
+                "description": .string("PID of target app. Used for: (1) window-targeted capture instead of full screen — produces smaller images and saves tokens, (2) accessibility tree traversal. Defaults to frontmost app."),
+            ]),
+        ]),
+    ])
+    let unifiedVisionTool = Tool(
+        name: "macos-use_vision",
+        description: "Unified vision tool. Modes: 'smart' (auto-decides if image needed based on OCR richness — best default), 'ocr' (text only, minimal tokens), 'image' (screenshot only), 'full' (image + OCR). When PID is provided, captures only that window instead of full screen for token savings. Supports region selection, language hints, compact output, and optional accessibility tree in a single call.",
+        inputSchema: unifiedVisionSchema
     )
 
     // *** NEW: Schema and Tool for Press Key ***
@@ -2406,6 +2539,7 @@ func setupAndStartServer() async throws -> Server {
         screenshotTool,
         screenshotAliasTool,
         visionTool,
+        unifiedVisionTool,
         pressKeyTool,
         scrollTool,
         rightClickTool,
@@ -3585,13 +3719,14 @@ func setupAndStartServer() async throws -> Server {
                 let region = try getOptionalObject(from: params.arguments, key: "region")
                 let monitor = try getOptionalInt(from: params.arguments, key: "monitor")
                 let quality =
-                    try getOptionalString(from: params.arguments, key: "quality") ?? "high"
+                    try getOptionalString(from: params.arguments, key: "quality") ?? "medium"
                 let format = try getOptionalString(from: params.arguments, key: "format") ?? "jpg"
                 let ocr = try getOptionalBool(from: params.arguments, key: "ocr") ?? false
                 // When OCR is requested, default to NOT sending the image — text is enough and saves tokens
                 let includeImage = try getOptionalBool(from: params.arguments, key: "includeImage") ?? !ocr
-                let rawMaxDim = try getOptionalDouble(from: params.arguments, key: "maxDimension") ?? 1280.0
+                let rawMaxDim = try getOptionalDouble(from: params.arguments, key: "maxDimension") ?? 1024.0
                 let maxDimension = CGFloat(rawMaxDim)
+                let compact = try getOptionalBool(from: params.arguments, key: "compact") ?? false
 
                 guard let image = captureMainDisplay(monitor: monitor) else {
                     debugLog("error: screenshot: Capture failed, checking permissions...\n", stderr)
@@ -3689,7 +3824,8 @@ func setupAndStartServer() async throws -> Server {
                     var content: [Tool.Content] = []
 
                     if includeImage {
-                        guard let base64 = encodeBase64JPEG(image: displayImage, quality: quality, maxDimension: maxDimension) else {
+                        // displayImage is already resized — pass .infinity to skip redundant resize in encodeBase64JPEG
+                        guard let base64 = encodeBase64JPEG(image: displayImage, quality: quality, maxDimension: CGFloat.infinity) else {
                             return .init(content: [.text("Failed to encode screenshot")], isError: true)
                         }
                         content.append(.image(data: base64, mimeType: "image/jpeg", metadata: nil))
@@ -3700,16 +3836,28 @@ func setupAndStartServer() async throws -> Server {
                     }
 
                     if ocr {
-                        let ocrResults = performOCR(on: displayImage)
-                        // Return text with compact bounding boxes for AI consumption
-                        let textContent = ocrResults.map { 
-                            "[x: \(Int($0.x)), y: \(Int($0.y)), w: \(Int($0.width)), h: \(Int($0.height))] \"\($0.text)\"" 
-                        }.joined(separator: "\n")
+                        let rawOCR = performOCR(on: displayImage)
+                        let ocrResults = mergeAdjacentOCRElements(rawOCR)
                         
-                        if !textContent.isEmpty {
-                            content.append(.text("OCR Results (with coordinates):\n\(textContent)"))
+                        if compact {
+                            // Compact: text only, no coordinates — minimal tokens
+                            let textContent = ocrResults.map { $0.text }.joined(separator: "\n")
+                            if !textContent.isEmpty {
+                                content.append(.text("OCR:\n\(textContent)"))
+                            } else {
+                                content.append(.text("OCR: no text detected on screen"))
+                            }
                         } else {
-                            content.append(.text("OCR: no text detected on screen"))
+                            // Standard: compact coordinates with text
+                            let textContent = ocrResults.map { 
+                                "\(Int($0.x)),\(Int($0.y)),\(Int($0.width)),\(Int($0.height))|\($0.text)" 
+                            }.joined(separator: "\n")
+                            
+                            if !textContent.isEmpty {
+                                content.append(.text("OCR (x,y,w,h|text):\n\(textContent)"))
+                            } else {
+                                content.append(.text("OCR: no text detected on screen"))
+                            }
                         }
                     }
 
@@ -3758,21 +3906,23 @@ func setupAndStartServer() async throws -> Server {
                     }
                 }
 
-                // Downscale to max 1280px — Vision OCR works well at this resolution and it's faster
-                let ocrImage = resizeImageIfNeeded(image: finalImage, maxDimension: 1280)
+                // Downscale to max 1024px — Vision OCR works well at this resolution and it's faster
+                let ocrImage = resizeImageIfNeeded(image: finalImage, maxDimension: 1024)
 
-                let ocrResults = performOCR(
+                let rawOCR = performOCR(
                     on: ocrImage, language: language, includeConfidence: confidence)
+                let ocrResults = mergeAdjacentOCRElements(rawOCR)
 
                 switch format.lowercased() {
                 case "text":
+                    // Compact format: x,y,w,h|text — optimized for minimal token usage
                     let plainText = ocrResults.map { 
-                        "[x: \(Int($0.x)), y: \(Int($0.y)), w: \(Int($0.width)), h: \(Int($0.height))] \"\($0.text)\"" 
+                        "\(Int($0.x)),\(Int($0.y)),\(Int($0.width)),\(Int($0.height))|\($0.text)" 
                     }.joined(separator: "\n")
                     return .init(content: [.text(plainText)], isError: false)
                 case "both":
                     let textContent = ocrResults.map { 
-                        "[x: \(Int($0.x)), y: \(Int($0.y)), w: \(Int($0.width)), h: \(Int($0.height))] \"\($0.text)\"" 
+                        "\(Int($0.x)),\(Int($0.y)),\(Int($0.width)),\(Int($0.height))|\($0.text)" 
                     }.joined(separator: "\n")
                     if let jsonString = serializeToJsonString(ocrResults) {
                         let combined = "Text:\n\(textContent)\n\nJSON:\n\(jsonString)"
@@ -3787,6 +3937,149 @@ func setupAndStartServer() async throws -> Server {
                     }
                     return .init(content: [.text(jsonString)], isError: false)
                 }
+
+            case unifiedVisionTool.name:
+                // Clear any red bounding boxes from MacosUseSDK before capturing screen
+                await Task { @MainActor in
+                    for window in NSApplication.shared.windows {
+                        if window.styleMask == [.borderless] && window.level == .floating && !window.isOpaque {
+                            window.close()
+                        }
+                    }
+                }.value
+
+                let mode = try getOptionalString(from: params.arguments, key: "mode") ?? "smart"
+                let region = try getOptionalObject(from: params.arguments, key: "region")
+                let monitor = try getOptionalInt(from: params.arguments, key: "monitor")
+                let rawMaxDim = try getOptionalDouble(from: params.arguments, key: "maxDimension") ?? 1024.0
+                let maxDimension = CGFloat(rawMaxDim)
+                let quality = try getOptionalString(from: params.arguments, key: "quality") ?? "medium"
+                let language = try getOptionalString(from: params.arguments, key: "language") ?? "auto"
+                let compact = try getOptionalBool(from: params.arguments, key: "compact") ?? false
+                let withAccessibility = try getOptionalBool(from: params.arguments, key: "withAccessibility") ?? false
+                let targetPid = try getOptionalInt(from: params.arguments, key: "pid")
+
+                // Try window-targeted capture first if PID is provided (smaller image = fewer tokens)
+                var capturedImage: CGImage?
+                var usedWindowCapture = false
+                if let pid = targetPid, pid > 0, let convertedPid = pid_t(exactly: pid) {
+                    capturedImage = captureWindow(pid: convertedPid)
+                    usedWindowCapture = (capturedImage != nil)
+                }
+                // Fallback to full-screen capture
+                if capturedImage == nil {
+                    capturedImage = captureMainDisplay(monitor: monitor)
+                }
+                guard let capturedImage = capturedImage else {
+                    if #available(macOS 11.0, *) {
+                        if !CGPreflightScreenCaptureAccess() {
+                            openSystemSettings(for: .screenRecording)
+                            return .init(content: [.text("Screen Recording access denied. Enable in System Settings > Privacy & Security > Screen Recording.")], isError: true)
+                        }
+                    }
+                    return .init(content: [.text("Failed to capture screen.")], isError: true)
+                }
+
+                // Apply region selection if specified
+                var finalImage = capturedImage
+                if let regionDict = region {
+                    if let xValue = regionDict["x"], let yValue = regionDict["y"],
+                        let widthValue = regionDict["width"],
+                        let heightValue = regionDict["height"],
+                        let x = xValue.doubleValue, let y = yValue.doubleValue,
+                        let width = widthValue.doubleValue, let height = heightValue.doubleValue
+                    {
+                        let rect = CGRect(x: x, y: y, width: width, height: height)
+                        if let croppedImage = capturedImage.cropping(to: rect) {
+                            finalImage = croppedImage
+                        }
+                    }
+                }
+
+                // Downscale for AI consumption
+                let processedImage = resizeImageIfNeeded(image: finalImage, maxDimension: maxDimension)
+
+                // Determine what to include based on mode
+                let needsOCR = (mode != "image")
+                let smartThreshold = 3 // If OCR finds fewer than this many elements, include the image
+
+                var ocrResults: [VisionElement] = []
+                if needsOCR {
+                    let rawOCR = performOCR(on: processedImage, language: language)
+                    ocrResults = mergeAdjacentOCRElements(rawOCR)
+                }
+
+                // Smart mode: decide image inclusion based on OCR richness
+                let includeImage: Bool
+                switch mode.lowercased() {
+                case "ocr": includeImage = false
+                case "image": includeImage = true
+                case "full": includeImage = true
+                case "smart": includeImage = ocrResults.count < smartThreshold
+                default: includeImage = ocrResults.count < smartThreshold
+                }
+
+                var content: [Tool.Content] = []
+
+                // Image
+                if includeImage {
+                    // processedImage is already resized — pass .infinity to skip redundant resize
+                    guard let base64 = encodeBase64JPEG(image: processedImage, quality: quality, maxDimension: CGFloat.infinity) else {
+                        return .init(content: [.text("Failed to encode screenshot")], isError: true)
+                    }
+                    content.append(.image(data: base64, mimeType: "image/jpeg", metadata: nil))
+                    let scaleNote = (processedImage.width < capturedImage.width)
+                        ? " (downscaled from \(capturedImage.width)x\(capturedImage.height) to \(processedImage.width)x\(processedImage.height))"
+                        : " (\(capturedImage.width)x\(capturedImage.height))"
+                    let captureType = usedWindowCapture ? "Window screenshot" : "Screenshot"
+                    content.append(.text("\(captureType)\(scaleNote)"))
+                }
+
+                // OCR
+                if needsOCR && !ocrResults.isEmpty {
+                    if compact {
+                        let textContent = ocrResults.map { $0.text }.joined(separator: "\n")
+                        content.append(.text("OCR:\n\(textContent)"))
+                    } else {
+                        let textContent = ocrResults.map {
+                            "\(Int($0.x)),\(Int($0.y)),\(Int($0.width)),\(Int($0.height))|\($0.text)"
+                        }.joined(separator: "\n")
+                        content.append(.text("OCR (x,y,w,h|text):\n\(textContent)"))
+                    }
+                } else if needsOCR {
+                    content.append(.text("OCR: no text detected on screen"))
+                }
+
+                // Smart mode annotation
+                if mode == "smart" {
+                    let reason = includeImage
+                        ? "image included (only \(ocrResults.count) OCR element\(ocrResults.count == 1 ? "" : "s") found — likely graphical content)"
+                        : "image skipped (\(ocrResults.count) OCR elements found — text is sufficient)"
+                    content.append(.text("[smart: \(reason)]"))
+                }
+
+                // Accessibility tree (optional, in same call)
+                if withAccessibility {
+                    let axPid = resolvePid(try getOptionalInt(from: params.arguments, key: "pid"))
+                    if let convertedPid = pid_t(exactly: axPid) {
+                        var axOptions = ActionOptions()
+                        axOptions.traverseAfter = true
+                        axOptions.onlyVisibleElements = true
+                        axOptions.pidForTraversal = convertedPid
+                        let axResult: ActionResult = await Task { @MainActor in
+                            await performAction(action: .traverseOnly, optionsInput: axOptions)
+                        }.value
+                        if let axJson = serializeToJsonString(axResult) {
+                            content.append(.text("Accessibility:\n\(axJson)"))
+                        }
+                    }
+                }
+
+                if content.isEmpty {
+                    content.append(.text("Vision: no data captured"))
+                }
+
+                return .init(content: content, isError: false)
 
             case scrollTool.name:
                 let direction = try getRequiredString(from: params.arguments, key: "direction")
