@@ -2844,7 +2844,8 @@ func setupAndStartServer() async throws -> Server {
                 if toolsWithActivation.contains(params.name) {
                     if let app = NSRunningApplication(processIdentifier: pid_t(convertedPid)) {
                         app.activate(options: .activateIgnoringOtherApps)
-                        try? await Task.sleep(nanoseconds: 50_000_000) // 50ms to let it focus
+                        let delayNanoseconds: UInt64 = (params.name == dragDropTool.name) ? 1_000_000_000 : 250_000_000
+                        try? await Task.sleep(nanoseconds: delayNanoseconds)
                     }
                 }
             }
