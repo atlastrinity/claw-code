@@ -15,7 +15,13 @@
     "TodoWrite",
     "Skill",
     "ToolSearch",
-    "MCP"
+    "MCP",
+    "macos-use_vision",
+    "macos-use_click_and_traverse",
+    "macos-use_type_and_traverse",
+    "macos-use_press_key_and_traverse",
+    "macos-use_scroll_and_traverse",
+    "macos-use_open_application_and_traverse"
   ],
   "mcpServers": {
     "macos-use": {
