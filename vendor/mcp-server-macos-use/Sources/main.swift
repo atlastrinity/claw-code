@@ -1016,11 +1016,16 @@ func getOptionalInt(from args: [String: Value]?, key: String) throws -> Int? {
 func getOptionalBool(from args: [String: Value]?, key: String) throws -> Bool? {
     guard let value = args?[key] else { return nil }  // Key not present
     if value.isNull { return nil }  // Explicit null
-    guard let boolValue = value.boolValue else {
-        throw MCPError.invalidParams(
-            "Invalid type for optional boolean argument: '\(key)', expected Bool, got \(value)")
+    if let boolValue = value.boolValue { return boolValue }
+    
+    // Add string parsing to handle cases where LLMs pass "true" or "false"
+    if let strValue = value.stringValue {
+        if strValue.lowercased() == "true" { return true }
+        if strValue.lowercased() == "false" { return false }
     }
-    return boolValue
+    
+    throw MCPError.invalidParams(
+        "Invalid type for optional boolean argument: '\(key)', expected Bool, got \(value)")
 }
 
 func getOptionalString(from args: [String: Value]?, key: String) throws -> String? {
@@ -5240,9 +5245,13 @@ func setupAndStartServer() async throws -> Server {
                 let script = """
                     tell application "System Events"
                         set frontProcess to first process whose frontmost is true
-                        set windowName to name of front window of frontProcess
-                        set windowBounds to bounds of front window of frontProcess
-                        return windowName & "|" & (item 1 of windowBounds as string) & "," & (item 2 of windowBounds as string) & "," & (item 3 of windowBounds as string) & "," & (item 4 of windowBounds as string)
+                        try
+                            set windowName to name of front window of frontProcess
+                            set windowBounds to bounds of front window of frontProcess
+                            return windowName & "|" & (item 1 of windowBounds as string) & "," & (item 2 of windowBounds as string) & "," & (item 3 of windowBounds as string) & "," & (item 4 of windowBounds as string)
+                        on error
+                            return (name of frontProcess) & "|N/A,N/A,N/A,N/A"
+                        end try
                     end tell
                     """
                 let (success, output, error) = await runAppleScript(script, timeout: 5.0)
