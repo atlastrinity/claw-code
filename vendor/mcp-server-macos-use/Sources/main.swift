@@ -10,7 +10,7 @@ import UserNotifications
 import Vision
 
 // --- Persistent State ---
-var persistentCWD: String = FileManager.default.currentDirectoryPath
+nonisolated(unsafe) var persistentCWD: String = FileManager.default.currentDirectoryPath
 
 // Dummy log function to silence verbose startup text
 func debugLog(_ msg: String, _ file: UnsafeMutablePointer<FILE>?) {}
@@ -169,7 +169,7 @@ struct VisionCacheEntry {
     var ocrResults: [VisionElement]
     var compact: Bool
 }
-var visionCache: [String: VisionCacheEntry] = [:]
+nonisolated(unsafe) var visionCache: [String: VisionCacheEntry] = [:]
 
 func computeOCRDiff(old: [VisionElement], new: [VisionElement]) -> (added: [VisionElement], removed: [VisionElement], unchangedCount: Int) {
     var added: [VisionElement] = []
@@ -423,14 +423,14 @@ func openSystemSettings(for category: PrivacyCategory) {
 
 
 // --- Interactive Environment Check ---
-var isInteractive: Bool {
+let isInteractive: Bool = {
     // When running as MCP server via stdio (child of node/bridge), stdin is a pipe not a TTY.
     // In that mode, we should NOT open System Settings windows or show interactive prompts.
     return isatty(STDIN_FILENO) != 0
-}
+}()
 
 // --- Persistent EventStore ---
-let eventStore = EKEventStore()
+nonisolated(unsafe) let eventStore = EKEventStore()
 
 // --- Helper for EventKit Permissions ---
 func requestCalendarAccess(openSettings: Bool = true) async -> Bool {
@@ -1089,11 +1089,11 @@ func setupAndStartServer() async throws -> Server {
             ]),
             "x": .object([
                 "type": .string("number"),
-                "description": .string("REQUIRED. X coordinate for the click."),
+                "description": .string("REQUIRED. Absolute pixel X coordinate for the click (e.g., 960). DO NOT use normalized 0.0-1.0 values."),
             ]),
             "y": .object([
                 "type": .string("number"),
-                "description": .string("REQUIRED. Y coordinate for the click."),
+                "description": .string("REQUIRED. Absolute pixel Y coordinate for the click (e.g., 1000). DO NOT use normalized 0.0-1.0 values."),
             ]),
             "showAnimation": .object([
                 "type": .string("boolean"),
@@ -1318,10 +1318,10 @@ func setupAndStartServer() async throws -> Server {
                     "OPTIONAL. PID of the target application. Defaults to frontmost app."),
             ]),
             "x": .object([
-                "type": .string("number"), "description": .string("REQUIRED. Screen X coordinate."),
+                "type": .string("number"), "description": .string("REQUIRED. Absolute pixel Screen X coordinate. DO NOT use normalized 0.0-1.0 values."),
             ]),
             "y": .object([
-                "type": .string("number"), "description": .string("REQUIRED. Screen Y coordinate."),
+                "type": .string("number"), "description": .string("REQUIRED. Absolute pixel Screen Y coordinate. DO NOT use normalized 0.0-1.0 values."),
             ]),
             "activateApp": .object([
                 "type": .string("boolean"),
@@ -1350,16 +1350,16 @@ func setupAndStartServer() async throws -> Server {
                     "OPTIONAL. PID of the target application. Defaults to frontmost app."),
             ]),
             "startX": .object([
-                "type": .string("number"), "description": .string("REQUIRED. Start X coordinate."),
+                "type": .string("number"), "description": .string("REQUIRED. Absolute pixel Start X coordinate. DO NOT use normalized 0.0-1.0 values."),
             ]),
             "startY": .object([
-                "type": .string("number"), "description": .string("REQUIRED. Start Y coordinate."),
+                "type": .string("number"), "description": .string("REQUIRED. Absolute pixel Start Y coordinate. DO NOT use normalized 0.0-1.0 values."),
             ]),
             "endX": .object([
-                "type": .string("number"), "description": .string("REQUIRED. End X coordinate."),
+                "type": .string("number"), "description": .string("REQUIRED. Absolute pixel End X coordinate. DO NOT use normalized 0.0-1.0 values."),
             ]),
             "endY": .object([
-                "type": .string("number"), "description": .string("REQUIRED. End Y coordinate."),
+                "type": .string("number"), "description": .string("REQUIRED. Absolute pixel End Y coordinate. DO NOT use normalized 0.0-1.0 values."),
             ]),
             "steps": .object([
                 "type": .string("number"),
@@ -1403,10 +1403,10 @@ func setupAndStartServer() async throws -> Server {
                 ]),
             ]),
             "x": .object([
-                "type": .string("number"), "description": .string("Optional X for move."),
+                "type": .string("number"), "description": .string("Optional absolute pixel X for move. DO NOT use normalized values."),
             ]),
             "y": .object([
-                "type": .string("number"), "description": .string("Optional Y for move."),
+                "type": .string("number"), "description": .string("Optional absolute pixel Y for move. DO NOT use normalized values."),
             ]),
             "width": .object([
                 "type": .string("number"), "description": .string("Optional Width for resize."),
@@ -2389,11 +2389,11 @@ func setupAndStartServer() async throws -> Server {
 struct MCPServer {
     // Main entry point - Async
     // MARK: - Permission Check
-    private static var isInteractive: Bool {
+    private static let isInteractive: Bool = {
         // When running as MCP server via stdio (child of node/bridge), stdin is a pipe not a TTY.
         // In that mode, we should NOT open System Settings windows or show interactive prompts.
         return isatty(STDIN_FILENO) != 0
-    }
+    }()
 
     private static func preflightPermissions() async {
         // Request Calendar/Reminders access at startup to trigger TCC dialog.
