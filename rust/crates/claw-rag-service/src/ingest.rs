@@ -217,3 +217,86 @@ fn repo_id_for_workspace(workspace: &Path) -> String {
         .to_string();
     format!("{name}-{h}", name = name, h = &hash[..8])
 }
+
+// ---------------------------------------------------------------------------
+// Single-document incremental ingest (used by `POST /v1/ingest` endpoint)
+// ---------------------------------------------------------------------------
+
+/// Stats returned after ingesting a single document via the HTTP API.
+#[derive(Debug, Default)]
+pub struct SingleIngestStats {
+    pub chunks: usize,
+    pub embeddings: usize,
+}
+
+/// Ingest a single document into the RAG index.
+///
+/// This replaces any previous content stored under `path`, then chunks, embeds,
+/// and writes the new content.  Designed for the `POST /v1/ingest` HTTP handler
+/// so agents can incrementally persist summaries / decisions during long
+/// sessions without re-running the full CLI `ingest` command.
+pub async fn chunk_and_embed_single(
+    conn: &rusqlite::Connection,
+    path: &str,
+    content: &str,
+    client: &Client,
+    cfg: &EmbedConfig,
+) -> Result<SingleIngestStats, String> {
+    // Remove previous chunks/embeddings for this path.
+    delete_file_and_chunks(conn, path)?;
+
+    let pieces = chunk_text(content, CHUNK_CHARS, CHUNK_OVERLAP);
+    if pieces.is_empty() {
+        return Ok(SingleIngestStats::default());
+    }
+
+    let mut stats = SingleIngestStats::default();
+    let mut batch: Vec<(i32, String)> = Vec::new();
+
+    for (ord, piece) in pieces.into_iter().enumerate() {
+        stats.chunks += 1;
+        let ord_i32 = i32::try_from(ord).map_err(|_| "too many chunks".to_string())?;
+        batch.push((ord_i32, piece));
+        if batch.len() >= EMBED_BATCH {
+            flush_single_batch(conn, path, &mut batch, client, cfg, &mut stats).await?;
+        }
+    }
+    flush_single_batch(conn, path, &mut batch, client, cfg, &mut stats).await?;
+
+    // Record file metadata so future `file_is_unchanged` checks work.
+    let content_hash = blake3::hash(content.as_bytes()).to_hex().to_string();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| i64::try_from(d.as_millis()).unwrap_or(0))
+        .unwrap_or(0);
+    let size_bytes = i64::try_from(content.len()).unwrap_or(0);
+    upsert_file_meta(conn, path, &content_hash, size_bytes, now_ms, now_ms)?;
+
+    Ok(stats)
+}
+
+async fn flush_single_batch(
+    conn: &rusqlite::Connection,
+    path: &str,
+    batch: &mut Vec<(i32, String)>,
+    client: &Client,
+    cfg: &EmbedConfig,
+    stats: &mut SingleIngestStats,
+) -> Result<(), String> {
+    if batch.is_empty() {
+        return Ok(());
+    }
+    let texts: Vec<String> = batch.iter().map(|(_, t)| t.clone()).collect();
+    let vecs = embed_batch(client, cfg, &texts).await?;
+    if vecs.len() != batch.len() {
+        return Err("embed batch size mismatch".into());
+    }
+    for ((ord, t), vec) in batch.drain(..).zip(vecs.into_iter()) {
+        let dim = vec.len();
+        let cid = insert_chunk(conn, path, ord, &t)?;
+        insert_embedding(conn, cid, dim, &vec)?;
+        stats.embeddings += 1;
+    }
+    Ok(())
+}
+

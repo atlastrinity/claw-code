@@ -1394,6 +1394,39 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
             }),
             required_permission: PermissionMode::ReadOnly,
         },
+        ToolSpec {
+            name: "retrieve_context",
+            description: "Semantic search over the workspace RAG index (requires a running claw-rag-service and RAG_BASE_URL env var). Returns paths and code snippets ranked by relevance to the query.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Natural-language search query" },
+                    "top_k": { "type": "integer", "description": "Max results (default 8, capped at 32)" }
+                },
+                "required": ["query"],
+                "additionalProperties": false
+            }),
+            required_permission: PermissionMode::ReadOnly,
+        },
+        ToolSpec {
+            name: "ingest_context",
+            description: "Incrementally embed text content into the workspace RAG index. Use to persist summaries of completed work, important decisions, or large outputs that would overflow the context window. The content becomes searchable via retrieve_context.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "path": { "type": "string", "description": "Virtual path/label for the content (e.g. 'session/summary-2024-06-17')" },
+                    "content": { "type": "string", "description": "Text content to embed and index" },
+                    "tags": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional tags for categorization (e.g. ['summary', 'decision'])"
+                    }
+                },
+                "required": ["path", "content"],
+                "additionalProperties": false
+            }),
+            required_permission: PermissionMode::WorkspaceWrite,
+        },
     ]
 }
 
@@ -1547,6 +1580,24 @@ fn execute_tool_with_enforcer(
         "GitLog" => from_value::<GitLogInput>(input).and_then(run_git_log),
         "GitShow" => from_value::<GitShowInput>(input).and_then(run_git_show),
         "GitBlame" => from_value::<GitBlameInput>(input).and_then(run_git_blame),
+        "retrieve_context" => {
+            maybe_enforce_permission_check_with_mode(
+                enforcer,
+                name,
+                input,
+                PermissionMode::ReadOnly,
+            )?;
+            from_value::<RetrieveContextInput>(input).and_then(run_retrieve_context)
+        }
+        "ingest_context" => {
+            maybe_enforce_permission_check_with_mode(
+                enforcer,
+                name,
+                input,
+                PermissionMode::WorkspaceWrite,
+            )?;
+            from_value::<IngestContextInput>(input).and_then(run_ingest_context)
+        }
         _ => Err(format!("unsupported tool: {name}")),
     }
 }
@@ -2230,6 +2281,175 @@ fn run_git_blame(input: GitBlameInput) -> Result<String, String> {
         })),
         None => Err(format!("git blame {} failed. Ensure the file exists and the directory is inside a git repository.", input.path)),
     }
+}
+
+// ---------------------------------------------------------------------------
+// RAG tools: retrieve_context + ingest_context
+// ---------------------------------------------------------------------------
+
+const RAG_QUERY_MAX_CHARS: usize = 12_000;
+const RAG_INGEST_MAX_BYTES: usize = 512_000;
+const RAG_HTTP_TIMEOUT_SECS: u64 = 30;
+const RAG_INGEST_TIMEOUT_SECS: u64 = 60;
+
+fn resolve_rag_base_url() -> Result<String, String> {
+    std::env::var("RAG_BASE_URL")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .ok_or_else(|| {
+            "RAG not configured: set RAG_BASE_URL env var (e.g. http://127.0.0.1:8787) and ensure claw-rag-service is running".to_string()
+        })
+}
+
+#[derive(Debug, Deserialize)]
+struct RetrieveContextInput {
+    query: String,
+    top_k: Option<u32>,
+}
+
+fn run_retrieve_context(input: RetrieveContextInput) -> Result<String, String> {
+    let base_url = resolve_rag_base_url()?;
+
+    let q = input.query.trim();
+    if q.is_empty() {
+        return Err("empty query".to_string());
+    }
+    if q.chars().count() > RAG_QUERY_MAX_CHARS {
+        return Err(format!(
+            "query too long (max {RAG_QUERY_MAX_CHARS} chars)"
+        ));
+    }
+
+    let top_k = input.top_k.unwrap_or(8).clamp(1, 32);
+    let base = base_url.trim_end_matches('/');
+    let url = format!("{base}/v1/query");
+    let body = json!({ "query": q, "top_k": top_k });
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(RAG_HTTP_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .map_err(|e| format!("RAG request failed: {e}"))?;
+
+    let status = resp.status();
+    let text = resp.text().map_err(|e| format!("RAG response body: {e}"))?;
+
+    if !status.is_success() {
+        return Err(format!("RAG HTTP {status}: {text}"));
+    }
+
+    format_rag_response_for_model(&text)
+}
+
+fn format_rag_response_for_model(body: &str) -> Result<String, String> {
+    let v: Value = serde_json::from_str(body).map_err(|e| format!("invalid RAG JSON: {e}"))?;
+    let phase = v
+        .get("phase")
+        .and_then(|x| x.as_str())
+        .unwrap_or("unknown");
+    let hits = v
+        .get("hits")
+        .and_then(|h| h.as_array())
+        .ok_or_else(|| "missing hits array in RAG response".to_string())?;
+
+    use std::fmt::Write;
+    let mut out = String::new();
+    writeln!(&mut out, "phase: {phase}").map_err(|e| e.to_string())?;
+
+    if hits.is_empty() {
+        writeln!(&mut out, "(no results)").map_err(|e| e.to_string())?;
+        return Ok(out);
+    }
+
+    for (i, h) in hits.iter().enumerate() {
+        let path = h.get("path").and_then(|x| x.as_str()).unwrap_or("");
+        let snippet = h.get("snippet").and_then(|x| x.as_str()).unwrap_or("");
+        let score = h.get("score").and_then(|x| x.as_f64());
+        write!(&mut out, "{}. ", i + 1).map_err(|e| e.to_string())?;
+        if let Some(s) = score {
+            write!(&mut out, "score={s:.4} ").map_err(|e| e.to_string())?;
+        }
+        writeln!(&mut out, "path={path}").map_err(|e| e.to_string())?;
+        for line in snippet.lines().take(32) {
+            writeln!(&mut out, "    {line}").map_err(|e| e.to_string())?;
+        }
+        writeln!(&mut out).map_err(|e| e.to_string())?;
+    }
+    Ok(out)
+}
+
+#[derive(Debug, Deserialize)]
+struct IngestContextInput {
+    path: String,
+    content: String,
+    #[allow(dead_code)]
+    tags: Option<Vec<String>>,
+}
+
+fn run_ingest_context(input: IngestContextInput) -> Result<String, String> {
+    let base_url = resolve_rag_base_url()?;
+
+    let path = input.path.trim();
+    if path.is_empty() {
+        return Err("empty path".to_string());
+    }
+    if input.content.trim().is_empty() {
+        return Err("empty content".to_string());
+    }
+    if input.content.len() > RAG_INGEST_MAX_BYTES {
+        return Err(format!(
+            "content too large (max {RAG_INGEST_MAX_BYTES} bytes)"
+        ));
+    }
+
+    let base = base_url.trim_end_matches('/');
+    let url = format!("{base}/v1/ingest");
+    let body = json!({
+        "path": path,
+        "content": input.content,
+        "tags": input.tags.unwrap_or_default(),
+    });
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(RAG_INGEST_TIMEOUT_SECS))
+        .build()
+        .map_err(|e| format!("HTTP client error: {e}"))?;
+
+    let resp = client
+        .post(&url)
+        .json(&body)
+        .send()
+        .map_err(|e| format!("RAG ingest failed: {e}"))?;
+
+    let status = resp.status();
+    let text = resp.text().map_err(|e| format!("RAG ingest response: {e}"))?;
+
+    if !status.is_success() {
+        return Err(format!("RAG ingest HTTP {status}: {text}"));
+    }
+
+    // Parse and format the success response for the model
+    let resp_json: Value =
+        serde_json::from_str(&text).unwrap_or(json!({ "status": "ok" }));
+    let chunks = resp_json.get("chunks").and_then(|v| v.as_u64()).unwrap_or(0);
+    let embeddings = resp_json
+        .get("embeddings")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
+
+    Ok(format!(
+        "Indexed content at path '{}' ({} bytes, {} chunks, {} embeddings). Content is now searchable via retrieve_context.",
+        path,
+        input.content.len(),
+        chunks,
+        embeddings
+    ))
 }
 
 fn from_value<T: for<'de> Deserialize<'de>>(input: &Value) -> Result<T, String> {

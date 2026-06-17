@@ -12,7 +12,8 @@ use axum::{
 };
 use clap::{Parser, Subcommand};
 use claw_rag_service::{
-    chunk_count, open_db, query_index, run_ingest, EmbedConfig, QueryRequest, QueryResponse,
+    chunk_and_embed_single, chunk_count, open_db, query_index, run_ingest, EmbedConfig,
+    QueryRequest, QueryResponse,
 };
 
 #[derive(Parser)]
@@ -68,6 +69,7 @@ fn rag_router(state: Arc<AppState>) -> Router {
         .route("/health", get(|| async { "ok" }))
         .route("/v1/stats", get(stats))
         .route("/v1/query", post(query))
+        .route("/v1/ingest", post(ingest_single))
         .with_state(state)
 }
 
@@ -161,6 +163,59 @@ async fn query(
         .await
         .map(Json)
         .map_err(|e| (StatusCode::BAD_REQUEST, e))
+}
+
+// ---------------------------------------------------------------------------
+// POST /v1/ingest — incremental single-document ingest
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+struct IngestSingleRequest {
+    path: String,
+    content: String,
+    #[serde(default)]
+    #[allow(dead_code)]
+    tags: Vec<String>,
+}
+
+async fn ingest_single(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<IngestSingleRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
+    let path = req.path.trim().to_string();
+    if path.is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "empty path".into()));
+    }
+    if req.content.trim().is_empty() {
+        return Err((StatusCode::BAD_REQUEST, "empty content".into()));
+    }
+    if req.content.len() > 512_000 {
+        return Err((StatusCode::BAD_REQUEST, "content too large (max 512 KB)".into()));
+    }
+
+    let db_path = state.db_path.clone();
+    let client = state.client.clone();
+    let cfg = state.cfg.clone();
+    let content = req.content;
+    let response_path = path.clone();
+
+    // `rusqlite::Connection` is !Send, so we run the whole ingest (DB + embedding)
+    // inside `spawn_blocking` and use `block_on` for the async embedding calls.
+    let handle = tokio::runtime::Handle::current();
+    let result = tokio::task::spawn_blocking(move || {
+        let conn = open_db(&db_path)?;
+        handle.block_on(chunk_and_embed_single(&conn, &path, &content, &client, &cfg))
+    })
+    .await
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("task join error: {e}")))?
+    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
+
+    Ok(Json(serde_json::json!({
+        "status": "ok",
+        "path": response_path,
+        "chunks": result.chunks,
+        "embeddings": result.embeddings,
+    })))
 }
 
 #[cfg(test)]

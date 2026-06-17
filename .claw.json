@@ -13,6 +13,7 @@
     "TodoWrite",
     "Skill",
     "retrieve_context",
+    "ingest_context",
     "ToolSearch",
     "macos-use_vision"
   ],

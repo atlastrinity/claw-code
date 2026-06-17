@@ -11,7 +11,7 @@ mod search;
 
 pub use db::{chunk_count, open_db};
 pub use embed::EmbedConfig;
-pub use ingest::{run_ingest, IngestStats};
+pub use ingest::{chunk_and_embed_single, run_ingest, IngestStats, SingleIngestStats};
 pub use search::query_index;
 
 use serde::{Deserialize, Serialize};
