@@ -5,7 +5,7 @@
 ## Принципы
 
 1. **RAG как сервис** — отдельный бинарь (сейчас `claw-rag-service`), свой жизненный цикл, свои секреты (embedding API), своё хранилище.
-2. **Агент только вызывает retrieval** — в **`claw-analog`** инструмент **`retrieve_context`** → HTTP `POST {RAG_BASE_URL}/v1/query` (база без суффикса `/v1`); лимиты **`rag_timeout_secs`**, **`rag_top_k_max`** в `.claw-analog.toml`; ответ для модели — фрагменты с `path` + `snippet` + `score`.
+2. **Агент вызывает retrieval и ingest** — в стандартном наборе инструментов **`retrieve_context`** (и **`ingest_context`**) → HTTP `POST {RAG_BASE_URL}/v1/query` и `/v1/ingest`; лимиты в конфиге; ответ для модели — фрагменты с `path` + `snippet` + `score` или статус индексации.
 3. **Веб‑UI** — минимальная страница **`GET /`** в `claw-rag-service` (stats + форма `POST /v1/query`); чат с моделью и «переиндексировать» из браузера — при необходимости позже.
 
 ## Компоненты (целевая картина)
@@ -35,6 +35,7 @@
 - `GET /health` — `ok`.
 - `GET /v1/stats` — `{ "chunks": N, "phase": "1-sqlite" }` (если БД ещё нет: `chunks: 0`, `phase`: `1-sqlite-no-db`).
 - `POST /v1/query` — тело `{"query":"...", "top_k":8}`; ответ `{"hits":[{"path","snippet","score"}], "phase":"1-sqlite"|"1-sqlite-empty"|"1-sqlite-no-db"}`.
+- `POST /v1/ingest` — тело `{"path":"...", "content":"...", "tags":[]}`; ответ `{"status":"ok", "chunks": N, "embeddings": N}`.
 
 Поиск: **линейный обход** всех векторов в SQLite (MVP; для больших репозиториев планировать Qdrant/sqlite-vec или батчевый ANN).
 
@@ -44,7 +45,7 @@
 cd D:\path\to\claw-code-main\rust
 $env:OPENAI_API_KEY = "sk-..."
 cargo run -p claw-rag-service -- ingest -w D:\path\to\repo --db D:\path\to\index.sqlite
-cargo run -p claw-analog -- ...   # при RAG_BASE_URL или rag_base_url в TOML — инструмент retrieve_context
+cargo run -p claw-analog -- ...   # при RAG_BASE_URL в ENV — инструменты retrieve_context и ingest_context
 ```
 
 Переменные окружения:
@@ -63,7 +64,7 @@ cargo run -p claw-analog -- ...   # при RAG_BASE_URL или rag_base_url в T
 | Фаза | Содержание |
 |------|------------|
 | 1 | ~~Ingest + SQLite + embeddings~~ (базово сделано; улучшения: инкремент, ANN, Docker-векторка). |
-| 2 | ~~Инструмент `retrieve_context`~~: `RAG_BASE_URL` / `rag_base_url`, `rag_timeout_secs`, `rag_top_k_max` в `.claw-analog.toml`. |
+| 2 | ~~Инструменты `retrieve_context` и `ingest_context`~~: активируются через `RAG_BASE_URL`. |
 | 3 | ~~Минимальный UI~~: `GET /` + те же `/v1/*` (дальше: чат, кнопка re-index из UI). |
 
 ## Риски и ограничения

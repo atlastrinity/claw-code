@@ -26,7 +26,7 @@
 | Автор автоматизации | Одноразовые промпты, пайплайны с `--output-format json`, встроенные агенты без bash. |
 | Сопровождение / аудит | `claw-analog` в **read-only** + пресет **audit**; явные лимиты и политика. |
 | Порт и parity | Сравнение поведения с эталоном (`PARITY.md`, mock-harness). |
-| RAG над монорепо | Отдельный `ingest` + `serve`; агент подключает контекст через **`retrieve_context`** при заданном `RAG_BASE_URL`. |
+| RAG над монорепо | Отдельный `ingest` + `serve`; агент подключает контекст через **`retrieve_context`** и **`ingest_context`** при заданном `RAG_BASE_URL`. |
 
 ---
 
@@ -46,7 +46,7 @@
 │  («claw»)    │              │              │              │ ingest / query   │
 └──────┬───────┘              └──────┬───────┘              └────────┬─────────┘
        │                              │                               │
-       │          crates/api          │         retrieve_context      │
+       │          crates/api          │ retrieve_context/ingest_context │
        │    runtime, tools, …         │         (POST /v1/query)      │
        └──────────────┬───────────────┴───────────────────────────────┘
                       │
@@ -75,7 +75,7 @@
 - **`api`** — клиенты провайдеров, стриминг, типы запросов/ответов.
 - **`runtime`** — сессии, конфиг, **PermissionPolicy** / **PermissionEnforcer**, промпты, MCP и др.
 - **`tools`** — встроенные инструменты полного CLI.
-- **`claw-analog`** — минимальный цикл: инструменты чтения/поиска/записи (по режиму), стриминг и JSON, TOML-конфиг, сессии, doctor, config validate, **retrieve_context** при наличии `RAG_BASE_URL` / `rag_base_url`.
+- **`claw-analog`** — минимальный цикл: инструменты чтения/поиска/записи (по режиму), стриминг и JSON, TOML-конфиг, сессии, doctor, config validate, **retrieve_context** / **ingest_context** при наличии `RAG_BASE_URL` / `rag_base_url`.
 - **`claw-rag-service`** — `ingest`, `serve`, маршруты `/`, `/health`, `/v1/stats`, `/v1/query`; SQLite + OpenAI-совместимые эмбеддинги (или mock для тестов).
 - **`mock-anthropic-service`**, **`compat-harness`** и др. — воспроизводимость и миграция.
 
@@ -87,7 +87,7 @@
 
 **Задача:** дать «агента с инструментами» без разрастания поверхности атаки (нет произвольного shell в базовом сценарии).
 
-**Инструменты (концептуально):** чтение и обход дерева (`read_file`, `list_dir`, `glob_workspace`), литеральный поиск (`grep_workspace` / `grep_search`), опционально `write_file`, опционально **`retrieve_context`** к RAG-сервису.
+**Инструменты (концептуально):** чтение и обход дерева (`read_file`, `list_dir`, `glob_workspace`), литеральный поиск (`grep_workspace` / `grep_search`), опционально `write_file`, опционально **`retrieve_context`** / **`ingest_context`** к RAG-сервису.
 
 **Не входит в минимальный дизайн:** MCP, плагины, bash — это зона **полного `claw`**.
 

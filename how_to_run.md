@@ -138,7 +138,7 @@ glob_max_depth = 32
 # rag_top_k_max = 32
 ```
 
-**RAG (`retrieve_context`):** если заданы **`RAG_BASE_URL`** (per-env) или непустой **`rag_base_url`** в `.claw-analog.toml`, в набор инструментов добавляется **`retrieve_context`** (семантический поиск по уже проиндексированному воркспейсу). Значение — корень HTTP сервиса, без суффикса `/v1` (запрос идёт на `{base}/v1/query`). Таймаут и верхняя граница **`top_k`** задаются **`rag_timeout_secs`** и **`rag_top_k_max`** (по умолчанию 30 с и 32; «жёсткий» потолок 256). Индексация по-прежнему отдельной командой **`claw-rag-service`**, см. [`docs/rag-web-ui.md`](docs/rag-web-ui.md).
+**RAG (`retrieve_context` и `ingest_context`):** если заданы **`RAG_BASE_URL`** (per-env) или непустой **`rag_base_url`** в `.claw-analog.toml`, в набор инструментов добавляются **`retrieve_context`** и **`ingest_context`** (семантический поиск и добавление контекста по воркспейсу). Значение — корень HTTP сервиса, без суффикса `/v1` (запрос идёт на `{base}/v1/query` или `{base}/v1/ingest`). Таймаут и верхняя граница **`top_k`** задаются **`rag_timeout_secs`** и **`rag_top_k_max`** (по умолчанию 30 с и 32; «жёсткий» потолок 256). Индексация по-прежнему отдельной командой **`claw-rag-service`**, см. [`docs/rag-web-ui.md`](docs/rag-web-ui.md).
 
 **`permission`** (как у полного `claw`, те же строки в TOML):
 
@@ -187,6 +187,7 @@ line = "Короткая подсказка стиля (одна строка в
 | `git_diff` | read-only+ | `git diff` (без цвета) внутри репозитория в `-w`. Опционально `cached` (staged), `rev_range`, `context_lines`, `paths`. Вывод ограничен `--max-read-bytes`. |
 | `git_log` | read-only+ | `git log` (без цвета) внутри репозитория в `-w`. Опционально `max_count` (по умолчанию 20), `rev_range`, `paths`. Вывод ограничен `--max-read-bytes`. |
 | `retrieve_context` | read-only+ | Только если задан **`RAG_BASE_URL`** или **`rag_base_url`** в TOML: HTTP **`POST {base}/v1/query`** к `claw-rag-service`, ответ — пути и сниппеты чанков (лимиты см. выше). |
+| `ingest_context` | workspace-write | Только если задан **`RAG_BASE_URL`** или **`rag_base_url`** в TOML: HTTP **`POST {base}/v1/ingest`** к `claw-rag-service`, добавление текста в индекс на лету. |
 | `write_file` | `workspace-write`, `danger-full-access` или `allow` | Запись файла; родительские каталоги создаются при необходимости (`prompt` не даёт записать через Enforcer) |
 
 ## Принципы работы
@@ -207,7 +208,7 @@ line = "Короткая подсказка стиля (одна строка в
 
 | `type` | Когда |
 |--------|--------|
-| `run_start` | Старт прогона: **`schema`** (`claw-analog-ndjson`), **`format_version`**, далее `workspace`, `model`, `stream`, `permission`, опционально `preset`, `session`, опционально `session_save`, булево **`rag_enabled`** (есть ли база для `retrieve_context`) |
+| `run_start` | Старт прогона: **`schema`** (`claw-analog-ndjson`), **`format_version`**, далее `workspace`, `model`, `stream`, `permission`, опционально `preset`, `session`, опционально `session_save`, булево **`rag_enabled`** (доступны ли RAG-инструменты) |
 | `turn_start` | Начало раунда с моделью (`turn`) |
 | `assistant_text_delta` | Только при `--stream`: фрагмент текста ассистента |
 | `assistant_turn` | Итог раунда: `stop_reason`, `usage`, полный `text`, массив `tool_calls` |
@@ -246,7 +247,7 @@ cargo test -p claw-analog
 
 ## Отдельно: `claw-rag-service` (RAG)
 
-Индексация воркспейса и HTTP API живут в **`cargo run -p claw-rag-service`** (`ingest` + `serve`). После `serve` откройте **`http://127.0.0.1:8787/`** — лёгкий UI (stats + поиск). К `claw-analog` подключается через **`RAG_BASE_URL`** / `retrieve_context`. Подробности и env: [`docs/rag-web-ui.md`](docs/rag-web-ui.md).
+Индексация воркспейса и HTTP API живут в **`cargo run -p claw-rag-service`** (`ingest` + `serve`). После `serve` откройте **`http://127.0.0.1:8787/`** — лёгкий UI (stats + поиск). К `claw-analog` подключается через **`RAG_BASE_URL`** / инструменты RAG. Подробности и env: [`docs/rag-web-ui.md`](docs/rag-web-ui.md).
 
 ### Ingest (один или несколько репозиториев)
 

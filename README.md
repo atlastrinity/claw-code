@@ -132,10 +132,14 @@ export ANTHROPIC_API_KEY="sk-ant-..."
 # 3. Verify everything is wired correctly
 ./target/debug/claw doctor
 
-# 4. Run a prompt
+# 4. (Optional) Run the RAG context server in a separate terminal
+# This enables agents to automatically index and retrieve code context
+cargo run -p claw-rag-service -- serve
+
+# 5. Run a prompt
 ./target/debug/claw prompt "say hello"
 
-# 5. Start an interactive session
+# 6. Start an interactive session
 ./target/debug/claw
 ```
 

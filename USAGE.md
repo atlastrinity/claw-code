@@ -199,13 +199,13 @@ cd rust
 ./target/debug/claw --model sonnet prompt "review this diff"
 ./target/debug/claw --permission-mode read-only prompt "summarize Cargo.toml"
 ./target/debug/claw --permission-mode workspace-write prompt "update README.md"
-./target/debug/claw --allowedTools read,glob "inspect the runtime crate"
+./target/debug/claw --tools read,glob "inspect the runtime crate"
 ./target/debug/claw --cwd ../other-workspace status --output-format json
 ```
 
 Global workspace override flags: `--cwd PATH`, `-C PATH`, and `--directory PATH` are accepted before any subcommand. They are validated before command dispatch and take precedence over the process `$PWD`; invalid paths return typed `invalid_cwd` JSON errors in JSON mode.
 
-`--allowedTools` accepts canonical snake_case tool names (for example `read_file`, `glob_search`, `web_fetch`) plus documented aliases such as `read`, `glob`, `Read`, and `WebFetch`. `claw status --output-format json` exposes `allowed_tools.available` and `allowed_tools.aliases`, and invalid values return typed `invalid_tool_name` JSON with `tool_name`, `available`, and `tool_aliases`. A missing value before a subcommand or another flag returns `missing_argument` with `argument:"--allowedTools"`.
+`--tools` accepts canonical snake_case tool names (for example `read_file`, `glob_search`, `web_fetch`) plus documented aliases such as `read`, `glob`, `Read`, and `WebFetch`. `claw status --output-format json` exposes `tools.available` and `tools.aliases`, and invalid values return typed `invalid_tool_name` JSON with `tool_name`, `available`, and `tool_aliases`. A missing value before a subcommand or another flag returns `missing_argument` with `argument:"--tools"`.
 
 `--output-format` accepts `text` or `json` case-insensitively and normalizes to the canonical lowercase modes. `CLAW_OUTPUT_FORMAT=json` sets the default output format for scripts, while an explicit `--output-format` flag takes precedence. Repeating the flag emits a stderr warning and JSON status envelopes expose `format_source`, `format_raw`, and `format_overridden` so composed flag arrays are auditable; invalid values return typed `invalid_output_format` JSON with `value` and `expected:["text","json"]`.
 
@@ -423,6 +423,39 @@ Model selection precedence is CLI flag, environment, config, then default. The e
 The API layer exposes a provider diagnostics snapshot via `api::provider_diagnostics_for_model(model)`. It reports the resolved provider, auth/base-url environment variables, default base URL, whether the provider uses the OpenAI-compatible wire format, whether reasoning tuning parameters are stripped, whether DeepSeek V4 reasoning history is preserved, proxy support, extra-body support, and whether slash-containing model IDs are preserved for custom OpenAI-compatible gateways.
 
 For gateway features that are not first-class request fields yet, `MessageRequest::extra_body` passes through provider-specific JSON parameters such as `web_search_options` or `parallel_tool_calls`. Core protocol fields (`model`, `messages`, `stream`, `tools`, `tool_choice`, `max_tokens`, and `max_completion_tokens`) are protected and cannot be overridden through `extra_body`.
+
+## Context Indexing (RAG)
+
+Claw supports a built-in Retrieval-Augmented Generation (RAG) system for massive workspaces. It runs as a background service and gives the agent autonomous access to codebase search.
+
+### RAG Service and Ingestion
+
+The workspace indexer and HTTP API are bundled in the `claw-rag-service` binary. You can run the server directly or trigger one-off workspace ingestion:
+
+```bash
+cd rust
+# Start the HTTP query API and background worker (runs on port 8787 by default)
+cargo run -p claw-rag-service -- serve
+
+# Or manually index the current workspace upfront
+cargo run -p claw-rag-service -- ingest --workspace /path/to/repo
+```
+
+### RAG Environment Variables
+
+To configure the embedding model used by the RAG service, use the following variables (defaults to OpenAI if unset):
+```bash
+export CLAW_RAG_EMBEDDING_BASE_URL="http://127.0.0.1:11434/v1" # E.g., local Ollama
+export CLAW_RAG_EMBEDDING_MODEL="nomic-embed-text:latest"
+export CLAW_RAG_OPENAI_API_KEY="ollama"
+```
+
+To enable the agent's RAG tools (`retrieve_context` and `ingest_context`) to connect to the service, you MUST set the `RAG_BASE_URL` in the environment where the agent runs:
+```bash
+export RAG_BASE_URL="http://127.0.0.1:8787"
+```
+
+When the `serve` process is running and `RAG_BASE_URL` is set, autonomous agents equipped with the `ingest_context` and `retrieve_context` tools (part of the standard `--tools` set) can automatically query the codebase and even chunk and embed new code directly into the local SQLite index on-the-fly, preventing context overflow during long-running sessions. The default SQLite database is stored at `.claw-rag/index.sqlite` and can be deleted to force a re-index.
 
 ## File context and navigation
 
