@@ -31,7 +31,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         ScenarioCase {
             name: "streaming_text",
             permission_mode: "read-only",
-            allowed_tools: None,
+            tools: None,
             stdin: None,
             prepare: prepare_noop,
             assert: assert_streaming_text,
@@ -41,7 +41,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         ScenarioCase {
             name: "read_file_roundtrip",
             permission_mode: "read-only",
-            allowed_tools: Some("read_file"),
+            tools: Some("read_file"),
             stdin: None,
             prepare: prepare_read_fixture,
             assert: assert_read_file_roundtrip,
@@ -51,7 +51,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         ScenarioCase {
             name: "grep_chunk_assembly",
             permission_mode: "read-only",
-            allowed_tools: Some("grep_search"),
+            tools: Some("grep_search"),
             stdin: None,
             prepare: prepare_grep_fixture,
             assert: assert_grep_chunk_assembly,
@@ -61,7 +61,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         ScenarioCase {
             name: "write_file_allowed",
             permission_mode: "workspace-write",
-            allowed_tools: Some("write_file"),
+            tools: Some("write_file"),
             stdin: None,
             prepare: prepare_noop,
             assert: assert_write_file_allowed,
@@ -71,7 +71,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         ScenarioCase {
             name: "write_file_denied",
             permission_mode: "read-only",
-            allowed_tools: Some("write_file"),
+            tools: Some("write_file"),
             stdin: None,
             prepare: prepare_noop,
             assert: assert_write_file_denied,
@@ -81,7 +81,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         ScenarioCase {
             name: "multi_tool_turn_roundtrip",
             permission_mode: "read-only",
-            allowed_tools: Some("read_file,grep_search"),
+            tools: Some("read_file,grep_search"),
             stdin: None,
             prepare: prepare_multi_tool_fixture,
             assert: assert_multi_tool_turn_roundtrip,
@@ -91,7 +91,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         ScenarioCase {
             name: "bash_stdout_roundtrip",
             permission_mode: "danger-full-access",
-            allowed_tools: Some("bash"),
+            tools: Some("bash"),
             stdin: None,
             prepare: prepare_noop,
             assert: assert_bash_stdout_roundtrip,
@@ -101,7 +101,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         ScenarioCase {
             name: "bash_permission_prompt_approved",
             permission_mode: "workspace-write",
-            allowed_tools: Some("bash"),
+            tools: Some("bash"),
             stdin: Some("y\n"),
             prepare: prepare_noop,
             assert: assert_bash_permission_prompt_approved,
@@ -111,7 +111,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         ScenarioCase {
             name: "bash_permission_prompt_denied",
             permission_mode: "workspace-write",
-            allowed_tools: Some("bash"),
+            tools: Some("bash"),
             stdin: Some("n\n"),
             prepare: prepare_noop,
             assert: assert_bash_permission_prompt_denied,
@@ -121,7 +121,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         ScenarioCase {
             name: "plugin_tool_roundtrip",
             permission_mode: "workspace-write",
-            allowed_tools: None,
+            tools: None,
             stdin: None,
             prepare: prepare_plugin_fixture,
             assert: assert_plugin_tool_roundtrip,
@@ -131,7 +131,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         ScenarioCase {
             name: "auto_compact_triggered",
             permission_mode: "read-only",
-            allowed_tools: None,
+            tools: None,
             stdin: None,
             prepare: prepare_noop,
             assert: assert_auto_compact_triggered,
@@ -141,7 +141,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         ScenarioCase {
             name: "token_cost_reporting",
             permission_mode: "read-only",
-            allowed_tools: None,
+            tools: None,
             stdin: None,
             prepare: prepare_noop,
             assert: assert_token_cost_reporting,
@@ -250,7 +250,7 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
 struct ScenarioCase {
     name: &'static str,
     permission_mode: &'static str,
-    allowed_tools: Option<&'static str>,
+    tools: Option<&'static str>,
     stdin: Option<&'static str>,
     prepare: fn(&HarnessWorkspace),
     assert: fn(&HarnessWorkspace, &ScenarioRun),
@@ -326,8 +326,8 @@ fn run_case(case: ScenarioCase, workspace: &HarnessWorkspace, base_url: &str) ->
             "--output-format=json",
         ]);
 
-    if let Some(allowed_tools) = case.allowed_tools {
-        command.args(["--allowedTools", allowed_tools]);
+    if let Some(tools) = case.tools {
+        command.args(["--tools", tools]);
     }
     if let Some((key, value)) = case.extra_env {
         command.env(key, value);

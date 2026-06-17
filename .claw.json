@@ -3,7 +3,7 @@
     "quick": "local/nvidia/nemotron-3-super-120b-a12b:free",
     "llama": "local/meta-llama/llama-3.3-70b-instruct:free"
   },
-  "allowedTools": [
+  "tools": [
     "bash",
     "read_file",
     "write_file",

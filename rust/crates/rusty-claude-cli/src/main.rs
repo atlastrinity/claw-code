@@ -299,8 +299,8 @@ const CLI_OPTION_SUGGESTIONS: &[&str] = &[
     "-C",
     "--skip-permissions",
     "--dangerously-skip-permissions",
-    "--allowedTools",
-    "--allowed-tools",
+    "--tools",
+    "--tools",
     "--resume",
     "--acp",
     "-acp",
@@ -321,7 +321,7 @@ fn should_reject_unknown_option_like(value: &str) -> bool {
             && suggest_closest_term(value, CLI_OPTION_SUGGESTIONS).is_some())
 }
 
-type AllowedToolSet = BTreeSet<String>;
+type ToolSet = BTreeSet<String>;
 type RuntimePluginStateBuildOutput = (
     Option<Arc<Mutex<RuntimeMcpState>>>,
     Vec<RuntimeToolDefinition>,
@@ -393,8 +393,8 @@ fn main() {
                 }
             } else if kind == "missing_argument" {
                 if let Some(object) = error_json.as_object_mut() {
-                    if message.contains("--allowedTools") {
-                        object.insert("argument".to_string(), serde_json::json!("--allowedTools"));
+                    if message.contains("--tools") {
+                        object.insert("argument".to_string(), serde_json::json!("--tools"));
                     } else if message.contains("prompt or subcommand") {
                         object.insert(
                             "argument".to_string(),
@@ -586,7 +586,7 @@ fn split_error_hint(message: &str) -> (String, Option<String>) {
 
 fn invalid_tool_name_details(message: &str) -> (Option<String>, Vec<String>, Value) {
     let tool_name = message
-        .strip_prefix("invalid_tool_name: unsupported tool in --allowedTools:")
+        .strip_prefix("invalid_tool_name: unsupported tool in --tools:")
         .and_then(|rest| rest.lines().next())
         .map(str::trim)
         .filter(|value| !value.is_empty())
@@ -844,8 +844,7 @@ fn global_flag_takes_value(flag: &str) -> bool {
             | "--permission-mode"
             | "--base-commit"
             | "--reasoning-effort"
-            | "--allowedTools"
-            | "--allowed-tools"
+            | "--tools"
     )
 }
 
@@ -855,8 +854,8 @@ fn global_flag_is_value_inline(flag: &str) -> bool {
         || flag.starts_with("--permission-mode=")
         || flag.starts_with("--base-commit=")
         || flag.starts_with("--reasoning-effort=")
-        || flag.starts_with("--allowedTools=")
-        || flag.starts_with("--allowed-tools=")
+        || flag.starts_with("--tools=")
+        || flag.starts_with("--tools=")
 }
 
 fn global_flag_without_value(flag: &str) -> bool {
@@ -1047,20 +1046,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             model_flag_raw,
             permission_mode,
             output_format,
-            allowed_tools,
+            tools,
         } => print_status_snapshot(
             &model,
             model_flag_raw.as_deref(),
             permission_mode,
             output_format,
-            allowed_tools.as_ref(),
+            tools.as_ref(),
         )?,
         CliAction::Sandbox { output_format } => print_sandbox_status_snapshot(output_format)?,
         CliAction::Prompt {
             prompt,
             model,
             output_format,
-            allowed_tools,
+            tools,
             permission_mode,
             compact,
             base_commit,
@@ -1081,7 +1080,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             };
             let effective_prompt = merge_prompt_with_stdin(&prompt, stdin_context.as_deref());
             let resolved_model = resolve_repl_model(model)?;
-            let mut cli = LiveCli::new(resolved_model, true, allowed_tools, permission_mode)?;
+            let mut cli = LiveCli::new(resolved_model, true, tools, permission_mode)?;
             cli.set_reasoning_effort(reasoning_effort);
             cli.run_turn_with_output(&effective_prompt, output_format, compact)?;
         }
@@ -1137,14 +1136,14 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         } => run_export(&session_reference, output_path.as_deref(), output_format)?,
         CliAction::Repl {
             model,
-            allowed_tools,
+            tools,
             permission_mode,
             base_commit,
             reasoning_effort,
             allow_broad_cwd,
         } => run_repl(
             model,
-            allowed_tools,
+            tools,
             permission_mode,
             base_commit,
             reasoning_effort,
@@ -1211,7 +1210,7 @@ enum CliAction {
         model_flag_raw: Option<String>,
         permission_mode: PermissionModeProvenance,
         output_format: CliOutputFormat,
-        allowed_tools: Option<AllowedToolSet>,
+        tools: Option<ToolSet>,
     },
     Sandbox {
         output_format: CliOutputFormat,
@@ -1220,7 +1219,7 @@ enum CliAction {
         prompt: String,
         model: String,
         output_format: CliOutputFormat,
-        allowed_tools: Option<AllowedToolSet>,
+        tools: Option<ToolSet>,
         permission_mode: PermissionMode,
         compact: bool,
         base_commit: Option<String>,
@@ -1263,7 +1262,7 @@ enum CliAction {
     },
     Repl {
         model: String,
-        allowed_tools: Option<AllowedToolSet>,
+        tools: Option<ToolSet>,
         permission_mode: PermissionMode,
         base_commit: Option<String>,
         reasoning_effort: Option<String>,
@@ -1716,28 +1715,28 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 rest.push("acp".to_string());
                 index += 1;
             }
-            "--allowedTools" | "--allowed-tools" => {
+            "--tools" => {
                 let value = args
                     .get(index + 1)
-                    .ok_or_else(allowed_tools_missing_error)?;
+                    .ok_or_else(tools_missing_error)?;
                 if value.starts_with('-') || is_known_top_level_subcommand(value) {
-                    return Err(allowed_tools_missing_error());
+                    return Err(tools_missing_error());
                 }
                 allowed_tool_values.push(value.clone());
                 index += 2;
             }
-            flag if flag.starts_with("--allowedTools=") => {
+            flag if flag.starts_with("--tools=") => {
                 let value = flag[15..].to_string();
                 if value.trim().is_empty() {
-                    return Err(allowed_tools_missing_error());
+                    return Err(tools_missing_error());
                 }
                 allowed_tool_values.push(value);
                 index += 1;
             }
-            flag if flag.starts_with("--allowed-tools=") => {
+            flag if flag.starts_with("--tools=") => {
                 let value = flag[16..].to_string();
                 if value.trim().is_empty() {
-                    return Err(allowed_tools_missing_error());
+                    return Err(tools_missing_error());
                 }
                 allowed_tool_values.push(value);
                 index += 1;
@@ -1806,7 +1805,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         return Ok(CliAction::Version { output_format });
     }
 
-    let allowed_tools = normalize_allowed_tools(&allowed_tool_values)?;
+    let tools = normalize_tools(&allowed_tool_values)?;
 
     // #755: -p consumed exactly one token; dispatch now that all flags are parsed
     if let Some(prompt) = short_p_prompt {
@@ -1814,7 +1813,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             prompt,
             model: resolve_model_alias_with_config(&model),
             output_format,
-            allowed_tools,
+            tools,
             permission_mode: permission_mode_override.unwrap_or_else(default_permission_mode),
             compact,
             base_commit,
@@ -1829,7 +1828,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
             prompt: rest.join(" "),
             model,
             output_format,
-            allowed_tools,
+            tools,
             permission_mode,
             compact,
             base_commit,
@@ -1856,7 +1855,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 return Ok(CliAction::Prompt {
                     model,
                     prompt: piped,
-                    allowed_tools,
+                    tools,
                     permission_mode,
                     output_format,
                     compact,
@@ -1878,7 +1877,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         }
         return Ok(CliAction::Repl {
             model,
-            allowed_tools,
+            tools,
             permission_mode,
             base_commit,
             reasoning_effort: reasoning_effort.clone(),
@@ -1910,7 +1909,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
         model_flag_raw.as_deref(),
         permission_mode_override,
         output_format,
-        allowed_tools.clone(),
+        tools.clone(),
     ) {
         return action;
     }
@@ -2106,7 +2105,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     prompt,
                     model,
                     output_format,
-                    allowed_tools,
+                    tools,
                     permission_mode: permission_mode(),
                     compact,
                     base_commit,
@@ -2198,7 +2197,7 @@ Usage: claw prompt <text>  or  echo '<text>' | claw prompt".to_string());
                 prompt,
                 model,
                 output_format,
-                allowed_tools,
+                tools,
                 permission_mode: permission_mode(),
                 compact,
                 base_commit: base_commit.clone(),
@@ -2210,7 +2209,7 @@ Usage: claw prompt <text>  or  echo '<text>' | claw prompt".to_string());
             &rest,
             model,
             output_format,
-            allowed_tools,
+            tools,
             permission_mode_provenance(),
             compact,
             base_commit,
@@ -2259,7 +2258,7 @@ Usage: claw prompt <text>  or  echo '<text>' | claw prompt".to_string());
                 prompt: joined,
                 model,
                 output_format,
-                allowed_tools,
+                tools,
                 permission_mode: permission_mode(),
                 compact,
                 base_commit,
@@ -2322,7 +2321,7 @@ fn parse_single_word_command_alias(
     model_flag_raw: Option<&str>,
     permission_mode_override: Option<PermissionMode>,
     output_format: CliOutputFormat,
-    allowed_tools: Option<AllowedToolSet>,
+    tools: Option<ToolSet>,
 ) -> Option<Result<CliAction, String>> {
     if rest.is_empty() {
         return None;
@@ -2462,7 +2461,7 @@ fn parse_single_word_command_alias(
                 .map(PermissionModeProvenance::from_flag)
                 .unwrap_or_else(permission_mode_provenance_for_current_dir),
             output_format,
-            allowed_tools,
+            tools,
         })),
         "sandbox" => Some(Ok(CliAction::Sandbox { output_format })),
         "doctor" => Some(Ok(CliAction::Doctor {
@@ -2576,7 +2575,7 @@ fn parse_direct_slash_cli_action(
     rest: &[String],
     model: String,
     output_format: CliOutputFormat,
-    allowed_tools: Option<AllowedToolSet>,
+    tools: Option<ToolSet>,
     permission_mode: PermissionModeProvenance,
     compact: bool,
     base_commit: Option<String>,
@@ -2591,7 +2590,7 @@ fn parse_direct_slash_cli_action(
             model_flag_raw: None,
             permission_mode,
             output_format,
-            allowed_tools,
+            tools,
         }),
         Ok(Some(SlashCommand::Sandbox)) => Ok(CliAction::Sandbox { output_format }),
         Ok(Some(SlashCommand::Diff)) => Ok(CliAction::Diff { output_format }),
@@ -2619,7 +2618,7 @@ fn parse_direct_slash_cli_action(
                     prompt,
                     model,
                     output_format,
-                    allowed_tools,
+                    tools,
                     permission_mode: permission_mode.mode,
                     compact,
                     base_commit,
@@ -2999,15 +2998,15 @@ fn config_alias_for_current_dir(alias: &str) -> Option<String> {
     config.aliases().get(alias).cloned()
 }
 
-fn normalize_allowed_tools(values: &[String]) -> Result<Option<AllowedToolSet>, String> {
+fn normalize_tools(values: &[String]) -> Result<Option<ToolSet>, String> {
     if values.is_empty() {
         return Ok(None);
     }
-    current_tool_registry()?.normalize_allowed_tools(values)
+    current_tool_registry()?.normalize_tools(values)
 }
 
-fn allowed_tools_missing_error() -> String {
-    "missing_argument: --allowedTools requires a tool list before subcommands or flags.\nUsage: --allowedTools <tool-name>[,<tool-name>...]  e.g. --allowedTools read,glob".to_string()
+fn tools_missing_error() -> String {
+    "missing_argument: --tools requires a tool list before subcommands or flags.\nUsage: --tools <tool-name>[,<tool-name>...]  e.g. --tools read,glob".to_string()
 }
 
 fn compact_missing_argument_error() -> String {
@@ -3123,7 +3122,7 @@ fn print_model_validation_warning_status(
     usage: StatusUsage,
     permission_mode: &str,
     context: &StatusContext,
-    allowed_tools: Option<&AllowedToolSet>,
+    tools: Option<&ToolSet>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let kind = classify_error_kind(error);
     let (short_reason, inline_hint) = split_error_hint(error);
@@ -3136,7 +3135,7 @@ fn print_model_validation_warning_status(
         context,
         None,
         None,
-        allowed_tools,
+        tools,
         Some(&format_selection),
     );
     let object = value
@@ -3172,9 +3171,9 @@ fn format_connected_line(model: &str) -> String {
 
 fn filter_tool_specs(
     tool_registry: &GlobalToolRegistry,
-    allowed_tools: Option<&AllowedToolSet>,
+    tools: Option<&ToolSet>,
 ) -> Vec<ToolDefinition> {
-    tool_registry.definitions(allowed_tools)
+    tool_registry.definitions(tools)
 }
 
 fn parse_system_prompt_args(
@@ -3615,7 +3614,7 @@ impl DoctorReport {
                 .iter()
                 .map(DiagnosticCheck::json_value)
                 .collect::<Vec<_>>(),
-            "allowed_tools": {
+            "tools": {
                 "available": tool_registry.canonical_allowed_tool_names(),
                 "aliases": allowed_tool_aliases_json(&tool_registry),
             },
@@ -7047,7 +7046,7 @@ fn run_stale_base_preflight(flag_value: Option<&str>) {
 #[allow(clippy::needless_pass_by_value)]
 fn run_repl(
     model: String,
-    allowed_tools: Option<AllowedToolSet>,
+    tools: Option<ToolSet>,
     permission_mode: PermissionMode,
     base_commit: Option<String>,
     reasoning_effort: Option<String>,
@@ -7056,7 +7055,7 @@ fn run_repl(
     enforce_broad_cwd_policy(allow_broad_cwd, CliOutputFormat::Text)?;
     run_stale_base_preflight(base_commit.as_deref());
     let resolved_model = resolve_repl_model(model)?;
-    let mut cli = LiveCli::new(resolved_model, true, allowed_tools, permission_mode)?;
+    let mut cli = LiveCli::new(resolved_model, true, tools, permission_mode)?;
     cli.set_reasoning_effort(reasoning_effort);
     let mut editor =
         input::LineEditor::new("> ", cli.repl_completion_candidates().unwrap_or_default());
@@ -7134,7 +7133,7 @@ struct ManagedSessionSummary {
 
 struct LiveCli {
     model: String,
-    allowed_tools: Option<AllowedToolSet>,
+    tools: Option<ToolSet>,
     permission_mode: PermissionMode,
     system_prompt: Vec<String>,
     runtime: BuiltRuntime,
@@ -7153,7 +7152,7 @@ struct RuntimePluginState {
     tool_registry: GlobalToolRegistry,
     plugin_registry: PluginRegistry,
     mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
-    config_allowed_tools: Option<AllowedToolSet>,
+    config_tools: Option<ToolSet>,
 }
 
 struct RuntimeMcpState {
@@ -7630,7 +7629,7 @@ impl LiveCli {
     fn new(
         model: String,
         enable_tools: bool,
-        allowed_tools: Option<AllowedToolSet>,
+        tools: Option<ToolSet>,
         permission_mode: PermissionMode,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let system_prompt = build_system_prompt(&model)?;
@@ -7643,13 +7642,13 @@ impl LiveCli {
             system_prompt.clone(),
             enable_tools,
             true,
-            allowed_tools.clone(),
+            tools.clone(),
             permission_mode,
             None,
         )?;
         let cli = Self {
             model,
-            allowed_tools,
+            tools,
             permission_mode,
             system_prompt,
             runtime,
@@ -7733,7 +7732,7 @@ impl LiveCli {
             self.system_prompt.clone(),
             true,
             emit_output,
-            self.allowed_tools.clone(),
+            self.tools.clone(),
             self.permission_mode,
             None,
         )?
@@ -8380,7 +8379,7 @@ impl LiveCli {
             self.system_prompt.clone(),
             true,
             true,
-            self.allowed_tools.clone(),
+            self.tools.clone(),
             self.permission_mode,
             None,
         )?;
@@ -8426,7 +8425,7 @@ impl LiveCli {
             self.system_prompt.clone(),
             true,
             true,
-            self.allowed_tools.clone(),
+            self.tools.clone(),
             self.permission_mode,
             None,
         )?;
@@ -8456,7 +8455,7 @@ impl LiveCli {
             self.system_prompt.clone(),
             true,
             true,
-            self.allowed_tools.clone(),
+            self.tools.clone(),
             self.permission_mode,
             None,
         )?;
@@ -8498,7 +8497,7 @@ impl LiveCli {
             self.system_prompt.clone(),
             true,
             true,
-            self.allowed_tools.clone(),
+            self.tools.clone(),
             self.permission_mode,
             None,
         )?;
@@ -8851,7 +8850,7 @@ impl LiveCli {
                     self.system_prompt.clone(),
                     true,
                     true,
-                    self.allowed_tools.clone(),
+                    self.tools.clone(),
                     self.permission_mode,
                     None,
                 )?;
@@ -8886,7 +8885,7 @@ impl LiveCli {
                     self.system_prompt.clone(),
                     true,
                     true,
-                    self.allowed_tools.clone(),
+                    self.tools.clone(),
                     self.permission_mode,
                     None,
                 )?;
@@ -8980,7 +8979,7 @@ impl LiveCli {
             self.system_prompt.clone(),
             true,
             true,
-            self.allowed_tools.clone(),
+            self.tools.clone(),
             self.permission_mode,
             None,
         )?;
@@ -9000,7 +8999,7 @@ impl LiveCli {
             self.system_prompt.clone(),
             true,
             true,
-            self.allowed_tools.clone(),
+            self.tools.clone(),
             self.permission_mode,
             None,
         )?;
@@ -9024,7 +9023,7 @@ impl LiveCli {
             self.system_prompt.clone(),
             enable_tools,
             false,
-            self.allowed_tools.clone(),
+            self.tools.clone(),
             self.permission_mode,
             progress,
         )?;
@@ -9516,7 +9515,7 @@ fn print_status_snapshot(
     model_flag_raw: Option<&str>,
     permission_mode: PermissionModeProvenance,
     output_format: CliOutputFormat,
-    allowed_tools: Option<&AllowedToolSet>,
+    tools: Option<&ToolSet>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let usage = StatusUsage {
         message_count: 0,
@@ -9542,7 +9541,7 @@ fn print_status_snapshot(
                     usage,
                     permission_mode.mode.as_str(),
                     &context,
-                    allowed_tools,
+                    tools,
                 );
             }
             CliOutputFormat::Text => return Err(error.into()),
@@ -9570,7 +9569,7 @@ fn print_status_snapshot(
                 &context,
                 Some(&provenance),
                 Some(&permission_mode),
-                allowed_tools,
+                tools,
                 Some(&format_selection),
             ))?
         ),
@@ -9590,7 +9589,7 @@ fn status_json_value(
     // case both new fields are omitted.
     provenance: Option<&ModelProvenance>,
     permission_provenance: Option<&PermissionModeProvenance>,
-    allowed_tools: Option<&AllowedToolSet>,
+    tools: Option<&ToolSet>,
     format_selection: Option<&OutputFormatSelection>,
 ) -> serde_json::Value {
     // #143: top-level `status` marker so claws can distinguish
@@ -9612,8 +9611,8 @@ fn status_json_value(
     let tool_aliases = allowed_tool_aliases_json(&tool_registry);
     let output_format_selection = format_selection.cloned().unwrap_or_default();
     // #732: always emit an array (empty when unrestricted) so callers can do
-    // `.allowed_tools.entries | length > 0` without a null-check first.
-    let allowed_tool_entries = allowed_tools
+    // `.tools.entries | length > 0` without a null-check first.
+    let tool_entries = tools
         .map(|tools| tools.iter().cloned().collect::<Vec<_>>())
         .unwrap_or_default();
     json!({
@@ -9634,10 +9633,10 @@ fn status_json_value(
         "permission_mode": permission_mode,
         "permission_mode_source": permission_mode_source,
         "permission_mode_env_var": permission_mode_env_var,
-        "allowed_tools": {
-            "source": if allowed_tools.is_some() { "flag" } else { "default" },
-            "restricted": allowed_tools.is_some(),
-            "entries": allowed_tool_entries,
+        "tools": {
+            "source": if tools.is_some() { "flag" } else { "default" },
+            "restricted": tools.is_some(),
+            "entries": tool_entries,
             "available": available_tool_names,
             "aliases": tool_aliases,
         },
@@ -10428,7 +10427,7 @@ fn render_doctor_help_json() -> serde_json::Value {
         "requires_provider_request": false,
         "requires_session_resume": false,
         "mutates_workspace": false,
-        "output_fields": ["kind", "action", "status", "message", "report", "has_failures", "summary", "checks", "allowed_tools"],
+        "output_fields": ["kind", "action", "status", "message", "report", "has_failures", "summary", "checks", "tools"],
         "check_names": ["auth", "config", "mcp validation", "hook validation", "install source", "workspace", "memory", "boot preflight", "sandbox", "permissions", "system"],
         "status_values": ["ok", "warn", "fail"],
         "options": [
@@ -11982,17 +11981,17 @@ fn build_runtime_plugin_state_with_loader(
     let (mcp_state, runtime_tools) = build_runtime_mcp_state(runtime_config)?;
     let tool_registry = GlobalToolRegistry::with_plugin_tools(plugin_registry.aggregated_tools()?)?
         .with_runtime_tools(runtime_tools)?;
-    let config_allowed_tools = match runtime_config.allowed_tools() {
-        Some(tools) => tool_registry.normalize_allowed_tools(&tools).unwrap_or(None),
+    let config_tools = match runtime_config.tools() {
+        Some(tools) => tool_registry.normalize_tools(&tools).unwrap_or(None),
         None => None,
     };
-    let tool_registry = tool_registry.with_allowed_tools(config_allowed_tools.clone());
+    let tool_registry = tool_registry.with_tools(config_tools.clone());
     Ok(RuntimePluginState {
         feature_config,
         tool_registry,
         plugin_registry,
         mcp_state,
-        config_allowed_tools,
+        config_tools,
     })
 }
 
@@ -12377,7 +12376,7 @@ fn build_runtime(
     system_prompt: Vec<String>,
     enable_tools: bool,
     emit_output: bool,
-    allowed_tools: Option<AllowedToolSet>,
+    tools: Option<ToolSet>,
     permission_mode: PermissionMode,
     progress_reporter: Option<InternalPromptProgressReporter>,
 ) -> Result<BuiltRuntime, Box<dyn std::error::Error>> {
@@ -12389,7 +12388,7 @@ fn build_runtime(
         system_prompt,
         enable_tools,
         emit_output,
-        allowed_tools,
+        tools,
         permission_mode,
         progress_reporter,
         runtime_plugin_state,
@@ -12405,7 +12404,7 @@ fn build_runtime_with_plugin_state(
     system_prompt: Vec<String>,
     enable_tools: bool,
     emit_output: bool,
-    allowed_tools: Option<AllowedToolSet>,
+    tools: Option<ToolSet>,
     permission_mode: PermissionMode,
     progress_reporter: Option<InternalPromptProgressReporter>,
     runtime_plugin_state: RuntimePluginState,
@@ -12419,9 +12418,9 @@ fn build_runtime_with_plugin_state(
         tool_registry,
         plugin_registry,
         mcp_state,
-        config_allowed_tools,
+        config_tools,
     } = runtime_plugin_state;
-    let effective_allowed_tools = allowed_tools.or(config_allowed_tools);
+    let effective_tools = tools.or(config_tools);
     plugin_registry.initialize()?;
     let policy = permission_policy(permission_mode, &feature_config, &tool_registry)
         .map_err(std::io::Error::other)?;
@@ -12432,12 +12431,12 @@ fn build_runtime_with_plugin_state(
             model,
             enable_tools,
             emit_output,
-            effective_allowed_tools.clone(),
+            effective_tools.clone(),
             tool_registry.clone(),
             progress_reporter,
         )?,
         CliToolExecutor::new(
-            effective_allowed_tools,
+            effective_tools,
             emit_output,
             tool_registry.clone(),
             mcp_state.clone(),
@@ -12547,7 +12546,7 @@ struct AnthropicRuntimeClient {
     model: String,
     enable_tools: bool,
     emit_output: bool,
-    allowed_tools: Option<AllowedToolSet>,
+    tools: Option<ToolSet>,
     tool_registry: GlobalToolRegistry,
     progress_reporter: Option<InternalPromptProgressReporter>,
     reasoning_effort: Option<String>,
@@ -12559,7 +12558,7 @@ impl AnthropicRuntimeClient {
         model: String,
         enable_tools: bool,
         emit_output: bool,
-        allowed_tools: Option<AllowedToolSet>,
+        tools: Option<ToolSet>,
         tool_registry: GlobalToolRegistry,
         progress_reporter: Option<InternalPromptProgressReporter>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -12612,7 +12611,7 @@ impl AnthropicRuntimeClient {
             model,
             enable_tools,
             emit_output,
-            allowed_tools,
+            tools,
             tool_registry,
             progress_reporter,
             reasoning_effort: None,
@@ -12647,7 +12646,7 @@ impl ApiClient for AnthropicRuntimeClient {
             system: (!request.system_prompt.is_empty()).then(|| request.system_prompt.join("\n\n")),
             tools: self
                 .enable_tools
-                .then(|| filter_tool_specs(&self.tool_registry, self.allowed_tools.as_ref())),
+                .then(|| filter_tool_specs(&self.tool_registry, self.tools.as_ref())),
             tool_choice: self.enable_tools.then_some(ToolChoice::Auto),
             stream: true,
             reasoning_effort: self.reasoning_effort.clone(),
@@ -13866,14 +13865,14 @@ fn prompt_cache_record_to_runtime_event(
 struct CliToolExecutor {
     renderer: TerminalRenderer,
     emit_output: bool,
-    allowed_tools: Option<AllowedToolSet>,
+    tools: Option<ToolSet>,
     tool_registry: GlobalToolRegistry,
     mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
 }
 
 impl CliToolExecutor {
     fn new(
-        allowed_tools: Option<AllowedToolSet>,
+        tools: Option<ToolSet>,
         emit_output: bool,
         tool_registry: GlobalToolRegistry,
         mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
@@ -13881,7 +13880,7 @@ impl CliToolExecutor {
         Self {
             renderer: TerminalRenderer::new(),
             emit_output,
-            allowed_tools,
+            tools,
             tool_registry,
             mcp_state,
         }
@@ -13951,12 +13950,12 @@ impl CliToolExecutor {
 impl ToolExecutor for CliToolExecutor {
     fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
         if self
-            .allowed_tools
+            .tools
             .as_ref()
             .is_some_and(|allowed| !allowed.contains(&canonical_allowed_tool_name(tool_name)))
         {
             return Err(ToolError::new(format!(
-                "tool `{tool_name}` is not enabled by the current --allowedTools setting"
+                "tool `{tool_name}` is not enabled by the current --tools setting"
             )));
         }
         let value = serde_json::from_str(input)
@@ -14067,7 +14066,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "Usage:")?;
     writeln!(
         out,
-        "  claw [--model MODEL] [--allowedTools TOOL[,TOOL...]]"
+        "  claw [--model MODEL] [--tools TOOL[,TOOL...]]"
     )?;
     writeln!(out, "      Start the interactive REPL")?;
     writeln!(
@@ -14172,7 +14171,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         out,
-        "  --allowedTools TOOLS       Restrict enabled tools by canonical snake_case name or alias"
+        "  --tools TOOLS       Restrict enabled tools by canonical snake_case name or alias"
     )?;
     writeln!(out, "                              Examples: read, glob, web_fetch, WebFetch; status JSON exposes aliases")?;
     writeln!(
@@ -14216,7 +14215,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "  claw --compact \"summarize Cargo.toml\" | wc -l")?;
     writeln!(
         out,
-        "  claw --allowedTools read,glob \"summarize Cargo.toml\""
+        "  claw --tools read,glob \"summarize Cargo.toml\""
     )?;
     writeln!(out, "  claw --resume {LATEST_SESSION_REFERENCE}")?;
     writeln!(
@@ -14645,7 +14644,7 @@ mod tests {
             parse_args(&[]).expect("args should parse"),
             CliAction::Repl {
                 model: DEFAULT_MODEL.to_string(),
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 base_commit: None,
                 reasoning_effort: None,
@@ -14778,7 +14777,7 @@ mod tests {
                 prompt: "hello world".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -14869,7 +14868,7 @@ mod tests {
                 prompt: "explain this".to_string(),
                 model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Json,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -14891,7 +14890,7 @@ mod tests {
                 prompt: "-prompt-with-dash".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -14907,7 +14906,7 @@ mod tests {
                 prompt: "-not-a-flag".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -14923,7 +14922,7 @@ mod tests {
                 prompt: "--bogus-flag-like literal".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -14961,7 +14960,7 @@ mod tests {
                 prompt: "summarize this".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: true,
                 base_commit: None,
@@ -14976,7 +14975,7 @@ mod tests {
                 prompt: "hello".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: true,
                 base_commit: None,
@@ -15019,7 +15018,7 @@ mod tests {
                 prompt: "explain this".to_string(),
                 model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -15108,7 +15107,7 @@ mod tests {
             parse_args(&args).expect("args should parse"),
             CliAction::Repl {
                 model: DEFAULT_MODEL.to_string(),
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::ReadOnly,
                 base_commit: None,
                 reasoning_effort: None,
@@ -15129,7 +15128,7 @@ mod tests {
             parsed,
             CliAction::Repl {
                 model: DEFAULT_MODEL.to_string(),
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
                 base_commit: None,
                 reasoning_effort: None,
@@ -15158,7 +15157,7 @@ mod tests {
                 prompt: "do the thing".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
                 compact: false,
                 base_commit: None,
@@ -15169,19 +15168,19 @@ mod tests {
     }
 
     #[test]
-    fn parses_allowed_tools_flags_with_aliases_and_lists() {
+    fn parses_tools_flags_with_aliases_and_lists() {
         let _guard = env_lock();
         std::env::remove_var("RUSTY_CLAUDE_PERMISSION_MODE");
         let args = vec![
-            "--allowedTools".to_string(),
+            "--tools".to_string(),
             "read,glob".to_string(),
-            "--allowed-tools=write_file".to_string(),
+            "--tools=write_file".to_string(),
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
             CliAction::Repl {
                 model: DEFAULT_MODEL.to_string(),
-                allowed_tools: Some(
+                tools: Some(
                     ["glob_search", "read_file", "write_file"]
                         .into_iter()
                         .map(str::to_string)
@@ -15196,36 +15195,36 @@ mod tests {
     }
 
     #[test]
-    fn rejects_allowed_tools_followed_by_subcommand_or_flag_432() {
+    fn rejects_tools_followed_by_subcommand_or_flag_432() {
         let _env_guard = env_lock();
         let _cwd_guard = cwd_guard();
         for args in [
-            vec!["--allowedTools".to_string(), "status".to_string()],
+            vec!["--tools".to_string(), "status".to_string()],
             vec![
-                "--allowedTools".to_string(),
+                "--tools".to_string(),
                 "status".to_string(),
                 "--output-format".to_string(),
                 "json".to_string(),
             ],
-            vec!["--allowedTools".to_string(), "--output-format".to_string()],
-            vec!["--allowedTools=".to_string()],
+            vec!["--tools".to_string(), "--output-format".to_string()],
+            vec!["--tools=".to_string()],
         ] {
-            let error = parse_args(&args).expect_err("allowedTools missing value should reject");
+            let error = parse_args(&args).expect_err("tools missing value should reject");
             assert!(
-                error.starts_with("missing_argument: --allowedTools requires a tool list"),
+                error.starts_with("missing_argument: --tools requires a tool list"),
                 "unexpected error for {args:?}: {error}"
             );
         }
     }
 
     #[test]
-    fn rejects_unknown_allowed_tools() {
+    fn rejects_unknown_tools() {
         let _env_guard = env_lock();
         let _cwd_guard = cwd_guard();
-        let error = parse_args(&["--allowedTools".to_string(), "teleport".to_string()])
+        let error = parse_args(&["--tools".to_string(), "teleport".to_string()])
             .expect_err("tool should be rejected");
         assert!(error.starts_with("invalid_tool_name:"));
-        assert!(error.contains("unsupported tool in --allowedTools: teleport"));
+        assert!(error.contains("unsupported tool in --tools: teleport"));
         assert!(error.contains("Available: "));
         assert!(error.contains("web_fetch"));
         assert!(error.contains("Aliases: "));
@@ -15233,14 +15232,14 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_allowed_tools_flag() {
+    fn rejects_empty_tools_flag() {
         let _env_guard = env_lock();
         let _cwd_guard = cwd_guard();
         for raw in ["", ",,"] {
-            let error = parse_args(&["--allowedTools".to_string(), raw.to_string()])
-                .expect_err("empty allowedTools should be rejected");
+            let error = parse_args(&["--tools".to_string(), raw.to_string()])
+                .expect_err("empty tools should be rejected");
             assert!(
-                error.contains("--allowedTools was provided with no usable tool names"),
+                error.contains("--tools was provided with no usable tool names"),
                 "unexpected error for {raw:?}: {error}"
             );
         }
@@ -15361,7 +15360,7 @@ mod tests {
                 prompt: "$help overview".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: crate::default_permission_mode(),
                 compact: false,
                 base_commit: None,
@@ -15964,31 +15963,31 @@ mod tests {
             "sandbox field still reported"
         );
         assert_eq!(
-            json.pointer("/allowed_tools/source")
+            json.pointer("/tools/source")
                 .and_then(|v| v.as_str()),
             Some("default"),
             "default status should expose unrestricted tool source: {json}"
         );
         assert_eq!(
-            json.pointer("/allowed_tools/restricted")
+            json.pointer("/tools/restricted")
                 .and_then(|v| v.as_bool()),
             Some(false),
             "default status should expose unrestricted tool state: {json}"
         );
         assert_eq!(
-            json.pointer("/allowed_tools/available/0")
+            json.pointer("/tools/available/0")
                 .and_then(|v| v.as_str()),
             Some("agent"),
             "status JSON should expose canonical snake_case available tools: {json}"
         );
         assert_eq!(
-            json.pointer("/allowed_tools/aliases/WebFetch")
+            json.pointer("/tools/aliases/WebFetch")
                 .and_then(|v| v.as_str()),
             Some("web_fetch"),
             "status JSON should expose allowed-tool aliases: {json}"
         );
 
-        let allowed: super::AllowedToolSet = ["read_file", "grep_search"]
+        let allowed: super::ToolSet = ["read_file", "grep_search"]
             .into_iter()
             .map(str::to_string)
             .collect();
@@ -16004,14 +16003,14 @@ mod tests {
         );
         assert_eq!(
             restricted_json
-                .pointer("/allowed_tools/source")
+                .pointer("/tools/source")
                 .and_then(|v| v.as_str()),
             Some("flag"),
             "flag status should expose allow-list source: {restricted_json}"
         );
         assert_eq!(
             restricted_json
-                .pointer("/allowed_tools/entries")
+                .pointer("/tools/entries")
                 .and_then(|v| v.as_array())
                 .map(Vec::len),
             Some(2),
@@ -16111,7 +16110,7 @@ mod tests {
                 model_flag_raw: None, // #148: no --model flag passed
                 permission_mode: PermissionModeProvenance::default_fallback(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
             }
         );
         assert_eq!(
@@ -16310,7 +16309,7 @@ mod tests {
             "invalid_install_source"
         );
         assert_eq!(
-            classify_error_kind("invalid_tool_name: unsupported tool in --allowedTools: teleport"),
+            classify_error_kind("invalid_tool_name: unsupported tool in --tools: teleport"),
             "invalid_tool_name"
         );
         assert_eq!(
@@ -16796,7 +16795,7 @@ mod tests {
                 prompt: "please debug this".to_string(),
                 model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: crate::default_permission_mode(),
                 compact: false,
                 base_commit: None,
@@ -16867,7 +16866,7 @@ mod tests {
                 prompt: "$help overview".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: crate::default_permission_mode(),
                 compact: false,
                 base_commit: None,
@@ -16894,7 +16893,7 @@ mod tests {
                 prompt: "$test".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: crate::default_permission_mode(),
                 compact: false,
                 base_commit: None,
@@ -16909,7 +16908,7 @@ mod tests {
                 model_flag_raw: None,
                 permission_mode: PermissionModeProvenance::default_fallback(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
             }
         );
     }
@@ -17029,7 +17028,7 @@ mod tests {
                 prompt: "hello world this is a prompt".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: crate::default_permission_mode(),
                 compact: false,
                 base_commit: None,
@@ -17048,7 +17047,7 @@ mod tests {
                 prompt: "doctorr".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -17077,7 +17076,7 @@ mod tests {
                 prompt: "PARITY_SCENARIO:bash_permission_prompt_approved".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                allowed_tools: None,
+                tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -19214,7 +19213,7 @@ UU conflicted.rs",
 
         let allowed = state
             .tool_registry
-            .normalize_allowed_tools(&["mcp__alpha__echo".to_string(), "MCPTool".to_string()])
+            .normalize_tools(&["mcp__alpha__echo".to_string(), "MCPTool".to_string()])
             .expect("mcp tools should be allow-listable")
             .expect("allow-list should exist");
         assert!(allowed.contains("mcp__alpha__echo"));

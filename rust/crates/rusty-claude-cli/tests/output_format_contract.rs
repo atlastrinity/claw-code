@@ -1470,8 +1470,8 @@ fn doctor_and_resume_status_emit_json_when_requested() {
     assert!(summary["ok"].as_u64().is_some());
     assert!(summary["warnings"].as_u64().is_some());
     assert!(summary["failures"].as_u64().is_some());
-    assert_eq!(doctor["allowed_tools"]["aliases"]["WebFetch"], "web_fetch");
-    assert!(doctor["allowed_tools"]["available"]
+    assert_eq!(doctor["tools"]["aliases"]["WebFetch"], "web_fetch");
+    assert!(doctor["tools"]["available"]
         .as_array()
         .is_some_and(|available| available.iter().any(|name| name == "web_fetch")));
 
@@ -3151,7 +3151,7 @@ fn output_format_flags_and_env_have_typed_contract_433() {
 }
 
 #[test]
-fn allowed_tools_errors_have_typed_json_and_alias_map_432() {
+fn tools_errors_have_typed_json_and_alias_map_432() {
     let root = unique_temp_dir("allowed-tools-432");
     fs::create_dir_all(&root).expect("temp dir");
 

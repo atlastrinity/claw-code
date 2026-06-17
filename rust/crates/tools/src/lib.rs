@@ -114,7 +114,7 @@ pub struct GlobalToolRegistry {
     plugin_tools: Vec<PluginTool>,
     runtime_tools: Vec<RuntimeToolDefinition>,
     enforcer: Option<PermissionEnforcer>,
-    pub allowed_tools: Option<BTreeSet<String>>,
+    pub tools: Option<BTreeSet<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,7 +132,7 @@ impl GlobalToolRegistry {
             plugin_tools: Vec::new(),
             runtime_tools: Vec::new(),
             enforcer: None,
-            allowed_tools: None,
+            tools: None,
         }
     }
 
@@ -159,13 +159,13 @@ impl GlobalToolRegistry {
             plugin_tools,
             runtime_tools: Vec::new(),
             enforcer: None,
-            allowed_tools: None,
+            tools: None,
         })
     }
 
     #[must_use]
-    pub fn with_allowed_tools(mut self, allowed: Option<BTreeSet<String>>) -> Self {
-        self.allowed_tools = allowed;
+    pub fn with_tools(mut self, allowed: Option<BTreeSet<String>>) -> Self {
+        self.tools = allowed;
         self
     }
 
@@ -202,7 +202,7 @@ impl GlobalToolRegistry {
         self
     }
 
-    pub fn normalize_allowed_tools(
+    pub fn normalize_tools(
         &self,
         values: &[String],
     ) -> Result<Option<BTreeSet<String>>, String> {
@@ -259,11 +259,11 @@ impl GlobalToolRegistry {
     }
 
     #[must_use]
-    pub fn definitions(&self, allowed_tools: Option<&BTreeSet<String>>) -> Vec<ToolDefinition> {
+    pub fn definitions(&self, tools: Option<&BTreeSet<String>>) -> Vec<ToolDefinition> {
         let builtin = mvp_tool_specs()
             .into_iter()
             .filter(|spec| {
-                allowed_tools
+                tools
                     .is_none_or(|allowed| allowed.contains(&canonical_allowed_tool_name(spec.name)))
             })
             .map(|spec| ToolDefinition {
@@ -275,7 +275,7 @@ impl GlobalToolRegistry {
             .runtime_tools
             .iter()
             .filter(|tool| {
-                allowed_tools.is_none_or(|allowed| {
+                tools.is_none_or(|allowed| {
                     allowed.contains(&canonical_allowed_tool_name(&tool.name))
                 })
             })
@@ -288,7 +288,7 @@ impl GlobalToolRegistry {
             .plugin_tools
             .iter()
             .filter(|tool| {
-                allowed_tools.is_none_or(|allowed| {
+                tools.is_none_or(|allowed| {
                     allowed.contains(&canonical_allowed_tool_name(
                         tool.definition().name.as_str(),
                     ))
@@ -304,12 +304,12 @@ impl GlobalToolRegistry {
 
     pub fn permission_specs(
         &self,
-        allowed_tools: Option<&BTreeSet<String>>,
+        tools: Option<&BTreeSet<String>>,
     ) -> Result<Vec<(String, PermissionMode)>, String> {
         let builtin = mvp_tool_specs()
             .into_iter()
             .filter(|spec| {
-                allowed_tools
+                tools
                     .is_none_or(|allowed| allowed.contains(&canonical_allowed_tool_name(spec.name)))
             })
             .map(|spec| (spec.name.to_string(), spec.required_permission));
@@ -317,7 +317,7 @@ impl GlobalToolRegistry {
             .runtime_tools
             .iter()
             .filter(|tool| {
-                allowed_tools.is_none_or(|allowed| {
+                tools.is_none_or(|allowed| {
                     allowed.contains(&canonical_allowed_tool_name(&tool.name))
                 })
             })
@@ -326,7 +326,7 @@ impl GlobalToolRegistry {
             .plugin_tools
             .iter()
             .filter(|tool| {
-                allowed_tools.is_none_or(|allowed| {
+                tools.is_none_or(|allowed| {
                     allowed.contains(&canonical_allowed_tool_name(
                         tool.definition().name.as_str(),
                     ))
@@ -450,7 +450,7 @@ impl GlobalToolRegistry {
                     "bash" | "read_file" | "write_file" | "edit_file" | "glob_search" | "grep_search"
                 );
                 
-                let is_allowed = self.allowed_tools.is_none() || self.allowed_tools.as_ref().is_some_and(|allowed| {
+                let is_allowed = self.tools.is_none() || self.tools.as_ref().is_some_and(|allowed| {
                     allowed.contains(&canonical_allowed_tool_name(spec.name))
                 });
                 
@@ -462,7 +462,7 @@ impl GlobalToolRegistry {
             });
         let runtime = self.runtime_tools.iter()
             .filter(|tool| {
-                let is_allowed = self.allowed_tools.is_none() || self.allowed_tools.as_ref().is_some_and(|allowed| {
+                let is_allowed = self.tools.is_none() || self.tools.as_ref().is_some_and(|allowed| {
                     allowed.contains(&canonical_allowed_tool_name(&tool.name))
                 });
                 !is_allowed
@@ -473,7 +473,7 @@ impl GlobalToolRegistry {
             });
         let plugin = self.plugin_tools.iter()
             .filter(|tool| {
-                let is_allowed = self.allowed_tools.is_none() || self.allowed_tools.as_ref().is_some_and(|allowed| {
+                let is_allowed = self.tools.is_none() || self.tools.as_ref().is_some_and(|allowed| {
                     allowed.contains(&canonical_allowed_tool_name(&tool.definition().name))
                 });
                 !is_allowed
@@ -3494,7 +3494,7 @@ struct AgentJob {
     manifest: AgentOutput,
     prompt: String,
     system_prompt: Vec<String>,
-    allowed_tools: BTreeSet<String>,
+    tools: BTreeSet<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -4390,7 +4390,7 @@ where
         .unwrap_or_else(|| slugify_agent_name(&input.description));
     let created_at = iso8601_now();
     let system_prompt = build_agent_system_prompt(&normalized_subagent_type, &model)?;
-    let allowed_tools = allowed_tools_for_subagent(&normalized_subagent_type);
+    let tools = tools_for_subagent(&normalized_subagent_type);
 
     let output_contents = format!(
         "# Agent Task
@@ -4433,7 +4433,7 @@ where
         manifest: manifest_for_spawn,
         prompt: input.prompt,
         system_prompt,
-        allowed_tools,
+        tools,
     };
     if let Err(error) = spawn_fn(job) {
         let error = format!("failed to spawn sub-agent: {error}");
@@ -4488,10 +4488,10 @@ fn build_agent_runtime(
         .model
         .clone()
         .unwrap_or_else(|| DEFAULT_AGENT_MODEL.to_string());
-    let allowed_tools = job.allowed_tools.clone();
-    let api_client = ProviderRuntimeClient::new(model, allowed_tools.clone())?;
+    let tools = job.tools.clone();
+    let api_client = ProviderRuntimeClient::new(model, tools.clone())?;
     let permission_policy = agent_permission_policy();
-    let tool_executor = SubagentToolExecutor::new(allowed_tools)
+    let tool_executor = SubagentToolExecutor::new(tools)
         .with_enforcer(PermissionEnforcer::new(permission_policy.clone()));
     Ok(ConversationRuntime::new(
         Session::new(),
@@ -4526,7 +4526,7 @@ fn resolve_agent_model(model: Option<&str>) -> String {
         .to_string()
 }
 
-fn allowed_tools_for_subagent(subagent_type: &str) -> BTreeSet<String> {
+fn tools_for_subagent(subagent_type: &str) -> BTreeSet<String> {
     let tools = match subagent_type {
         "Explore" => vec![
             "read_file",
@@ -5396,20 +5396,20 @@ struct ProviderEntry {
 struct ProviderRuntimeClient {
     runtime: tokio::runtime::Runtime,
     chain: Vec<ProviderEntry>,
-    allowed_tools: BTreeSet<String>,
+    tools: BTreeSet<String>,
 }
 
 impl ProviderRuntimeClient {
     #[allow(clippy::needless_pass_by_value)]
-    fn new(model: String, allowed_tools: BTreeSet<String>) -> Result<Self, String> {
+    fn new(model: String, tools: BTreeSet<String>) -> Result<Self, String> {
         let fallback_config = load_provider_fallback_config();
-        Self::new_with_fallback_config(model, allowed_tools, &fallback_config)
+        Self::new_with_fallback_config(model, tools, &fallback_config)
     }
 
     #[allow(clippy::needless_pass_by_value)]
     fn new_with_fallback_config(
         model: String,
-        allowed_tools: BTreeSet<String>,
+        tools: BTreeSet<String>,
         fallback_config: &ProviderFallbackConfig,
     ) -> Result<Self, String> {
         let primary_model = fallback_config.primary().map_or(model, str::to_string);
@@ -5428,7 +5428,7 @@ impl ProviderRuntimeClient {
         Ok(Self {
             runtime: tokio::runtime::Runtime::new().map_err(|error| error.to_string())?,
             chain,
-            allowed_tools,
+            tools,
         })
     }
 }
@@ -5453,7 +5453,7 @@ fn load_provider_fallback_config() -> ProviderFallbackConfig {
 
 impl ApiClient for ProviderRuntimeClient {
     fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
-        let tools = tool_specs_for_allowed_tools(Some(&self.allowed_tools))
+        let tools = tool_specs_for_tools(Some(&self.tools))
             .into_iter()
             .map(|spec| ToolDefinition {
                 name: spec.name.to_string(),
@@ -5464,7 +5464,7 @@ impl ApiClient for ProviderRuntimeClient {
         let messages = convert_messages(&request.messages);
         let system =
             (!request.system_prompt.is_empty()).then(|| request.system_prompt.join("\n\n"));
-        let tool_choice = (!self.allowed_tools.is_empty()).then_some(ToolChoice::Auto);
+        let tool_choice = (!self.tools.is_empty()).then_some(ToolChoice::Auto);
 
         let runtime = &self.runtime;
         let chain = &self.chain;
@@ -5612,14 +5612,14 @@ async fn stream_with_provider(
 }
 
 struct SubagentToolExecutor {
-    allowed_tools: BTreeSet<String>,
+    tools: BTreeSet<String>,
     enforcer: Option<PermissionEnforcer>,
 }
 
 impl SubagentToolExecutor {
-    fn new(allowed_tools: BTreeSet<String>) -> Self {
+    fn new(tools: BTreeSet<String>) -> Self {
         Self {
-            allowed_tools,
+            tools,
             enforcer: None,
         }
     }
@@ -5633,7 +5633,7 @@ impl SubagentToolExecutor {
 impl ToolExecutor for SubagentToolExecutor {
     fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
         if !self
-            .allowed_tools
+            .tools
             .contains(&canonical_allowed_tool_name(tool_name))
         {
             return Err(ToolError::new(format!(
@@ -5647,7 +5647,7 @@ impl ToolExecutor for SubagentToolExecutor {
     }
 }
 
-fn tool_specs_for_allowed_tools(_allowed_tools: Option<&BTreeSet<String>>) -> Vec<ToolSpec> {
+fn tool_specs_for_tools(_tools: Option<&BTreeSet<String>>) -> Vec<ToolSpec> {
     mvp_tool_specs()
 }
 
@@ -7093,7 +7093,7 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        agent_permission_policy, allowed_tools_for_subagent, build_agent_system_prompt,
+        agent_permission_policy, tools_for_subagent, build_agent_system_prompt,
         classify_lane_failure, derive_agent_state, execute_agent_with_spawn, execute_tool,
         extract_recovery_outcome, final_assistant_text, global_cron_registry,
         maybe_commit_provenance, mvp_tool_specs, permission_mode_from_plugin,
@@ -7971,12 +7971,12 @@ mod tests {
     }
 
     #[test]
-    fn allowed_tools_rejects_empty_token_lists() {
+    fn tools_rejects_empty_token_lists() {
         let registry = GlobalToolRegistry::builtin();
 
         for raw in ["", ",,", "   "] {
             let err = registry
-                .normalize_allowed_tools(&[raw.to_string()])
+                .normalize_tools(&[raw.to_string()])
                 .expect_err("empty allow-list input should be rejected");
             assert!(
                 err.contains("--allowedTools was provided with no usable tool names"),
@@ -7986,10 +7986,10 @@ mod tests {
     }
 
     #[test]
-    fn allowed_tools_normalize_to_canonical_snake_case_and_aliases_432() {
+    fn tools_normalize_to_canonical_snake_case_and_aliases_432() {
         let registry = GlobalToolRegistry::builtin();
         let allowed = registry
-            .normalize_allowed_tools(&["Read,WebFetch,MCP".to_string()])
+            .normalize_tools(&["Read,WebFetch,MCP".to_string()])
             .expect("aliases and legacy names should normalize")
             .expect("allow-list should be populated");
         assert!(allowed.contains("read_file"));
@@ -8024,7 +8024,7 @@ mod tests {
             .expect("runtime tools should register");
 
         let allowed = registry
-            .normalize_allowed_tools(&["mcp__demo__echo".to_string()])
+            .normalize_tools(&["mcp__demo__echo".to_string()])
             .expect("runtime tool should be allow-listable")
             .expect("allow-list should be populated");
         assert!(allowed.contains("mcp__demo__echo"));
@@ -8988,8 +8988,8 @@ mod tests {
             .clone()
             .expect("spawn job should be captured");
         assert_eq!(captured_job.prompt, "Check tests and outstanding work.");
-        assert!(captured_job.allowed_tools.contains("read_file"));
-        assert!(!captured_job.allowed_tools.contains("agent"));
+        assert!(captured_job.tools.contains("read_file"));
+        assert!(!captured_job.tools.contains("agent"));
 
         let normalized = execute_tool(
             "Agent",
@@ -9586,22 +9586,22 @@ mod tests {
 
     #[test]
     fn agent_tool_subset_mapping_is_expected() {
-        let general = allowed_tools_for_subagent("general-purpose");
+        let general = tools_for_subagent("general-purpose");
         assert!(general.contains("bash"));
         assert!(general.contains("write_file"));
         assert!(!general.contains("agent"));
 
-        let explore = allowed_tools_for_subagent("Explore");
+        let explore = tools_for_subagent("Explore");
         assert!(explore.contains("read_file"));
         assert!(explore.contains("grep_search"));
         assert!(!explore.contains("bash"));
 
-        let plan = allowed_tools_for_subagent("Plan");
+        let plan = tools_for_subagent("Plan");
         assert!(plan.contains("todo_write"));
         assert!(plan.contains("structured_output"));
         assert!(!plan.contains("agent"));
 
-        let verification = allowed_tools_for_subagent("Verification");
+        let verification = tools_for_subagent("Verification");
         assert!(verification.contains("bash"));
         assert!(verification.contains("power_shell"));
         assert!(!verification.contains("write_file"));
