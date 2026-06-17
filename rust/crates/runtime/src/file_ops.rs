@@ -212,11 +212,33 @@ pub fn read_file(
 
     let content = fs::read_to_string(&absolute_path)?;
     let lines: Vec<&str> = content.lines().collect();
+
+    let default_max_lines = std::env::var("CLAW_READ_FILE_MAX_LINES")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(800);
+
     let start_index = offset.unwrap_or(0).min(lines.len());
-    let end_index = limit.map_or(lines.len(), |limit| {
-        start_index.saturating_add(limit).min(lines.len())
-    });
-    let selected = lines[start_index..end_index].join("\n");
+    let explicit_limit = limit.unwrap_or(default_max_lines).min(default_max_lines);
+    let was_clamped = limit.is_none() || limit.is_some_and(|l| l > default_max_lines);
+
+    let end_index = start_index.saturating_add(explicit_limit).min(lines.len());
+    let mut selected = lines[start_index..end_index].join("\n");
+
+    if was_clamped && end_index < lines.len() {
+        use std::fmt::Write;
+        write!(
+            &mut selected,
+            "\n\n[SYSTEM WARNING: File truncated at line {}. Total size: {} lines. \
+            To read further, call read_file with offset={}. \
+            Alternatively, use grep_search for specific keywords, or retrieve_context (RAG) \
+            since the RAG system has already embedded all files into vectors for semantic search.]",
+            end_index,
+            lines.len(),
+            end_index
+        )
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+    }
 
     Ok(ReadFileOutput {
         kind: String::from("text"),
