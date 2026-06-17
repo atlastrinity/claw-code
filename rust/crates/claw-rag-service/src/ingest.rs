@@ -199,9 +199,13 @@ pub async fn run_ingest(
             batch.push((ord_i32, prepended_piece));
             if batch.len() >= EMBED_BATCH {
                 flush_path_batch(&conn, &rel, &mut batch, client, cfg, &mut stats).await?;
+                batch.clear();
             }
         }
-        flush_path_batch(&conn, &rel, &mut batch, client, cfg, &mut stats).await?;
+        if !batch.is_empty() {
+            flush_path_batch(&conn, &rel, &mut batch, client, cfg, &mut stats).await?;
+            batch.clear();
+        }
 
         let now_ms = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
