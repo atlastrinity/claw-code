@@ -16,8 +16,19 @@ use crate::embed::{embed_batch, EmbedConfig};
 use crate::qdrant_index::{upsert_points, ChunkPoint};
 
 const DEFAULT_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
-const CHUNK_CHARS: usize = 900;
-const CHUNK_OVERLAP: usize = 120;
+fn chunk_chars() -> usize {
+    std::env::var("CLAW_RAG_CHUNK_CHARS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3000)
+}
+
+fn chunk_overlap() -> usize {
+    std::env::var("CLAW_RAG_CHUNK_OVERLAP")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(400)
+}
 const EMBED_BATCH: usize = 16;
 
 static SKIP_DIR_NAMES: &[&str] = &[".git", "target", "node_modules", "__pycache__", ".claw-rag"];
@@ -167,7 +178,7 @@ pub async fn run_ingest(
         // Re-index this file: delete previous chunks (and embeddings) for path.
         delete_file_and_chunks(&conn, &rel)?;
 
-        let pieces = chunk_text(&raw, CHUNK_CHARS, CHUNK_OVERLAP);
+        let pieces = chunk_text(&raw, chunk_chars(), chunk_overlap());
         if pieces.is_empty() {
             continue;
         }
@@ -177,7 +188,8 @@ pub async fn run_ingest(
             stats.chunks_total += 1;
             let ord_i32 =
                 i32::try_from(ord).map_err(|_| "file produced too many chunks".to_string())?;
-            batch.push((ord_i32, piece));
+            let prepended_piece = format!("File: {}\n\n{}", rel, piece);
+            batch.push((ord_i32, prepended_piece));
             if batch.len() >= EMBED_BATCH {
                 flush_path_batch(&conn, &rel, &mut batch, client, cfg, &mut stats).await?;
             }
@@ -245,7 +257,7 @@ pub async fn chunk_and_embed_single(
     // Remove previous chunks/embeddings for this path.
     delete_file_and_chunks(conn, path)?;
 
-    let pieces = chunk_text(content, CHUNK_CHARS, CHUNK_OVERLAP);
+    let pieces = chunk_text(content, chunk_chars(), chunk_overlap());
     if pieces.is_empty() {
         return Ok(SingleIngestStats::default());
     }
@@ -256,7 +268,8 @@ pub async fn chunk_and_embed_single(
     for (ord, piece) in pieces.into_iter().enumerate() {
         stats.chunks += 1;
         let ord_i32 = i32::try_from(ord).map_err(|_| "too many chunks".to_string())?;
-        batch.push((ord_i32, piece));
+        let prepended_piece = format!("File: {}\n\n{}", path, piece);
+        batch.push((ord_i32, prepended_piece));
         if batch.len() >= EMBED_BATCH {
             flush_single_batch(conn, path, &mut batch, client, cfg, &mut stats).await?;
         }
