@@ -17,3 +17,6 @@ status-help.txt
 # Sandbox artifacts
 .sandbox-home/
 .sandbox-tmp/
+
+# Claw RAG artifacts
+.claw-rag/
