@@ -328,6 +328,7 @@ type RuntimePluginStateBuildOutput = (
 );
 
 fn main() {
+    let _ = dotenvy::dotenv();
     if let Err(error) = run() {
         let message = error.to_string();
         // When --output-format json is active, emit errors as JSON so downstream
