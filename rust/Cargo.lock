@@ -2245,6 +2245,7 @@ dependencies = [
  "api",
  "commands",
  "crossterm",
+ "dotenvy",
  "log",
  "mock-anthropic-service",
  "plugins",
