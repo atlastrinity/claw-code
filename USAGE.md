@@ -455,7 +455,24 @@ To enable the agent's RAG tools (`retrieve_context` and `ingest_context`) to con
 export RAG_BASE_URL="http://127.0.0.1:8787"
 ```
 
-When the `serve` process is running and `RAG_BASE_URL` is set, autonomous agents equipped with the `ingest_context` and `retrieve_context` tools (part of the standard `--tools` set) can automatically query the codebase and even chunk and embed new code directly into the local SQLite index on-the-fly, preventing context overflow during long-running sessions. The default SQLite database is stored at `.claw-rag/index.sqlite` and can be deleted to force a re-index.
+#### Using the RAG Tools
+
+When the `serve` process is running and `RAG_BASE_URL` is set, agents can use two RAG-enabled tools:
+
+1. **`retrieve_context`** - Semantic search over the workspace RAG index
+   - Returns paths and code snippets ranked by relevance to a natural-language query
+   - Example usage in a prompt: "Use retrieve_context to find information about authentication methods"
+
+2. **`ingest_context`** - Incrementally embed text content into the workspace RAG index
+   - Use to persist summaries of completed work, important decisions, or large outputs that would overflow the context window
+   - The content becomes searchable via `retrieve_context` after ingestion
+   - Takes parameters:
+     - `path`: Virtual path/label for the content (e.g. 'session/summary-2024-06-17')
+     - `content`: Text content to embed and index
+     - `tags`: Optional tags for categorization (e.g. ['summary', 'decision'])
+   - Example usage: Agents can automatically call this tool to save session summaries for later retrieval
+
+When the `serve` process is running and `RAG_BASE_URL` is set, autonomous agents equipped with these tools (part of the standard `--tools` set) can automatically query the codebase and even chunk and embed new code directly into the local SQLite index on-the-fly, preventing context overflow during long-running sessions. The default SQLite database is stored at `.claw-rag/index.sqlite` and can be deleted to force a re-index.
 
 ## File context and navigation
 

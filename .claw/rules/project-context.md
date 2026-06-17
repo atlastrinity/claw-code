@@ -34,7 +34,7 @@ This file provides context and operational rules for any AI agent working within
 The behavior, security limits, and capabilities of the agent are controlled by configuration files (loaded in order of precedence: user global -> project `.claw.json` -> `.claw/settings.json` -> `.claw/settings.local.json`).
 
 Key parameters agents should be aware of:
-- **`allowedTools` (Sandboxing)**: Explicitly whitelists the tools the agent can use. If tools like `bash`, `WebFetch`, or `WebSearch` are omitted, the agent operates in a restricted sandbox and cannot execute terminal commands or access the internet.
+- **`tools` (Sandboxing)**: Explicitly whitelists the tools the agent can use. If tools like `bash`, `WebFetch`, or `WebSearch` are omitted, the agent operates in a restricted sandbox and cannot execute terminal commands or access the internet.
 - **Permission Modes (CLI overrides)**:
   - `--permission-mode read-only`: Prevents any mutation or execution.
   - `--permission-mode workspace-write`: Allows code editing but blocks dangerous global commands.
