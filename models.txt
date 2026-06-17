@@ -1,0 +1,106 @@
+nvidia/nemotron-3-super-120b-a12b:free
+zai-org/GLM-5.2
+nex-agi/nex-n2-pro:free
+nvidia/nemotron-3.5-content-safety:free
+nvidia/nemotron-3-ultra-550b-a55b:free
+openrouter/owl-alpha
+nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+poolside/laguna-xs.2:free
+---
+nex-agi/nex-n2-pro:free
+nvidia/nemotron-3.5-content-safety:free
+nvidia/nemotron-3-ultra-550b-a55b:free
+openrouter/owl-alpha
+nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+poolside/laguna-xs.2:free
+poolside/laguna-m.1:free
+google/gemma-4-26b-a4b-it:free
+google/gemma-4-31b-it:free
+google/lyria-3-pro-preview
+google/lyria-3-clip-preview
+nvidia/nemotron-3-super-120b-a12b:free
+openrouter/free
+liquid/lfm-2.5-1.2b-thinking:free
+liquid/lfm-2.5-1.2b-instruct:free
+nvidia/nemotron-3-nano-30b-a3b:free
+nvidia/nemotron-nano-12b-v2-vl:free
+qwen/qwen3-next-80b-a3b-instruct:free
+nvidia/nemotron-nano-9b-v2:free
+openai/gpt-oss-120b:free
+openai/gpt-oss-20b:free
+qwen/qwen3-coder:free
+cognitivecomputations/dolphin-mistral-24b-venice-edition:free
+meta-llama/llama-3.3-70b-instruct:free
+meta-llama/llama-3.2-3b-instruct:free
+nousresearch/hermes-3-llama-3.1-405b:free
+-----
+nex-agi/nex-n2-pro:free
+nvidia/nemotron-3.5-content-safety:free
+nvidia/nemotron-3-ultra-550b-a55b:free
+openrouter/owl-alpha
+nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+poolside/laguna-xs.2:free
+poolside/laguna-m.1:free
+google/gemma-4-26b-a4b-it:free
+google/gemma-4-31b-it:free
+nvidia/nemotron-3-super-120b-a12b:free
+openrouter/free
+liquid/lfm-2.5-1.2b-thinking:free
+liquid/lfm-2.5-1.2b-instruct:free
+nvidia/nemotron-3-nano-30b-a3b:free
+nvidia/nemotron-nano-12b-v2-vl:free
+nvidia/nemotron-nano-9b-v2:free
+openai/gpt-oss-120b:free
+openai/gpt-oss-20b:free
+
+---
+
+### ✅ Accessible Free Models (via OpenRouter)
+```
+nvidia/nemotron-3.5-content-safety:free
+nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free
+poolside/laguna-xs.2:free
+poolside/laguna-m.1:free
+google/gemma-4-26b-a4b-it:free
+google/gemma-4-31b-it:free
+nvidia/nemotron-3-super-120b-a12b:free
+openrouter/free
+liquid/lfm-2.5-1.2b-thinking:free
+liquid/lfm-2.5-1.2b-instruct:free
+nvidia/nemotron-3-nano-30b-a3b:free
+nvidia/nemotron-nano-12b-v2-vl:free
+nvidia/nemotron-nano-9b-v2:free
+openai/gpt-oss-120b:free
+openai/gpt-oss-20b:free
+```
+
+### 🏆 Recommended Models for Agentic Work in Claw
+For general agent tasks (reasoning, tool use, code generation, conversational flow), prioritize these:
+
+1. **nvidia/nemotron-3-super-120b-a12b:free**  
+   - Strong reasoning and instruction-following, good for complex agent loops.
+
+2. **google/gemma-4-31b-it:free**  
+   - Excellent balance of performance and efficiency; solid for tool use and code understanding.
+
+3. **nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free**  
+   - Specifically optimized for reasoning tasks; useful for planning and decision‑making.
+
+4. **openai/gpt-oss-120b:free** (or **20b** variant)  
+   - Open‑source GPT‑OSS models are designed for open‑ended generation and instruction following.
+
+5. **poolside/laguna-m.1:free**  
+   - Solid general‑purpose model with good chat capabilities.
+
+### ⚙️ How to Use in Claw
+Set the model in your `.claw.json` or via CLI alias, for example:
+```json
+{
+  "aliases": {
+    "agent": "nvidia/nemotron-3-super-120b-a12b:free",
+    "quick": "google/gemma-4-31b-it:free",
+    "reasoner": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+  }
+}
+```
+Then invoke with `claw --model agent` or use the alias directly in the REPL.

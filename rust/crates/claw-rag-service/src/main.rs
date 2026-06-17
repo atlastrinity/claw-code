@@ -11,6 +11,8 @@ use axum::{
     Json, Router,
 };
 use clap::{Parser, Subcommand};
+use notify::{Event, RecursiveMode, Watcher};
+use tokio::sync::mpsc;
 use claw_rag_service::{
     chunk_and_embed_single, chunk_count, open_db, query_index, run_ingest, EmbedConfig,
     QueryRequest, QueryResponse,
@@ -36,6 +38,9 @@ enum Cmd {
 
 #[derive(Parser)]
 struct ServeArgs {
+    /// Workspace roots to watch for automatic ingest. Defaults to current directory.
+    #[arg(short, long, default_value = ".")]
+    workspace: Vec<PathBuf>,
     #[arg(long, env = "CLAW_RAG_DB", default_value = ".claw-rag/index.sqlite")]
     db: PathBuf,
 }
@@ -99,17 +104,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         return Ok(());
     }
 
-    let db = if let Some(Cmd::Serve(s)) = cli.command {
-        s.db
+    let (db, serve_workspaces) = if let Some(Cmd::Serve(s)) = cli.command {
+        (s.db, s.workspace)
     } else {
-        PathBuf::from(
+        (PathBuf::from(
             std::env::var("CLAW_RAG_DB").unwrap_or_else(|_| ".claw-rag/index.sqlite".into()),
-        )
+        ), vec![])
     };
 
     let cfg = resolve_embed_config()?;
     let state = Arc::new(AppState {
-        db_path: db,
+        db_path: db.clone(),
         client: reqwest::Client::new(),
         cfg,
     });
@@ -130,6 +135,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         state.db_path.display()
     );
     let listener = tokio::net::TcpListener::bind(addr).await?;
+    
+    // Setup file watcher for automatic ingest
+    if !serve_workspaces.is_empty() {
+        let (tx, mut rx) = mpsc::channel(100);
+        let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
+            if let Ok(event) = res {
+                if event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove() {
+                    let _ = tx.blocking_send(());
+                }
+            }
+        }).map_err(|e| format!("Failed to initialize watcher: {}", e))?;
+
+        for ws in &serve_workspaces {
+            let ws_path = ws.canonicalize().unwrap_or_else(|_| ws.clone());
+            watcher.watch(&ws_path, RecursiveMode::Recursive)
+                .map_err(|e| format!("Failed to watch {}: {}", ws_path.display(), e))?;
+        }
+
+        let db_path = db.clone();
+        let handle = tokio::runtime::Handle::current();
+        std::thread::spawn(move || {
+            let _watcher = watcher; // Keep the watcher alive
+            loop {
+                // Wait for the first filesystem event
+                if rx.blocking_recv().is_none() {
+                    break;
+                }
+                
+                // Wait for a period of 10 seconds with no new events
+                loop {
+                    std::thread::sleep(std::time::Duration::from_secs(10));
+                    let mut got_more = false;
+                    while let Ok(_) = rx.try_recv() {
+                        got_more = true;
+                    }
+                    if !got_more {
+                        break;
+                    }
+                }
+
+                eprintln!("[claw-rag-service] Detected file changes. Triggering automatic ingest...");
+                if let Ok(cfg) = resolve_embed_config() {
+                    let client = reqwest::Client::new();
+                    match handle.block_on(run_ingest(&serve_workspaces, &db_path, &cfg, &client)) {
+                        Ok(st) => {
+                            eprintln!(
+                                "[claw-rag-service] Auto-ingest complete: files={} chunks={} embeddings={}",
+                                st.files_indexed, st.chunks_total, st.embeddings_written
+                            );
+                        }
+                        Err(e) => eprintln!("[claw-rag-service] Auto-ingest error: {}", e),
+                    }
+                }
+            }
+        });
+    }
+
     axum::serve(listener, app).await?;
     Ok(())
 }

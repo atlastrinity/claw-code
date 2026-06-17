@@ -4,7 +4,7 @@ use std::path::Path;
 use std::path::PathBuf;
 
 use reqwest::Client;
-use walkdir::WalkDir;
+use ignore::WalkBuilder;
 
 use crate::chunk::chunk_text;
 use crate::db::{
@@ -31,7 +31,10 @@ fn chunk_overlap() -> usize {
 }
 const EMBED_BATCH: usize = 16;
 
-static SKIP_DIR_NAMES: &[&str] = &[".git", "target", "node_modules", "__pycache__", ".claw-rag"];
+static SKIP_DIR_NAMES: &[&str] = &[
+    ".git", "target", "node_modules", "__pycache__", ".claw-rag",
+    ".idea", ".vscode", "dist", "build", ".env"
+];
 
 static TEXT_EXTENSIONS: &[&str] = &[
     "rs", "md", "toml", "txt", "json", "yaml", "yml", "js", "ts", "tsx", "jsx", "py", "go", "c",
@@ -118,12 +121,16 @@ pub async fn run_ingest(
         let ws_prefix = workspace.clone();
         let repo_id = repo_id_for_workspace(&workspace);
 
-        for entry in WalkDir::new(&workspace)
-            .into_iter()
+        let walker = WalkBuilder::new(&workspace)
             .filter_entry(|e| !should_skip_dir(e.path()))
-        {
-            let entry = entry.map_err(|e| e.to_string())?;
-            if !entry.file_type().is_file() {
+            .build();
+
+        for entry in walker {
+            let entry = match entry {
+                Ok(e) => e,
+                Err(_) => continue,
+            };
+            if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
                 continue;
             }
             let path = entry.path();
