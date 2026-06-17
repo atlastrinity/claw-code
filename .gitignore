@@ -20,3 +20,8 @@ status-help.txt
 
 # Claw RAG artifacts
 .claw-rag/
+
+# External repos / kexts
+opencore-atheros-kext/
+opencore-atheros-kext-main/
+
