@@ -65,10 +65,18 @@ func adjustDragStartCoordinateIfNeeded(x: Double, y: Double) -> (Double, Double)
                     let relativeY = y - Double(position.y)
                     
                     if relativeY >= 0 && relativeY < 40 {
-                        // It's in the title bar zone. Adjust X to the center of the window title bar
-                        // to avoid both traffic lights (left) and resize handles (edges).
-                        let newX = Double(position.x) + Double(size.width) / 2.0
-                        let newY = Double(position.y) + 15.0 // Safe vertical spot in the title bar
+                        // Check if the user is explicitly targeting a tab
+                        var role: CFTypeRef?
+                        if AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role) == .success,
+                           let roleStr = role as? String, roleStr.contains("Tab") {
+                            debugLog("log: adjustDragStartCoordinate: keeping original coordinate for tab role \(roleStr)\n", stderr)
+                            return (x, y)
+                        }
+
+                        // It's in the title bar zone. Adjust X to the right side of the window title bar
+                        // to avoid both traffic lights (left), resize handles (edges), and tabs (center in Chrome).
+                        let newX = Double(position.x) + Double(size.width) - 60.0
+                        let newY = Double(position.y) + 20.0 // Center of the typical 40px title bar
                         
                         debugLog("log: adjustDragStartCoordinate: shifting drag start from (\(x), \(y)) to safe title bar area (\(newX), \(newY))\n", stderr)
                         return (newX, newY)
