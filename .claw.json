@@ -15,7 +15,8 @@
     "Skill",
     "retrieve_context",
     "ingest_context",
-    "ToolSearch"
+    "ToolSearch",
+    "macos-use_vision"
   ],
   "mcpServers": {
     "macos-use": {
