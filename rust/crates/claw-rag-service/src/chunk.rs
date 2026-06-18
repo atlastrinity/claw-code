@@ -14,7 +14,7 @@ pub fn chunk_text(text: &str, max_chars: usize, overlap: usize) -> Vec<String> {
     let mut start = 0;
     loop {
         let mut end = (start + max_chars).min(chars.len());
-        
+
         // Smart Chunking: Try to find a newline or space to break cleanly
         if end < chars.len() {
             let mut newline_pos = end;
@@ -34,7 +34,7 @@ pub fn chunk_text(text: &str, max_chars: usize, overlap: usize) -> Vec<String> {
                 }
             }
         }
-        
+
         let piece: String = chars[start..end].iter().collect();
         if !piece.trim().is_empty() {
             out.push(piece);

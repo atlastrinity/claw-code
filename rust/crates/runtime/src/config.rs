@@ -877,9 +877,11 @@ impl RuntimeConfig {
 
     #[must_use]
     pub fn injected_tools(&self) -> Option<Vec<String>> {
-        let tools = self.merged.get("injectedTools")
+        let tools = self
+            .merged
+            .get("injectedTools")
             .or_else(|| self.merged.get("injected_tools"))?;
-        
+
         if let JsonValue::Array(arr) = tools {
             let mut result = Vec::new();
             for item in arr {
@@ -895,9 +897,11 @@ impl RuntimeConfig {
 
     #[must_use]
     pub fn allowed_tools(&self) -> Option<Vec<String>> {
-        let tools = self.merged.get("allowedTools")
+        let tools = self
+            .merged
+            .get("allowedTools")
             .or_else(|| self.merged.get("allowed_tools"))?;
-        
+
         if let JsonValue::Array(arr) = tools {
             let mut result = Vec::new();
             for item in arr {

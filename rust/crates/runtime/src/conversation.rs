@@ -829,12 +829,13 @@ fn fetch_rag_context(query: &str) -> Option<String> {
         "query": query,
         "top_k": 5
     });
-    let res = client.post("http://127.0.0.1:8787/v1/query")
+    let res = client
+        .post("http://127.0.0.1:8787/v1/query")
         .timeout(std::time::Duration::from_secs(2))
         .json(&body)
         .send()
         .ok()?;
-    
+
     #[derive(serde::Deserialize)]
     struct RagHit {
         path: String,
@@ -845,12 +846,14 @@ fn fetch_rag_context(query: &str) -> Option<String> {
     struct RagResponse {
         hits: Vec<RagHit>,
     }
-    
+
     let response: RagResponse = res.json().ok()?;
     if response.hits.is_empty() {
         None
     } else {
-        let hits_str = response.hits.into_iter()
+        let hits_str = response
+            .hits
+            .into_iter()
             .map(|h| format!("File: {}\n{}", h.path, h.snippet))
             .collect::<Vec<_>>()
             .join("\n\n---\n\n");

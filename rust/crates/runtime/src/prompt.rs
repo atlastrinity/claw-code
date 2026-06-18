@@ -224,7 +224,7 @@ impl SystemPromptBuilder {
 
         if let Some(project_context) = &self.project_context {
             sections.push(render_project_context(project_context));
-            
+
             let mut regular_files = Vec::new();
             for file in &project_context.instruction_files {
                 if file.path.file_name().and_then(|n| n.to_str()) == Some("CLAW.md") {
@@ -239,7 +239,7 @@ impl SystemPromptBuilder {
                 sections.push(render_instruction_files(&regular_files));
             }
         }
-        
+
         if let Some(config) = &self.config {
             sections.push(render_config_section(config));
         }

@@ -2380,7 +2380,10 @@ mod tests {
                 } => {
                     assert_eq!(server_name, "broken");
                     assert_eq!(method, "tools/call");
-                    assert!(!details.is_empty(), "details should not be empty, got {details}");
+                    assert!(
+                        !details.is_empty(),
+                        "details should not be empty, got {details}"
+                    );
                 }
                 other => panic!("expected invalid response error, got {other:?}"),
             }

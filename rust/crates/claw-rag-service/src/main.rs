@@ -11,12 +11,12 @@ use axum::{
     Json, Router,
 };
 use clap::{Parser, Subcommand};
-use notify::{Event, RecursiveMode, Watcher};
-use tokio::sync::mpsc;
 use claw_rag_service::{
     chunk_and_embed_single, chunk_count, open_db, query_index, run_ingest, EmbedConfig,
     QueryRequest, QueryResponse,
 };
+use notify::{Event, RecursiveMode, Watcher};
+use tokio::sync::mpsc;
 
 #[derive(Parser)]
 #[command(
@@ -107,9 +107,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (db, serve_workspaces) = if let Some(Cmd::Serve(s)) = cli.command {
         (s.db, s.workspace)
     } else {
-        (PathBuf::from(
-            std::env::var("CLAW_RAG_DB").unwrap_or_else(|_| ".claw-rag/index.sqlite".into()),
-        ), vec![])
+        (
+            PathBuf::from(
+                std::env::var("CLAW_RAG_DB").unwrap_or_else(|_| ".claw-rag/index.sqlite".into()),
+            ),
+            vec![],
+        )
     };
 
     let cfg = resolve_embed_config()?;
@@ -135,7 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         state.db_path.display()
     );
     let listener = tokio::net::TcpListener::bind(addr).await?;
-    
+
     // Setup file watcher for automatic ingest
     if !serve_workspaces.is_empty() {
         let (tx, mut rx) = mpsc::channel(100);
@@ -145,11 +148,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     let _ = tx.blocking_send(());
                 }
             }
-        }).map_err(|e| format!("Failed to initialize watcher: {}", e))?;
+        })
+        .map_err(|e| format!("Failed to initialize watcher: {}", e))?;
 
         for ws in &serve_workspaces {
             let ws_path = ws.canonicalize().unwrap_or_else(|_| ws.clone());
-            watcher.watch(&ws_path, RecursiveMode::Recursive)
+            watcher
+                .watch(&ws_path, RecursiveMode::Recursive)
                 .map_err(|e| format!("Failed to watch {}: {}", ws_path.display(), e))?;
         }
 
@@ -162,7 +167,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 if rx.blocking_recv().is_none() {
                     break;
                 }
-                
+
                 // Wait for a period of 10 seconds with no new events
                 loop {
                     std::thread::sleep(std::time::Duration::from_secs(10));
@@ -175,7 +180,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                 }
 
-                eprintln!("[claw-rag-service] Detected file changes. Triggering automatic ingest...");
+                eprintln!(
+                    "[claw-rag-service] Detected file changes. Triggering automatic ingest..."
+                );
                 if let Ok(cfg) = resolve_embed_config() {
                     let client = reqwest::Client::new();
                     match handle.block_on(run_ingest(&serve_workspaces, &db_path, &cfg, &client)) {
@@ -252,7 +259,10 @@ async fn ingest_single(
         return Err((StatusCode::BAD_REQUEST, "empty content".into()));
     }
     if req.content.len() > 512_000 {
-        return Err((StatusCode::BAD_REQUEST, "content too large (max 512 KB)".into()));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "content too large (max 512 KB)".into(),
+        ));
     }
 
     let db_path = state.db_path.clone();
@@ -266,10 +276,17 @@ async fn ingest_single(
     let handle = tokio::runtime::Handle::current();
     let result = tokio::task::spawn_blocking(move || {
         let conn = open_db(&db_path)?;
-        handle.block_on(chunk_and_embed_single(&conn, &path, &content, &client, &cfg))
+        handle.block_on(chunk_and_embed_single(
+            &conn, &path, &content, &client, &cfg,
+        ))
     })
     .await
-    .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("task join error: {e}")))?
+    .map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("task join error: {e}"),
+        )
+    })?
     .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e))?;
 
     Ok(Json(serde_json::json!({

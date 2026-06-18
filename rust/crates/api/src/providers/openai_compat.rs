@@ -1078,8 +1078,15 @@ fn wire_model_for_base_url<'a>(
         return Cow::Borrowed(model);
     }
 
-    if matches!(lowered_prefix.as_str(), "xai" | "grok" | "qwen" | "kimi" | "glm" | "zhipu") {
-        return Cow::Borrowed(&model[pos + 1..]);
+    if matches!(
+        lowered_prefix.as_str(),
+        "xai" | "grok" | "qwen" | "kimi" | "glm" | "zhipu" | "zhipuai"
+    ) {
+        let mut stripped = &model[pos + 1..];
+        if config.provider_name == "GLM" && stripped.ends_with(":free") {
+            stripped = &stripped[..stripped.len() - 5];
+        }
+        return Cow::Borrowed(stripped);
     }
     if lowered_prefix == "local" {
         return Cow::Borrowed(&model[pos + 1..]);
@@ -1731,9 +1738,8 @@ pub fn has_api_key(key: &str) -> bool {
 pub fn read_base_url(config: OpenAiCompatConfig) -> String {
     match std::env::var(config.base_url_env) {
         Ok(val) if !val.is_empty() => val,
-        Ok(_) | Err(std::env::VarError::NotPresent) => {
-            super::dotenv_value(config.base_url_env).unwrap_or_else(|| config.default_base_url.to_string())
-        }
+        Ok(_) | Err(std::env::VarError::NotPresent) => super::dotenv_value(config.base_url_env)
+            .unwrap_or_else(|| config.default_base_url.to_string()),
         Err(_) => config.default_base_url.to_string(),
     }
 }

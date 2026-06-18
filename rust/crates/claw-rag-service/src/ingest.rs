@@ -3,8 +3,8 @@
 use std::path::Path;
 use std::path::PathBuf;
 
-use reqwest::Client;
 use ignore::WalkBuilder;
+use reqwest::Client;
 
 use crate::chunk::chunk_text;
 use crate::db::{
@@ -32,8 +32,16 @@ fn chunk_overlap() -> usize {
 const EMBED_BATCH: usize = 16;
 
 static SKIP_DIR_NAMES: &[&str] = &[
-    ".git", "target", "node_modules", "__pycache__", ".claw-rag",
-    ".idea", ".vscode", "dist", "build", ".env"
+    ".git",
+    "target",
+    "node_modules",
+    "__pycache__",
+    ".claw-rag",
+    ".idea",
+    ".vscode",
+    "dist",
+    "build",
+    ".env",
 ];
 
 static TEXT_EXTENSIONS: &[&str] = &[
@@ -323,4 +331,3 @@ async fn flush_single_batch(
     }
     Ok(())
 }
-

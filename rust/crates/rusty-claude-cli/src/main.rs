@@ -1717,9 +1717,7 @@ fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 index += 1;
             }
             "--tools" => {
-                let value = args
-                    .get(index + 1)
-                    .ok_or_else(tools_missing_error)?;
+                let value = args.get(index + 1).ok_or_else(tools_missing_error)?;
                 if value.starts_with('-') || is_known_top_level_subcommand(value) {
                     return Err(tools_missing_error());
                 }
@@ -11977,11 +11975,15 @@ fn build_runtime_plugin_state_with_loader(
     let tool_registry = GlobalToolRegistry::with_plugin_tools(plugin_registry.aggregated_tools()?)?
         .with_runtime_tools(runtime_tools)?;
     let config_injected_tools = match runtime_config.injected_tools() {
-        Some(tools) => tool_registry.normalize_tool_list(&tools, "injectedTools").unwrap_or(None),
+        Some(tools) => tool_registry
+            .normalize_tool_list(&tools, "injectedTools")
+            .unwrap_or(None),
         None => None,
     };
     let config_allowed_tools = match runtime_config.allowed_tools() {
-        Some(tools) => tool_registry.normalize_tool_list(&tools, "allowedTools").unwrap_or(None),
+        Some(tools) => tool_registry
+            .normalize_tool_list(&tools, "allowedTools")
+            .unwrap_or(None),
         None => None,
     };
     let tool_registry = tool_registry
@@ -12445,11 +12447,7 @@ fn build_runtime_with_plugin_state(
             tool_registry.clone(),
             progress_reporter,
         )?,
-        CliToolExecutor::new(
-            emit_output,
-            tool_registry.clone(),
-            mcp_state.clone(),
-        ),
+        CliToolExecutor::new(emit_output, tool_registry.clone(), mcp_state.clone()),
         policy,
         system_prompt,
         &feature_config,
@@ -14063,10 +14061,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "claw v{VERSION}")?;
     writeln!(out)?;
     writeln!(out, "Usage:")?;
-    writeln!(
-        out,
-        "  claw [--model MODEL] [--tools TOOL[,TOOL...]]"
-    )?;
+    writeln!(out, "  claw [--model MODEL] [--tools TOOL[,TOOL...]]")?;
     writeln!(out, "      Start the interactive REPL")?;
     writeln!(
         out,
@@ -14212,10 +14207,7 @@ fn print_help_to(out: &mut impl Write) -> io::Result<()> {
         "  claw --output-format json prompt \"explain src/main.rs\""
     )?;
     writeln!(out, "  claw --compact \"summarize Cargo.toml\" | wc -l")?;
-    writeln!(
-        out,
-        "  claw --tools read,glob \"summarize Cargo.toml\""
-    )?;
+    writeln!(out, "  claw --tools read,glob \"summarize Cargo.toml\"")?;
     writeln!(out, "  claw --resume {LATEST_SESSION_REFERENCE}")?;
     writeln!(
         out,
@@ -15962,20 +15954,17 @@ mod tests {
             "sandbox field still reported"
         );
         assert_eq!(
-            json.pointer("/tools/source")
-                .and_then(|v| v.as_str()),
+            json.pointer("/tools/source").and_then(|v| v.as_str()),
             Some("default"),
             "default status should expose unrestricted tool source: {json}"
         );
         assert_eq!(
-            json.pointer("/tools/restricted")
-                .and_then(|v| v.as_bool()),
+            json.pointer("/tools/restricted").and_then(|v| v.as_bool()),
             Some(false),
             "default status should expose unrestricted tool state: {json}"
         );
         assert_eq!(
-            json.pointer("/tools/available/0")
-                .and_then(|v| v.as_str()),
+            json.pointer("/tools/available/0").and_then(|v| v.as_str()),
             Some("agent"),
             "status JSON should expose canonical snake_case available tools: {json}"
         );
@@ -19213,17 +19202,17 @@ UU conflicted.rs",
 
         let allowed = state
             .tool_registry
-            .normalize_tool_list(&["mcp__alpha__echo".to_string(), "MCPTool".to_string()], "--tools")
+            .normalize_tool_list(
+                &["mcp__alpha__echo".to_string(), "MCPTool".to_string()],
+                "--tools",
+            )
             .expect("mcp tools should be allow-listable")
             .expect("allow-list should exist");
         assert!(allowed.contains("mcp__alpha__echo"));
         assert!(allowed.contains("mcp_tool"));
 
-        let mut executor = CliToolExecutor::new(
-            false,
-            state.tool_registry.clone(),
-            state.mcp_state.clone(),
-        );
+        let mut executor =
+            CliToolExecutor::new(false, state.tool_registry.clone(), state.mcp_state.clone());
 
         let tool_output = executor
             .execute("mcp__alpha__echo", r#"{"text":"hello"}"#)
@@ -19316,11 +19305,8 @@ UU conflicted.rs",
         let runtime_config = loader.load().expect("runtime config should load");
         let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &runtime_config)
             .expect("runtime plugin state should load");
-        let mut executor = CliToolExecutor::new(
-            false,
-            state.tool_registry.clone(),
-            state.mcp_state.clone(),
-        );
+        let mut executor =
+            CliToolExecutor::new(false, state.tool_registry.clone(), state.mcp_state.clone());
 
         let search_output = executor
             .execute("ToolSearch", r#"{"query":"remote","max_results":5}"#)

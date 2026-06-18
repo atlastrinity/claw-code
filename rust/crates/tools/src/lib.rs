@@ -246,7 +246,7 @@ impl GlobalToolRegistry {
                     allowed.insert(canonical_allowed_tool_name(token));
                     continue;
                 }
-                
+
                 let canonical = name_map.get(&allowed_tool_lookup_key(token)).ok_or_else(|| {
                     format!(
                         "invalid_tool_name: unsupported tool in {flag_name}: {token}\nAvailable: {}\nAliases: {}\nHint: Use canonical snake_case tool names from Available or aliases from Aliases.",
@@ -469,24 +469,33 @@ impl GlobalToolRegistry {
             .filter(|spec| {
                 let is_hardcoded_ignored = matches!(
                     spec.name,
-                    "bash" | "read_file" | "write_file" | "edit_file" | "glob_search" | "grep_search"
+                    "bash"
+                        | "read_file"
+                        | "write_file"
+                        | "edit_file"
+                        | "glob_search"
+                        | "grep_search"
                 );
-                
+
                 let is_allowed = self.is_tool_allowed(spec.name);
-                
+
                 !is_hardcoded_ignored && !is_allowed
             })
             .map(|spec| SearchableToolSpec {
                 name: spec.name.to_string(),
                 description: spec.description.to_string(),
             });
-        let runtime = self.runtime_tools.iter()
+        let runtime = self
+            .runtime_tools
+            .iter()
             .filter(|tool| !self.is_tool_allowed(&tool.name))
             .map(|tool| SearchableToolSpec {
                 name: tool.name.clone(),
                 description: tool.description.clone().unwrap_or_default(),
             });
-        let plugin = self.plugin_tools.iter()
+        let plugin = self
+            .plugin_tools
+            .iter()
             .filter(|tool| !self.is_tool_allowed(&tool.definition().name))
             .map(|tool| SearchableToolSpec {
                 name: tool.definition().name.clone(),
@@ -2326,9 +2335,7 @@ fn run_retrieve_context(input: RetrieveContextInput) -> Result<String, String> {
         return Err("empty query".to_string());
     }
     if q.chars().count() > RAG_QUERY_MAX_CHARS {
-        return Err(format!(
-            "query too long (max {RAG_QUERY_MAX_CHARS} chars)"
-        ));
+        return Err(format!("query too long (max {RAG_QUERY_MAX_CHARS} chars)"));
     }
 
     let top_k = input.top_k.unwrap_or(8).clamp(1, 32);
@@ -2359,10 +2366,7 @@ fn run_retrieve_context(input: RetrieveContextInput) -> Result<String, String> {
 
 fn format_rag_response_for_model(body: &str) -> Result<String, String> {
     let v: Value = serde_json::from_str(body).map_err(|e| format!("invalid RAG JSON: {e}"))?;
-    let phase = v
-        .get("phase")
-        .and_then(|x| x.as_str())
-        .unwrap_or("unknown");
+    let phase = v.get("phase").and_then(|x| x.as_str()).unwrap_or("unknown");
     let hits = v
         .get("hits")
         .and_then(|h| h.as_array())
@@ -2438,16 +2442,20 @@ fn run_ingest_context(input: IngestContextInput) -> Result<String, String> {
         .map_err(|e| format!("RAG ingest failed: {e}"))?;
 
     let status = resp.status();
-    let text = resp.text().map_err(|e| format!("RAG ingest response: {e}"))?;
+    let text = resp
+        .text()
+        .map_err(|e| format!("RAG ingest response: {e}"))?;
 
     if !status.is_success() {
         return Err(format!("RAG ingest HTTP {status}: {text}"));
     }
 
     // Parse and format the success response for the model
-    let resp_json: Value =
-        serde_json::from_str(&text).unwrap_or(json!({ "status": "ok" }));
-    let chunks = resp_json.get("chunks").and_then(|v| v.as_u64()).unwrap_or(0);
+    let resp_json: Value = serde_json::from_str(&text).unwrap_or(json!({ "status": "ok" }));
+    let chunks = resp_json
+        .get("chunks")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     let embeddings = resp_json
         .get("embeddings")
         .and_then(|v| v.as_u64())
@@ -3966,7 +3974,7 @@ fn extract_search_hits_yahoo(html: &str) -> Vec<SearchHit> {
             remaining = &after_class[1..];
             continue;
         };
-        
+
         let Some(h3_start) = rest.find("<h3") else {
             remaining = &after_class[1..];
             continue;
@@ -3975,17 +3983,17 @@ fn extract_search_hits_yahoo(html: &str) -> Vec<SearchHit> {
             remaining = &after_class[1..];
             continue;
         };
-        
+
         let title_html = &rest[h3_start..h3_start + h3_end];
         let title = html_to_text(title_html);
-        
+
         let decoded_url = decode_yahoo_redirect(&url).unwrap_or(url);
-        
+
         hits.push(SearchHit {
             title: title.trim().to_string(),
             url: decoded_url,
         });
-        
+
         let Some(close_tag_idx) = rest.find("</a>") else {
             remaining = &rest[h3_start + h3_end..];
             continue;
@@ -4000,12 +4008,17 @@ fn decode_yahoo_redirect(url: &str) -> Option<String> {
         if let Some(end) = url[start + 4..].find("/R") {
             let encoded = &url[start + 4..start + 4 + end];
             let decoded = encoded
-                .replace("%3a", ":").replace("%3A", ":")
-                .replace("%2f", "/").replace("%2F", "/")
-                .replace("%3f", "?").replace("%3F", "?")
-                .replace("%3d", "=").replace("%3D", "=")
+                .replace("%3a", ":")
+                .replace("%3A", ":")
+                .replace("%2f", "/")
+                .replace("%2F", "/")
+                .replace("%3f", "?")
+                .replace("%3F", "?")
+                .replace("%3d", "=")
+                .replace("%3D", "=")
                 .replace("%26", "&")
-                .replace("%2b", "+").replace("%2B", "+")
+                .replace("%2b", "+")
+                .replace("%2B", "+")
                 .replace("%25", "%");
             return Some(decoded);
         }
@@ -5708,10 +5721,7 @@ impl SubagentToolExecutor {
 
 impl ToolExecutor for SubagentToolExecutor {
     fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
-        if !self
-            .tools
-            .contains(&canonical_allowed_tool_name(tool_name))
-        {
+        if !self.tools.contains(&canonical_allowed_tool_name(tool_name)) {
             return Err(ToolError::new(format!(
                 "tool `{tool_name}` is not enabled for this sub-agent"
             )));
@@ -7169,13 +7179,12 @@ mod tests {
     use std::time::Duration;
 
     use super::{
-        agent_permission_policy, tools_for_subagent, build_agent_system_prompt,
-        classify_lane_failure, derive_agent_state, execute_agent_with_spawn, execute_tool,
-        extract_recovery_outcome, final_assistant_text, global_cron_registry,
-        maybe_commit_provenance, mvp_tool_specs, permission_mode_from_plugin,
-        persist_agent_terminal_state, push_output_block, run_task_packet, AgentInput, AgentJob,
-        GlobalToolRegistry, LaneEventName, LaneFailureClass, ProviderRuntimeClient,
-        SubagentToolExecutor,
+        agent_permission_policy, build_agent_system_prompt, classify_lane_failure,
+        derive_agent_state, execute_agent_with_spawn, execute_tool, extract_recovery_outcome,
+        final_assistant_text, global_cron_registry, maybe_commit_provenance, mvp_tool_specs,
+        permission_mode_from_plugin, persist_agent_terminal_state, push_output_block,
+        run_task_packet, tools_for_subagent, AgentInput, AgentJob, GlobalToolRegistry,
+        LaneEventName, LaneFailureClass, ProviderRuntimeClient, SubagentToolExecutor,
     };
     use api::OutputContentBlock;
     use runtime::ProviderFallbackConfig;

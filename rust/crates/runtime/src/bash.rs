@@ -382,7 +382,7 @@ fn rewrite_sudo_command(command: &str, cwd: &Path) -> Option<String> {
 
     // Escape single quotes in the password for safe shell embedding:
     // replace ' with '\'' (end quote, literal quote, start quote)
-    let escaped_password = password.replace('\'', "'\\''" );
+    let escaped_password = password.replace('\'', "'\\''");
 
     let stdin_flag = if has_stdin_flag { "" } else { "-S " };
     let rest = after_sudo.join(" ");
@@ -410,8 +410,8 @@ fn prepare_command(
         return prepared;
     }
 
-    let effective_command = rewrite_sudo_command(command, cwd)
-        .unwrap_or_else(|| command.to_string());
+    let effective_command =
+        rewrite_sudo_command(command, cwd).unwrap_or_else(|| command.to_string());
     let mut prepared = Command::new("sh");
     prepared.arg("-lc").arg(&effective_command).current_dir(cwd);
     if sandbox_status.filesystem_active {
@@ -438,8 +438,8 @@ fn prepare_tokio_command(
             cmd.envs(launcher.env);
             cmd
         } else {
-            let effective_command = rewrite_sudo_command(command, cwd)
-                .unwrap_or_else(|| command.to_string());
+            let effective_command =
+                rewrite_sudo_command(command, cwd).unwrap_or_else(|| command.to_string());
             let mut cmd = TokioCommand::new("sh");
             cmd.arg("-lc").arg(&effective_command);
             if sandbox_status.filesystem_active {
@@ -553,11 +553,8 @@ mod tests {
     #[test]
     fn rewrites_sudo_when_password_available() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join(".env"),
-            "SUDO_PASSWORD=\"testpass123\"",
-        )
-        .expect("write .env");
+        std::fs::write(dir.path().join(".env"), "SUDO_PASSWORD=\"testpass123\"")
+            .expect("write .env");
 
         let result = rewrite_sudo_command("sudo apt install curl", dir.path());
         assert!(result.is_some(), "should rewrite sudo command");
@@ -575,11 +572,8 @@ mod tests {
     #[test]
     fn no_rewrite_without_sudo() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join(".env"),
-            "SUDO_PASSWORD=\"testpass123\"",
-        )
-        .expect("write .env");
+        std::fs::write(dir.path().join(".env"), "SUDO_PASSWORD=\"testpass123\"")
+            .expect("write .env");
 
         assert!(rewrite_sudo_command("ls -la", dir.path()).is_none());
         assert!(rewrite_sudo_command("echo hello", dir.path()).is_none());
@@ -592,22 +586,17 @@ mod tests {
         assert!(rewrite_sudo_command("sudo ls", dir.path()).is_none());
 
         // .env exists but no SUDO_PASSWORD
-        std::fs::write(dir.path().join(".env"), "OTHER_VAR=foo")
-            .expect("write .env");
+        std::fs::write(dir.path().join(".env"), "OTHER_VAR=foo").expect("write .env");
         assert!(rewrite_sudo_command("sudo ls", dir.path()).is_none());
     }
 
     #[test]
     fn no_double_stdin_flag() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join(".env"),
-            "SUDO_PASSWORD=pass",
-        )
-        .expect("write .env");
+        std::fs::write(dir.path().join(".env"), "SUDO_PASSWORD=pass").expect("write .env");
 
-        let result = rewrite_sudo_command("sudo -S apt update", dir.path())
-            .expect("should rewrite");
+        let result =
+            rewrite_sudo_command("sudo -S apt update", dir.path()).expect("should rewrite");
         // Should NOT have double -S
         assert!(
             !result.contains("-S -S"),
@@ -622,14 +611,11 @@ mod tests {
     #[test]
     fn handles_password_with_special_chars() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join(".env"),
-            "SUDO_PASSWORD=\"p@ss'w0rd$\"",
-        )
-        .expect("write .env");
+        std::fs::write(dir.path().join(".env"), "SUDO_PASSWORD=\"p@ss'w0rd$\"")
+            .expect("write .env");
 
-        let result = rewrite_sudo_command("sudo rm -rf /tmp/test", dir.path())
-            .expect("should rewrite");
+        let result =
+            rewrite_sudo_command("sudo rm -rf /tmp/test", dir.path()).expect("should rewrite");
         // Single quotes in password should be escaped
         assert!(
             result.contains("p@ss'\\''w0rd$"),
@@ -640,11 +626,7 @@ mod tests {
     #[test]
     fn preserves_env_var_prefix() {
         let dir = tempfile::tempdir().expect("tempdir");
-        std::fs::write(
-            dir.path().join(".env"),
-            "SUDO_PASSWORD=mypass",
-        )
-        .expect("write .env");
+        std::fs::write(dir.path().join(".env"), "SUDO_PASSWORD=mypass").expect("write .env");
 
         let result = rewrite_sudo_command(
             "DEBIAN_FRONTEND=noninteractive sudo apt install -y curl",

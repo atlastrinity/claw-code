@@ -145,7 +145,13 @@ impl ApiError {
 
     pub fn is_retryable(&self) -> bool {
         match self {
-            Self::Http(error) => error.is_connect() || error.is_timeout() || error.is_request() || error.is_body() || error.is_decode(),
+            Self::Http(error) => {
+                error.is_connect()
+                    || error.is_timeout()
+                    || error.is_request()
+                    || error.is_body()
+                    || error.is_decode()
+            }
             Self::Api { retryable, .. } => *retryable,
             Self::RetriesExhausted { last_error, .. } => last_error.is_retryable(),
             Self::MissingCredentials { .. }
