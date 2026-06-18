@@ -219,16 +219,41 @@ impl SystemPromptBuilder {
         sections.push(get_actions_section());
         sections.push(SYSTEM_PROMPT_DYNAMIC_BOUNDARY.to_string());
         sections.push(self.environment_section());
+
+        let mut claw_md_file = None;
+
         if let Some(project_context) = &self.project_context {
             sections.push(render_project_context(project_context));
-            if !project_context.instruction_files.is_empty() {
-                sections.push(render_instruction_files(&project_context.instruction_files));
+            
+            let mut regular_files = Vec::new();
+            for file in &project_context.instruction_files {
+                if file.path.file_name().and_then(|n| n.to_str()) == Some("CLAW.md") {
+                    // Save CLAW.md to inject at the very end of the prompt
+                    claw_md_file = Some(file.clone());
+                } else {
+                    regular_files.push(file.clone());
+                }
+            }
+
+            if !regular_files.is_empty() {
+                sections.push(render_instruction_files(&regular_files));
             }
         }
+        
         if let Some(config) = &self.config {
             sections.push(render_config_section(config));
         }
         sections.extend(self.append_sections.iter().cloned());
+
+        if let Some(claw_file) = claw_md_file {
+            let rendered = render_instruction_content(&claw_file.content);
+            sections.push(format!(
+                "# ⚠️ CRITICAL CORE DIRECTIVE ⚠️\n\nThe following instructions from {} take absolute precedence over everything else in this prompt:\n\n{}",
+                claw_file.path.display(),
+                rendered
+            ));
+        }
+
         sections
     }
 
