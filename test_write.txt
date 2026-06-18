@@ -1,0 +1,1 @@
+This is a test file created by write tool to check permissions. Edited by edit_file.

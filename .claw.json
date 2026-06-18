@@ -6,7 +6,7 @@
     "mega": "local/meta-llama/llama-3.3-70b-instruct:free",
     "gpt": "local/openai/gpt-oss-120b:free"
   },
-  "tools": [
+  "injectedTools": [
     "bash",
     "read_file",
     "write_file",
@@ -19,6 +19,9 @@
     "ingest_context",
     "ToolSearch",
     "macos-use_vision"
+  ],
+  "allowedTools": [
+    "*"
   ],
   "mcpServers": {
     "macos-use": {

@@ -114,7 +114,8 @@ pub struct GlobalToolRegistry {
     plugin_tools: Vec<PluginTool>,
     runtime_tools: Vec<RuntimeToolDefinition>,
     enforcer: Option<PermissionEnforcer>,
-    pub tools: Option<BTreeSet<String>>,
+    pub injected_tools: Option<BTreeSet<String>>,
+    pub allowed_tools: Option<BTreeSet<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -132,7 +133,8 @@ impl GlobalToolRegistry {
             plugin_tools: Vec::new(),
             runtime_tools: Vec::new(),
             enforcer: None,
-            tools: None,
+            injected_tools: None,
+            allowed_tools: None,
         }
     }
 
@@ -159,13 +161,20 @@ impl GlobalToolRegistry {
             plugin_tools,
             runtime_tools: Vec::new(),
             enforcer: None,
-            tools: None,
+            injected_tools: None,
+            allowed_tools: None,
         })
     }
 
     #[must_use]
-    pub fn with_tools(mut self, allowed: Option<BTreeSet<String>>) -> Self {
-        self.tools = allowed;
+    pub fn with_injected_tools(mut self, allowed: Option<BTreeSet<String>>) -> Self {
+        self.injected_tools = allowed;
+        self
+    }
+
+    #[must_use]
+    pub fn with_allowed_tools(mut self, allowed: Option<BTreeSet<String>>) -> Self {
+        self.allowed_tools = allowed;
         self
     }
 
@@ -202,9 +211,10 @@ impl GlobalToolRegistry {
         self
     }
 
-    pub fn normalize_tools(
+    pub fn normalize_tool_list(
         &self,
         values: &[String],
+        flag_name: &str,
     ) -> Result<Option<BTreeSet<String>>, String> {
         if values.is_empty() {
             return Ok(None);
@@ -239,7 +249,7 @@ impl GlobalToolRegistry {
                 
                 let canonical = name_map.get(&allowed_tool_lookup_key(token)).ok_or_else(|| {
                     format!(
-                        "invalid_tool_name: unsupported tool in --allowedTools: {token}\nAvailable: {}\nAliases: {}\nHint: Use canonical snake_case tool names from Available or aliases from Aliases.",
+                        "invalid_tool_name: unsupported tool in {flag_name}: {token}\nAvailable: {}\nAliases: {}\nHint: Use canonical snake_case tool names from Available or aliases from Aliases.",
                         canonical_names.join(", "),
                         format_allowed_tool_aliases(&self.allowed_tool_aliases())
                     )
@@ -250,7 +260,7 @@ impl GlobalToolRegistry {
 
         if allowed.is_empty() {
             return Err(format!(
-                "--allowedTools was provided with no usable tool names (got `{}`). Omit the flag to allow all tools.",
+                "{flag_name} was provided with no usable tool names (got `{}`). Omit the flag to allow all tools.",
                 values.join(" ")
             ));
         }
@@ -258,48 +268,60 @@ impl GlobalToolRegistry {
         Ok(Some(allowed))
     }
 
+    pub fn is_tool_injected(&self, name: &str) -> bool {
+        let canonical_name = canonical_allowed_tool_name(name);
+        self.injected_tools.is_none()
+            || self
+                .injected_tools
+                .as_ref()
+                .is_some_and(|allowed| allowed.contains(&canonical_name))
+    }
+
+    pub fn is_tool_allowed(&self, name: &str) -> bool {
+        let canonical_name = canonical_allowed_tool_name(name);
+        self.allowed_tools.is_none()
+            || self
+                .allowed_tools
+                .as_ref()
+                .is_some_and(|allowed| allowed.contains(&canonical_name))
+    }
+
     #[must_use]
-    pub fn definitions(&self, tools: Option<&BTreeSet<String>>) -> Vec<ToolDefinition> {
+    pub fn definitions(&self) -> Vec<ToolDefinition> {
         let builtin = mvp_tool_specs()
             .into_iter()
-            .filter(|spec| {
-                tools
-                    .is_none_or(|allowed| allowed.contains(&canonical_allowed_tool_name(spec.name)))
-            })
+            .filter(|spec| self.is_tool_injected(&spec.name))
             .map(|spec| ToolDefinition {
                 name: spec.name.to_string(),
                 description: Some(spec.description.to_string()),
                 input_schema: spec.input_schema,
             });
-        let runtime = self
-            .runtime_tools
-            .iter()
-            .filter(|tool| {
-                tools.is_none_or(|allowed| {
-                    allowed.contains(&canonical_allowed_tool_name(&tool.name))
+
+        let plugins = self.plugin_tools.iter().filter_map(|tool| {
+            if self.is_tool_injected(&tool.definition().name) {
+                Some(ToolDefinition {
+                    name: tool.definition().name.clone(),
+                    description: tool.definition().description.clone(),
+                    input_schema: tool.definition().input_schema.clone(),
                 })
-            })
-            .map(|tool| ToolDefinition {
-                name: tool.name.clone(),
-                description: tool.description.clone(),
-                input_schema: tool.input_schema.clone(),
-            });
-        let plugin = self
-            .plugin_tools
-            .iter()
-            .filter(|tool| {
-                tools.is_none_or(|allowed| {
-                    allowed.contains(&canonical_allowed_tool_name(
-                        tool.definition().name.as_str(),
-                    ))
+            } else {
+                None
+            }
+        });
+
+        let runtime = self.runtime_tools.iter().filter_map(|tool| {
+            if self.is_tool_injected(&tool.name) {
+                Some(ToolDefinition {
+                    name: tool.name.clone(),
+                    description: tool.description.clone(),
+                    input_schema: tool.input_schema.clone(),
                 })
-            })
-            .map(|tool| ToolDefinition {
-                name: tool.definition().name.clone(),
-                description: tool.definition().description.clone(),
-                input_schema: tool.definition().input_schema.clone(),
-            });
-        builtin.chain(runtime).chain(plugin).collect()
+            } else {
+                None
+            }
+        });
+
+        builtin.chain(plugins).chain(runtime).collect()
     }
 
     pub fn permission_specs(
@@ -450,9 +472,7 @@ impl GlobalToolRegistry {
                     "bash" | "read_file" | "write_file" | "edit_file" | "glob_search" | "grep_search"
                 );
                 
-                let is_allowed = self.tools.is_none() || self.tools.as_ref().is_some_and(|allowed| {
-                    allowed.contains(&canonical_allowed_tool_name(spec.name))
-                });
+                let is_allowed = self.is_tool_allowed(spec.name);
                 
                 !is_hardcoded_ignored && !is_allowed
             })
@@ -461,23 +481,13 @@ impl GlobalToolRegistry {
                 description: spec.description.to_string(),
             });
         let runtime = self.runtime_tools.iter()
-            .filter(|tool| {
-                let is_allowed = self.tools.is_none() || self.tools.as_ref().is_some_and(|allowed| {
-                    allowed.contains(&canonical_allowed_tool_name(&tool.name))
-                });
-                !is_allowed
-            })
+            .filter(|tool| !self.is_tool_allowed(&tool.name))
             .map(|tool| SearchableToolSpec {
                 name: tool.name.clone(),
                 description: tool.description.clone().unwrap_or_default(),
             });
         let plugin = self.plugin_tools.iter()
-            .filter(|tool| {
-                let is_allowed = self.tools.is_none() || self.tools.as_ref().is_some_and(|allowed| {
-                    allowed.contains(&canonical_allowed_tool_name(&tool.definition().name))
-                });
-                !is_allowed
-            })
+            .filter(|tool| !self.is_tool_allowed(&tool.definition().name))
             .map(|tool| SearchableToolSpec {
                 name: tool.definition().name.clone(),
                 description: tool.definition().description.clone().unwrap_or_default(),
@@ -7976,7 +7986,7 @@ mod tests {
 
         for raw in ["", ",,", "   "] {
             let err = registry
-                .normalize_tools(&[raw.to_string()])
+                .normalize_tool_list(&[raw.to_string()], "--tools")
                 .expect_err("empty allow-list input should be rejected");
             assert!(
                 err.contains("--allowedTools was provided with no usable tool names"),
@@ -7989,7 +7999,7 @@ mod tests {
     fn tools_normalize_to_canonical_snake_case_and_aliases_432() {
         let registry = GlobalToolRegistry::builtin();
         let allowed = registry
-            .normalize_tools(&["Read,WebFetch,MCP".to_string()])
+            .normalize_tool_list(&["Read,WebFetch,MCP".to_string()], "--tools")
             .expect("aliases and legacy names should normalize")
             .expect("allow-list should be populated");
         assert!(allowed.contains("read_file"));
@@ -8024,12 +8034,12 @@ mod tests {
             .expect("runtime tools should register");
 
         let allowed = registry
-            .normalize_tools(&["mcp__demo__echo".to_string()])
+            .normalize_tool_list(&["mcp__demo__echo".to_string()], "--tools")
             .expect("runtime tool should be allow-listable")
             .expect("allow-list should be populated");
         assert!(allowed.contains("mcp__demo__echo"));
 
-        let definitions = registry.definitions(Some(&allowed));
+        let definitions = registry.definitions();
         assert_eq!(definitions.len(), 1);
         assert_eq!(definitions[0].name, "mcp__demo__echo");
 

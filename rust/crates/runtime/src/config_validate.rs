@@ -221,7 +221,19 @@ const TOP_LEVEL_FIELDS: &[FieldSpec] = &[
         expected: FieldType::String,
     },
     FieldSpec {
-        name: "tools",
+        name: "injectedTools",
+        expected: FieldType::StringArray,
+    },
+    FieldSpec {
+        name: "injected_tools",
+        expected: FieldType::StringArray,
+    },
+    FieldSpec {
+        name: "allowedTools",
+        expected: FieldType::StringArray,
+    },
+    FieldSpec {
+        name: "allowed_tools",
         expected: FieldType::StringArray,
     },
 ];
@@ -370,12 +382,8 @@ const DEPRECATED_FIELDS: &[DeprecatedField] = &[
         replacement: "plugins.enabled",
     },
     DeprecatedField {
-        name: "allowedTools",
-        replacement: "tools",
-    },
-    DeprecatedField {
-        name: "allowed_tools",
-        replacement: "tools",
+        name: "tools",
+        replacement: "injectedTools",
     },
 ];
 

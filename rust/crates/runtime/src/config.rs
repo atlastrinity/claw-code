@@ -876,9 +876,26 @@ impl RuntimeConfig {
     }
 
     #[must_use]
-    pub fn tools(&self) -> Option<Vec<String>> {
-        let tools = self.merged.get("tools")
-            .or_else(|| self.merged.get("allowedTools"))
+    pub fn injected_tools(&self) -> Option<Vec<String>> {
+        let tools = self.merged.get("injectedTools")
+            .or_else(|| self.merged.get("injected_tools"))?;
+        
+        if let JsonValue::Array(arr) = tools {
+            let mut result = Vec::new();
+            for item in arr {
+                if let JsonValue::String(s) = item {
+                    result.push(s.clone());
+                }
+            }
+            Some(result)
+        } else {
+            None
+        }
+    }
+
+    #[must_use]
+    pub fn allowed_tools(&self) -> Option<Vec<String>> {
+        let tools = self.merged.get("allowedTools")
             .or_else(|| self.merged.get("allowed_tools"))?;
         
         if let JsonValue::Array(arr) = tools {

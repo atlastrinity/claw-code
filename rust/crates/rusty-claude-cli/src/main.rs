@@ -3003,7 +3003,7 @@ fn normalize_tools(values: &[String]) -> Result<Option<ToolSet>, String> {
     if values.is_empty() {
         return Ok(None);
     }
-    current_tool_registry()?.normalize_tools(values)
+    current_tool_registry()?.normalize_tool_list(values, "--tools")
 }
 
 fn tools_missing_error() -> String {
@@ -3170,11 +3170,8 @@ fn format_connected_line(model: &str) -> String {
     format!("Connected: {model} via {provider}")
 }
 
-fn filter_tool_specs(
-    tool_registry: &GlobalToolRegistry,
-    tools: Option<&ToolSet>,
-) -> Vec<ToolDefinition> {
-    tool_registry.definitions(tools)
+fn filter_tool_specs(tool_registry: &GlobalToolRegistry) -> Vec<ToolDefinition> {
+    tool_registry.definitions()
 }
 
 fn parse_system_prompt_args(
@@ -7153,7 +7150,8 @@ struct RuntimePluginState {
     tool_registry: GlobalToolRegistry,
     plugin_registry: PluginRegistry,
     mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
-    config_tools: Option<ToolSet>,
+    config_injected_tools: Option<ToolSet>,
+    config_allowed_tools: Option<ToolSet>,
 }
 
 struct RuntimeMcpState {
@@ -11982,17 +11980,24 @@ fn build_runtime_plugin_state_with_loader(
     let (mcp_state, runtime_tools) = build_runtime_mcp_state(runtime_config)?;
     let tool_registry = GlobalToolRegistry::with_plugin_tools(plugin_registry.aggregated_tools()?)?
         .with_runtime_tools(runtime_tools)?;
-    let config_tools = match runtime_config.tools() {
-        Some(tools) => tool_registry.normalize_tools(&tools).unwrap_or(None),
+    let config_injected_tools = match runtime_config.injected_tools() {
+        Some(tools) => tool_registry.normalize_tool_list(&tools, "injectedTools").unwrap_or(None),
         None => None,
     };
-    let tool_registry = tool_registry.with_tools(config_tools.clone());
+    let config_allowed_tools = match runtime_config.allowed_tools() {
+        Some(tools) => tool_registry.normalize_tool_list(&tools, "allowedTools").unwrap_or(None),
+        None => None,
+    };
+    let tool_registry = tool_registry
+        .with_injected_tools(config_injected_tools.clone())
+        .with_allowed_tools(config_allowed_tools.clone());
     Ok(RuntimePluginState {
         feature_config,
         tool_registry,
         plugin_registry,
         mcp_state,
-        config_tools,
+        config_injected_tools,
+        config_allowed_tools,
     })
 }
 
@@ -12419,9 +12424,18 @@ fn build_runtime_with_plugin_state(
         tool_registry,
         plugin_registry,
         mcp_state,
-        config_tools,
+        config_injected_tools,
+        config_allowed_tools,
     } = runtime_plugin_state;
-    let effective_tools = tools.or(config_tools);
+    let tool_registry = if let Some(cli_tools) = tools {
+        tool_registry
+            .with_injected_tools(Some(cli_tools.clone()))
+            .with_allowed_tools(Some(cli_tools))
+    } else {
+        tool_registry
+            .with_injected_tools(config_injected_tools)
+            .with_allowed_tools(config_allowed_tools)
+    };
     plugin_registry.initialize()?;
     let policy = permission_policy(permission_mode, &feature_config, &tool_registry)
         .map_err(std::io::Error::other)?;
@@ -12432,12 +12446,10 @@ fn build_runtime_with_plugin_state(
             model,
             enable_tools,
             emit_output,
-            effective_tools.clone(),
             tool_registry.clone(),
             progress_reporter,
         )?,
         CliToolExecutor::new(
-            effective_tools,
             emit_output,
             tool_registry.clone(),
             mcp_state.clone(),
@@ -12547,7 +12559,6 @@ struct AnthropicRuntimeClient {
     model: String,
     enable_tools: bool,
     emit_output: bool,
-    tools: Option<ToolSet>,
     tool_registry: GlobalToolRegistry,
     progress_reporter: Option<InternalPromptProgressReporter>,
     reasoning_effort: Option<String>,
@@ -12559,7 +12570,6 @@ impl AnthropicRuntimeClient {
         model: String,
         enable_tools: bool,
         emit_output: bool,
-        tools: Option<ToolSet>,
         tool_registry: GlobalToolRegistry,
         progress_reporter: Option<InternalPromptProgressReporter>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -12612,7 +12622,6 @@ impl AnthropicRuntimeClient {
             model,
             enable_tools,
             emit_output,
-            tools,
             tool_registry,
             progress_reporter,
             reasoning_effort: None,
@@ -12647,7 +12656,7 @@ impl ApiClient for AnthropicRuntimeClient {
             system: (!request.system_prompt.is_empty()).then(|| request.system_prompt.join("\n\n")),
             tools: self
                 .enable_tools
-                .then(|| filter_tool_specs(&self.tool_registry, self.tools.as_ref())),
+                .then(|| filter_tool_specs(&self.tool_registry)),
             tool_choice: self.enable_tools.then_some(ToolChoice::Auto),
             stream: true,
             reasoning_effort: self.reasoning_effort.clone(),
@@ -13866,14 +13875,12 @@ fn prompt_cache_record_to_runtime_event(
 struct CliToolExecutor {
     renderer: TerminalRenderer,
     emit_output: bool,
-    tools: Option<ToolSet>,
     tool_registry: GlobalToolRegistry,
     mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
 }
 
 impl CliToolExecutor {
     fn new(
-        tools: Option<ToolSet>,
         emit_output: bool,
         tool_registry: GlobalToolRegistry,
         mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
@@ -13881,7 +13888,6 @@ impl CliToolExecutor {
         Self {
             renderer: TerminalRenderer::new(),
             emit_output,
-            tools,
             tool_registry,
             mcp_state,
         }
@@ -13950,11 +13956,7 @@ impl CliToolExecutor {
 
 impl ToolExecutor for CliToolExecutor {
     fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
-        if self
-            .tools
-            .as_ref()
-            .is_some_and(|allowed| !allowed.contains(&canonical_allowed_tool_name(tool_name)))
-        {
+        if !self.tool_registry.is_tool_allowed(tool_name) {
             return Err(ToolError::new(format!(
                 "tool `{tool_name}` is not enabled by the current --tools setting"
             )));
@@ -17216,11 +17218,12 @@ mod tests {
 
     #[test]
     fn filtered_tool_specs_respect_allowlist() {
-        let allowed = ["read_file", "grep_search"]
+        let allowed: std::collections::BTreeSet<String> = ["read_file", "grep_search"]
             .into_iter()
             .map(str::to_string)
             .collect();
-        let filtered = filter_tool_specs(&GlobalToolRegistry::builtin(), Some(&allowed));
+        let registry = GlobalToolRegistry::builtin().with_injected_tools(Some(allowed));
+        let filtered = filter_tool_specs(&registry);
         let names = filtered
             .into_iter()
             .map(|spec| spec.name)
@@ -17230,7 +17233,7 @@ mod tests {
 
     #[test]
     fn filtered_tool_specs_include_plugin_tools() {
-        let filtered = filter_tool_specs(&registry_with_plugin_tool(), None);
+        let filtered = filter_tool_specs(&registry_with_plugin_tool());
         let names = filtered
             .into_iter()
             .map(|definition| definition.name)
@@ -19214,14 +19217,13 @@ UU conflicted.rs",
 
         let allowed = state
             .tool_registry
-            .normalize_tools(&["mcp__alpha__echo".to_string(), "MCPTool".to_string()])
+            .normalize_tool_list(&["mcp__alpha__echo".to_string(), "MCPTool".to_string()], "--tools")
             .expect("mcp tools should be allow-listable")
             .expect("allow-list should exist");
         assert!(allowed.contains("mcp__alpha__echo"));
         assert!(allowed.contains("mcp_tool"));
 
         let mut executor = CliToolExecutor::new(
-            None,
             false,
             state.tool_registry.clone(),
             state.mcp_state.clone(),
@@ -19319,7 +19321,6 @@ UU conflicted.rs",
         let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &runtime_config)
             .expect("runtime plugin state should load");
         let mut executor = CliToolExecutor::new(
-            None,
             false,
             state.tool_registry.clone(),
             state.mcp_state.clone(),
