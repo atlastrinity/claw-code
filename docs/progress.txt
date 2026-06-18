@@ -376,3 +376,11 @@ Iteration 2026-04-29 - ROADMAP #96 COMPLETED
 - Targeted verification: `cargo test -p rusty-claude-cli stub_commands_absent_from_resume_safe_help -- --nocapture` passed; `cargo test -p rusty-claude-cli parses_direct_cli_actions -- --nocapture` passed.
 - Format/check verification: `cargo fmt --all --check`, `git diff --check`, and `cargo check -p rusty-claude-cli` passed.
 - Broader clippy note: `cargo clippy -p rusty-claude-cli --all-targets -- -D warnings` is blocked by pre-existing `clippy::unnecessary_wraps` failures in `rust/crates/commands/src/lib.rs` (`render_mcp_report_for`, `render_mcp_report_json_for`), outside this diff.
+
+Iteration 2026-06-18 - API Decoding Error Retry Logic Fix
+------------------------------------------------
+- Fixed issue where "error decoding response body" API errors (like 502/504 gateway timeouts) were mistakenly treated as context window overflows, triggering destructive auto-compaction and eventual failure.
+- Files: rust/crates/api/src/error.rs, rust/crates/rusty-claude-cli/src/main.rs
+- Updated `ApiError::is_retryable` to include body decode errors (`is_body()` and `is_decode()`), enabling the existing `send_with_retry` exponential backoff mechanism.
+- Removed the "error decoding response body" string check from the `is_no_content` context-window compaction trigger in the CLI.
+- Verified compilation and tests pass successfully.

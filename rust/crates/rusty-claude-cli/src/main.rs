@@ -7823,13 +7823,10 @@ impl LiveCli {
                         .to_ascii_lowercase()
                         .contains("context size has been exceeded");
 
-                // Also treat "assistant stream produced no content" and reqwest decode failures
-                // as recoverable errors that may benefit from auto-compaction. Some backends (e.g.
-                // llama.cpp) return a non-SSE HTTP 500 body when context overflows, causing
-                // reqwest to fail with "error decoding response body" — treat that as context overflow too.
+                // Also treat "assistant stream produced no content" and parse failures
+                // as recoverable errors that may benefit from auto-compaction.
                 let is_no_content = error_str.contains("assistant stream produced no content")
-                    || error_str.contains("Failed to parse input at pos")
-                    || error_str.contains("error decoding response body");
+                    || error_str.contains("Failed to parse input at pos");
 
                 if is_context_window || is_no_content {
                     // If the error tells us the server's actual context window, adapt our
@@ -7933,8 +7930,7 @@ impl LiveCli {
                                         .contains("context size has been exceeded");
                                 let still_no_content = retry_str
                                     .contains("assistant stream produced no content")
-                                    || retry_str.contains("Failed to parse input at pos")
-                                    || retry_str.contains("error decoding response body");
+                                    || retry_str.contains("Failed to parse input at pos");
 
                                 if (still_context_window || still_no_content)
                                     && round + 1 < max_compact_rounds
