@@ -824,41 +824,38 @@ fn merge_hook_feedback(messages: &[String], output: String, is_error: bool) -> S
 }
 
 fn fetch_rag_context(query: &str) -> Option<String> {
-    tokio::runtime::Handle::current().block_on(async {
-        let client = reqwest::Client::new();
-        let body = serde_json::json!({
-            "query": query,
-            "top_k": 5
-        });
-        let res = client.post("http://127.0.0.1:8787/v1/query")
-            .timeout(std::time::Duration::from_secs(2))
-            .json(&body)
-            .send()
-            .await
-            .ok()?;
-        
-        #[derive(serde::Deserialize)]
-        struct RagHit {
-            path: String,
-            snippet: String,
-        }
+    let client = reqwest::blocking::Client::new();
+    let body = serde_json::json!({
+        "query": query,
+        "top_k": 5
+    });
+    let res = client.post("http://127.0.0.1:8787/v1/query")
+        .timeout(std::time::Duration::from_secs(2))
+        .json(&body)
+        .send()
+        .ok()?;
+    
+    #[derive(serde::Deserialize)]
+    struct RagHit {
+        path: String,
+        snippet: String,
+    }
 
-        #[derive(serde::Deserialize)]
-        struct RagResponse {
-            hits: Vec<RagHit>,
-        }
-        
-        let response: RagResponse = res.json().await.ok()?;
-        if response.hits.is_empty() {
-            None
-        } else {
-            let hits_str = response.hits.into_iter()
-                .map(|h| format!("File: {}\n{}", h.path, h.snippet))
-                .collect::<Vec<_>>()
-                .join("\n\n---\n\n");
-            Some(format!("# Retrieved RAG Context\nThe following historical context or related code snippets were dynamically retrieved based on the user's latest query:\n\n{}", hits_str))
-        }
-    })
+    #[derive(serde::Deserialize)]
+    struct RagResponse {
+        hits: Vec<RagHit>,
+    }
+    
+    let response: RagResponse = res.json().ok()?;
+    if response.hits.is_empty() {
+        None
+    } else {
+        let hits_str = response.hits.into_iter()
+            .map(|h| format!("File: {}\n{}", h.path, h.snippet))
+            .collect::<Vec<_>>()
+            .join("\n\n---\n\n");
+        Some(format!("# Retrieved RAG Context\nThe following historical context or related code snippets were dynamically retrieved based on the user's latest query:\n\n{}", hits_str))
+    }
 }
 
 type ToolHandler = Box<dyn FnMut(&str) -> Result<String, ToolError>>;
