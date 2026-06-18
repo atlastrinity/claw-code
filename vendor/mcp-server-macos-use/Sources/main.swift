@@ -2054,8 +2054,14 @@ func setupAndStartServer() async throws -> Server {
                 // Adjust start coordinates if they hit the traffic lights
                 let (startX, startY) = adjustDragStartCoordinateIfNeeded(x: startXRaw, y: startYRaw)
 
+                // Apply the same offset to end coordinates so the total drag vector remains what the AI intended
+                let deltaX = startX - startXRaw
+                let deltaY = startY - startYRaw
+                let finalEndX = endX + deltaX
+                let finalEndY = endY + deltaY
+
                 let start = CGPoint(x: startX, y: startY)
-                let end = CGPoint(x: endX, y: endY)
+                let end = CGPoint(x: finalEndX, y: finalEndY)
 
                 // Move mouse to start position and wait ~1 second before grabbing
                 let mouseMove = CGEvent(
@@ -2075,8 +2081,8 @@ func setupAndStartServer() async throws -> Server {
                 let actualSteps = max(1, min(steps, 50))  // Clamp 1-50
                 for i in 1...actualSteps {
                     let t = Double(i) / Double(actualSteps)
-                    let currentX = startX + (endX - startX) * t
-                    let currentY = startY + (endY - startY) * t
+                    let currentX = startX + (finalEndX - startX) * t
+                    let currentY = startY + (finalEndY - startY) * t
                     let currentPoint = CGPoint(x: currentX, y: currentY)
                     let dragEvent = CGEvent(
                         mouseEventSource: nil, mouseType: .leftMouseDragged,
