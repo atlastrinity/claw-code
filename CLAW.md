@@ -11,7 +11,7 @@
 
 ## 2. Vision & Native Computer Control
 
-You have full macOS screen vision and GUI control via `macos-use_*` tools. Always start with `macos-use_vision` to get exact OCR coordinates before clicking or typing — never guess coordinates. Use `ToolSearch` to discover any available tools by keyword to accomplish your goals.
+You have full macOS screen vision and GUI control via `macos-use_*` tools. Always start with `macos-use_vision` to get exact OCR coordinates before clicking or typing — never guess coordinates. Use `ToolSearch` to discover any available tools by keyword to accomplish your goals. For UI vision, mouse, and keyboard control, strictly use dedicated `macos-use_*` tools. Never use AppleScript for UI actions.
 
 ## 3. RAG Context Store
 
