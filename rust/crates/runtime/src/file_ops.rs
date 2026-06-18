@@ -23,6 +23,7 @@ const GLOB_SEARCH_IGNORED_DIRS: &[&str] = &[
     "target",
     "dist",
     "coverage",
+    ".claw-rag",
 ];
 
 /// Check whether a file appears to contain binary content by examining
@@ -593,7 +594,10 @@ fn collect_search_files(base_path: &Path) -> io::Result<Vec<PathBuf>> {
     }
 
     let mut files = Vec::new();
-    for entry in WalkDir::new(base_path) {
+    let entries = WalkDir::new(base_path)
+        .into_iter()
+        .filter_entry(|entry| !should_skip_glob_dir(entry));
+    for entry in entries {
         let entry = entry.map_err(|error| io::Error::other(error.to_string()))?;
         if entry.file_type().is_file() {
             files.push(entry.path().to_path_buf());
