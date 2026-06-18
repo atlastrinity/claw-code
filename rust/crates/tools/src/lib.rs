@@ -3753,9 +3753,9 @@ fn build_search_url(query: &str) -> Result<reqwest::Url, String> {
         return Ok(url);
     }
 
-    let mut url = reqwest::Url::parse("https://html.duckduckgo.com/html/")
+    let mut url = reqwest::Url::parse("https://search.yahoo.com/search")
         .map_err(|error| error.to_string())?;
-    url.query_pairs_mut().append_pair("q", query);
+    url.query_pairs_mut().append_pair("p", query);
     Ok(url)
 }
 
@@ -3869,6 +3869,10 @@ fn preview_text(input: &str, max_chars: usize) -> String {
 }
 
 fn extract_search_hits(html: &str) -> Vec<SearchHit> {
+    if html.contains("compTitle options-toggle") {
+        return extract_search_hits_yahoo(html);
+    }
+
     let mut hits = Vec::new();
     let mut remaining = html;
 
@@ -3945,6 +3949,68 @@ fn extract_search_hits_from_generic_links(html: &str) -> Vec<SearchHit> {
     }
 
     hits
+}
+
+fn extract_search_hits_yahoo(html: &str) -> Vec<SearchHit> {
+    let mut hits = Vec::new();
+    let mut remaining = html;
+
+    while let Some(anchor_start) = remaining.find("compTitle options-toggle") {
+        let after_class = &remaining[anchor_start..];
+        let Some(href_idx) = after_class.find("href=") else {
+            remaining = &after_class[1..];
+            continue;
+        };
+        let href_slice = &after_class[href_idx + 5..];
+        let Some((url, rest)) = extract_quoted_value(href_slice) else {
+            remaining = &after_class[1..];
+            continue;
+        };
+        
+        let Some(h3_start) = rest.find("<h3") else {
+            remaining = &after_class[1..];
+            continue;
+        };
+        let Some(h3_end) = rest[h3_start..].find("</h3>") else {
+            remaining = &after_class[1..];
+            continue;
+        };
+        
+        let title_html = &rest[h3_start..h3_start + h3_end];
+        let title = html_to_text(title_html);
+        
+        let decoded_url = decode_yahoo_redirect(&url).unwrap_or(url);
+        
+        hits.push(SearchHit {
+            title: title.trim().to_string(),
+            url: decoded_url,
+        });
+        
+        let Some(close_tag_idx) = rest.find("</a>") else {
+            remaining = &rest[h3_start + h3_end..];
+            continue;
+        };
+        remaining = &rest[close_tag_idx + 4..];
+    }
+    hits
+}
+
+fn decode_yahoo_redirect(url: &str) -> Option<String> {
+    if let Some(start) = url.find("/RU=") {
+        if let Some(end) = url[start + 4..].find("/R") {
+            let encoded = &url[start + 4..start + 4 + end];
+            let decoded = encoded
+                .replace("%3a", ":").replace("%3A", ":")
+                .replace("%2f", "/").replace("%2F", "/")
+                .replace("%3f", "?").replace("%3F", "?")
+                .replace("%3d", "=").replace("%3D", "=")
+                .replace("%26", "&")
+                .replace("%2b", "+").replace("%2B", "+")
+                .replace("%25", "%");
+            return Some(decoded);
+        }
+    }
+    None
 }
 
 fn extract_quoted_value(input: &str) -> Option<(String, &str)> {
