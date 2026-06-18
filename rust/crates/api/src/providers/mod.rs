@@ -200,6 +200,15 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
             default_base_url: openai_compat::DEFAULT_DASHSCOPE_BASE_URL,
         },
     ),
+    (
+        "glm",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "GLM_API_KEY",
+            base_url_env: "GLM_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_GLM_BASE_URL,
+        },
+    ),
 ];
 
 #[must_use]
@@ -686,6 +695,10 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
         "glm-4" | "glm-4-flash" | "glm-4v-flash" | "glm-4-plus" => Some(ModelTokenLimit {
             max_output_tokens: 4_096,
             context_window_tokens: 128_000,
+        }),
+        "glm-5.2" | "glm-5.2-flash" => Some(ModelTokenLimit {
+            max_output_tokens: 8_192,
+            context_window_tokens: 1_000_000,
         }),
         _ => None,
     }
