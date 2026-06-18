@@ -8,6 +8,7 @@ import MacosUseSDK
 import SwiftSoup
 import UserNotifications
 import Vision
+import ScreenCaptureKit
 
 // --- Persistent State ---
 nonisolated(unsafe) var persistentCWD: String = FileManager.default.currentDirectoryPath
@@ -833,44 +834,93 @@ func getQualityValue(_ quality: String) -> Double {
     }
 }
 
-func captureMainDisplay(monitor: Int? = nil) -> CGImage? {
-    guard let monitorIndex = monitor, monitorIndex > 0 else {
-        return CGDisplayCreateImage(CGMainDisplayID())
+func captureMainDisplay(monitor: Int? = nil) async -> CGImage? {
+    guard #available(macOS 14.1, *) else {
+        guard let monitorIndex = monitor, monitorIndex > 0 else {
+            return CGDisplayCreateImage(CGMainDisplayID())
+        }
+        var displayCount: UInt32 = 0
+        CGGetActiveDisplayList(0, nil, &displayCount)
+        guard displayCount > 0 else { return CGDisplayCreateImage(CGMainDisplayID()) }
+        var displays = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
+        CGGetActiveDisplayList(displayCount, &displays, &displayCount)
+        let idx = min(monitorIndex, Int(displayCount) - 1)
+        return CGDisplayCreateImage(displays[idx])
     }
-    // Real multi-monitor support
-    var displayCount: UInt32 = 0
-    CGGetActiveDisplayList(0, nil, &displayCount)
-    guard displayCount > 0 else { return CGDisplayCreateImage(CGMainDisplayID()) }
-    var displays = [CGDirectDisplayID](repeating: 0, count: Int(displayCount))
-    CGGetActiveDisplayList(displayCount, &displays, &displayCount)
-    let idx = min(monitorIndex, Int(displayCount) - 1)
-    return CGDisplayCreateImage(displays[idx])
+    
+    do {
+        let content = try await SCShareableContent.current
+        var targetDisplay = content.displays.first
+        if let monitorIndex = monitor, monitorIndex > 0, monitorIndex < content.displays.count {
+            targetDisplay = content.displays[monitorIndex]
+        }
+        guard let display = targetDisplay else { return nil }
+        
+        let config = SCStreamConfiguration()
+        config.width = display.width
+        config.height = display.height
+        let filter = SCContentFilter(display: display, excludingApplications: [], exceptingWindows: [])
+        return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+    } catch {
+        debugLog("error: SCK captureMainDisplay: \(error)\n", stderr)
+        return nil
+    }
 }
 
 /// Captures only the window owned by the given PID, instead of the full screen.
 /// Returns nil if no on-screen window is found for this PID.
 /// This produces a much smaller image than full-screen capture, saving tokens.
-func captureWindow(pid: pid_t) -> CGImage? {
-    guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+func captureWindow(pid: pid_t) async -> CGImage? {
+    guard #available(macOS 14.1, *) else {
+        guard let windowList = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else {
+            return nil
+        }
+        var bestWindow: (id: CGWindowID, area: CGFloat) = (0, 0)
+        for windowInfo in windowList {
+            guard let ownerPID = windowInfo[kCGWindowOwnerPID as String] as? Int,
+                  ownerPID == Int(pid),
+                  let windowID = windowInfo[kCGWindowNumber as String] as? CGWindowID,
+                  let bounds = windowInfo[kCGWindowBounds as String] as? [String: CGFloat],
+                  let w = bounds["Width"], let h = bounds["Height"] else {
+                continue
+            }
+            let area = w * h
+            if area > bestWindow.area {
+                bestWindow = (windowID, area)
+            }
+        }
+        guard bestWindow.id != 0 else { return nil }
+        return CGWindowListCreateImage(.null, .optionIncludingWindow, bestWindow.id, [.boundsIgnoreFraming])
+    }
+    
+    do {
+        let content = try await SCShareableContent.current
+        guard let app = content.applications.first(where: { $0.processID == pid }) else { return nil }
+        
+        let appWindows = content.windows.filter { $0.owningApplication?.processID == pid && $0.isOnScreen }
+        
+        var bestWindow: SCWindow? = nil
+        var bestArea: CGFloat = 0
+        for window in appWindows {
+            let area = window.frame.width * window.frame.height
+            if area > bestArea {
+                bestArea = area
+                bestWindow = window
+            }
+        }
+        
+        guard let targetWindow = bestWindow else { return nil }
+        
+        let config = SCStreamConfiguration()
+        config.width = Int(targetWindow.frame.width * 2) // Approximate backing scale
+        config.height = Int(targetWindow.frame.height * 2)
+        
+        let filter = SCContentFilter(desktopIndependentWindow: targetWindow)
+        return try await SCScreenshotManager.captureImage(contentFilter: filter, configuration: config)
+    } catch {
+        debugLog("error: SCK captureWindow: \(error)\n", stderr)
         return nil
     }
-    // Find the first on-screen window for this PID (prefer largest)
-    var bestWindow: (id: CGWindowID, area: CGFloat) = (0, 0)
-    for windowInfo in windowList {
-        guard let ownerPID = windowInfo[kCGWindowOwnerPID as String] as? Int,
-              ownerPID == Int(pid),
-              let windowID = windowInfo[kCGWindowNumber as String] as? CGWindowID,
-              let bounds = windowInfo[kCGWindowBounds as String] as? [String: CGFloat],
-              let w = bounds["Width"], let h = bounds["Height"] else {
-            continue
-        }
-        let area = w * h
-        if area > bestWindow.area {
-            bestWindow = (windowID, area)
-        }
-    }
-    guard bestWindow.id != 0 else { return nil }
-    return CGWindowListCreateImage(.null, .optionIncludingWindow, bestWindow.id, [.boundsIgnoreFraming])
 }
 
 
@@ -1827,13 +1877,13 @@ func setupAndStartServer() async throws -> Server {
                 if let pidArg = targetPid {
                     let actualPid = resolvePid(pidArg)
                     if actualPid > 0, let convertedPid = pid_t(exactly: actualPid) {
-                        capturedImage = captureWindow(pid: convertedPid)
+                        capturedImage = await captureWindow(pid: convertedPid)
                         usedWindowCapture = (capturedImage != nil)
                     }
                 }
                 // Fallback to full-screen capture
                 if capturedImage == nil {
-                    capturedImage = captureMainDisplay(monitor: monitor)
+                    capturedImage = await captureMainDisplay(monitor: monitor)
                 }
                 guard let capturedImage = capturedImage else {
                     if #available(macOS 11.0, *) {

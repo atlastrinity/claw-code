@@ -29,3 +29,81 @@ cargo run -p claw-rag-service -- serve
 -----
 cargo run --manifest-path rust/Cargo.toml --bin claw -- --model stable --dangerously-skip-permissions
 cargo run --manifest-path rust/Cargo.toml -p claw-rag-service -- serve
+
+• bash – Виконання shell‑команди в робочій директорії.
+• read_file – Читання текстового файлу з робочої директорії.
+• write_file – Запис тексту у файл робочої директорії.
+• edit_file – Замінення тексту в робочому файлі.
+• glob_search – Пошук файлів за шаблоном (glob).
+• grep_search – Пошук у вмісту файлів за regex‑паттерном.Web та інтернет
+
+• WebSearch – Пошук у інтернеті з поверненням цитуваних результатів.
+• WebFetch – Завантаження URL, конвертація у читабельний текст та відповідь на промт про нього.Керування завданнями та планування
+
+• TodoWrite – Оновлення структурованого списку завдань для поточної сесії.
+• Agent – Запуск спеціалізованого агента та збереження його handoff‑метаданих.
+• TeamCreate – Створення команди суб‑агентів для паралельного виконання завдань.
+• TeamDelete – Видалення команди та зупинка всіх її запущених задач.
+• TaskCreate – Створення фонового завдання у окремому субпроцесі.
+• TaskGet – Отримання статусу та деталей фонового завдання за ID.
+• TaskList – Список всіх фонових завдань та їх статусу.
+• TaskStop – Зупинка фонового завдання за ID.
+• TaskUpdate – Надсилання повідомлення або оновлення до запущеного фонового завдання.
+• TaskOutput – Отримання виводу, произведённого фоновим завданням.
+• CronCreate – Створення планувального повторюваного завдання.
+• CronDelete – Видалення планувального завдання за ID.
+• CronList – Список всіх планувальних завдань.
+• EnterPlanMode / ExitPlanMode – Увімкнення/вимкнення локального режиму планування.RAG (Retrieval-Augmented Generation)
+
+• retrieve_context – Семантичний пошук у локальному індексі знань (вимагає запущеного `claw-rag-service`).
+• ingest_context – Додавання тексту до індексу RAG для подальшого пошуку.Git‑операції
+
+• GitStatus – Показ статусу робочого дерева (галузь, індекс, невідстежені файли).
+• GitDiff – Показ змін між комітами, індексом та робочим деревом.
+• GitLog – Показ історії комітів (з фільтрацією, лімітом, форматом).
+• GitShow – Показ коміта, тега або дерева у вигляді патчу, stat або метаданих.
+• GitBlame – Показ ревізії та автора, які останнім змінювали кожен рядок файлу.Взаємодія з кодом та LSP
+
+• LSP – Запити до Language Server Protocol (символи, посилання, діагностика, визначення, hover).
+• REPL – Виконання коду в REPL‑подобному subprocess (підтримка багатьох мов).
+• ToolSearch – Пошук доступних інструментів за ключовими словами або точними назвами.
+• Skill – Завантаження локального навичку (skill) та її інструкцій.macOS GUI‑автоматизація (через MCP‑сервер `macos-use`)
+
+• mcp__macos-use__macos-use_vision – Отримання зйомки екрана/вікна з OCR (режими: smart, ocr, image, full).
+• mcp__macos-use__macos-use_click_and_traverse – Симуляція кліка за координатами + обхід accessibility‑дерева.
+• mcp__macos-use__macos-use_right_click_and_traverse – Симуляція правого кліка + обхід accessibility‑дерева.
+• mcp__macos-use__macos-use_type_and_traverse – Симуляція введення тексту + обхід accessibility‑дерева.
+• mcp__macos-use__macos-use_press_key_and_traverse – Натискання клавіші (з модифікаторами) + обхід accessibility‑дерева.
+• mcp__macos-use__macos-use_scroll_and_traverse – Прокрутка коліщатка миші в заданому напрямку.
+• mcp__macos-use__macos-use_drag_and_drop_and_traverse – Перетягування та скидання (drag‑and‑drop) + обхід accessibility‑дерева.
+• mcp__macos-use__macos-use_window_management – Керування вікнами (переміщення, розмір, мінімізація, максимізація, зняття знімку тощо).
+• mcp__macos-use__macos-use_list_all_windows – Отримання списку всіх відкритих вікон із заголовками та позиціями.
+• mcp__macos-use__macos-use_get_active_window_info – Отримання детальної інформації про активне вікно.
+• mcp__macos-use__macos-use_refresh_traversal – Оновлення обходу accessibility‑дерева для вказаного PID.
+• mcp__macos-use__macos-use_run_applescript – Виконання AppleScript (з можливістю AI‑генерації, відладки, валідації).MCP (Model Context Protocol) узагальнені
+
+• MCP – Виконання інструменту, наданого підключеним MCP‑сервером.
+• ListMcpResources – Перелік ресурсів від підключених MCP‑серверів.
+• ReadMcpResource – Читання конкретного ресурсу від MCP‑серверу за URI.
+• ListMcpResourcesTool, ReadMcpResourceTool – інструменти‑обгортки для аналогічних дій.
+• McpAuth – Автентифікація з MCP‑сервером, який вимагає OAuth або credentials.
+• RemoteTrigger – Відправка HTTP‑запиту (GET/POST/PUT/DELETE) до веб‑хука або endpoint.Працює з працівниками (workers) та фоновими задачами нижчого рівня
+
+• WorkerCreate – Створення сесії boot кодового працівника з trust‑gate.
+• WorkerGet – Отримання стану працівника, останньої помилки та історії подій.
+• WorkerObserve – Підказка термінальним знімком для розв’язки trust‑gate.
+• WorkerResolveTrust – Розв’язка виявленого trust‑prompt.
+• WorkerAwaitReady – Очікування готовності працівника до отримання промпту.
+• WorkerSendPrompt – Надсилання задачі працівнику після досягніться готовності.
+• WorkerRestart, WorkerTerminate – Перезапуск або зупинка працівника.
+• WorkerObserveCompletion – Звіт про завершення сесії працівника.
+• TaskCreate, TaskGet, TaskList, TaskStop, TaskUpdate, TaskOutput – (уже зазначено вище) – фонові завдання.Інші системні та допоміжні інструменти
+
+• StructuredOutput – Повернення структурованого виводу у запитаному форматі.
+• SendUserMessage – Надсилання повідомлення користувачу (з можливістю додатків та статусу).
+• AskUserQuestion – Постановка питання користувачу та очікування відповіді.
+• Config – Отримання або установлення налаштувань Claude Code.
+• TestingPermission – Тестовий інструмент для перевірки поведінки дозволів.
+• Sleep – Пауза на задану кількість мілісекунд без блокування оболонки.
+• NotebookEdit – Редагування комірок Jupyter‑нотки (заміна, вставка, видалення).
+• PowerShell – Виконання PowerShell‑команди.
