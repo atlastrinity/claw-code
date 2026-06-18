@@ -1,8 +1,9 @@
 {
   "aliases": {
-    "stable": "nvidia/nemotron-3-super-120b-a12b:free",
-    "quick": "google/gemma-4-31b-it:free",
-    "reasoner": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"
+    "stable": "local/nvidia/nemotron-3-super-120b-a12b:free",
+    "quick": "local/google/gemma-4-31b-it:free",
+    "reasoner": "local/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "mega": "local/nvidia/nemotron-3-ultra-550b-a55b:free"
   },
   "tools": [
     "bash",
