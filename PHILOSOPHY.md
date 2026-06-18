@@ -27,9 +27,11 @@ That is the philosophy: **humans set direction; claws perform the labor.**
 ## The Three-Part System
 
 ### 1. OmX (`oh-my-codex`)
+
 [oh-my-codex](https://github.com/Yeachan-Heo/oh-my-codex) provides the workflow layer.
 
 It turns short directives into structured execution:
+
 - planning keywords
 - execution modes
 - persistent verification loops
@@ -38,9 +40,11 @@ It turns short directives into structured execution:
 This is the layer that converts a sentence into a repeatable work protocol.
 
 ### 2. clawhip
+
 [clawhip](https://github.com/Yeachan-Heo/clawhip) is the event and notification router.
 
 It watches:
+
 - git commits
 - tmux sessions
 - GitHub issues and PRs
@@ -50,6 +54,7 @@ It watches:
 Its job is to keep monitoring and delivery **outside** the coding agent's context window so the agents can stay focused on implementation instead of status formatting and notification routing.
 
 ### 3. OmO (`oh-my-openagent`)
+
 [oh-my-openagent](https://github.com/code-yeongyu/oh-my-openagent) handles multi-agent coordination.
 
 This is where planning, handoffs, disagreement resolution, and verification loops happen across agents.
@@ -61,6 +66,7 @@ When Architect, Executor, and Reviewer disagree, OmO provides the structure for 
 The bottleneck is no longer typing speed.
 
 When agent systems can rebuild a codebase in hours, the scarce resource becomes:
+
 - architectural clarity
 - task decomposition
 - judgment
@@ -88,6 +94,7 @@ The coordination system is the product lesson.
 As coding intelligence gets cheaper and more available, the durable differentiators are not raw coding output.
 
 What still matters:
+
 - product taste
 - direction
 - system design
