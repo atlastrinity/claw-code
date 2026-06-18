@@ -1441,6 +1441,12 @@ func setupAndStartServer() async throws -> Server {
                 "description": .string(
                     "OPTIONAL. PID of the application. Defaults to frontmost app."),
             ]),
+            "windowIndex": .object([
+                "type": .string("number"),
+                "description": .string(
+                    "Optional. Index of the window (0-based) to target. If omitted, targets the focused window."
+                ),
+            ]),
             "action": .object([
                 "type": .string("string"),
                 "description": .string(
@@ -2154,10 +2160,24 @@ func setupAndStartServer() async throws -> Server {
             case windowMgmtTool.name:
                 let action = try getRequiredString(from: params.arguments, key: "action")
 
+                let windowIndex = try? getOptionalInt(from: params.arguments, key: "windowIndex")
+
                 let appRef = AXUIElementCreateApplication(pid_t(convertedPid))
                 var windowValue: AnyObject?
-                let result = AXUIElementCopyAttributeValue(
-                    appRef, kAXFocusedWindowAttribute as CFString, &windowValue)
+                var result: AXError = .failure
+
+                if let index = windowIndex {
+                    var windowsValue: AnyObject?
+                    result = AXUIElementCopyAttributeValue(appRef, kAXWindowsAttribute as CFString, &windowsValue)
+                    if result == .success, let windows = windowsValue as? [AXUIElement], index >= 0 && index < windows.count {
+                        windowValue = windows[index]
+                    } else {
+                        result = .failure
+                    }
+                } else {
+                    result = AXUIElementCopyAttributeValue(
+                        appRef, kAXFocusedWindowAttribute as CFString, &windowValue)
+                }
 
                 if result == .success, let window = windowValue as! AXUIElement? {
                     switch action {
