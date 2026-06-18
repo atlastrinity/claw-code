@@ -270,6 +270,15 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
             default_base_url: openai_compat::DEFAULT_OPENAI_BASE_URL,
         });
     }
+    // Zhipu GLM models
+    if canonical.starts_with("glm") || canonical.starts_with("zhipu") {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "GLM_API_KEY",
+            base_url_env: "GLM_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_GLM_BASE_URL,
+        });
+    }
     // Alibaba DashScope compatible-mode endpoint. Routes qwen/* and bare
     // qwen-* model names (qwen-max, qwen-plus, qwen-turbo, qwen-qwq, etc.)
     // to the OpenAI-compat client pointed at DashScope's /compatible-mode/v1.
@@ -674,6 +683,10 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
             max_output_tokens: 8_192,
             context_window_tokens: 131_072,
         }),
+        "glm-4" | "glm-4-flash" | "glm-4v-flash" | "glm-4-plus" => Some(ModelTokenLimit {
+            max_output_tokens: 4_096,
+            context_window_tokens: 128_000,
+        }),
         _ => None,
     }
 }
@@ -731,6 +744,11 @@ const FOREIGN_PROVIDER_ENV_VARS: &[(&str, &str, &str)] = &[
         "DASHSCOPE_API_KEY",
         "Alibaba DashScope",
         "prefix your model name with `qwen/` or `qwen-` (e.g. `--model qwen-plus`) so prefix routing selects the DashScope backend",
+    ),
+    (
+        "GLM_API_KEY",
+        "Zhipu GLM",
+        "prefix your model name with `glm` or `zhipu` (e.g. `--model glm-4-flash`) so prefix routing selects the Zhipu backend",
     ),
 ];
 

@@ -21,6 +21,7 @@ use super::{preflight_message_request, resolve_model_alias, Provider, ProviderFu
 pub const DEFAULT_XAI_BASE_URL: &str = "https://api.x.ai/v1";
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_DASHSCOPE_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
+pub const DEFAULT_GLM_BASE_URL: &str = "https://open.bigmodel.cn/api/paas/v4";
 const REQUEST_ID_HEADER: &str = "request-id";
 const ALT_REQUEST_ID_HEADER: &str = "x-request-id";
 const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
@@ -43,11 +44,13 @@ pub struct OpenAiCompatConfig {
 const XAI_ENV_VARS: &[&str] = &["XAI_API_KEY"];
 const OPENAI_ENV_VARS: &[&str] = &["OPENAI_API_KEY"];
 const DASHSCOPE_ENV_VARS: &[&str] = &["DASHSCOPE_API_KEY"];
+const GLM_ENV_VARS: &[&str] = &["GLM_API_KEY"];
 
 // Provider-specific request body size limits in bytes
 const XAI_MAX_REQUEST_BODY_BYTES: usize = 52_428_800; // 50MB
 const OPENAI_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const DASHSCOPE_MAX_REQUEST_BODY_BYTES: usize = 6_291_456; // 6MB (observed limit in dogfood)
+const GLM_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 
 pub const OLLAMA_CONFIG: OpenAiCompatConfig = OpenAiCompatConfig {
     provider_name: "Ollama",
@@ -96,11 +99,23 @@ impl OpenAiCompatConfig {
     }
 
     #[must_use]
+    pub const fn glm() -> Self {
+        Self {
+            provider_name: "GLM",
+            api_key_env: "GLM_API_KEY",
+            base_url_env: "GLM_BASE_URL",
+            default_base_url: DEFAULT_GLM_BASE_URL,
+            max_request_body_bytes: GLM_MAX_REQUEST_BODY_BYTES,
+        }
+    }
+
+    #[must_use]
     pub fn credential_env_vars(self) -> &'static [&'static str] {
         match self.provider_name {
             "xAI" => XAI_ENV_VARS,
             "OpenAI" => OPENAI_ENV_VARS,
             "DashScope" => DASHSCOPE_ENV_VARS,
+            "GLM" => GLM_ENV_VARS,
             _ => &[],
         }
     }
@@ -992,7 +1007,7 @@ fn strip_routing_prefix(model: &str) -> &str {
         // not if "/" appears in the middle of the model name for other reasons.
         if matches!(
             prefix,
-            "openai" | "xai" | "grok" | "qwen" | "kimi" | "local"
+            "openai" | "xai" | "grok" | "qwen" | "kimi" | "local" | "glm" | "zhipu"
         ) {
             &model[pos + 1..]
         } else {
@@ -1063,7 +1078,7 @@ fn wire_model_for_base_url<'a>(
         return Cow::Borrowed(model);
     }
 
-    if matches!(lowered_prefix.as_str(), "xai" | "grok" | "qwen" | "kimi") {
+    if matches!(lowered_prefix.as_str(), "xai" | "grok" | "qwen" | "kimi" | "glm" | "zhipu") {
         return Cow::Borrowed(&model[pos + 1..]);
     }
     if lowered_prefix == "local" {
