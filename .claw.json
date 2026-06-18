@@ -3,7 +3,7 @@
     "stable": "local/nvidia/nemotron-3-super-120b-a12b:free",
     "quick": "local/google/gemma-4-31b-it:free",
     "reasoner": "local/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-    "mega": "local/nvidia/nemotron-3-ultra-550b-a55b:free"
+    "mega": "local/meta-llama/llama-3.3-70b-instruct:free"
   },
   "tools": [
     "bash",
