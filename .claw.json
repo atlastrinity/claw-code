@@ -3,7 +3,8 @@
     "stable": "local/nvidia/nemotron-3-super-120b-a12b:free",
     "quick": "local/google/gemma-4-31b-it:free",
     "reasoner": "local/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
-    "mega": "local/meta-llama/llama-3.3-70b-instruct:free"
+    "mega": "local/meta-llama/llama-3.3-70b-instruct:free",
+    "gpt": "local/openai/gpt-oss-120b:free"
   },
   "tools": [
     "bash",
