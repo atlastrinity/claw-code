@@ -104,3 +104,9 @@ Set the model in your `.claw.json` or via CLI alias, for example:
 }
 ```
 Then invoke with `claw --model agent` or use the alias directly in the REPL.
+
+
+
+------------
+
+

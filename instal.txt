@@ -1,0 +1,31 @@
+# Команди для першого встановлення (First install commands)
+git clone https://github.com/ultraworkers/claw-code
+cd claw-code/rust
+cargo build --workspace
+
+# Для встановлення глобально з локального репозиторію (основний клієнт):
+cargo install --path . --force
+
+# Встановлення сервісу RAG:
+cargo install -p claw-rag-service --path . --force
+
+# Команди компіляції для macOS:
+cargo build --workspace           # Debug build (швидше компілюється, повільніше працює)
+cargo build --workspace --release # Release build (повільніше компілюється, швидко працює)
+
+# Компіляція mcp-server-macos-use (через release) для macOS:
+cd ../vendor/mcp-server-macos-use
+swift build -c release
+cd ../../rust
+
+# Бінарники Claw (після компіляції):
+./rust/target/debug/claw           # Debug версія
+./rust/target/release/claw         # Release версія
+
+# Запуск RAG context server:
+cargo run -p claw-rag-service -- serve
+
+
+-----
+cargo run --manifest-path rust/Cargo.toml --bin claw -- --model stable --dangerously-skip-permissions
+cargo run --manifest-path rust/Cargo.toml -p claw-rag-service -- serve
