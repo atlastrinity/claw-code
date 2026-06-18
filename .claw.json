@@ -5,7 +5,7 @@
     "reasoner": "local/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
     "mega": "local/meta-llama/llama-3.3-70b-instruct:free",
     "gpt": "local/openai/gpt-oss-120b:free",
-    "glm": "zhipuai/glm-5-turbo:free"
+    "glm": "..."
   },
   "injectedTools": [
     "bash",
@@ -21,9 +21,7 @@
     "ToolSearch",
     "macos-use_vision"
   ],
-  "allowedTools": [
-    "*"
-  ],
+  "allowedTools": ["*"],
   "mcpServers": {
     "macos-use": {
       "command": "/Users/dev/Documents/GitHub/claw-code/vendor/mcp-server-macos-use/.build/release/mcp-server-macos-use",
