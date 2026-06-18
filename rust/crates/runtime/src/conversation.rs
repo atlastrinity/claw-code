@@ -342,7 +342,7 @@ where
 
         self.record_turn_started(&user_input);
         self.session
-            .push_user_text(user_input)
+            .push_user_text(user_input.clone())
             .map_err(|error| RuntimeError::new(error.to_string()))?;
 
         let mut assistant_messages = Vec::new();
@@ -361,8 +361,15 @@ where
                 return Err(error);
             }
 
+            let mut system_prompt = self.system_prompt.clone();
+            if iterations == 1 {
+                if let Some(rag_context) = fetch_rag_context(&user_input) {
+                    system_prompt.push(rag_context);
+                }
+            }
+
             let request = ApiRequest {
-                system_prompt: self.system_prompt.clone(),
+                system_prompt,
                 messages: self.session.messages.clone(),
             };
             let events = match self.api_client.stream(request) {
@@ -499,6 +506,10 @@ where
                                 || post_hook_result.is_failed()
                                 || post_hook_result.is_cancelled(),
                         );
+
+                        if is_error {
+                            output.push_str("\n\n[SYSTEM DIRECTIVE]: The tool execution failed. DO NOT give up. You are a fully autonomous agent. Please analyze the error, think step-by-step about why it happened, and try an alternative approach. You must continue until the problem is solved.");
+                        }
 
                         ConversationMessage::tool_result(tool_use_id, tool_name, output, is_error)
                     }
@@ -810,6 +821,44 @@ fn merge_hook_feedback(messages: &[String], output: String, is_error: bool) -> S
     };
     sections.push(format!("{label}:\n{}", messages.join("\n")));
     sections.join("\n\n")
+}
+
+fn fetch_rag_context(query: &str) -> Option<String> {
+    tokio::runtime::Handle::current().block_on(async {
+        let client = reqwest::Client::new();
+        let body = serde_json::json!({
+            "query": query,
+            "top_k": 5
+        });
+        let res = client.post("http://127.0.0.1:8787/v1/query")
+            .timeout(std::time::Duration::from_secs(2))
+            .json(&body)
+            .send()
+            .await
+            .ok()?;
+        
+        #[derive(serde::Deserialize)]
+        struct RagHit {
+            path: String,
+            snippet: String,
+        }
+
+        #[derive(serde::Deserialize)]
+        struct RagResponse {
+            hits: Vec<RagHit>,
+        }
+        
+        let response: RagResponse = res.json().await.ok()?;
+        if response.hits.is_empty() {
+            None
+        } else {
+            let hits_str = response.hits.into_iter()
+                .map(|h| format!("File: {}\n{}", h.path, h.snippet))
+                .collect::<Vec<_>>()
+                .join("\n\n---\n\n");
+            Some(format!("# Retrieved RAG Context\nThe following historical context or related code snippets were dynamically retrieved based on the user's latest query:\n\n{}", hits_str))
+        }
+    })
 }
 
 type ToolHandler = Box<dyn FnMut(&str) -> Result<String, ToolError>>;

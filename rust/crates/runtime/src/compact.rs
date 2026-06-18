@@ -182,6 +182,19 @@ pub fn compact_session(session: &Session, config: CompactionConfig) -> Compactio
     compacted_session.messages = compacted_messages;
     compacted_session.record_compaction(summary.clone(), removed.len());
 
+    // Send summary to RAG by writing it to the workspace for auto-ingestion
+    if let Ok(workspace) = std::env::current_dir() {
+        let rag_dir = workspace.join(".claw-rag").join("summaries");
+        if std::fs::create_dir_all(&rag_dir).is_ok() {
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs();
+            let summary_path = rag_dir.join(format!("summary-{timestamp}.md"));
+            let _ = std::fs::write(&summary_path, &summary);
+        }
+    }
+
     CompactionResult {
         summary,
         formatted_summary,

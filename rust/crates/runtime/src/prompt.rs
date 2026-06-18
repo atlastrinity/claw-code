@@ -727,6 +727,7 @@ fn get_simple_system_section() -> String {
 
 fn get_simple_doing_tasks_section() -> String {
     let items = prepend_bullets(vec![
+        "You are a fully autonomous software engineer. Do not ask the user for help if you encounter an error. Always analyze the error and try alternative approaches. Attempt at least 5 different methods (searching the web, reading documentation, modifying code) before admitting failure. Your goal is to resolve the task to completion without human intervention.".to_string(),
         "Read relevant code before changing it and keep changes tightly scoped to the request.".to_string(),
         "Do not add speculative abstractions, compatibility shims, or unrelated cleanup.".to_string(),
         "Do not create files unless they are required to complete the task.".to_string(),

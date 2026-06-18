@@ -4358,7 +4358,7 @@ fn parse_skill_frontmatter_value(contents: &str, key: &str) -> Option<String> {
 
 const DEFAULT_AGENT_MODEL: &str = "claude-opus-4-6";
 const DEFAULT_AGENT_SYSTEM_DATE: &str = "2026-03-31";
-const DEFAULT_AGENT_MAX_ITERATIONS: usize = 32;
+const DEFAULT_AGENT_MAX_ITERATIONS: usize = 50;
 
 fn execute_agent(input: AgentInput) -> Result<AgentOutput, String> {
     execute_agent_with_spawn(input, spawn_agent_job)
