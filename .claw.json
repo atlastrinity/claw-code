@@ -5,7 +5,7 @@
     "reasoner": "local/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
     "mega": "local/meta-llama/llama-3.3-70b-instruct:free",
     "gpt": "local/openai/gpt-oss-120b:free",
-    "gml": "zhipuai/glm-5-turbo:free"
+    "glm": "zhipuai/glm-5-turbo:free"
   },
   "injectedTools": [
     "bash",
