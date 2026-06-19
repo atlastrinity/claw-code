@@ -145,7 +145,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut watcher = notify::recommended_watcher(move |res: notify::Result<Event>| {
             if let Ok(event) = res {
                 if event.kind.is_modify() || event.kind.is_create() || event.kind.is_remove() {
-                    let _ = tx.blocking_send(());
+                    let should_ignore = event.paths.iter().any(|p| {
+                        let path_str = p.to_string_lossy();
+                        path_str.contains(".git/")
+                            || path_str.contains("target/")
+                            || path_str.contains(".claw-rag/")
+                            || path_str.contains(".gemini/")
+                            || path_str.contains("temp/")
+                            || path_str.ends_with(".sqlite")
+                            || path_str.ends_with(".sqlite-journal")
+                            || path_str.ends_with(".sqlite-wal")
+                            || path_str.ends_with(".sqlite-shm")
+                    });
+                    if !should_ignore {
+                        let _ = tx.blocking_send(());
+                    }
                 }
             }
         })
