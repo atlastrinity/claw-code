@@ -1,6 +1,9 @@
-use std::env;
+use crate::{
+    config_model_for_current_dir, resolve_model_alias_with_config, validate_model_syntax,
+    DEFAULT_MODEL,
+};
 use runtime::PermissionMode;
-use crate::{config_model_for_current_dir, resolve_model_alias_with_config, validate_model_syntax, DEFAULT_MODEL};
+use std::env;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModelSource {

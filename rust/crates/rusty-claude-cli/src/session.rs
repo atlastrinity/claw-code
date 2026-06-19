@@ -1,28 +1,27 @@
+use crate::*;
+use runtime::Session;
+use serde_json::{json, Value as JsonValue};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use serde_json::{json, Value as JsonValue};
-use runtime::Session;
-use crate::*;
 
 #[derive(Debug, Clone)]
 pub struct SessionHandle {
-    pub     id: String,
-    pub     path: PathBuf,
+    pub id: String,
+    pub path: PathBuf,
 }
 
 #[derive(Debug, Clone)]
 pub struct ManagedSessionSummary {
-    pub     id: String,
-    pub     path: PathBuf,
-    pub     created_at_ms: u64,
-    pub     updated_at_ms: u64,
-    pub     modified_epoch_millis: u128,
-    pub     message_count: usize,
-    pub     parent_session_id: Option<String>,
-    pub     branch_name: Option<String>,
-    pub     lifecycle: SessionLifecycleSummary,
+    pub id: String,
+    pub path: PathBuf,
+    pub created_at_ms: u64,
+    pub updated_at_ms: u64,
+    pub modified_epoch_millis: u128,
+    pub message_count: usize,
+    pub parent_session_id: Option<String>,
+    pub branch_name: Option<String>,
+    pub lifecycle: SessionLifecycleSummary,
 }
-
 
 pub fn sessions_dir() -> Result<PathBuf, Box<dyn std::error::Error>> {
     Ok(current_session_store()?.sessions_dir().to_path_buf())
@@ -47,7 +46,9 @@ pub fn create_managed_session_handle(
     })
 }
 
-pub fn resolve_session_reference(reference: &str) -> Result<SessionHandle, Box<dyn std::error::Error>> {
+pub fn resolve_session_reference(
+    reference: &str,
+) -> Result<SessionHandle, Box<dyn std::error::Error>> {
     let handle = current_session_store()?
         .resolve_reference(reference)
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
@@ -61,7 +62,9 @@ pub fn session_reference_exists(reference: &str) -> Result<bool, Box<dyn std::er
     Ok(current_session_store()?.session_exists(reference))
 }
 
-pub fn resolve_managed_session_path(session_id: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+pub fn resolve_managed_session_path(
+    session_id: &str,
+) -> Result<PathBuf, Box<dyn std::error::Error>> {
     current_session_store()?
         .resolve_managed_path(session_id)
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)

@@ -1,7 +1,7 @@
-use std::path::{Path, PathBuf};
-use std::process::Command;
 use serde_json::json;
 use std::fs;
+use std::path::{Path, PathBuf};
+use std::process::Command;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BranchFreshness {

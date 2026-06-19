@@ -1,6 +1,6 @@
-use crate::CliOutputFormat;
-use crate::setup_wizard;
 use crate::init::initialize_repo;
+use crate::setup_wizard;
+use crate::CliOutputFormat;
 use serde_json::json;
 
 pub fn run_setup() -> Result<(), Box<dyn std::error::Error>> {

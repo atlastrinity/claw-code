@@ -762,11 +762,11 @@ impl WorkerRegistry {
             created_at: now_secs(),
         });
         worker.prompt_in_flight = false;
-        
+
         // Arm replay prompt to retry automatically
         worker.replay_prompt = worker.last_prompt.clone();
         worker.status = WorkerStatus::ReadyForPrompt;
-        
+
         push_event(
             worker,
             WorkerEventKind::PromptReplayArmed,

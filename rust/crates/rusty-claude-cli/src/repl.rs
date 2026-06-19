@@ -1,9 +1,9 @@
-use crate::*;
 use crate::mcp::*;
+use crate::*;
 use std::ops::Deref;
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::thread::{self, JoinHandle};
 use std::sync::{Arc, Mutex};
+use std::thread::{self, JoinHandle};
 
 pub fn run_repl(
     model: String,
@@ -73,7 +73,6 @@ pub fn run_repl(
     Ok(())
 }
 
-
 impl Deref for BuiltRuntime {
     type Target = ConversationRuntime<AnthropicRuntimeClient, CliToolExecutor>;
 
@@ -92,7 +91,6 @@ impl std::ops::DerefMut for BuiltRuntime {
     }
 }
 
-
 pub struct RuntimePluginState {
     pub feature_config: runtime::RuntimeFeatureConfig,
     pub tool_registry: GlobalToolRegistry,
@@ -102,7 +100,6 @@ pub struct RuntimePluginState {
     pub config_allowed_tools: Option<AllowedToolSet>,
 }
 
-
 pub struct BuiltRuntime {
     pub runtime: Option<ConversationRuntime<AnthropicRuntimeClient, CliToolExecutor>>,
     pub plugin_registry: PluginRegistry,
@@ -111,19 +108,18 @@ pub struct BuiltRuntime {
     pub mcp_active: bool,
 }
 
-
 impl BuiltRuntime {
     pub fn new(
-    runtime: ConversationRuntime<AnthropicRuntimeClient, CliToolExecutor>,
-    plugin_registry: PluginRegistry,
-    mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
+        runtime: ConversationRuntime<AnthropicRuntimeClient, CliToolExecutor>,
+        plugin_registry: PluginRegistry,
+        mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
     ) -> Self {
         Self {
-    runtime: Some(runtime),
+            runtime: Some(runtime),
             plugin_registry,
-    plugins_active: true,
+            plugins_active: true,
             mcp_state,
-    mcp_active: true,
+            mcp_active: true,
         }
     }
     fn with_hook_abort_signal(mut self, hook_abort_signal: runtime::HookAbortSignal) -> Self {
@@ -162,16 +158,14 @@ impl Drop for BuiltRuntime {
     }
 }
 
-
 pub struct HookAbortMonitor {
     stop_tx: Option<Sender<()>>,
     join_handle: Option<JoinHandle<()>>,
 }
 
-
 impl HookAbortMonitor {
     fn spawn(abort_signal: runtime::HookAbortSignal) -> Self {
-    Self::spawn_with_waiter(abort_signal, move |stop_rx, abort_signal| {
+        Self::spawn_with_waiter(abort_signal, move |stop_rx, abort_signal| {
             let Ok(runtime) = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
@@ -183,7 +177,7 @@ impl HookAbortMonitor {
                 let wait_for_stop = tokio::task::spawn_blocking(move || {
                     let _ = stop_rx.recv();
                 });
-    tokio::select! {
+                tokio::select! {
                     result = tokio::signal::ctrl_c() => {
                         if result.is_ok() {
                             abort_signal.abort();
@@ -194,16 +188,19 @@ impl HookAbortMonitor {
             });
         })
     }
-    pub fn spawn_with_waiter<F>(abort_signal: runtime::HookAbortSignal, wait_for_interrupt: F) -> Self
+    pub fn spawn_with_waiter<F>(
+        abort_signal: runtime::HookAbortSignal,
+        wait_for_interrupt: F,
+    ) -> Self
     where
-    F: FnOnce(Receiver<()>, runtime::HookAbortSignal) + Send + 'static,
+        F: FnOnce(Receiver<()>, runtime::HookAbortSignal) + Send + 'static,
     {
         let (stop_tx, stop_rx) = mpsc::channel();
         let join_handle = thread::spawn(move || wait_for_interrupt(stop_rx, abort_signal));
 
         Self {
-    stop_tx: Some(stop_tx),
-    join_handle: Some(join_handle),
+            stop_tx: Some(stop_tx),
+            join_handle: Some(join_handle),
         }
     }
     pub fn stop(mut self) {
@@ -216,7 +213,6 @@ impl HookAbortMonitor {
     }
 }
 
-
 pub struct LiveCli {
     model: String,
     tools: Option<AllowedToolSet>,
@@ -227,13 +223,12 @@ pub struct LiveCli {
     prompt_history: Vec<PromptHistoryEntry>,
 }
 
-
 impl LiveCli {
     pub fn new(
-    model: String,
-    enable_tools: bool,
-    tools: Option<AllowedToolSet>,
-    permission_mode: PermissionMode,
+        model: String,
+        enable_tools: bool,
+        tools: Option<AllowedToolSet>,
+        permission_mode: PermissionMode,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let system_prompt = build_system_prompt(&model)?;
         let session_state = new_cli_session()?;
@@ -256,7 +251,7 @@ impl LiveCli {
             system_prompt,
             runtime,
             session,
-    prompt_history: Vec::new(),
+            prompt_history: Vec::new(),
         };
         cli.persist_session()?;
         Ok(cli)
@@ -321,7 +316,7 @@ impl LiveCli {
     }
     fn prepare_turn_runtime(
         &self,
-    emit_output: bool,
+        emit_output: bool,
     ) -> Result<(BuiltRuntime, HookAbortMonitor), Box<dyn std::error::Error>> {
         let hook_abort_signal = runtime::HookAbortSignal::new();
         let runtime = build_runtime(
@@ -351,7 +346,7 @@ impl LiveCli {
         let mut stdout = io::stdout();
         spinner.tick(
             "🦀 Thinking...",
-    TerminalRenderer::new().color_theme(),
+            TerminalRenderer::new().color_theme(),
             &mut stdout,
         )?;
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
@@ -362,7 +357,7 @@ impl LiveCli {
                 self.replace_runtime(runtime)?;
                 spinner.finish(
                     "✨ Done",
-    TerminalRenderer::new().color_theme(),
+                    TerminalRenderer::new().color_theme(),
                     &mut stdout,
                 )?;
                 let final_text = final_assistant_text(&summary);
@@ -383,7 +378,7 @@ impl LiveCli {
                 runtime.shutdown_plugins()?;
                 spinner.fail(
                     "❌ Request failed",
-    TerminalRenderer::new().color_theme(),
+                    TerminalRenderer::new().color_theme(),
                     &mut stdout,
                 )?;
 
@@ -459,8 +454,8 @@ impl LiveCli {
                         let result = runtime::trident::trident_compact_session(
                             runtime.session(),
                             CompactionConfig {
-    preserve_recent_messages: preserve,
-    max_estimated_tokens: 0,
+                                preserve_recent_messages: preserve,
+                                max_estimated_tokens: 0,
                             },
                             &runtime::trident::TridentConfig::default(),
                         );
@@ -503,7 +498,7 @@ impl LiveCli {
                                     } else {
                                         "✨ Done (after aggressive auto-compact)"
                                     },
-    TerminalRenderer::new().color_theme(),
+                                    TerminalRenderer::new().color_theme(),
                                     &mut stdout,
                                 )?;
                                 println!();
@@ -564,15 +559,15 @@ impl LiveCli {
     }
     pub fn run_turn_with_output(
         &mut self,
-    input: &str,
-    output_format: CliOutputFormat,
-    compact: bool,
+        input: &str,
+        output_format: CliOutputFormat,
+        compact: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         match output_format {
-    CliOutputFormat::Json if compact => self.run_prompt_compact_json(input),
-    CliOutputFormat::Text if compact => self.run_prompt_compact(input),
-    CliOutputFormat::Text => self.run_turn(input),
-    CliOutputFormat::Json => self.run_prompt_json(input),
+            CliOutputFormat::Json if compact => self.run_prompt_compact_json(input),
+            CliOutputFormat::Text if compact => self.run_prompt_compact(input),
+            CliOutputFormat::Text => self.run_turn(input),
+            CliOutputFormat::Json => self.run_prompt_json(input),
         }
     }
     fn run_prompt_compact(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
@@ -652,113 +647,113 @@ impl LiveCli {
     #[allow(clippy::too_many_lines)]
     fn handle_repl_command(
         &mut self,
-    command: SlashCommand,
+        command: SlashCommand,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         Ok(match command {
-    SlashCommand::Help => {
+            SlashCommand::Help => {
                 println!("{}", render_repl_help());
                 false
             }
-    SlashCommand::Status => {
+            SlashCommand::Status => {
                 self.print_status();
                 false
             }
-    SlashCommand::Bughunter { scope } => {
+            SlashCommand::Bughunter { scope } => {
                 self.run_bughunter(scope.as_deref())?;
                 false
             }
-    SlashCommand::Commit => {
+            SlashCommand::Commit => {
                 self.run_commit(None)?;
                 false
             }
-    SlashCommand::Pr { context } => {
+            SlashCommand::Pr { context } => {
                 self.run_pr(context.as_deref())?;
                 false
             }
-    SlashCommand::Issue { context } => {
+            SlashCommand::Issue { context } => {
                 self.run_issue(context.as_deref())?;
                 false
             }
-    SlashCommand::Ultraplan { task } => {
+            SlashCommand::Ultraplan { task } => {
                 self.run_ultraplan(task.as_deref())?;
                 false
             }
-    SlashCommand::Teleport { target } => {
-    Self::run_teleport(target.as_deref())?;
+            SlashCommand::Teleport { target } => {
+                Self::run_teleport(target.as_deref())?;
                 false
             }
-    SlashCommand::DebugToolCall => {
+            SlashCommand::DebugToolCall => {
                 self.run_debug_tool_call(None)?;
                 false
             }
-    SlashCommand::Sandbox => {
-    Self::print_sandbox_status();
+            SlashCommand::Sandbox => {
+                Self::print_sandbox_status();
                 false
             }
-    SlashCommand::Compact => {
+            SlashCommand::Compact => {
                 self.compact()?;
                 false
             }
-    SlashCommand::Model { model } => self.set_model(model)?,
-    SlashCommand::Permissions { mode } => self.set_permissions(mode)?,
-    SlashCommand::Clear { confirm } => self.clear_session(confirm)?,
-    SlashCommand::Cost => {
+            SlashCommand::Model { model } => self.set_model(model)?,
+            SlashCommand::Permissions { mode } => self.set_permissions(mode)?,
+            SlashCommand::Clear { confirm } => self.clear_session(confirm)?,
+            SlashCommand::Cost => {
                 self.print_cost();
                 false
             }
-    SlashCommand::Resume { session_path } => self.resume_session(session_path)?,
-    SlashCommand::Config { section } => {
-    Self::print_config(section.as_deref())?;
+            SlashCommand::Resume { session_path } => self.resume_session(session_path)?,
+            SlashCommand::Config { section } => {
+                Self::print_config(section.as_deref())?;
                 false
             }
-    SlashCommand::Mcp { action, target } => {
+            SlashCommand::Mcp { action, target } => {
                 let args = match (action.as_deref(), target.as_deref()) {
                     (None, None) => None,
                     (Some(action), None) => Some(action.to_string()),
                     (Some(action), Some(target)) => Some(format!("{action} {target}")),
                     (None, Some(target)) => Some(target.to_string()),
                 };
-    Self::print_mcp(args.as_deref(), CliOutputFormat::Text)?;
+                Self::print_mcp(args.as_deref(), CliOutputFormat::Text)?;
                 false
             }
-    SlashCommand::Memory => {
-    Self::print_memory()?;
+            SlashCommand::Memory => {
+                Self::print_memory()?;
                 false
             }
-    SlashCommand::Init => {
+            SlashCommand::Init => {
                 run_init(CliOutputFormat::Text)?;
                 false
             }
-    SlashCommand::Diff => {
-    Self::print_diff()?;
+            SlashCommand::Diff => {
+                Self::print_diff()?;
                 false
             }
-    SlashCommand::Version => {
-    Self::print_version(CliOutputFormat::Text);
+            SlashCommand::Version => {
+                Self::print_version(CliOutputFormat::Text);
                 false
             }
-    SlashCommand::Export { path } => {
+            SlashCommand::Export { path } => {
                 self.export_session(path.as_deref())?;
                 false
             }
-    SlashCommand::Session { action, target } => {
+            SlashCommand::Session { action, target } => {
                 self.handle_session_command(action.as_deref(), target.as_deref())?
             }
-    SlashCommand::Plugins { action, target } => {
+            SlashCommand::Plugins { action, target } => {
                 self.handle_plugins_command(action.as_deref(), target.as_deref())?
             }
-    SlashCommand::Agents { args } => {
+            SlashCommand::Agents { args } => {
                 if let Err(error) = Self::print_agents(args.as_deref(), CliOutputFormat::Text) {
                     eprintln!("{error}");
                 }
                 false
             }
-    SlashCommand::Skills { args } => {
+            SlashCommand::Skills { args } => {
                 match classify_skills_slash_command(args.as_deref()) {
-    SkillSlashDispatch::Invoke(prompt) => self.run_turn(&prompt)?,
-    SkillSlashDispatch::Local => {
+                    SkillSlashDispatch::Invoke(prompt) => self.run_turn(&prompt)?,
+                    SkillSlashDispatch::Local => {
                         if let Err(error) =
-    Self::print_skills(args.as_deref(), CliOutputFormat::Text)
+                            Self::print_skills(args.as_deref(), CliOutputFormat::Text)
                         {
                             eprintln!("{error}");
                         }
@@ -766,33 +761,33 @@ impl LiveCli {
                 }
                 false
             }
-    SlashCommand::Doctor => {
+            SlashCommand::Doctor => {
                 println!(
                     "{}",
                     render_doctor_report(
-    ConfigWarningMode::EmitStderr,
+                        ConfigWarningMode::EmitStderr,
                         permission_mode_provenance_for_current_dir(),
                     )?
                     .render()
                 );
                 false
             }
-    SlashCommand::Setup => {
+            SlashCommand::Setup => {
                 if let Err(e) = setup_wizard::run_setup_wizard() {
                     eprintln!("Setup wizard failed: {e}");
                 }
                 false
             }
-    SlashCommand::History { count } => {
+            SlashCommand::History { count } => {
                 self.print_prompt_history(count.as_deref());
                 false
             }
-    SlashCommand::Stats => {
+            SlashCommand::Stats => {
                 let usage = UsageTracker::from_session(self.runtime.session()).cumulative_usage();
                 println!("{}", format_cost_report(usage));
                 false
             }
-    SlashCommand::Login
+            SlashCommand::Login
             | SlashCommand::Logout
             | SlashCommand::Vim
             | SlashCommand::Upgrade
@@ -835,7 +830,7 @@ impl LiveCli {
                 eprintln!("{cmd_name} is not yet implemented in this build.");
                 false
             }
-    SlashCommand::Unknown(name) => {
+            SlashCommand::Unknown(name) => {
                 eprintln!("{}", format_unknown_slash_command(&name));
                 false
             }
@@ -853,11 +848,11 @@ impl LiveCli {
             format_status_report(
                 &self.model,
                 StatusUsage {
-    message_count: self.runtime.session().messages.len(),
-    turns: self.runtime.usage().turns(),
+                    message_count: self.runtime.session().messages.len(),
+                    turns: self.runtime.usage().turns(),
                     latest,
                     cumulative,
-    estimated_tokens: self.runtime.estimated_tokens(),
+                    estimated_tokens: self.runtime.estimated_tokens(),
                 },
                 self.permission_mode.as_str(),
                 &status_context(Some(&self.session.path)).expect("status context should load"),
@@ -871,11 +866,11 @@ impl LiveCli {
             .duration_since(UNIX_EPOCH)
             .ok()
             .map_or(self.runtime.session().updated_at_ms, |duration| {
-    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+                u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
             });
         let entry = PromptHistoryEntry {
             timestamp_ms,
-    text: prompt.to_string(),
+            text: prompt.to_string(),
         };
         self.prompt_history.push(entry);
         if let Err(error) = self.runtime.session_mut().push_prompt_entry(prompt) {
@@ -898,8 +893,8 @@ impl LiveCli {
                 self.prompt_history
                     .iter()
                     .map(|entry| PromptHistoryEntry {
-    timestamp_ms: entry.timestamp_ms,
-    text: entry.text.clone(),
+                        timestamp_ms: entry.timestamp_ms,
+                        text: entry.text.clone(),
                     })
                     .collect()
             }
@@ -907,8 +902,8 @@ impl LiveCli {
             session_entries
                 .iter()
                 .map(|entry| PromptHistoryEntry {
-    timestamp_ms: entry.timestamp_ms,
-    text: entry.text.clone(),
+                    timestamp_ms: entry.timestamp_ms,
+                    text: entry.text.clone(),
                 })
                 .collect()
         };
@@ -976,7 +971,7 @@ impl LiveCli {
     }
     fn set_permissions(
         &mut self,
-    mode: Option<String>,
+        mode: Option<String>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let Some(mode) = mode else {
             println!(
@@ -1058,7 +1053,7 @@ impl LiveCli {
     }
     fn resume_session(
         &mut self,
-    session_path: Option<String>,
+        session_path: Option<String>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let Some(session_ref) = session_path else {
             println!("{}", render_resume_usage());
@@ -1082,8 +1077,8 @@ impl LiveCli {
         )?;
         self.replace_runtime(runtime)?;
         self.session = SessionHandle {
-    id: session_id,
-    path: handle.path,
+            id: session_id,
+            path: handle.path,
         };
         println!(
             "{}",
@@ -1104,13 +1099,13 @@ impl LiveCli {
         Ok(())
     }
     pub fn print_agents(
-    args: Option<&str>,
-    output_format: CliOutputFormat,
+        args: Option<&str>,
+        output_format: CliOutputFormat,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let cwd = std::env::current_dir()?;
         match output_format {
-    CliOutputFormat::Text => println!("{}", handle_agents_slash_command(args, &cwd)?),
-    CliOutputFormat::Json => {
+            CliOutputFormat::Text => println!("{}", handle_agents_slash_command(args, &cwd)?),
+            CliOutputFormat::Json => {
                 let value = handle_agents_slash_command_json(args, &cwd)?;
                 // #789: parity with print_mcp/#788 print_skills — exit 1 when envelope
                 // reports an error so automation can rely on exit code instead of
@@ -1118,15 +1113,15 @@ impl LiveCli {
                 let is_error = value.get("status").and_then(|v| v.as_str()) == Some("error");
                 println!("{}", serde_json::to_string_pretty(&value)?);
                 if is_error {
-    std::process::exit(1);
+                    std::process::exit(1);
                 }
             }
         }
         Ok(())
     }
     pub fn print_mcp(
-    args: Option<&str>,
-    output_format: CliOutputFormat,
+        args: Option<&str>,
+        output_format: CliOutputFormat,
     ) -> Result<(), Box<dyn std::error::Error>> {
         // `claw mcp serve` starts a stdio MCP server exposing claw's built-in
         // tools. All other `mcp` subcommands fall through to the existing
@@ -1136,8 +1131,8 @@ impl LiveCli {
         }
         let cwd = std::env::current_dir()?;
         match output_format {
-    CliOutputFormat::Text => println!("{}", handle_mcp_slash_command(args, &cwd)?),
-    CliOutputFormat::Json => {
+            CliOutputFormat::Text => println!("{}", handle_mcp_slash_command(args, &cwd)?),
+            CliOutputFormat::Json => {
                 let value = handle_mcp_slash_command_json(args, &cwd)?;
                 // Propagate ok:false → non-zero exit so automation callers
                 // can rely on exit code instead of inspecting the envelope.
@@ -1146,20 +1141,20 @@ impl LiveCli {
                     || value.get("status").and_then(serde_json::Value::as_str) == Some("error");
                 println!("{}", serde_json::to_string_pretty(&value)?);
                 if is_error {
-    std::process::exit(1);
+                    std::process::exit(1);
                 }
             }
         }
         Ok(())
     }
     pub fn print_skills(
-    args: Option<&str>,
-    output_format: CliOutputFormat,
+        args: Option<&str>,
+        output_format: CliOutputFormat,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let cwd = std::env::current_dir()?;
         match output_format {
-    CliOutputFormat::Text => println!("{}", handle_skills_slash_command(args, &cwd)?),
-    CliOutputFormat::Json => {
+            CliOutputFormat::Text => println!("{}", handle_skills_slash_command(args, &cwd)?),
+            CliOutputFormat::Json => {
                 let result = handle_skills_slash_command_json(args, &cwd)?;
                 let is_error = result.get("status").and_then(|v| v.as_str()) == Some("error");
                 // #739: action:"help" with unexpected set is a usage response, not a fatal error;
@@ -1170,16 +1165,16 @@ impl LiveCli {
                     // #788: the error JSON is already emitted above; returning Err here
                     // would cause the top-level handler to emit a second error envelope.
                     // Exit directly to signal failure without a duplicate envelope.
-    std::process::exit(1);
+                    std::process::exit(1);
                 }
             }
         }
         Ok(())
     }
     pub fn print_plugins(
-    action: Option<&str>,
-    target: Option<&str>,
-    output_format: CliOutputFormat,
+        action: Option<&str>,
+        target: Option<&str>,
+        output_format: CliOutputFormat,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let cwd = std::env::current_dir()?;
         // #803: reject flag-shaped tokens in list filter for BOTH text and JSON modes.
@@ -1205,7 +1200,7 @@ impl LiveCli {
                             "exit_code": 1,
                         });
                         println!("{}", serde_json::to_string_pretty(&obj)?);
-    std::process::exit(1);
+                        std::process::exit(1);
                     }
                     return Err(format!(
                         "unknown option for `claw plugins list`: {filter}\nUsage: claw plugins list [<filter>]\nFilters are id substrings, not flags."
@@ -1218,12 +1213,12 @@ impl LiveCli {
             action,
             target,
             match output_format {
-    CliOutputFormat::Json => ConfigWarningMode::SuppressStderr,
-    CliOutputFormat::Text => ConfigWarningMode::EmitStderr,
+                CliOutputFormat::Json => ConfigWarningMode::SuppressStderr,
+                CliOutputFormat::Text => ConfigWarningMode::EmitStderr,
             },
         )?;
         match output_format {
-    CliOutputFormat::Text => {
+            CliOutputFormat::Text => {
                 // #806: text-mode show must return error when plugin not found (parity with JSON)
                 let action_str = action.unwrap_or("list");
                 if matches!(action_str, "show" | "info" | "describe") {
@@ -1245,7 +1240,7 @@ impl LiveCli {
                 }
                 println!("{}", payload.message);
             }
-    CliOutputFormat::Json => {
+            CliOutputFormat::Json => {
                 let action_str = action.unwrap_or("list");
                 // #743/#420: plugins help must return a usage envelope matching agents/mcp/skills help shape.
                 if matches!(action_str, "help" | "-h" | "--help") {
@@ -1322,7 +1317,7 @@ impl LiveCli {
                             });
                             println!("{}", serde_json::to_string_pretty(&obj)?);
                             // #789: exit 1 on not-found so automation can rely on exit code
-    std::process::exit(1);
+                            std::process::exit(1);
                         }
                     }
                 }
@@ -1366,10 +1361,10 @@ impl LiveCli {
     }
     fn export_session(
         &self,
-    requested_path: Option<&str>,
+        requested_path: Option<&str>,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let export_path = resolve_export_path(requested_path, self.runtime.session())?;
-    fs::write(&export_path, render_export_text(self.runtime.session()))?;
+        fs::write(&export_path, render_export_text(self.runtime.session()))?;
         println!(
             "Export\n  Result           wrote transcript\n  File             {}\n  Messages         {}",
             export_path.display(),
@@ -1381,8 +1376,8 @@ impl LiveCli {
     #[allow(clippy::too_many_lines)]
     fn handle_session_command(
         &mut self,
-    action: Option<&str>,
-    target: Option<&str>,
+        action: Option<&str>,
+        target: Option<&str>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         match action {
             None | Some("list") => {
@@ -1426,8 +1421,8 @@ impl LiveCli {
                 )?;
                 self.replace_runtime(runtime)?;
                 self.session = SessionHandle {
-    id: session_id,
-    path: handle.path,
+                    id: session_id,
+                    path: handle.path,
                 };
                 println!(
                     "Session switched\n  Active session   {}\n  File             {}\n  Messages         {}",
@@ -1527,8 +1522,8 @@ impl LiveCli {
     }
     fn handle_plugins_command(
         &mut self,
-    action: Option<&str>,
-    target: Option<&str>,
+        action: Option<&str>,
+        target: Option<&str>,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         let cwd = std::env::current_dir()?;
         let payload =
@@ -1577,9 +1572,9 @@ impl LiveCli {
     }
     fn run_internal_prompt_text_with_progress(
         &self,
-    prompt: &str,
-    enable_tools: bool,
-    progress: Option<InternalPromptProgressReporter>,
+        prompt: &str,
+        enable_tools: bool,
+        progress: Option<InternalPromptProgressReporter>,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let session = self.runtime.session().clone();
         let mut runtime = build_runtime(
@@ -1601,8 +1596,8 @@ impl LiveCli {
     }
     fn run_internal_prompt_text(
         &self,
-    prompt: &str,
-    enable_tools: bool,
+        prompt: &str,
+        enable_tools: bool,
     ) -> Result<String, Box<dyn std::error::Error>> {
         self.run_internal_prompt_text_with_progress(prompt, enable_tools, None)
     }
@@ -1645,8 +1640,8 @@ impl LiveCli {
         Ok(())
     }
     fn run_pr(&self, context: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-        let branch =
-            resolve_git_branch_for(&std::env::current_dir()?).unwrap_or_else(|| "unknown".to_string());
+        let branch = resolve_git_branch_for(&std::env::current_dir()?)
+            .unwrap_or_else(|| "unknown".to_string());
         println!("{}", format_pr_report(&branch, context));
         Ok(())
     }
@@ -1655,5 +1650,3 @@ impl LiveCli {
         Ok(())
     }
 }
-
-

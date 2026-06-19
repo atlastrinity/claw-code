@@ -1,15 +1,15 @@
-use std::path::{Path, PathBuf};
-use serde_json::{json, Map, Value};
 use crate::CliOutputFormat;
 use crate::ConfigLoader;
 use crate::{
-    PermissionModeProvenance, ConfigWarningMode, render_doctor_report, load_oauth_credentials,
-    binary_provenance_for, DiagnosticCheck, DiagnosticLevel, StatusContext, HookValidationSummary,
-    mvp_tool_specs, OFFICIAL_REPO_SLUG, OFFICIAL_REPO_URL, DEPRECATED_INSTALL_COMMAND, VERSION,
-    BUILD_TARGET, GIT_SHA, invalid_hooks_json, memory_files_json, stale_base_json_value,
-    format_stale_base_warning,
+    binary_provenance_for, format_stale_base_warning, invalid_hooks_json, load_oauth_credentials,
+    memory_files_json, mvp_tool_specs, render_doctor_report, stale_base_json_value,
+    ConfigWarningMode, DiagnosticCheck, DiagnosticLevel, HookValidationSummary,
+    PermissionModeProvenance, StatusContext, BUILD_TARGET, DEPRECATED_INSTALL_COMMAND, GIT_SHA,
+    OFFICIAL_REPO_SLUG, OFFICIAL_REPO_URL, VERSION,
 };
 use runtime::{PermissionMode, SandboxStatus};
+use serde_json::{json, Map, Value};
+use std::path::{Path, PathBuf};
 
 pub fn run_doctor(
     output_format: CliOutputFormat,
@@ -36,8 +36,6 @@ pub fn run_doctor(
 }
 
 /// Run the interactive setup wizard to configure provider, API key, and model.
-
-
 
 #[allow(clippy::too_many_lines)]
 pub fn check_auth_health() -> DiagnosticCheck {
@@ -319,7 +317,6 @@ pub fn check_config_health(
         ])),
     }
 }
-
 
 pub fn check_hook_validation_health(summary: &HookValidationSummary) -> DiagnosticCheck {
     let mut details = vec![
@@ -803,7 +800,11 @@ pub fn check_sandbox_health(status: &runtime::SandboxStatus) -> DiagnosticCheck 
 pub fn check_system_health(cwd: &Path, config: Option<&runtime::RuntimeConfig>) -> DiagnosticCheck {
     let default_model = config.and_then(runtime::RuntimeConfig::model);
     let mut details = vec![
-        format!("OS               {} {}", std::env::consts::OS, std::env::consts::ARCH),
+        format!(
+            "OS               {} {}",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        ),
         format!("Working dir      {}", cwd.display()),
         format!("Version          {}", VERSION),
         format!("Build target     {}", BUILD_TARGET.unwrap_or("<unknown>")),
@@ -851,7 +852,13 @@ pub fn check_system_health(cwd: &Path, config: Option<&runtime::RuntimeConfig>) 
             "claw_output_format".to_string(),
             json!(std::env::var("CLAW_OUTPUT_FORMAT").ok()),
         ),
-        ("claw_log".to_string(), json!(std::env::var("CLAW_LOG").ok())),
-        ("rust_log".to_string(), json!(std::env::var("RUST_LOG").ok())),
+        (
+            "claw_log".to_string(),
+            json!(std::env::var("CLAW_LOG").ok()),
+        ),
+        (
+            "rust_log".to_string(),
+            json!(std::env::var("RUST_LOG").ok()),
+        ),
     ]))
 }

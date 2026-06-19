@@ -1,39 +1,63 @@
-use crate::input;
-use crate::setup_wizard;
-use crate::setup::*;
-use crate::export::*;
+use crate::cli::AllowedToolSet;
 use crate::doctor::*;
-use crate::tool_executor::*;
+use crate::export::*;
+use crate::input;
+use crate::repl::{BuiltRuntime, HookAbortMonitor, LiveCli, RuntimePluginState};
 use crate::session_orchestrator::*;
+use crate::setup::*;
+use crate::setup_wizard;
+use crate::tool_executor::*;
+use crate::{
+    build_runtime_mcp_state, classify_error_kind, config_model_for_current_dir,
+    confirm_session_deletion, create_managed_session_handle, current_output_format_selection,
+    default_permission_mode, delete_managed_session, fallback_hint_for_error_kind,
+    format_auto_compaction_notice, format_bughunter_report, format_compact_report,
+    format_connected_line, format_cost_report, format_model_report, format_model_switch_report,
+    format_permissions_report, format_permissions_switch_report, format_resume_report,
+    format_sandbox_report, format_status_report, format_unknown_slash_command,
+    git_worktree_is_dirty, list_managed_sessions, load_session_reference,
+    load_session_reference_excluding, new_cli_session, normalize_permission_mode,
+    parse_git_status_metadata, parse_git_status_metadata_for, permission_mode_from_label,
+    permission_mode_provenance_for_current_dir, plugin_load_failure_json, plugin_summary_json,
+    print_help_topic, render_config_json, render_config_report, render_diff_json_for,
+    render_diff_report, render_diff_report_for, render_doctor_report, render_export_text,
+    render_help_topic, render_memory_json, render_memory_report, render_prompt_history_report,
+    render_repl_help, render_resume_usage, render_session_list, render_session_markdown,
+    render_version_report, resolve_model_alias, resolve_model_alias_with_config,
+    resolve_session_reference, run_git_bool, run_git_capture_in, run_mcp_serve,
+    run_resumed_session_command, session_details_json, session_reference_exists, split_error_hint,
+    take_duplicate_flags, try_resolve_bare_skill_prompt, write_session_clear_backup,
+    BinaryPreflight, BinaryProvenance, BootPreflightSnapshot, BranchFreshness, CliAction,
+    CliOutputFormat, ControlSocketPreflight, DiagnosticCheck, GitOperation, HookValidationSummary,
+    InvalidOutputPathError, InvalidOutputPathReason, LocalHelpTopic, MemoryFileSummary,
+    OutputFormatSelection, PromptHistoryEntry, RuntimePluginStateBuildOutput, SessionHandle,
+    SessionLifecycleKind, SessionLifecycleSummary, StatusContext, StatusUsage, TmuxPaneSnapshot,
+    BUILD_TARGET, CLI_OPTION_SUGGESTIONS, DEFAULT_DATE, DEFAULT_MODEL, DEPRECATED_INSTALL_COMMAND,
+    GIT_BRANCH, GIT_COMMIT_DATE, GIT_COMMIT_TIMESTAMP, GIT_DIRTY, GIT_SHA, GIT_SHA_SHORT,
+    LATEST_SESSION_REFERENCE, OFFICIAL_REPO_SLUG, OFFICIAL_REPO_URL, RUSTC_VERSION, VERSION,
+};
 use crate::{ModelProvenance, PermissionModeProvenance};
 use api::max_tokens_for_model;
 use runtime::session_control::PRIMARY_SESSION_EXTENSION;
-use crate::cli::AllowedToolSet;
-use crate::{build_runtime_mcp_state, BUILD_TARGET, CLI_OPTION_SUGGESTIONS, write_session_clear_backup, StatusUsage, print_help_topic, delete_managed_session, format_connected_line, RuntimePluginStateBuildOutput, LATEST_SESSION_REFERENCE, DEFAULT_MODEL, permission_mode_provenance_for_current_dir, TmuxPaneSnapshot, render_help_topic, format_bughunter_report,  SessionLifecycleSummary, run_git_capture_in, MemoryFileSummary, BranchFreshness, render_diff_report, VERSION, render_memory_json, confirm_session_deletion, run_resumed_session_command, create_managed_session_handle, render_resume_usage, GIT_SHA_SHORT, DEPRECATED_INSTALL_COMMAND, BinaryProvenance, fallback_hint_for_error_kind, format_cost_report, render_memory_report, format_unknown_slash_command, git_worktree_is_dirty, normalize_permission_mode, run_mcp_serve, render_diff_json_for, InvalidOutputPathError,   StatusContext, default_permission_mode, GIT_DIRTY, render_doctor_report, OFFICIAL_REPO_SLUG, render_session_list, format_auto_compaction_notice, plugin_load_failure_json, CliOutputFormat, permission_mode_from_label, session_reference_exists, GitOperation, OutputFormatSelection, render_session_markdown, SessionLifecycleKind, render_prompt_history_report, render_config_json, GIT_BRANCH, load_session_reference_excluding, run_git_bool, format_permissions_switch_report, load_session_reference, format_model_switch_report, new_cli_session, CliAction, render_config_report, format_status_report, current_output_format_selection, format_compact_report, resolve_model_alias, GIT_COMMIT_DATE, format_sandbox_report, split_error_hint, resolve_session_reference, format_model_report, plugin_summary_json, GIT_COMMIT_TIMESTAMP,  SessionHandle,  session_details_json, PromptHistoryEntry, render_diff_report_for, OFFICIAL_REPO_URL, LocalHelpTopic, BootPreflightSnapshot, render_version_report, format_resume_report, RUSTC_VERSION, resolve_model_alias_with_config, parse_git_status_metadata, InvalidOutputPathReason, BinaryPreflight, try_resolve_bare_skill_prompt,  list_managed_sessions, config_model_for_current_dir, DiagnosticCheck, render_export_text, render_repl_help, ControlSocketPreflight, parse_git_status_metadata_for,  GIT_SHA, HookValidationSummary, take_duplicate_flags, classify_error_kind, DEFAULT_DATE, format_permissions_report};
-use crate::repl::{HookAbortMonitor, LiveCli, BuiltRuntime, RuntimePluginState};
 
 use crate::{
-    format_ultraplan_report,
-    render_teleport_report,
-    render_last_tool_debug_report,
-    git_output,
-    parse_git_workspace_summary,
-    parse_git_status_branch,
-    format_commit_skipped_report,
-    format_commit_preflight_report,
-    resolve_git_branch_for,
-    format_pr_report,
-    format_issue_report,
+    format_commit_preflight_report, format_commit_skipped_report,
+    format_internal_prompt_progress_line, format_issue_report, format_pr_report,
+    format_ultraplan_report, git_output, parse_git_status_branch, parse_git_workspace_summary,
+    render_last_tool_debug_report, render_teleport_report, resolve_git_branch_for,
     McpValidationSummary,
-    format_internal_prompt_progress_line,
 };
 
-use crate::render::{InternalPromptProgressEvent, InternalPromptProgressState, render_thinking_block_summary};
+use crate::render::{
+    render_thinking_block_summary, InternalPromptProgressEvent, InternalPromptProgressState,
+};
 const INTERNAL_PROGRESS_HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3);
 const POST_TOOL_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-use crate::render::{format_tool_call_start, format_user_visible_api_error, format_tool_result};
-use crate::mcp::{RuntimeMcpState, McpToolRequest, ListMcpResourcesRequest, ReadMcpResourceRequest};
+use crate::mcp::{
+    ListMcpResourcesRequest, McpToolRequest, ReadMcpResourceRequest, RuntimeMcpState,
+};
+use crate::render::{format_tool_call_start, format_tool_result, format_user_visible_api_error};
 
 use std::collections::BTreeSet;
 use std::env;
@@ -58,6 +82,8 @@ use api::{
     ToolResultContentBlock,
 };
 
+use crate::init::initialize_repo;
+use crate::render::{MarkdownStreamState, Spinner, TerminalRenderer};
 use commands::{
     classify_skills_slash_command, handle_agents_slash_command, handle_agents_slash_command_json,
     handle_mcp_slash_command, handle_mcp_slash_command_json, handle_plugins_slash_command,
@@ -66,9 +92,7 @@ use commands::{
     slash_command_specs, validate_slash_command_input, PluginsCommandResult, SkillSlashDispatch,
     SlashCommand,
 };
-use crate::init::initialize_repo;
 use plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
-use crate::render::{MarkdownStreamState, Spinner, TerminalRenderer};
 use runtime::{
     check_base_commit, format_stale_base_warning, format_usd, load_oauth_credentials,
     load_system_prompt, load_system_prompt_with_context, pricing_for_model, resolve_expected_base,
@@ -85,8 +109,6 @@ use tools::{
     canonical_allowed_tool_name, execute_tool, mvp_tool_specs, GlobalToolRegistry,
     RuntimeToolDefinition, ToolSearchOutput,
 };
-
-
 
 pub fn allowed_tool_aliases_json(registry: &GlobalToolRegistry) -> Value {
     Value::Object(
@@ -114,8 +136,6 @@ pub fn current_tool_registry() -> Result<GlobalToolRegistry, String> {
     }
     Ok(registry)
 }
-
-
 
 pub fn resolve_repl_model(cli_model: String) -> Result<String, String> {
     Ok(ModelProvenance::from_env_or_config_or_default(&cli_model)?.resolved)
@@ -167,7 +187,6 @@ pub fn provider_label(kind: ProviderKind) -> &'static str {
         ProviderKind::OpenAi => "openai",
     }
 }
-
 
 pub fn filter_tool_specs(tool_registry: &GlobalToolRegistry) -> Vec<ToolDefinition> {
     tool_registry.definitions()
@@ -247,7 +266,10 @@ pub fn parse_system_prompt_args(
     })
 }
 
-pub fn parse_export_args(args: &[String], output_format: CliOutputFormat) -> Result<CliAction, String> {
+pub fn parse_export_args(
+    args: &[String],
+    output_format: CliOutputFormat,
+) -> Result<CliAction, String> {
     let mut session_reference = LATEST_SESSION_REFERENCE.to_string();
     let mut output_path: Option<PathBuf> = None;
     let mut index = 0;
@@ -331,7 +353,6 @@ pub fn parse_dump_manifests_args(
     })
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticLevel {
     Ok,
@@ -353,7 +374,6 @@ impl DiagnosticLevel {
     }
 }
 
-
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub enum ConfigWarningMode {
     EmitStderr,
@@ -371,10 +391,6 @@ pub fn load_config_with_warning_mode(
             .map(|(runtime_config, _warnings)| runtime_config),
     }
 }
-
-
-
-
 
 pub fn looks_like_slash_command_token(token: &str) -> bool {
     let trimmed = token.trim_start();
@@ -447,7 +463,9 @@ pub fn dump_manifests_at_path(
     Ok(())
 }
 
-pub fn build_rust_resolver_manifest(workspace_dir: &Path) -> Result<Value, Box<dyn std::error::Error>> {
+pub fn build_rust_resolver_manifest(
+    workspace_dir: &Path,
+) -> Result<Value, Box<dyn std::error::Error>> {
     let command_entries = slash_command_specs()
         .iter()
         .map(|spec| {
@@ -511,7 +529,9 @@ pub fn build_rust_resolver_manifest(workspace_dir: &Path) -> Result<Value, Box<d
     }))
 }
 
-pub fn print_bootstrap_plan(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
+pub fn print_bootstrap_plan(
+    output_format: CliOutputFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
     let phases = runtime::BootstrapPlan::claude_code_default();
     match output_format {
         CliOutputFormat::Text => {
@@ -691,7 +711,6 @@ pub fn version_json_value() -> serde_json::Value {
     })
 }
 
-
 impl MemoryFileSummary {
     fn json_value(&self) -> serde_json::Value {
         json!({
@@ -705,12 +724,6 @@ impl MemoryFileSummary {
         })
     }
 }
-
-
-
-
-
-
 
 pub fn invalid_hooks_json(invalid_hooks: &[RuntimeInvalidHookConfig]) -> Vec<serde_json::Value> {
     invalid_hooks
@@ -728,7 +741,6 @@ pub fn invalid_hooks_json(invalid_hooks: &[RuntimeInvalidHookConfig]) -> Vec<ser
         })
         .collect()
 }
-
 
 pub fn config_source_json_value(source: ConfigSource) -> serde_json::Value {
     let id = match source {
@@ -847,8 +859,6 @@ pub fn unloaded_memory_candidates(
     missing
 }
 
-
-
 impl BinaryProvenance {
     pub fn status(&self) -> &'static str {
         if self.git_sha.is_some() {
@@ -948,21 +958,6 @@ pub fn binary_provenance_for(cwd: Option<&Path>) -> BinaryProvenance {
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 pub fn build_boot_preflight_snapshot(
     cwd: &Path,
     project_root: Option<&Path>,
@@ -1027,7 +1022,6 @@ pub fn build_boot_preflight_snapshot(
     }
 }
 
-
 pub fn command_available(command: &str) -> bool {
     Command::new(command)
         .arg("--version")
@@ -1072,8 +1066,6 @@ pub fn path_matches_trusted_root_local(cwd: &Path, trusted_root: &str) -> bool {
     let trusted_root = fs::canonicalize(&trusted_root).unwrap_or(trusted_root);
     cwd == trusted_root || cwd.starts_with(trusted_root)
 }
-
-
 
 #[allow(clippy::too_many_lines)]
 
@@ -1191,35 +1183,6 @@ pub fn run_stale_base_preflight(flag_value: Option<&str>) {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 pub fn print_status_snapshot(
     model: &str,
@@ -1542,7 +1505,6 @@ pub fn status_context(
     })
 }
 
-
 pub fn print_sandbox_status_snapshot(
     output_format: CliOutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -1609,7 +1571,6 @@ pub fn sandbox_json_value(status: &runtime::SandboxStatus) -> serde_json::Value 
         },
     })
 }
-
 
 pub fn local_help_topic_command(topic: LocalHelpTopic) -> &'static str {
     match topic {
@@ -1704,7 +1665,6 @@ pub fn print_models(
     Ok(())
 }
 
-
 /// #683-#692: extract structured metadata from help prose
 pub fn extract_help_metadata(
     topic: LocalHelpTopic,
@@ -1781,8 +1741,6 @@ pub fn extract_help_metadata(
     )
 }
 
-
-
 pub fn acp_status_message() -> &'static str {
     "ACP/Zed editor integration is not implemented in claw-code yet. `claw acp serve` reports status only and does not launch a daemon or JSON-RPC endpoint. Use the normal terminal surfaces for now."
 }
@@ -1830,7 +1788,6 @@ pub fn print_acp_status(output_format: CliOutputFormat) -> Result<(), Box<dyn st
     }
     Ok(())
 }
-
 
 pub fn config_file_report_json(file: &ConfigFileReport) -> serde_json::Value {
     let source = match file.entry.source {
@@ -1895,11 +1852,6 @@ pub fn config_file_report_json(file: &ConfigFileReport) -> serde_json::Value {
     serde_json::Value::Object(object)
 }
 
-
-
-
-
-
 pub fn indent_block(value: &str, spaces: usize) -> String {
     let indent = " ".repeat(spaces);
     value
@@ -1921,8 +1873,6 @@ pub fn validate_no_args(
     }
     Ok(())
 }
-
-
 
 pub fn command_exists(name: &str) -> bool {
     Command::new("which")
@@ -1956,7 +1906,6 @@ pub fn parse_history_count(raw: Option<&str>) -> Result<usize, String> {
     Ok(parsed)
 }
 
-
 // Computes civil (Gregorian) year/month/day from days since the Unix epoch
 // (1970-01-01) using Howard Hinnant's `civil_from_days` algorithm.
 #[allow(
@@ -1981,7 +1930,6 @@ pub fn civil_from_days(days: i64) -> (i32, u32, u32) {
     let y = y + i64::from(m <= 2);
     (y as i32, m as u32, d as u32)
 }
-
 
 pub fn collect_session_prompt_history(session: &Session) -> Vec<PromptHistoryEntry> {
     if !session.prompt_history.is_empty() {
@@ -2062,7 +2010,6 @@ pub fn parse_titled_body(value: &str) -> Option<(String, String)> {
     Some((title.to_string(), body.to_string()))
 }
 
-
 const SESSION_MARKDOWN_TOOL_SUMMARY_LIMIT: usize = 280;
 
 pub fn summarize_tool_payload_for_markdown(payload: &str) -> String {
@@ -2075,7 +2022,6 @@ pub fn summarize_tool_payload_for_markdown(payload: &str) -> String {
     }
     truncate_for_summary(&compact, SESSION_MARKDOWN_TOOL_SUMMARY_LIMIT)
 }
-
 
 pub fn short_tool_id(id: &str) -> String {
     let char_count = id.chars().count();
@@ -2095,7 +2041,6 @@ pub fn build_system_prompt(model: &str) -> Result<Vec<String>, Box<dyn std::erro
         model_family_identity_for(model),
     )?)
 }
-
 
 pub fn plugins_command_payload_for(
     cwd: &Path,
@@ -2257,19 +2202,11 @@ pub fn runtime_hook_config_from_plugin_hooks(hooks: PluginHooks) -> runtime::Run
     )
 }
 
-
-
-
-
-
-
-
 impl Drop for InternalPromptProgressRun {
     fn drop(&mut self) {
         self.stop_heartbeat();
     }
 }
-
 
 pub fn describe_tool_progress(name: &str, input: &str) -> String {
     let parsed: serde_json::Value =
@@ -2416,15 +2353,11 @@ pub fn build_runtime_with_plugin_state(
     Ok(BuiltRuntime::new(runtime, plugin_registry, mcp_state))
 }
 
-
-
-
 impl CliPermissionPrompter {
     pub fn new(current_mode: PermissionMode) -> Self {
         Self { current_mode }
     }
 }
-
 
 // NOTE: Despite the historical name `AnthropicRuntimeClient`, this struct
 // now holds an `ApiProviderClient` which dispatches to Anthropic, xAI,
@@ -2432,7 +2365,6 @@ impl CliPermissionPrompter {
 // `detect_provider_kind(&model)`. The struct name is kept to avoid
 // churning `BuiltRuntime` and every Deref/DerefMut site that references
 // it. See ROADMAP #29 for the provider-dispatch routing fix.
-
 
 pub fn resolve_cli_auth_source() -> Result<AuthSource, Box<dyn std::error::Error>> {
     Ok(resolve_cli_auth_source_for_cwd()?)
@@ -2442,8 +2374,6 @@ pub fn resolve_cli_auth_source() -> Result<AuthSource, Box<dyn std::error::Error
 pub fn resolve_cli_auth_source_for_cwd() -> Result<AuthSource, api::ApiError> {
     resolve_startup_auth_source(|| Ok(None))
 }
-
-
 
 /// Returns `true` when the conversation ends with a tool-result message,
 /// meaning the model is expected to continue after tool execution.
@@ -2511,7 +2441,6 @@ pub fn extract_context_window_tokens_from_error(error_str: &str) -> Option<u32> 
     }
     None
 }
-
 
 pub fn final_assistant_text(summary: &runtime::TurnSummary) -> String {
     summary
@@ -2784,7 +2713,6 @@ pub fn slash_command_completion_candidates_with_sessions(
     completions.into_iter().collect()
 }
 
-
 const DISPLAY_TRUNCATION_NOTICE: &str =
     "\x1b[2m… output truncated for display; full result preserved in session.\x1b[0m";
 pub const READ_DISPLAY_MAX_LINES: usize = 80;
@@ -2802,13 +2730,11 @@ pub fn extract_tool_path(parsed: &serde_json::Value) -> String {
         .to_string()
 }
 
-
 pub fn first_visible_line(text: &str) -> &str {
     text.lines()
         .find(|line| !line.trim().is_empty())
         .unwrap_or(text)
 }
-
 
 pub fn summarize_tool_payload(payload: &str) -> String {
     let compact = match serde_json::from_str::<serde_json::Value>(payload) {
@@ -2871,7 +2797,6 @@ pub fn truncate_output_for_display(content: &str, max_lines: usize, max_chars: u
     }
     preview
 }
-
 
 pub fn push_output_block(
     block: OutputContentBlock,
@@ -2977,9 +2902,6 @@ pub fn prompt_cache_record_to_runtime_event(
     })
 }
 
-
-
-
 pub fn permission_policy(
     mode: PermissionMode,
     feature_config: &runtime::RuntimeFeatureConfig,
@@ -3048,46 +2970,44 @@ pub fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
 }
 
 #[allow(clippy::too_many_lines)]
-
-
 #[cfg(test)]
 mod tests {
     use super::{
         acp_status_json, build_runtime_plugin_state_with_loader, build_runtime_with_plugin_state,
-        classify_error_kind, collect_session_prompt_history,
-        create_managed_session_handle, describe_tool_progress, filter_tool_specs,
-        format_bughunter_report, format_commit_preflight_report, format_commit_skipped_report,
-        format_compact_report, format_connected_line, format_cost_report,
-        format_internal_prompt_progress_line, format_issue_report, format_model_report,
-        format_model_switch_report, format_permissions_report, format_permissions_switch_report,
-        format_pr_report, format_resume_report, format_status_report, format_tool_call_start,
-        format_tool_result, format_ultraplan_report, format_unknown_slash_command,
-        format_user_visible_api_error,
-        normalize_permission_mode, parse_export_args,
-        parse_git_status_branch, parse_git_status_metadata_for, parse_git_workspace_summary,
-        parse_history_count, permission_policy, push_output_block,
-        render_config_report, render_diff_report, render_diff_report_for, render_help_topic,
-        render_memory_report, render_prompt_history_report,
-        render_repl_help, render_resume_usage, render_session_list, render_session_markdown,
-        resolve_model_alias, resolve_model_alias_with_config, resolve_repl_model,
-        resolve_session_reference, response_to_events, resume_supported_slash_commands,
-        short_tool_id, slash_command_completion_candidates_with_sessions,
-        split_error_hint, status_context, status_json_value, summarize_tool_payload_for_markdown,
-        try_resolve_bare_skill_prompt, validate_no_args, write_mcp_server_fixture, CliAction,
-        CliOutputFormat, CliToolExecutor, GitOperation,
-        InternalPromptProgressEvent, InternalPromptProgressState, LocalHelpTopic,
+        classify_error_kind, collect_session_prompt_history, create_managed_session_handle,
+        describe_tool_progress, filter_tool_specs, format_bughunter_report,
+        format_commit_preflight_report, format_commit_skipped_report, format_compact_report,
+        format_connected_line, format_cost_report, format_internal_prompt_progress_line,
+        format_issue_report, format_model_report, format_model_switch_report,
+        format_permissions_report, format_permissions_switch_report, format_pr_report,
+        format_resume_report, format_status_report, format_tool_call_start, format_tool_result,
+        format_ultraplan_report, format_unknown_slash_command, format_user_visible_api_error,
+        normalize_permission_mode, parse_export_args, parse_git_status_branch,
+        parse_git_status_metadata_for, parse_git_workspace_summary, parse_history_count,
+        permission_policy, push_output_block, render_config_report, render_diff_report,
+        render_diff_report_for, render_help_topic, render_memory_report,
+        render_prompt_history_report, render_repl_help, render_resume_usage, render_session_list,
+        render_session_markdown, resolve_model_alias, resolve_model_alias_with_config,
+        resolve_repl_model, resolve_session_reference, response_to_events,
+        resume_supported_slash_commands, short_tool_id,
+        slash_command_completion_candidates_with_sessions, split_error_hint, status_context,
+        status_json_value, summarize_tool_payload_for_markdown, try_resolve_bare_skill_prompt,
+        validate_no_args, write_mcp_server_fixture, CliAction, CliOutputFormat, CliToolExecutor,
+        GitOperation, InternalPromptProgressEvent, InternalPromptProgressState, LocalHelpTopic,
         PermissionModeProvenance, PromptHistoryEntry, SessionLifecycleKind,
         SessionLifecycleSummary, SlashCommand, StatusUsage, TmuxPaneSnapshot, DEFAULT_MODEL,
-        LATEST_SESSION_REFERENCE, 
+        LATEST_SESSION_REFERENCE,
     };
-    use crate::session_orchestrator::*;
     use crate::cli::parse_args;
-    use crate::repl::LiveCli;
     use crate::config::validate_model_syntax;
     use crate::git::GitWorkspaceSummary;
     use crate::help::print_help_to;
-    use crate::render::{format_history_timestamp, format_unknown_slash_command_message, render_help_topic_json};
     use crate::merge_prompt_with_stdin;
+    use crate::render::{
+        format_history_timestamp, format_unknown_slash_command_message, render_help_topic_json,
+    };
+    use crate::repl::LiveCli;
+    use crate::session_orchestrator::*;
     use crate::STUB_COMMANDS;
     use api::{ApiError, MessageResponse, OutputContentBlock, Usage};
     use plugins::{
@@ -4837,7 +4757,8 @@ mod tests {
         std::fs::create_dir_all(&cwd).expect("project dir should exist");
 
         let error = with_current_dir(&cwd, || {
-            crate::setup::run_worker_state(CliOutputFormat::Text).expect_err("missing state should error")
+            crate::setup::run_worker_state(CliOutputFormat::Text)
+                .expect_err("missing state should error")
         });
         let message = error.to_string();
 
@@ -8621,27 +8542,11 @@ mod alias_resolution_tests {
     }
 }
 
-
-
-
-
-
-
-
-
-
 #[derive(Debug, Deserialize)]
 pub struct ToolSearchRequest {
     pub query: String,
     pub max_results: Option<usize>,
 }
-
-
-
-
-
-
-
 
 pub struct PluginsCommandPayload {
     pub message: String,
@@ -8653,7 +8558,6 @@ pub struct PluginsCommandPayload {
     pub load_failures: Vec<Value>,
 }
 
-
 #[derive(Debug)]
 pub struct InternalPromptProgressShared {
     state: Mutex<InternalPromptProgressState>,
@@ -8661,12 +8565,10 @@ pub struct InternalPromptProgressShared {
     started_at: Instant,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct InternalPromptProgressReporter {
     shared: Arc<InternalPromptProgressShared>,
 }
-
 
 #[derive(Debug)]
 pub struct InternalPromptProgressRun {
@@ -8675,21 +8577,20 @@ pub struct InternalPromptProgressRun {
     heartbeat_handle: Option<thread::JoinHandle<()>>,
 }
 
-
 impl InternalPromptProgressReporter {
     fn ultraplan(task: &str) -> Self {
         Self {
-    shared: Arc::new(InternalPromptProgressShared {
-    state: Mutex::new(InternalPromptProgressState {
-    command_label: "Ultraplan",
-    task_label: task.to_string(),
-    step: 0,
-    phase: "planning started".to_string(),
-    detail: Some(format!("task: {task}")),
-    saw_final_text: false,
+            shared: Arc::new(InternalPromptProgressShared {
+                state: Mutex::new(InternalPromptProgressState {
+                    command_label: "Ultraplan",
+                    task_label: task.to_string(),
+                    step: 0,
+                    phase: "planning started".to_string(),
+                    detail: Some(format!("task: {task}")),
+                    saw_final_text: false,
                 }),
-    output_lock: Mutex::new(()),
-    started_at: Instant::now(),
+                output_lock: Mutex::new(()),
+                started_at: Instant::now(),
             }),
         }
     }
@@ -8715,7 +8616,7 @@ impl InternalPromptProgressReporter {
             state.clone()
         };
         self.write_line(&format_internal_prompt_progress_line(
-    InternalPromptProgressEvent::Update,
+            InternalPromptProgressEvent::Update,
             &snapshot,
             self.elapsed(),
             None,
@@ -8735,7 +8636,7 @@ impl InternalPromptProgressReporter {
             state.clone()
         };
         self.write_line(&format_internal_prompt_progress_line(
-    InternalPromptProgressEvent::Update,
+            InternalPromptProgressEvent::Update,
             &snapshot,
             self.elapsed(),
             None,
@@ -8763,7 +8664,7 @@ impl InternalPromptProgressReporter {
             state.clone()
         };
         self.write_line(&format_internal_prompt_progress_line(
-    InternalPromptProgressEvent::Update,
+            InternalPromptProgressEvent::Update,
             &snapshot,
             self.elapsed(),
             None,
@@ -8772,7 +8673,7 @@ impl InternalPromptProgressReporter {
     fn emit_heartbeat(&self) {
         let snapshot = self.snapshot();
         self.write_line(&format_internal_prompt_progress_line(
-    InternalPromptProgressEvent::Heartbeat,
+            InternalPromptProgressEvent::Heartbeat,
             &snapshot,
             self.elapsed(),
             None,
@@ -8800,7 +8701,6 @@ impl InternalPromptProgressReporter {
     }
 }
 
-
 impl InternalPromptProgressRun {
     fn start_ultraplan(task: &str) -> Self {
         let reporter = InternalPromptProgressReporter::ultraplan(task);
@@ -8817,8 +8717,8 @@ impl InternalPromptProgressRun {
 
         Self {
             reporter,
-    heartbeat_stop: Some(heartbeat_stop),
-    heartbeat_handle: Some(heartbeat_handle),
+            heartbeat_stop: Some(heartbeat_stop),
+            heartbeat_handle: Some(heartbeat_handle),
         }
     }
     fn reporter(&self) -> InternalPromptProgressReporter {
@@ -8844,14 +8744,12 @@ impl InternalPromptProgressRun {
     }
 }
 
-
 pub struct CliHookProgressReporter;
-
 
 impl runtime::HookProgressReporter for CliHookProgressReporter {
     fn on_event(&mut self, event: &runtime::HookProgressEvent) {
         match event {
-    runtime::HookProgressEvent::Started {
+            runtime::HookProgressEvent::Started {
                 event,
                 tool_name,
                 command,
@@ -8859,7 +8757,7 @@ impl runtime::HookProgressReporter for CliHookProgressReporter {
                 "[hook {event_name}] {tool_name}: {command}",
                 event_name = event.as_str()
             ),
-    runtime::HookProgressEvent::Completed {
+            runtime::HookProgressEvent::Completed {
                 event,
                 tool_name,
                 command,
@@ -8867,7 +8765,7 @@ impl runtime::HookProgressReporter for CliHookProgressReporter {
                 "[hook done {event_name}] {tool_name}: {command}",
                 event_name = event.as_str()
             ),
-    runtime::HookProgressEvent::Cancelled {
+            runtime::HookProgressEvent::Cancelled {
                 event,
                 tool_name,
                 command,
@@ -8879,16 +8777,14 @@ impl runtime::HookProgressReporter for CliHookProgressReporter {
     }
 }
 
-
 pub struct CliPermissionPrompter {
     current_mode: PermissionMode,
 }
 
-
 impl runtime::PermissionPrompter for CliPermissionPrompter {
     fn decide(
         &mut self,
-    request: &runtime::PermissionRequest,
+        request: &runtime::PermissionRequest,
     ) -> runtime::PermissionPromptDecision {
         println!();
         println!("Permission approval required");
@@ -8907,10 +8803,10 @@ impl runtime::PermissionPrompter for CliPermissionPrompter {
             Ok(_) => {
                 let normalized = response.trim().to_ascii_lowercase();
                 if matches!(normalized.as_str(), "y" | "yes") {
-    runtime::PermissionPromptDecision::Allow
+                    runtime::PermissionPromptDecision::Allow
                 } else {
-    runtime::PermissionPromptDecision::Deny {
-    reason: format!(
+                    runtime::PermissionPromptDecision::Deny {
+                        reason: format!(
                             "tool '{}' denied by user approval prompt",
                             request.tool_name
                         ),
@@ -8918,12 +8814,11 @@ impl runtime::PermissionPrompter for CliPermissionPrompter {
                 }
             }
             Err(error) => runtime::PermissionPromptDecision::Deny {
-    reason: format!("permission approval failed: {error}"),
+                reason: format!("permission approval failed: {error}"),
             },
         }
     }
 }
-
 
 pub struct AnthropicRuntimeClient {
     runtime: tokio::runtime::Runtime,
@@ -8937,15 +8832,14 @@ pub struct AnthropicRuntimeClient {
     reasoning_effort: Option<String>,
 }
 
-
 impl AnthropicRuntimeClient {
     pub fn new(
-    session_id: &str,
-    model: String,
-    enable_tools: bool,
-    emit_output: bool,
-    tool_registry: GlobalToolRegistry,
-    progress_reporter: Option<InternalPromptProgressReporter>,
+        session_id: &str,
+        model: String,
+        enable_tools: bool,
+        emit_output: bool,
+        tool_registry: GlobalToolRegistry,
+        progress_reporter: Option<InternalPromptProgressReporter>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         // Dispatch to the correct provider at construction time.
         // `ApiProviderClient` (exposed by the api crate as
@@ -8968,14 +8862,14 @@ impl AnthropicRuntimeClient {
         // skip it.
         let resolved_model = api::resolve_model_alias(&model);
         let client = match detect_provider_kind(&resolved_model) {
-    ProviderKind::Anthropic => {
+            ProviderKind::Anthropic => {
                 let auth = resolve_cli_auth_source()?;
                 let inner = AnthropicClient::from_auth(auth)
                     .with_base_url(api::read_base_url())
                     .with_prompt_cache(PromptCache::new(session_id));
-    ApiProviderClient::Anthropic(inner)
+                ApiProviderClient::Anthropic(inner)
             }
-    ProviderKind::Xai | ProviderKind::OpenAi => {
+            ProviderKind::Xai | ProviderKind::OpenAi => {
                 // The api crate's `ProviderClient::from_model_with_anthropic_auth`
                 // with `None` for the anthropic auth routes via
                 // `detect_provider_kind` and builds an
@@ -8986,26 +8880,25 @@ impl AnthropicRuntimeClient {
                 // OpenRouter, xAI, DashScope, Ollama, and any other
                 // OpenAI-compat endpoint users configure via
                 // `OPENAI_BASE_URL` / `XAI_BASE_URL` / `DASHSCOPE_BASE_URL`.
-    ApiProviderClient::from_model_with_anthropic_auth(&resolved_model, None)?
+                ApiProviderClient::from_model_with_anthropic_auth(&resolved_model, None)?
             }
         };
         Ok(Self {
-    runtime: tokio::runtime::Runtime::new()?,
+            runtime: tokio::runtime::Runtime::new()?,
             client,
-    session_id: session_id.to_string(),
+            session_id: session_id.to_string(),
             model,
             enable_tools,
             emit_output,
             tool_registry,
             progress_reporter,
-    reasoning_effort: None,
+            reasoning_effort: None,
         })
     }
     pub fn set_reasoning_effort(&mut self, effort: Option<String>) {
         self.reasoning_effort = effort;
     }
 }
-
 
 impl ApiClient for AnthropicRuntimeClient {
     #[allow(clippy::too_many_lines)]
@@ -9015,16 +8908,16 @@ impl ApiClient for AnthropicRuntimeClient {
         }
         let is_post_tool = request_ends_with_tool_result(&request);
         let message_request = MessageRequest {
-    model: self.model.clone(),
-    max_tokens: max_tokens_for_model(&self.model),
-    messages: convert_messages(&request.messages),
-    system: (!request.system_prompt.is_empty()).then(|| request.system_prompt.join("\n\n")),
-    tools: self
+            model: self.model.clone(),
+            max_tokens: max_tokens_for_model(&self.model),
+            messages: convert_messages(&request.messages),
+            system: (!request.system_prompt.is_empty()).then(|| request.system_prompt.join("\n\n")),
+            tools: self
                 .enable_tools
                 .then(|| filter_tool_specs(&self.tool_registry)),
-    tool_choice: self.enable_tools.then_some(ToolChoice::Auto),
-    stream: true,
-    reasoning_effort: self.reasoning_effort.clone(),
+            tool_choice: self.enable_tools.then_some(ToolChoice::Auto),
+            stream: true,
+            reasoning_effort: self.reasoning_effort.clone(),
             ..Default::default()
         };
 
@@ -9057,22 +8950,21 @@ impl ApiClient for AnthropicRuntimeClient {
     }
 }
 
-
 impl AnthropicRuntimeClient {
     /// Consume a single streaming response, optionally applying a stall
     /// timeout on the first event for post-tool continuations.
     #[allow(clippy::too_many_lines)]
     async fn consume_stream(
         &self,
-    message_request: &MessageRequest,
-    apply_stall_timeout: bool,
+        message_request: &MessageRequest,
+        apply_stall_timeout: bool,
     ) -> Result<Vec<AssistantEvent>, RuntimeError> {
         let mut stream = self
             .client
             .stream_message(message_request)
             .await
             .map_err(|error| {
-    RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
+                RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
             })?;
         let mut stdout = io::stdout();
         let mut sink = io::sink();
@@ -9095,7 +8987,7 @@ impl AnthropicRuntimeClient {
             let next = if apply_stall_timeout && !received_any_event {
                 match tokio::time::timeout(POST_TOOL_STALL_TIMEOUT, stream.next_event()).await {
                     Ok(inner) => inner.map_err(|error| {
-    RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
+                        RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
                     })?,
                     Err(_elapsed) => {
                         return Err(RuntimeError::new(
@@ -9105,7 +8997,7 @@ impl AnthropicRuntimeClient {
                 }
             } else {
                 stream.next_event().await.map_err(|error| {
-    RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
+                    RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
                 })?
             };
 
@@ -9115,7 +9007,7 @@ impl AnthropicRuntimeClient {
             received_any_event = true;
 
             match event {
-    ApiStreamEvent::MessageStart(start) => {
+                ApiStreamEvent::MessageStart(start) => {
                     for block in start.message.content {
                         push_output_block(
                             block,
@@ -9127,7 +9019,7 @@ impl AnthropicRuntimeClient {
                         )?;
                     }
                 }
-    ApiStreamEvent::ContentBlockStart(start) => {
+                ApiStreamEvent::ContentBlockStart(start) => {
                     // 特判 Thinking 块：初始化 pending_thinking（用于累积后续 ThinkingDelta）
                     if let OutputContentBlock::Thinking {
                         thinking,
@@ -9145,8 +9037,8 @@ impl AnthropicRuntimeClient {
                         &mut block_has_thinking_summary,
                     )?;
                 }
-    ApiStreamEvent::ContentBlockDelta(delta) => match delta.delta {
-    ContentBlockDelta::TextDelta { text } => {
+                ApiStreamEvent::ContentBlockDelta(delta) => match delta.delta {
+                    ContentBlockDelta::TextDelta { text } => {
                         if !text.is_empty() {
                             if let Some(progress_reporter) = &self.progress_reporter {
                                 progress_reporter.mark_text_phase(&text);
@@ -9159,12 +9051,12 @@ impl AnthropicRuntimeClient {
                             events.push(AssistantEvent::TextDelta(text));
                         }
                     }
-    ContentBlockDelta::InputJsonDelta { partial_json } => {
+                    ContentBlockDelta::InputJsonDelta { partial_json } => {
                         if let Some((_, _, input)) = &mut pending_tool {
                             input.push_str(&partial_json);
                         }
                     }
-    ContentBlockDelta::ThinkingDelta { thinking } => {
+                    ContentBlockDelta::ThinkingDelta { thinking } => {
                         if !block_has_thinking_summary {
                             render_thinking_block_summary(out, None, false)?;
                             block_has_thinking_summary = true;
@@ -9174,14 +9066,14 @@ impl AnthropicRuntimeClient {
                             t.push_str(&thinking);
                         }
                     }
-    ContentBlockDelta::SignatureDelta { signature } => {
+                    ContentBlockDelta::SignatureDelta { signature } => {
                         // 累积 signature 到 pending_thinking
                         if let Some((_, sig)) = &mut pending_thinking {
                             sig.get_or_insert_with(String::new).push_str(&signature);
                         }
                     }
                 },
-    ApiStreamEvent::ContentBlockStop(_) => {
+                ApiStreamEvent::ContentBlockStop(_) => {
                     block_has_thinking_summary = false;
                     if let Some(rendered) = markdown_stream.flush(&renderer) {
                         write!(out, "{rendered}")
@@ -9206,10 +9098,10 @@ impl AnthropicRuntimeClient {
                         events.push(AssistantEvent::ToolUse { id, name, input });
                     }
                 }
-    ApiStreamEvent::MessageDelta(delta) => {
+                ApiStreamEvent::MessageDelta(delta) => {
                     events.push(AssistantEvent::Usage(delta.usage.token_usage()));
                 }
-    ApiStreamEvent::MessageStop(_) => {
+                ApiStreamEvent::MessageStop(_) => {
                     saw_stop = true;
                     if let Some(rendered) = markdown_stream.flush(&renderer) {
                         write!(out, "{rendered}")
@@ -9242,17 +9134,15 @@ impl AnthropicRuntimeClient {
         let response = self
             .client
             .send_message(&MessageRequest {
-    stream: false,
+                stream: false,
                 ..message_request.clone()
             })
             .await
             .map_err(|error| {
-    RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
+                RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
             })?;
         let mut events = response_to_events(response, out)?;
         push_prompt_cache_record(&self.client, &mut events);
         Ok(events)
     }
 }
-
-

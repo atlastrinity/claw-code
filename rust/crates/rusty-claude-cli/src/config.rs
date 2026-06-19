@@ -1,5 +1,5 @@
-use runtime::{ConfigLoader, ResolvedPermissionMode, PermissionMode};
 use crate::env::{PermissionModeProvenance, PermissionModeSource};
+use runtime::{ConfigLoader, PermissionMode, ResolvedPermissionMode};
 
 pub fn resolve_model_alias(model: &str) -> &str {
     match model {

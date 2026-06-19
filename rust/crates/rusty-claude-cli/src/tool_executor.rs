@@ -1,10 +1,12 @@
-use std::sync::{Arc, Mutex};
-use std::io;
+use crate::mcp::{ListMcpResourcesRequest, McpToolRequest, ReadMcpResourceRequest};
+use crate::{
+    format_tool_result, GlobalToolRegistry, RuntimeMcpState, TerminalRenderer, ToolSearchRequest,
+};
 use api::ToolResultContentBlock;
-use runtime::{ToolExecutor, ToolError, RuntimeError};
-use crate::{GlobalToolRegistry, TerminalRenderer, RuntimeMcpState, format_tool_result, ToolSearchRequest};
-use crate::mcp::{McpToolRequest, ListMcpResourcesRequest, ReadMcpResourceRequest};
+use runtime::{RuntimeError, ToolError, ToolExecutor};
+use std::io;
 use std::io::Write;
+use std::sync::{Arc, Mutex};
 pub struct CliToolExecutor {
     renderer: std::sync::Mutex<TerminalRenderer>,
     emit_output: bool,
@@ -35,7 +37,7 @@ impl CliToolExecutor {
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
                 (state.pending_servers(), state.degraded_report())
             });
-    serde_json::to_string_pretty(&self.tool_registry.search(
+        serde_json::to_string_pretty(&self.tool_registry.search(
             &input.query,
             input.max_results.unwrap_or(5),
             pending_mcp_servers,
@@ -45,8 +47,8 @@ impl CliToolExecutor {
     }
     fn execute_runtime_tool(
         &self,
-    tool_name: &str,
-    value: serde_json::Value,
+        tool_name: &str,
+        value: serde_json::Value,
     ) -> Result<String, ToolError> {
         let Some(mcp_state) = &self.mcp_state else {
             return Err(ToolError::new(format!(
@@ -84,7 +86,6 @@ impl CliToolExecutor {
         }
     }
 }
-
 
 impl ToolExecutor for CliToolExecutor {
     fn execute(&self, tool_name: &str, input: &str) -> Result<String, ToolError> {
@@ -128,5 +129,3 @@ impl ToolExecutor for CliToolExecutor {
         }
     }
 }
-
-

@@ -1,9 +1,9 @@
-use crate::*;
 use crate::session::*;
 use crate::status::*;
+use crate::*;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::io::Write;
 
 pub fn parse_resume_args(
     args: &[String],
@@ -652,4 +652,3 @@ pub struct ResumeCommandOutcome {
     pub message: Option<String>,
     pub json: Option<serde_json::Value>,
 }
-

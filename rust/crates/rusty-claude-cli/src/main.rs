@@ -16,7 +16,8 @@
 )]
 mod init;
 mod input;
-pub mod render; pub use render::*;
+pub mod render;
+pub use render::*;
 mod setup_wizard;
 
 use std::collections::BTreeSet;
@@ -70,29 +71,38 @@ use tools::{
     RuntimeToolDefinition, ToolSearchOutput,
 };
 
-
 pub mod env;
 pub use crate::env::*;
-pub mod cli; pub use cli::*;
-pub mod config; pub use config::*;
-pub mod error; pub use error::*;
-pub mod git; pub use git::*;
-pub mod session; pub use session::*;
-pub mod status; pub use status::*;
-pub mod validation; pub use validation::*;
-pub mod help; pub use help::*;
-pub mod mcp; pub use mcp::*;
-pub mod setup; pub use setup::*;
-pub mod export; pub use export::*;
-pub mod doctor; pub use doctor::*;
+pub mod cli;
+pub use cli::*;
+pub mod config;
+pub use config::*;
+pub mod error;
+pub use error::*;
+pub mod git;
+pub use git::*;
+pub mod session;
+pub use session::*;
+pub mod status;
+pub use status::*;
+pub mod validation;
+pub use validation::*;
+pub mod help;
+pub use help::*;
+pub mod mcp;
+pub use mcp::*;
+pub mod setup;
+pub use setup::*;
+pub mod export;
+pub use export::*;
+pub mod doctor;
+pub use doctor::*;
+pub mod session_orchestrator;
 pub mod tool_executor;
-pub mod session_orchestrator; pub use tool_executor::*;
 pub use session_orchestrator::*;
-pub mod repl; pub use repl::*;
-
-
-
-
+pub use tool_executor::*;
+pub mod repl;
+pub use repl::*;
 
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 pub const OFFICIAL_REPO_URL: &str = "https://github.com/ultraworkers/claw-code";
@@ -112,17 +122,33 @@ pub const DEFAULT_DATE: &str = match option_env!("BUILD_DATE") {
     None => "unknown",
 };
 pub const CLI_OPTION_SUGGESTIONS: &[&str] = &[
-    "--help", "-h", "--version", "-V", "--model", "--output-format", "--permission-mode",
-    "--cwd", "--directory", "-C", "--skip-permissions", "--dangerously-skip-permissions",
-    "--allowedTools", "--allowed-tools", "--resume", "--acp", "-acp", "--print", "--compact",
-    "--base-commit", "-p",
+    "--help",
+    "-h",
+    "--version",
+    "-V",
+    "--model",
+    "--output-format",
+    "--permission-mode",
+    "--cwd",
+    "--directory",
+    "-C",
+    "--skip-permissions",
+    "--dangerously-skip-permissions",
+    "--allowedTools",
+    "--allowed-tools",
+    "--resume",
+    "--acp",
+    "-acp",
+    "--print",
+    "--compact",
+    "--base-commit",
+    "-p",
 ];
 
-pub mod utils; pub use utils::*;
+pub mod utils;
+pub use utils::*;
 
 use runtime::session_control::LATEST_SESSION_REFERENCE;
-
-
 
 fn main() {
     let _ = dotenvy::dotenv();
@@ -226,10 +252,6 @@ Run `claw --help` for usage."
         std::process::exit(1);
     }
 }
-
-
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InvalidCwdReason {
@@ -714,8 +736,6 @@ static OUTPUT_FORMAT_SELECTION: OnceLock<Mutex<OutputFormatSelection>> = OnceLoc
 // #468: duplicate global flag occurrences for provenance reporting
 static DUPLICATE_FLAGS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
 
-
-
 fn is_help_flag(value: &str) -> bool {
     matches!(value, "--help" | "-h")
 }
@@ -1079,14 +1099,12 @@ fn parse_direct_slash_cli_action(
     }
 }
 
-
 fn omc_compatibility_note_for_unknown_slash_command(name: &str) -> Option<&'static str> {
     name.starts_with("oh-my-claudecode:")
         .then_some(
             "Compatibility note: `/oh-my-claudecode:*` is a Claude Code/OMC plugin command. `claw` does not yet load plugin slash commands, Claude statusline stdin, or OMC session hooks.",
         )
 }
-
 
 pub fn suggest_slash_commands(input: &str) -> Vec<String> {
     let mut candidates = slash_command_specs()
@@ -1253,10 +1271,6 @@ fn levenshtein_distance(left: &str, right: &str) -> usize {
     previous[right_chars.len()]
 }
 
-
-
-
-
 fn normalize_tools(values: &[String]) -> Result<Option<AllowedToolSet>, String> {
     if values.is_empty() {
         return Ok(None);
@@ -1272,7 +1286,6 @@ fn compact_missing_argument_error() -> String {
     "missing_argument: --compact requires prompt text, piped stdin, or a subcommand. argument: prompt or subcommand\nUsage: claw --compact <prompt>  or  echo '<prompt>' | claw --compact"
         .to_string()
 }
-
 
 pub fn should_reject_unknown_option_like(value: &str) -> bool {
     is_registered_cli_flag_token(value)
@@ -1294,9 +1307,7 @@ pub fn format_unknown_option(option: &str) -> String {
     message
 }
 
-
 pub fn is_registered_cli_flag_token(value: &str) -> bool {
     let flag = value.split_once('=').map_or(value, |(flag, _)| flag);
     CLI_OPTION_SUGGESTIONS.contains(&flag)
 }
-

@@ -1,5 +1,5 @@
-use runtime::session_control::PRIMARY_SESSION_EXTENSION;
 use crate::*;
+use runtime::session_control::PRIMARY_SESSION_EXTENSION;
 use std::io::{self, Write};
 
 pub fn print_help_topic(
@@ -38,7 +38,6 @@ pub fn print_help_topic(
     }
     Ok(())
 }
-
 
 pub fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "claw v{VERSION}")?;
@@ -210,7 +209,6 @@ pub fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     writeln!(out, "  claw export conversation.md")?;
     Ok(())
 }
-
 
 pub fn print_help(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
     let mut buffer = Vec::new();

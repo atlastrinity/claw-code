@@ -49,15 +49,15 @@ impl ValidationResult {
 /// Validate a path exists and is accessible
 pub fn validate_path_exists(path: &PathBuf, require_write: bool) -> ValidationResult {
     if !path.exists() {
-        return ValidationResult::Invalid(format!(
-            "Path does not exist: {}",
-            path.display()
-        ));
+        return ValidationResult::Invalid(format!("Path does not exist: {}", path.display()));
     }
 
     if path.is_dir() && require_write {
         // Check if directory is writable
-        if std::fs::metadata(path).map(|m| m.permissions().readonly()).unwrap_or(true) {
+        if std::fs::metadata(path)
+            .map(|m| m.permissions().readonly())
+            .unwrap_or(true)
+        {
             return ValidationResult::Invalid(format!(
                 "Directory is not writable: {}",
                 path.display()
@@ -88,10 +88,9 @@ pub fn validate_path_allowed(path: &PathBuf, allowed_dirs: &[PathBuf]) -> Valida
 pub fn validate_file_permissions(path: &PathBuf, required_perms: u32) -> ValidationResult {
     let metadata = match std::fs::metadata(path) {
         Ok(m) => m,
-        Err(e) => return ValidationResult::Invalid(format!(
-            "Cannot access file permissions: {}",
-            e
-        )),
+        Err(e) => {
+            return ValidationResult::Invalid(format!("Cannot access file permissions: {}", e))
+        }
     };
 
     use std::os::unix::fs::PermissionsExt;
@@ -119,20 +118,16 @@ pub fn validate_env_var(var_name: &str) -> ValidationResult {
                 ValidationResult::Valid
             }
         }
-        Err(_) => ValidationResult::Invalid(format!(
-            "Environment variable '{}' is not set",
-            var_name
-        )),
+        Err(_) => {
+            ValidationResult::Invalid(format!("Environment variable '{}' is not set", var_name))
+        }
     }
 }
 
 /// Validate that a string is not empty
 pub fn validate_not_empty(value: &str, field_name: &str) -> ValidationResult {
     if value.trim().is_empty() {
-        ValidationResult::Invalid(format!(
-            "{} cannot be empty",
-            field_name
-        ))
+        ValidationResult::Invalid(format!("{} cannot be empty", field_name))
     } else {
         ValidationResult::Valid
     }
@@ -170,7 +165,12 @@ pub fn validate_range(value: i64, min: i64, max: i64, field_name: &str) -> Valid
 }
 
 /// Validate a string length is within range
-pub fn validate_length(value: &str, min_len: usize, max_len: usize, field_name: &str) -> ValidationResult {
+pub fn validate_length(
+    value: &str,
+    min_len: usize,
+    max_len: usize,
+    field_name: &str,
+) -> ValidationResult {
     let len = value.len();
 
     if len < min_len {
@@ -196,7 +196,6 @@ pub fn validate_port(port: u16) -> ValidationResult {
         return ValidationResult::Invalid("Port cannot be 0".to_string());
     }
 
-
     ValidationResult::Valid
 }
 
@@ -211,10 +210,7 @@ pub fn validate_url(url: &str) -> ValidationResult {
 
     // Basic URL structure check
     if !url.contains("://") {
-        return ValidationResult::Invalid(format!(
-            "Invalid URL format: '{}'",
-            url
-        ));
+        return ValidationResult::Invalid(format!("Invalid URL format: '{}'", url));
     }
 
     ValidationResult::Valid
@@ -227,20 +223,14 @@ pub fn validate_config_value(value: &str, config_type: &str) -> ValidationResult
             if value.parse::<i64>().is_ok() {
                 ValidationResult::Valid
             } else {
-                ValidationResult::Invalid(format!(
-                    "Invalid integer value: '{}'",
-                    value
-                ))
+                ValidationResult::Invalid(format!("Invalid integer value: '{}'", value))
             }
         }
         "float" => {
             if value.parse::<f64>().is_ok() {
                 ValidationResult::Valid
             } else {
-                ValidationResult::Invalid(format!(
-                    "Invalid float value: '{}'",
-                    value
-                ))
+                ValidationResult::Invalid(format!("Invalid float value: '{}'", value))
             }
         }
         "bool" => {
@@ -257,10 +247,7 @@ pub fn validate_config_value(value: &str, config_type: &str) -> ValidationResult
             if PathBuf::from(value).exists() {
                 ValidationResult::Valid
             } else {
-                ValidationResult::Invalid(format!(
-                    "Invalid path: '{}'",
-                    value
-                ))
+                ValidationResult::Invalid(format!("Invalid path: '{}'", value))
             }
         }
         _ => ValidationResult::Valid,
@@ -273,10 +260,9 @@ pub fn validate_regex(value: &str, pattern: &str, field_name: &str) -> Validatio
 
     let regex = match Regex::new(pattern) {
         Ok(r) => r,
-        Err(_) => return ValidationResult::Invalid(format!(
-            "Invalid regex pattern: '{}'",
-            pattern
-        )),
+        Err(_) => {
+            return ValidationResult::Invalid(format!("Invalid regex pattern: '{}'", pattern))
+        }
     };
 
     if !regex.is_match(value) {
@@ -292,10 +278,7 @@ pub fn validate_regex(value: &str, pattern: &str, field_name: &str) -> Validatio
 /// Validate a string is alphanumeric
 pub fn validate_alphanumeric(value: &str, field_name: &str) -> ValidationResult {
     if !value.chars().all(|c| c.is_alphanumeric()) {
-        ValidationResult::Invalid(format!(
-            "{} must be alphanumeric: '{}'",
-            field_name, value
-        ))
+        ValidationResult::Invalid(format!("{} must be alphanumeric: '{}'", field_name, value))
     } else {
         ValidationResult::Valid
     }
@@ -312,9 +295,10 @@ pub fn validate_hostname(hostname: &str) -> ValidationResult {
     }
 
     // Check it contains only valid characters
-    if !hostname.chars().all(|c| {
-        c.is_alphanumeric() || c == '-' || c == '.'
-    }) {
+    if !hostname
+        .chars()
+        .all(|c| c.is_alphanumeric() || c == '-' || c == '.')
+    {
         return ValidationResult::Invalid(format!(
             "Hostname contains invalid characters: '{}'",
             hostname
@@ -361,10 +345,7 @@ pub fn validate_git_ref(ref_str: &str) -> ValidationResult {
         }
     }
 
-    ValidationResult::Invalid(format!(
-        "Invalid Git ref format: '{}'",
-        ref_str
-    ))
+    ValidationResult::Invalid(format!("Invalid Git ref format: '{}'", ref_str))
 }
 
 /// Validate a commit message
@@ -403,10 +384,7 @@ pub fn validate_required_fields<T: std::fmt::Display>(
 ) -> ValidationResult {
     for name in field_names {
         if !fields.iter().any(|(k, v)| k == name && v.is_some()) {
-            return ValidationResult::Invalid(format!(
-                "Required field missing: '{}'",
-                name
-            ));
+            return ValidationResult::Invalid(format!("Required field missing: '{}'", name));
         }
     }
 
@@ -431,13 +409,11 @@ pub fn get_validation_error(result: &Result<(), String>) -> ValidationResult {
 
 /// Validate that a string is a valid email
 pub fn validate_email(email: &str) -> ValidationResult {
-    let email_regex = regex::Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
+    let email_regex =
+        regex::Regex::new(r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$").unwrap();
 
     if !email_regex.is_match(email) {
-        ValidationResult::Invalid(format!(
-            "Invalid email format: '{}'",
-            email
-        ))
+        ValidationResult::Invalid(format!("Invalid email format: '{}'", email))
     } else {
         ValidationResult::Valid
     }
@@ -445,13 +421,13 @@ pub fn validate_email(email: &str) -> ValidationResult {
 
 /// Validate that a string is a valid UUID
 pub fn validate_uuid(uuid: &str) -> ValidationResult {
-    let uuid_regex = regex::Regex::new(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$").unwrap();
+    let uuid_regex = regex::Regex::new(
+        r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$",
+    )
+    .unwrap();
 
     if !uuid_regex.is_match(uuid) {
-        ValidationResult::Invalid(format!(
-            "Invalid UUID format: '{}'",
-            uuid
-        ))
+        ValidationResult::Invalid(format!("Invalid UUID format: '{}'", uuid))
     } else {
         ValidationResult::Valid
     }

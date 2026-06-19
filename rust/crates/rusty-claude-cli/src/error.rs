@@ -1,6 +1,5 @@
 use serde_json::{Map, Value};
 
-
 /// #77: Classify a stringified error message into a machine-readable kind.
 ///
 /// Returns a `snake_case` token that downstream consumers can switch on instead
@@ -250,4 +249,3 @@ pub fn fallback_hint_for_error_kind(kind: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-

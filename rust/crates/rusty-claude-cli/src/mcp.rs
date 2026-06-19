@@ -1,12 +1,11 @@
-
 pub type RuntimePluginStateBuildOutput = (
     Option<std::sync::Arc<std::sync::Mutex<RuntimeMcpState>>>,
     Vec<tools::RuntimeToolDefinition>,
 );
 use crate::*;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::Mutex;
-use serde::{Deserialize, Serialize};
 
 /// the same surface the in-process agent loop uses.
 pub fn run_mcp_serve() -> Result<(), Box<dyn std::error::Error>> {
@@ -37,7 +36,6 @@ pub fn run_mcp_serve() -> Result<(), Box<dyn std::error::Error>> {
     })?;
     Ok(())
 }
-
 
 pub fn check_mcp_validation_health(summary: &McpValidationSummary) -> DiagnosticCheck {
     let mut details = vec![
@@ -89,7 +87,6 @@ pub fn check_mcp_validation_health(summary: &McpValidationSummary) -> Diagnostic
     ]))
 }
 
-
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct McpValidationSummary {
     pub total_configured: usize,
@@ -97,8 +94,9 @@ pub struct McpValidationSummary {
     pub invalid_servers: Vec<McpInvalidServerConfig>,
 }
 
-
-pub fn invalid_mcp_servers_json(invalid_servers: &[McpInvalidServerConfig]) -> Vec<serde_json::Value> {
+pub fn invalid_mcp_servers_json(
+    invalid_servers: &[McpInvalidServerConfig],
+) -> Vec<serde_json::Value> {
     invalid_servers
         .iter()
         .map(|server| {
@@ -114,14 +112,12 @@ pub fn invalid_mcp_servers_json(invalid_servers: &[McpInvalidServerConfig]) -> V
         .collect()
 }
 
-
 pub struct RuntimeMcpState {
     runtime: tokio::runtime::Runtime,
     manager: McpServerManager,
     pending_servers: Vec<String>,
     degraded_report: Option<runtime::McpDegradedReport>,
 }
-
 
 #[derive(Debug, Deserialize)]
 pub struct McpToolRequest {
@@ -131,19 +127,16 @@ pub struct McpToolRequest {
     pub arguments: Option<serde_json::Value>,
 }
 
-
 #[derive(Debug, Deserialize)]
 pub struct ListMcpResourcesRequest {
     pub server: Option<String>,
 }
-
 
 #[derive(Debug, Deserialize)]
 pub struct ReadMcpResourceRequest {
     pub server: String,
     pub uri: String,
 }
-
 
 impl RuntimeMcpState {
     fn new(
@@ -340,7 +333,6 @@ impl RuntimeMcpState {
     }
 }
 
-
 pub fn build_runtime_mcp_state(
     runtime_config: &runtime::RuntimeConfig,
 ) -> Result<RuntimePluginStateBuildOutput, Box<dyn std::error::Error>> {
@@ -360,7 +352,6 @@ pub fn build_runtime_mcp_state(
     Ok((Some(Arc::new(Mutex::new(mcp_state))), runtime_tools))
 }
 
-
 pub fn mcp_runtime_tool_definition(tool: &runtime::ManagedMcpTool) -> RuntimeToolDefinition {
     RuntimeToolDefinition {
         name: tool.qualified_name.clone(),
@@ -378,7 +369,6 @@ pub fn mcp_runtime_tool_definition(tool: &runtime::ManagedMcpTool) -> RuntimeToo
         required_permission: permission_mode_for_mcp_tool(&tool.tool),
     }
 }
-
 
 pub fn mcp_wrapper_tool_definitions() -> Vec<RuntimeToolDefinition> {
     vec![
@@ -430,7 +420,6 @@ pub fn mcp_wrapper_tool_definitions() -> Vec<RuntimeToolDefinition> {
     ]
 }
 
-
 pub fn permission_mode_for_mcp_tool(tool: &McpTool) -> PermissionMode {
     let read_only = mcp_annotation_flag(tool, "readOnlyHint");
     let destructive = mcp_annotation_flag(tool, "destructiveHint");
@@ -445,7 +434,6 @@ pub fn permission_mode_for_mcp_tool(tool: &McpTool) -> PermissionMode {
     }
 }
 
-
 pub fn mcp_annotation_flag(tool: &McpTool, key: &str) -> bool {
     tool.annotations
         .as_ref()
@@ -453,9 +441,6 @@ pub fn mcp_annotation_flag(tool: &McpTool, key: &str) -> bool {
         .and_then(serde_json::Value::as_bool)
         .unwrap_or(false)
 }
-
-
-
 
 impl McpValidationSummary {
     pub fn from_collection(collection: &McpConfigCollection) -> Self {

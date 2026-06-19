@@ -113,10 +113,7 @@ fn flush_parallel_buffer(buffer: &mut Vec<ToolCallRequest>, batches: &mut Vec<To
 ///
 /// The `execute_fn` closure is called once per tool call. It receives the
 /// tool name and input, and should return `(output, is_error)`.
-pub fn execute_parallel_batch<F>(
-    calls: &[ToolCallRequest],
-    execute_fn: F,
-) -> Vec<ToolCallResult>
+pub fn execute_parallel_batch<F>(calls: &[ToolCallRequest], execute_fn: F) -> Vec<ToolCallResult>
 where
     F: Fn(&str, &str) -> (String, bool) + Sync,
 {
@@ -325,7 +322,9 @@ mod tests {
         ];
         let batches = batch_tool_calls(calls);
         assert_eq!(batches.len(), 3);
-        assert!(batches.iter().all(|b| matches!(b, ToolBatch::Sequential(_))));
+        assert!(batches
+            .iter()
+            .all(|b| matches!(b, ToolBatch::Sequential(_))));
     }
 
     #[test]
@@ -361,9 +360,8 @@ mod tests {
             make_call("3", "grep_search"),
         ];
 
-        let results = execute_parallel_batch(&calls, |name, _input| {
-            (format!("result_for_{name}"), false)
-        });
+        let results =
+            execute_parallel_batch(&calls, |name, _input| (format!("result_for_{name}"), false));
 
         assert_eq!(results.len(), 3);
         assert_eq!(results[0].output, "result_for_read_file");
@@ -376,9 +374,8 @@ mod tests {
     fn parallel_execution_preserves_errors() {
         let calls = vec![make_call("1", "read_file"), make_call("2", "read_file")];
 
-        let results = execute_parallel_batch(&calls, |_name, _input| {
-            ("file not found".to_string(), true)
-        });
+        let results =
+            execute_parallel_batch(&calls, |_name, _input| ("file not found".to_string(), true));
 
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|r| r.is_error));
@@ -422,7 +419,10 @@ mod tests {
     #[test]
     fn dispatch_report_counts_correctly() {
         let batches = vec![
-            ToolBatch::Parallel(vec![make_call("1", "read_file"), make_call("2", "read_file")]),
+            ToolBatch::Parallel(vec![
+                make_call("1", "read_file"),
+                make_call("2", "read_file"),
+            ]),
             ToolBatch::Sequential(make_call("3", "write_file")),
             ToolBatch::Parallel(vec![
                 make_call("4", "grep_search"),

@@ -28,24 +28,25 @@ pub fn normalize_allowed_tools(values: &[String]) -> Result<Option<AllowedToolSe
     Ok(Some(allowed))
 }
 
+use crate::config::*;
+use crate::env::*;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
-use crate::env::*;
-use crate::config::*;
 
-use runtime::PermissionMode;
 use log::debug;
+use runtime::PermissionMode;
 
-use std::io::IsTerminal;
-use commands::{classify_skills_slash_command, SkillSlashDispatch};
 use crate::{
-    is_known_top_level_subcommand, compact_missing_argument_error, parse_resume_args, compact_interactive_only_error, parse_single_word_command_alias, parse_dump_manifests_args,
-    DEFAULT_MODEL, should_reject_unknown_option_like, format_unknown_option, 
-    unexpected_diff_args_error, join_optional_args, parse_system_prompt_args,
-    parse_acp_args, removed_auth_surface_error, parse_export_args, read_piped_stdin,
-    merge_prompt_with_stdin, parse_direct_slash_cli_action, looks_like_subcommand_typo,
-    suggest_similar_subcommand, render_suggestion_line, is_help_flag,
+    compact_interactive_only_error, compact_missing_argument_error, format_unknown_option,
+    is_help_flag, is_known_top_level_subcommand, join_optional_args, looks_like_subcommand_typo,
+    merge_prompt_with_stdin, parse_acp_args, parse_direct_slash_cli_action,
+    parse_dump_manifests_args, parse_export_args, parse_resume_args,
+    parse_single_word_command_alias, parse_system_prompt_args, read_piped_stdin,
+    removed_auth_surface_error, render_suggestion_line, should_reject_unknown_option_like,
+    suggest_similar_subcommand, unexpected_diff_args_error, DEFAULT_MODEL,
 };
+use commands::{classify_skills_slash_command, SkillSlashDispatch};
+use std::io::IsTerminal;
 
 #[derive(Debug, PartialEq)]
 pub enum CliAction {
@@ -307,10 +308,12 @@ pub fn raw_args_request_json_output(args: &[String]) -> bool {
         let value = value.trim();
         return !value.eq_ignore_ascii_case("text");
     }
-    std::env::var("CLAW_OUTPUT_FORMAT").ok().is_some_and(|value| {
-        let value = value.trim();
-        !value.is_empty() && !value.eq_ignore_ascii_case("text")
-    })
+    std::env::var("CLAW_OUTPUT_FORMAT")
+        .ok()
+        .is_some_and(|value| {
+            let value = value.trim();
+            !value.is_empty() && !value.eq_ignore_ascii_case("text")
+        })
 }
 
 pub fn output_format_selection_from_env() -> Result<OutputFormatSelection, String> {

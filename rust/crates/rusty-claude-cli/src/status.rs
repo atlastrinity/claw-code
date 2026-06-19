@@ -1,8 +1,8 @@
+use crate::*;
+use runtime::TokenUsage;
+use serde_json::{json, Value as JsonValue};
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
-use serde_json::{json, Value as JsonValue};
-use runtime::TokenUsage;
-use crate::*;
 
 #[derive(Debug, Clone)]
 pub struct StatusContext {
@@ -138,7 +138,6 @@ pub struct SessionLifecycleSummary {
     pub all_panes: Vec<TmuxPaneSnapshot>,
 }
 
-
 impl BootPreflightSnapshot {
     pub fn json_value(&self) -> serde_json::Value {
         json!({
@@ -229,7 +228,6 @@ impl SessionLifecycleSummary {
     }
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemoryFileSummary {
     pub path: String,
@@ -240,7 +238,6 @@ pub struct MemoryFileSummary {
     pub outside_project: bool,
     pub contributes: bool,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct BinaryProvenance {
@@ -259,13 +256,11 @@ pub struct BinaryProvenance {
     pub hint: Option<String>,
 }
 
-
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct HookValidationSummary {
     pub valid_count: usize,
     pub invalid_hooks: Vec<RuntimeInvalidHookConfig>,
 }
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TmuxPaneSnapshot {
@@ -273,9 +268,6 @@ pub struct TmuxPaneSnapshot {
     pub current_command: String,
     pub current_path: PathBuf,
 }
-
-
-
 
 impl HookValidationSummary {
     pub fn from_config(config: &runtime::RuntimeConfig) -> Self {

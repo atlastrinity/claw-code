@@ -1,8 +1,10 @@
-
-use crate::{ModelProvenance, PermissionModeProvenance, DEFAULT_MODEL, CLI_OPTION_SUGGESTIONS, DEFAULT_DATE, GIT_SHA_SHORT, GIT_SHA, BUILD_TARGET, GIT_BRANCH, GIT_DIRTY};
+use crate::*;
+use crate::{
+    ModelProvenance, PermissionModeProvenance, BUILD_TARGET, CLI_OPTION_SUGGESTIONS, DEFAULT_DATE,
+    DEFAULT_MODEL, GIT_BRANCH, GIT_DIRTY, GIT_SHA, GIT_SHA_SHORT,
+};
 use runtime::session_control::PRIMARY_SESSION_EXTENSION;
 use std::env;
-use crate::*;
 use std::fmt::Write as FmtWrite;
 use std::io::{self, Write};
 
@@ -1074,7 +1076,6 @@ mod tests {
     }
 }
 
-
 pub fn format_unknown_option(option: &str) -> String {
     if option == "--" {
         return "end_of_flags: `--` terminates flag parsing. Pass literal prompt text after it, for example `claw -- \"-literal prompt\"`.\nRun `claw --help` for usage.".to_string();
@@ -1388,10 +1389,6 @@ pub fn format_auto_compaction_notice(removed: usize) -> String {
     format!("[auto-compacted: removed {removed} messages]")
 }
 
-
-
-
-
 pub fn render_repl_help() -> String {
     [
         "REPL".to_string(),
@@ -1607,7 +1604,10 @@ pub fn format_sandbox_report(status: &runtime::SandboxStatus) -> String {
     )
 }
 
-pub fn format_commit_preflight_report(branch: Option<&str>, summary: GitWorkspaceSummary) -> String {
+pub fn format_commit_preflight_report(
+    branch: Option<&str>,
+    summary: GitWorkspaceSummary,
+) -> String {
     format!(
         "Commit
   Result           ready
@@ -2355,7 +2355,9 @@ pub fn render_teleport_report(target: &str) -> Result<String, Box<dyn std::error
     Ok(lines.join("\n"))
 }
 
-pub fn render_last_tool_debug_report(session: &Session) -> Result<String, Box<dyn std::error::Error>> {
+pub fn render_last_tool_debug_report(
+    session: &Session,
+) -> Result<String, Box<dyn std::error::Error>> {
     let last_tool_use = session
         .messages
         .iter()
@@ -3130,10 +3132,6 @@ pub fn render_thinking_block_summary(
         .and_then(|()| out.flush())
         .map_err(|error| RuntimeError::new(error.to_string()))
 }
-
-
-
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DoctorReport {
