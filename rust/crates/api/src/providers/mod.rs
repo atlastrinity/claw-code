@@ -867,6 +867,7 @@ pub(crate) fn dotenv_value(key: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::FOREIGN_PROVIDER_ENV_VARS;
     use std::ffi::OsString;
     use std::sync::{Mutex, OnceLock};
 
@@ -1529,9 +1530,10 @@ NO_EQUALS_LINE
     fn anthropic_missing_credentials_hint_is_none_when_no_foreign_creds_present() {
         // given
         let _lock = env_lock();
-        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
-        let _xai = EnvVarGuard::set("XAI_API_KEY", None);
-        let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", None);
+        let _foreign_guards: Vec<_> = FOREIGN_PROVIDER_ENV_VARS
+            .iter()
+            .map(|(var, _, _)| EnvVarGuard::set(var, None))
+            .collect();
 
         // when
         let hint = anthropic_missing_credentials_hint();
@@ -1547,9 +1549,11 @@ NO_EQUALS_LINE
     fn anthropic_missing_credentials_hint_detects_openai_api_key_and_recommends_openai_prefix() {
         // given
         let _lock = env_lock();
+        let _foreign_guards: Vec<_> = FOREIGN_PROVIDER_ENV_VARS
+            .iter()
+            .map(|(var, _, _)| EnvVarGuard::set(var, None))
+            .collect();
         let _openai = EnvVarGuard::set("OPENAI_API_KEY", Some("sk-openrouter-varleg"));
-        let _xai = EnvVarGuard::set("XAI_API_KEY", None);
-        let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", None);
 
         // when
         let hint = anthropic_missing_credentials_hint()
@@ -1578,9 +1582,11 @@ NO_EQUALS_LINE
     fn anthropic_missing_credentials_hint_detects_xai_api_key() {
         // given
         let _lock = env_lock();
-        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
+        let _foreign_guards: Vec<_> = FOREIGN_PROVIDER_ENV_VARS
+            .iter()
+            .map(|(var, _, _)| EnvVarGuard::set(var, None))
+            .collect();
         let _xai = EnvVarGuard::set("XAI_API_KEY", Some("xai-test-key"));
-        let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", None);
 
         // when
         let hint = anthropic_missing_credentials_hint()
@@ -1605,8 +1611,10 @@ NO_EQUALS_LINE
     fn anthropic_missing_credentials_hint_detects_dashscope_api_key() {
         // given
         let _lock = env_lock();
-        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
-        let _xai = EnvVarGuard::set("XAI_API_KEY", None);
+        let _foreign_guards: Vec<_> = FOREIGN_PROVIDER_ENV_VARS
+            .iter()
+            .map(|(var, _, _)| EnvVarGuard::set(var, None))
+            .collect();
         let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", Some("sk-dashscope-test"));
 
         // when
@@ -1632,6 +1640,10 @@ NO_EQUALS_LINE
     fn anthropic_missing_credentials_hint_prefers_openai_when_multiple_foreign_creds_set() {
         // given
         let _lock = env_lock();
+        let _foreign_guards: Vec<_> = FOREIGN_PROVIDER_ENV_VARS
+            .iter()
+            .map(|(var, _, _)| EnvVarGuard::set(var, None))
+            .collect();
         let _openai = EnvVarGuard::set("OPENAI_API_KEY", Some("sk-openrouter-varleg"));
         let _xai = EnvVarGuard::set("XAI_API_KEY", Some("xai-test-key"));
         let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", Some("sk-dashscope-test"));
@@ -1655,9 +1667,10 @@ NO_EQUALS_LINE
     fn anthropic_missing_credentials_builds_error_with_canonical_env_vars_and_no_hint_when_clean() {
         // given
         let _lock = env_lock();
-        let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
-        let _xai = EnvVarGuard::set("XAI_API_KEY", None);
-        let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", None);
+        let _foreign_guards: Vec<_> = FOREIGN_PROVIDER_ENV_VARS
+            .iter()
+            .map(|(var, _, _)| EnvVarGuard::set(var, None))
+            .collect();
 
         // when
         let error = anthropic_missing_credentials();
@@ -1689,9 +1702,11 @@ NO_EQUALS_LINE
     fn anthropic_missing_credentials_builds_error_with_hint_when_openai_key_is_set() {
         // given
         let _lock = env_lock();
+        let _foreign_guards: Vec<_> = FOREIGN_PROVIDER_ENV_VARS
+            .iter()
+            .map(|(var, _, _)| EnvVarGuard::set(var, None))
+            .collect();
         let _openai = EnvVarGuard::set("OPENAI_API_KEY", Some("sk-openrouter-varleg"));
-        let _xai = EnvVarGuard::set("XAI_API_KEY", None);
-        let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", None);
 
         // when
         let error = anthropic_missing_credentials();
@@ -1733,13 +1748,15 @@ NO_EQUALS_LINE
     fn anthropic_missing_credentials_hint_ignores_empty_string_values() {
         // given
         let _lock = env_lock();
+        let _foreign_guards: Vec<_> = FOREIGN_PROVIDER_ENV_VARS
+            .iter()
+            .map(|(var, _, _)| EnvVarGuard::set(var, None))
+            .collect();
         // An empty value is semantically equivalent to "not set" for the
         // credential discovery path, so the sniffer must treat it that way
         // to avoid false-positive hints for users who intentionally cleared
         // a stale export with `OPENAI_API_KEY=`.
         let _openai = EnvVarGuard::set("OPENAI_API_KEY", Some(""));
-        let _xai = EnvVarGuard::set("XAI_API_KEY", None);
-        let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", None);
 
         // when
         let hint = anthropic_missing_credentials_hint();
