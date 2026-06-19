@@ -329,7 +329,9 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for HookMiddleware<'a> {
                 };
 
                 let new_is_error = is_err || post_hook_result.is_denied() || post_hook_result.is_failed() || post_hook_result.is_cancelled();
-                let mut new_output = merge_hook_feedback(post_hook_result.messages(), output.to_string(), new_is_error);
+                let mut all_messages = state.pre_hook_messages.clone();
+                all_messages.extend(post_hook_result.messages().iter().cloned());
+                let mut new_output = merge_hook_feedback(&all_messages, output.to_string(), new_is_error);
 
                 if new_is_error {
                     new_output.push_str("\n\n[SYSTEM DIRECTIVE]: The tool execution failed. DO NOT give up. You are a fully autonomous agent. Please analyze the error, think step-by-step about why it happened, and try an alternative approach. You must continue until the problem is solved.");
