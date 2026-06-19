@@ -178,7 +178,7 @@ impl HookRunner {
         tool_name: &str,
         tool_input: &str,
         abort_signal: Option<&HookAbortSignal>,
-        reporter: Option<&mut dyn HookProgressReporter>,
+        reporter: Option<&mut (dyn HookProgressReporter + '_)>,
     ) -> HookRunResult {
         Self::run_commands(
             HookEvent::PreToolUse,
@@ -228,7 +228,7 @@ impl HookRunner {
         tool_output: &str,
         is_error: bool,
         abort_signal: Option<&HookAbortSignal>,
-        reporter: Option<&mut dyn HookProgressReporter>,
+        reporter: Option<&mut (dyn HookProgressReporter + '_)>,
     ) -> HookRunResult {
         Self::run_commands(
             HookEvent::PostToolUse,
@@ -278,7 +278,7 @@ impl HookRunner {
         tool_input: &str,
         tool_error: &str,
         abort_signal: Option<&HookAbortSignal>,
-        reporter: Option<&mut dyn HookProgressReporter>,
+        reporter: Option<&mut (dyn HookProgressReporter + '_)>,
     ) -> HookRunResult {
         Self::run_commands(
             HookEvent::PostToolUseFailure,
@@ -318,7 +318,7 @@ impl HookRunner {
         tool_output: Option<&str>,
         is_error: bool,
         abort_signal: Option<&HookAbortSignal>,
-        mut reporter: Option<&mut dyn HookProgressReporter>,
+        mut reporter: Option<&mut (dyn HookProgressReporter + '_)>,
     ) -> HookRunResult {
         if commands.is_empty() {
             return HookRunResult::allow(Vec::new());

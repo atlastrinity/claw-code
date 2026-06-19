@@ -8,9 +8,9 @@ use crate::compact::{
     compact_session, estimate_session_tokens, CompactionConfig, CompactionResult,
 };
 use crate::config::RuntimeFeatureConfig;
-use crate::hooks::{HookAbortSignal, HookProgressReporter, HookRunResult, HookRunner};
+use crate::hooks::{HookAbortSignal, HookProgressReporter, HookRunner};
 use crate::permissions::{
-    PermissionContext, PermissionOutcome, PermissionPolicy, PermissionPrompter,
+    PermissionPolicy, PermissionPrompter,
 };
 use crate::session::{ContentBlock, ConversationMessage, Session};
 use crate::usage::{TokenUsage, UsageTracker};
@@ -59,8 +59,8 @@ pub trait ApiClient {
 }
 
 /// Trait implemented by tool dispatchers that execute model-requested tools.
-pub trait ToolExecutor {
-    fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError>;
+pub trait ToolExecutor: Send + Sync {
+    fn execute(&self, tool_name: &str, input: &str) -> Result<String, ToolError>;
 }
 
 /// Error returned when a tool invocation fails locally.
@@ -232,75 +232,98 @@ where
         self
     }
 
-    fn run_pre_tool_use_hook(&mut self, tool_name: &str, input: &str) -> HookRunResult {
-        if let Some(reporter) = self.hook_progress_reporter.as_mut() {
-            self.hook_runner.run_pre_tool_use_with_context(
-                tool_name,
-                input,
-                Some(&self.hook_abort_signal),
-                Some(reporter.as_mut()),
-            )
-        } else {
-            self.hook_runner.run_pre_tool_use_with_context(
-                tool_name,
-                input,
-                Some(&self.hook_abort_signal),
-                None,
-            )
-        }
-    }
-
-    fn run_post_tool_use_hook(
+    #[allow(clippy::too_many_lines)]
+    fn dispatch_tool_calls<'a>(
         &mut self,
-        tool_name: &str,
-        input: &str,
-        output: &str,
-        is_error: bool,
-    ) -> HookRunResult {
-        if let Some(reporter) = self.hook_progress_reporter.as_mut() {
-            self.hook_runner.run_post_tool_use_with_context(
-                tool_name,
-                input,
-                output,
-                is_error,
-                Some(&self.hook_abort_signal),
-                Some(reporter.as_mut()),
-            )
-        } else {
-            self.hook_runner.run_post_tool_use_with_context(
-                tool_name,
-                input,
-                output,
-                is_error,
-                Some(&self.hook_abort_signal),
-                None,
-            )
-        }
-    }
+        pending_tool_uses: Vec<(String, String, String)>,
+        iterations: usize,
+        mut prompter: Option<&mut (dyn PermissionPrompter + 'a)>,
+    ) -> Vec<ConversationMessage> {
+        use crate::tool_dispatch::{batch_tool_calls, execute_parallel_batch, ToolBatch, ToolCallRequest};
+        use crate::middleware::{HookMiddleware, MiddlewareChain, PermissionMiddleware, ToolCallContext, ToolCallOutcome, ToolCallState, TracingMiddleware};
+        use crate::permissions::PermissionContext;
 
-    fn run_post_tool_use_failure_hook(
-        &mut self,
-        tool_name: &str,
-        input: &str,
-        output: &str,
-    ) -> HookRunResult {
-        if let Some(reporter) = self.hook_progress_reporter.as_mut() {
-            self.hook_runner.run_post_tool_use_failure_with_context(
+        let calls = pending_tool_uses
+            .into_iter()
+            .map(|(tool_use_id, tool_name, input)| ToolCallRequest {
+                tool_use_id,
                 tool_name,
                 input,
-                output,
-                Some(&self.hook_abort_signal),
-                Some(reporter.as_mut()),
-            )
-        } else {
-            self.hook_runner.run_post_tool_use_failure_with_context(
-                tool_name,
-                input,
-                output,
-                Some(&self.hook_abort_signal),
-                None,
-            )
+            })
+            .collect::<Vec<_>>();
+
+        let batches = batch_tool_calls(calls);
+        let mut result_messages = Vec::new();
+
+        for batch in batches {
+            let reqs = match batch {
+                ToolBatch::Sequential(call) => vec![call],
+                ToolBatch::Parallel(calls) => calls,
+            };
+
+            let ctx = ToolCallContext {
+                calls: reqs.into_iter().map(|req| ToolCallState {
+                    request: req,
+                    permission_context: PermissionContext::new(None, None),
+                    pre_hook_messages: Vec::new(),
+                }).collect(),
+                iteration: iterations,
+                metadata: std::collections::BTreeMap::new(),
+            };
+
+            let chain = MiddlewareChain::new()
+                .with(PermissionMiddleware::new(&self.permission_policy))
+                .with(HookMiddleware::new(&self.hook_runner, &self.hook_abort_signal, &mut self.hook_progress_reporter))
+                .with(TracingMiddleware::new(&mut self.session_tracer));
+
+            let mut prompter_ref = prompter.as_deref_mut();
+            let executor = &self.tool_executor;
+            
+            let outcome = chain.process(ctx, &mut prompter_ref, |ctx, _| {
+                let mut terminal_messages = Vec::new();
+                let calls_to_execute = ctx.calls.into_iter().map(|state| state.request).collect::<Vec<_>>();
+                
+                if calls_to_execute.is_empty() {
+                    return ToolCallOutcome { messages: terminal_messages };
+                }
+
+                if calls_to_execute.len() == 1 {
+                    let req = calls_to_execute.into_iter().next().unwrap();
+                    let (output, is_error) = match executor.execute(&req.tool_name, &req.input) {
+                        Ok(output) => (output, false),
+                        Err(error) => (error.to_string(), true),
+                    };
+                    terminal_messages.push(ConversationMessage::tool_result(
+                        req.tool_use_id,
+                        req.tool_name,
+                        output,
+                        is_error,
+                    ));
+                } else {
+                    let execution_results = execute_parallel_batch(&calls_to_execute, |tool_name, input| {
+                        match executor.execute(tool_name, input) {
+                            Ok(output) => (output, false),
+                            Err(error) => (error.to_string(), true),
+                        }
+                    });
+                    
+                    for (result, req) in execution_results.into_iter().zip(calls_to_execute.into_iter()) {
+                        terminal_messages.push(ConversationMessage::tool_result(
+                            req.tool_use_id,
+                            req.tool_name,
+                            result.output,
+                            result.is_error,
+                        ));
+                    }
+                }
+                
+                ToolCallOutcome { messages: terminal_messages }
+            });
+
+            result_messages.extend(outcome.messages);
         }
+
+        result_messages
     }
 
     /// Run a session health probe to verify the runtime is functional after compaction.
@@ -422,104 +445,12 @@ where
                 break;
             }
 
-            for (tool_use_id, tool_name, input) in pending_tool_uses {
-                let pre_hook_result = self.run_pre_tool_use_hook(&tool_name, &input);
-                let effective_input = pre_hook_result
-                    .updated_input()
-                    .map_or_else(|| input.clone(), ToOwned::to_owned);
-                let permission_context = PermissionContext::new(
-                    pre_hook_result.permission_override(),
-                    pre_hook_result.permission_reason().map(ToOwned::to_owned),
-                );
-
-                let permission_outcome = if pre_hook_result.is_cancelled() {
-                    PermissionOutcome::Deny {
-                        reason: format_hook_message(
-                            &pre_hook_result,
-                            &format!("PreToolUse hook cancelled tool `{tool_name}`"),
-                        ),
-                    }
-                } else if pre_hook_result.is_failed() {
-                    PermissionOutcome::Deny {
-                        reason: format_hook_message(
-                            &pre_hook_result,
-                            &format!("PreToolUse hook failed for tool `{tool_name}`"),
-                        ),
-                    }
-                } else if pre_hook_result.is_denied() {
-                    PermissionOutcome::Deny {
-                        reason: format_hook_message(
-                            &pre_hook_result,
-                            &format!("PreToolUse hook denied tool `{tool_name}`"),
-                        ),
-                    }
-                } else if let Some(prompt) = prompter.as_mut() {
-                    self.permission_policy.authorize_with_context(
-                        &tool_name,
-                        &effective_input,
-                        &permission_context,
-                        Some(*prompt),
-                    )
-                } else {
-                    self.permission_policy.authorize_with_context(
-                        &tool_name,
-                        &effective_input,
-                        &permission_context,
-                        None,
-                    )
-                };
-
-                let result_message = match permission_outcome {
-                    PermissionOutcome::Allow => {
-                        self.record_tool_started(iterations, &tool_name);
-                        let (mut output, mut is_error) =
-                            match self.tool_executor.execute(&tool_name, &effective_input) {
-                                Ok(output) => (output, false),
-                                Err(error) => (error.to_string(), true),
-                            };
-                        output = merge_hook_feedback(pre_hook_result.messages(), output, false);
-
-                        let post_hook_result = if is_error {
-                            self.run_post_tool_use_failure_hook(
-                                &tool_name,
-                                &effective_input,
-                                &output,
-                            )
-                        } else {
-                            self.run_post_tool_use_hook(
-                                &tool_name,
-                                &effective_input,
-                                &output,
-                                false,
-                            )
-                        };
-                        if post_hook_result.is_denied()
-                            || post_hook_result.is_failed()
-                            || post_hook_result.is_cancelled()
-                        {
-                            is_error = true;
-                        }
-                        output = merge_hook_feedback(
-                            post_hook_result.messages(),
-                            output,
-                            post_hook_result.is_denied()
-                                || post_hook_result.is_failed()
-                                || post_hook_result.is_cancelled(),
-                        );
-
-                        if is_error {
-                            output.push_str("\n\n[SYSTEM DIRECTIVE]: The tool execution failed. DO NOT give up. You are a fully autonomous agent. Please analyze the error, think step-by-step about why it happened, and try an alternative approach. You must continue until the problem is solved.");
-                        }
-
-                        ConversationMessage::tool_result(tool_use_id, tool_name, output, is_error)
-                    }
-                    PermissionOutcome::Deny { reason } => ConversationMessage::tool_result(
-                        tool_use_id,
-                        tool_name,
-                        merge_hook_feedback(pre_hook_result.messages(), reason, true),
-                        true,
-                    ),
-                };
+            let dispatch_results = self.dispatch_tool_calls(
+                pending_tool_uses,
+                iterations,
+                prompter.as_deref_mut(),
+            );
+            for result_message in dispatch_results {
                 self.session
                     .push_message(result_message.clone())
                     .map_err(|error| RuntimeError::new(error.to_string()))?;
@@ -638,20 +569,6 @@ where
             Value::from(pending_tool_use_count as u64),
         );
         session_tracer.record("assistant_iteration_completed", attributes);
-    }
-
-    fn record_tool_started(&self, iteration: usize, tool_name: &str) {
-        let Some(session_tracer) = &self.session_tracer else {
-            return;
-        };
-
-        let mut attributes = Map::new();
-        attributes.insert("iteration".to_string(), Value::from(iteration as u64));
-        attributes.insert(
-            "tool_name".to_string(),
-            Value::String(tool_name.to_string()),
-        );
-        session_tracer.record("tool_execution_started", attributes);
     }
 
     fn record_tool_finished(&self, iteration: usize, result_message: &ConversationMessage) {
@@ -797,31 +714,7 @@ fn flush_text_block(text: &mut String, blocks: &mut Vec<ContentBlock>) {
     }
 }
 
-fn format_hook_message(result: &HookRunResult, fallback: &str) -> String {
-    if result.messages().is_empty() {
-        fallback.to_string()
-    } else {
-        result.messages().join("\n")
-    }
-}
 
-fn merge_hook_feedback(messages: &[String], output: String, is_error: bool) -> String {
-    if messages.is_empty() {
-        return output;
-    }
-
-    let mut sections = Vec::new();
-    if !output.trim().is_empty() {
-        sections.push(output);
-    }
-    let label = if is_error {
-        "Hook feedback (error)"
-    } else {
-        "Hook feedback"
-    };
-    sections.push(format!("{label}:\n{}", messages.join("\n")));
-    sections.join("\n\n")
-}
 
 fn fetch_rag_context(query: &str) -> Option<String> {
     let client = reqwest::blocking::Client::new();
@@ -861,12 +754,12 @@ fn fetch_rag_context(query: &str) -> Option<String> {
     }
 }
 
-type ToolHandler = Box<dyn FnMut(&str) -> Result<String, ToolError>>;
+type ToolHandler = Box<dyn FnMut(&str) -> Result<String, ToolError> + Send + Sync>;
 
 /// Simple in-memory tool executor for tests and lightweight integrations.
 #[derive(Default)]
 pub struct StaticToolExecutor {
-    handlers: BTreeMap<String, ToolHandler>,
+    handlers: std::sync::Mutex<BTreeMap<String, ToolHandler>>,
 }
 
 impl StaticToolExecutor {
@@ -879,16 +772,20 @@ impl StaticToolExecutor {
     pub fn register(
         mut self,
         tool_name: impl Into<String>,
-        handler: impl FnMut(&str) -> Result<String, ToolError> + 'static,
+        handler: impl FnMut(&str) -> Result<String, ToolError> + Send + Sync + 'static,
     ) -> Self {
-        self.handlers.insert(tool_name.into(), Box::new(handler));
+        self.handlers
+            .get_mut()
+            .unwrap()
+            .insert(tool_name.into(), Box::new(handler));
         self
     }
 }
 
 impl ToolExecutor for StaticToolExecutor {
-    fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
-        self.handlers
+    fn execute(&self, tool_name: &str, input: &str) -> Result<String, ToolError> {
+        let mut handlers = self.handlers.lock().unwrap();
+        handlers
             .get_mut(tool_name)
             .ok_or_else(|| ToolError::new(format!("unknown tool: {tool_name}")))?(input)
     }
@@ -1842,7 +1739,7 @@ mod tests {
     #[test]
     fn static_tool_executor_rejects_unknown_tools() {
         // given
-        let mut executor = StaticToolExecutor::new();
+        let executor = StaticToolExecutor::new();
 
         // when
         let error = executor

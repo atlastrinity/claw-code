@@ -5741,7 +5741,7 @@ impl SubagentToolExecutor {
 }
 
 impl ToolExecutor for SubagentToolExecutor {
-    fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
+    fn execute(&self, tool_name: &str, input: &str) -> Result<String, ToolError> {
         if !self.tools.contains(&canonical_allowed_tool_name(tool_name)) {
             return Err(ToolError::new(format!(
                 "tool `{tool_name}` is not enabled for this sub-agent"
@@ -8044,7 +8044,7 @@ mod tests {
     fn subagent_tool_executor_denies_blocked_tool_before_dispatch() {
         // given
         let policy = permission_policy_for_mode(PermissionMode::ReadOnly);
-        let mut executor = SubagentToolExecutor::new(BTreeSet::from([String::from("write_file")]))
+        let executor = SubagentToolExecutor::new(BTreeSet::from([String::from("write_file")]))
             .with_enforcer(PermissionEnforcer::new(policy));
 
         // when

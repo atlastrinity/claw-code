@@ -6,21 +6,20 @@ use crate::{GlobalToolRegistry, TerminalRenderer, RuntimeMcpState, format_tool_r
 use crate::mcp::{McpToolRequest, ListMcpResourcesRequest, ReadMcpResourceRequest};
 use std::io::Write;
 pub struct CliToolExecutor {
-    renderer: TerminalRenderer,
+    renderer: std::sync::Mutex<TerminalRenderer>,
     emit_output: bool,
     tool_registry: GlobalToolRegistry,
     mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
 }
 
-
 impl CliToolExecutor {
     pub fn new(
-    emit_output: bool,
-    tool_registry: GlobalToolRegistry,
-    mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
+        emit_output: bool,
+        tool_registry: GlobalToolRegistry,
+        mcp_state: Option<Arc<Mutex<RuntimeMcpState>>>,
     ) -> Self {
         Self {
-    renderer: TerminalRenderer::new(),
+            renderer: std::sync::Mutex::new(TerminalRenderer::new()),
             emit_output,
             tool_registry,
             mcp_state,
@@ -88,7 +87,7 @@ impl CliToolExecutor {
 
 
 impl ToolExecutor for CliToolExecutor {
-    fn execute(&mut self, tool_name: &str, input: &str) -> Result<String, ToolError> {
+    fn execute(&self, tool_name: &str, input: &str) -> Result<String, ToolError> {
         if !self.tool_registry.is_tool_allowed(tool_name) {
             return Err(ToolError::new(format!(
                 "tool `{tool_name}` is not enabled by the current --tools setting"
@@ -109,7 +108,8 @@ impl ToolExecutor for CliToolExecutor {
             Ok(output) => {
                 if self.emit_output {
                     let markdown = format_tool_result(tool_name, &output, false);
-                    self.renderer
+                    let renderer = self.renderer.lock().unwrap();
+                    renderer
                         .stream_markdown(&markdown, &mut io::stdout())
                         .map_err(|error| ToolError::new(error.to_string()))?;
                 }
@@ -118,7 +118,8 @@ impl ToolExecutor for CliToolExecutor {
             Err(error) => {
                 if self.emit_output {
                     let markdown = format_tool_result(tool_name, &error.to_string(), true);
-                    self.renderer
+                    let renderer = self.renderer.lock().unwrap();
+                    renderer
                         .stream_markdown(&markdown, &mut io::stdout())
                         .map_err(|stream_error| ToolError::new(stream_error.to_string()))?;
                 }

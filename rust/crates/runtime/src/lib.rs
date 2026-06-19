@@ -27,6 +27,7 @@ pub mod mcp_lifecycle_hardened;
 pub mod mcp_server;
 mod mcp_stdio;
 pub mod mcp_tool_bridge;
+pub mod middleware;
 mod oauth;
 pub mod permission_enforcer;
 mod permissions;
@@ -48,6 +49,7 @@ pub mod summary_compression;
 pub mod task_packet;
 pub mod task_registry;
 pub mod team_cron_registry;
+pub mod tool_dispatch;
 #[cfg(test)]
 mod trust_resolver;
 mod usage;
@@ -188,6 +190,10 @@ pub use task_packet::{
     validate_packet, TaskPacket, TaskPacketValidationError, TaskResource, ValidatedPacket,
 };
 pub use task_registry::{LaneBoard, LaneBoardEntry, LaneFreshness, LaneHeartbeat};
+pub use tool_dispatch::{
+    batch_tool_calls, dispatch_report, execute_parallel_batch, is_parallelizable,
+    DispatchReport, ParallelToolConfig, ToolBatch, ToolCallRequest, ToolCallResult,
+};
 #[cfg(test)]
 pub use trust_resolver::{TrustConfig, TrustDecision, TrustEvent, TrustPolicy, TrustResolver};
 pub use usage::{
