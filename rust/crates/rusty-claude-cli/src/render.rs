@@ -1223,6 +1223,7 @@ pub fn render_doctor_report(
         checks: vec![
             check_auth_health(),
             check_base_url_health(),
+            check_github_health(),
             check_config_health(&config_loader, config.as_ref()),
             check_mcp_validation_health(&mcp_validation),
             check_hook_validation_health(&hook_validation),

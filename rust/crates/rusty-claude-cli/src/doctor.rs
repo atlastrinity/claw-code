@@ -166,6 +166,35 @@ pub fn check_auth_health() -> DiagnosticCheck {
     }
 }
 
+pub fn check_github_health() -> DiagnosticCheck {
+    let github_token_present = std::env::var("GITHUB_TOKEN")
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty());
+    let gh_token_present = std::env::var("GH_TOKEN")
+        .ok()
+        .is_some_and(|value| !value.trim().is_empty());
+    
+    let token_present = github_token_present || gh_token_present;
+
+    let env_details = format!(
+        "Environment       GITHUB_TOKEN={} GH_TOKEN={}",
+        if github_token_present { "present" } else { "absent" },
+        if gh_token_present { "present" } else { "absent" }
+    );
+
+    DiagnosticCheck::new(
+        "GitHub Integration",
+        if token_present { DiagnosticLevel::Ok } else { DiagnosticLevel::Warn },
+        if token_present { "GitHub token is configured for CI/CD access" } else { "no GitHub token found in environment" }
+    )
+    .with_details(vec![env_details])
+    .with_hint(if !token_present { "Set GITHUB_TOKEN or GH_TOKEN to allow the agent to interact with GitHub/CI systems." } else { "" })
+    .with_data(Map::from_iter([
+        ("github_token_present".to_string(), json!(github_token_present)),
+        ("gh_token_present".to_string(), json!(gh_token_present)),
+    ]))
+}
+
 /// #466: validate provider BASE_URL env vars
 pub fn check_base_url_health() -> DiagnosticCheck {
     let base_url_vars = [
