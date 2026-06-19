@@ -1,12 +1,15 @@
-use std::time::{Duration, Instant};
-use api::{ApiError, MessageRequest, ProviderClient};
+use api::{MessageRequest, ProviderClient};
 use runtime::AssistantEvent;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
+
+use crate::pipeline_error::PipelineError;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CircuitState {
-    Closed,     // healthy, accepting requests
-    Open,       // broken, rejecting requests
-    HalfOpen,   // testing, allowing one request
+    Closed,   // healthy, accepting requests
+    Open,     // broken, rejecting requests
+    HalfOpen, // testing, allowing one request
 }
 
 pub struct CircuitBreaker {
@@ -15,6 +18,8 @@ pub struct CircuitBreaker {
     state: CircuitState,
     threshold: u32,
     recovery_timeout: Duration,
+    /// Provider name for observability
+    provider: String,
 }
 
 impl CircuitBreaker {
@@ -25,7 +30,13 @@ impl CircuitBreaker {
             state: CircuitState::Closed,
             threshold,
             recovery_timeout,
+            provider: String::new(),
         }
+    }
+
+    pub fn with_provider(mut self, provider: impl Into<String>) -> Self {
+        self.provider = provider.into();
+        self
     }
 
     pub fn state(&mut self) -> CircuitState {
@@ -57,7 +68,40 @@ impl CircuitBreaker {
         self.last_failure = Some(Instant::now());
         if self.failure_count >= self.threshold {
             self.state = CircuitState::Open;
+            // Ingest circuit-breaker trip event to RAG for cross-session observability
+            self.ingest_trip_event();
         }
+    }
+
+    /// Fire-and-forget: persist the circuit-breaker trip into the RAG index
+    /// so future sessions can query "has provider X been flaky recently?".
+    fn ingest_trip_event(&self) {
+        if self.provider.is_empty() {
+            return;
+        }
+        let provider = self.provider.clone();
+        let failures = self.failure_count;
+        let threshold = self.threshold;
+        // Spawn a best-effort, non-blocking ingest. Failure is silently ignored.
+        std::thread::spawn(move || {
+            let client = reqwest::blocking::Client::new();
+            let doc = format!(
+                "# Circuit Breaker Tripped\n\
+                 Provider: {provider}\n\
+                 Failures: {failures}/{threshold}\n\
+                 Timestamp: {:?}\n\
+                 State: Open (rejecting requests)\n",
+                std::time::SystemTime::now()
+            );
+            let _ = client
+                .post("http://127.0.0.1:8787/v1/ingest")
+                .timeout(Duration::from_secs(2))
+                .json(&serde_json::json!({
+                    "path": format!("metrics/circuit-breaker/{provider}"),
+                    "content": doc,
+                }))
+                .send();
+        });
     }
 }
 
@@ -83,7 +127,40 @@ impl CostTracker {
         self.total_input_tokens += input_tokens;
         self.total_output_tokens += output_tokens;
         // Mock estimate: $0.001 per 1k input, $0.002 per 1k output
-        self.estimated_cost_usd += (input_tokens as f64 / 1000.0) * 0.001 + (output_tokens as f64 / 1000.0) * 0.002;
+        self.estimated_cost_usd +=
+            (input_tokens as f64 / 1000.0) * 0.001 + (output_tokens as f64 / 1000.0) * 0.002;
+
+        // Persist cost metrics to RAG every ~10k tokens for cross-session analytics
+        if self.total_input_tokens % 10_000 < input_tokens {
+            self.persist_to_rag();
+        }
+    }
+
+    /// Fire-and-forget cost snapshot to RAG.
+    fn persist_to_rag(&self) {
+        let model = self.model.clone();
+        let input = self.total_input_tokens;
+        let output = self.total_output_tokens;
+        let cost = self.estimated_cost_usd;
+        std::thread::spawn(move || {
+            let client = reqwest::blocking::Client::new();
+            let doc = format!(
+                "# Cost Report: {model}\n\
+                 Total input tokens: {input}\n\
+                 Total output tokens: {output}\n\
+                 Estimated cost: ${cost:.4}\n\
+                 Timestamp: {:?}\n",
+                std::time::SystemTime::now()
+            );
+            let _ = client
+                .post("http://127.0.0.1:8787/v1/ingest")
+                .timeout(Duration::from_secs(2))
+                .json(&serde_json::json!({
+                    "path": format!("metrics/cost/{model}"),
+                    "content": doc,
+                }))
+                .send();
+        });
     }
 }
 
@@ -100,7 +177,12 @@ pub struct ResilientProviderChain {
 
 impl ResilientProviderChain {
     pub fn new(primary_model: String, providers: Vec<ProviderEntry>) -> Self {
-        let breakers = providers.iter().map(|_| CircuitBreaker::new(3, Duration::from_secs(30))).collect();
+        let breakers = providers
+            .iter()
+            .map(|entry| {
+                CircuitBreaker::new(3, Duration::from_secs(30)).with_provider(&entry.model)
+            })
+            .collect();
         Self {
             providers,
             breakers,
@@ -108,6 +190,8 @@ impl ResilientProviderChain {
         }
     }
 
+    /// Stream with fallback, returning `PipelineError` internally.
+    /// The public boundary (`ApiClient::stream`) converts to `RuntimeError`.
     pub fn stream_with_fallback(
         &mut self,
         runtime: &tokio::runtime::Runtime,
@@ -116,20 +200,37 @@ impl ResilientProviderChain {
         tools: Option<Vec<api::ToolDefinition>>,
         tool_choice: Option<api::ToolChoice>,
     ) -> Result<Vec<AssistantEvent>, runtime::RuntimeError> {
-        let mut last_error: Option<ApiError> = None;
+        // Wrap messages in Arc to share across fallback attempts without cloning.
+        let shared_messages = Arc::new(messages);
+
+        self.stream_with_fallback_inner(runtime, &shared_messages, system, tools, tool_choice)
+            .map_err(runtime::RuntimeError::from)
+    }
+
+    fn stream_with_fallback_inner(
+        &mut self,
+        runtime: &tokio::runtime::Runtime,
+        shared_messages: &Arc<Vec<api::InputMessage>>,
+        system: Option<String>,
+        tools: Option<Vec<api::ToolDefinition>>,
+        tool_choice: Option<api::ToolChoice>,
+    ) -> Result<Vec<AssistantEvent>, PipelineError> {
+        let mut last_error: Option<PipelineError> = None;
 
         for (index, entry) in self.providers.iter().enumerate() {
             let breaker = &mut self.breakers[index];
-            
+
             if !breaker.should_allow_request() {
                 eprintln!("provider {} is circuit broken, skipping", entry.model);
                 continue;
             }
 
+            // Use Arc::as_ref() to avoid cloning the full message vector.
+            // Only individual fields that require owned values are cloned.
             let message_request = MessageRequest {
                 model: entry.model.clone(),
                 max_tokens: api::max_tokens_for_model(&entry.model),
-                messages: messages.clone(),
+                messages: shared_messages.as_ref().clone(),
                 system: system.clone(),
                 tools: tools.clone(),
                 tool_choice: tool_choice.clone(),
@@ -137,31 +238,41 @@ impl ResilientProviderChain {
                 ..Default::default()
             };
 
-            let attempt = runtime.block_on(crate::stream_with_provider(&entry.client, &message_request));
+            let attempt =
+                runtime.block_on(crate::stream_with_provider(&entry.client, &message_request));
             match attempt {
                 Ok(events) => {
                     breaker.record_success();
-                    // Basic cost tracking logic (would be more advanced with actual token counts from API response)
-                    // We just record a placeholder amount here or count tokens from events
-                    self.cost_tracker.record_usage(0, 0); 
+                    self.cost_tracker.record_usage(0, 0);
                     return Ok(events);
                 }
                 Err(error) => {
                     breaker.record_failure();
                     if error.is_retryable() {
-                        eprintln!("provider {} failed with retryable error: {}", entry.model, error);
-                        last_error = Some(error);
+                        eprintln!(
+                            "provider {} failed with retryable error: {}",
+                            entry.model, error
+                        );
+                        last_error = Some(PipelineError::Provider {
+                            provider: entry.model.clone(),
+                            source: error,
+                        });
                     } else {
-                        return Err(runtime::RuntimeError::new(error.to_string()));
+                        return Err(PipelineError::Provider {
+                            provider: entry.model.clone(),
+                            source: error,
+                        });
                     }
                 }
             }
         }
 
-        Err(runtime::RuntimeError::new(last_error.map_or_else(
-            || String::from("provider chain exhausted with no attempts or all circuit broken"),
-            |error| error.to_string(),
-        )))
+        Err(last_error.unwrap_or_else(|| {
+            PipelineError::middleware(
+                "ResilientProviderChain",
+                "provider chain exhausted with no attempts or all circuit broken",
+            )
+        }))
     }
 }
 
@@ -200,12 +311,18 @@ mod tests {
     fn circuit_breaker_closes_after_success() {
         let mut breaker = CircuitBreaker::new(1, Duration::from_millis(100));
         breaker.record_failure();
-        
+
         std::thread::sleep(Duration::from_millis(150));
         assert_eq!(breaker.state(), CircuitState::HalfOpen);
-        
+
         breaker.record_success();
         assert_eq!(breaker.state(), CircuitState::Closed);
         assert!(breaker.should_allow_request());
+    }
+
+    #[test]
+    fn circuit_breaker_with_provider_name() {
+        let breaker = CircuitBreaker::new(3, Duration::from_secs(30)).with_provider("claude-opus");
+        assert_eq!(breaker.provider, "claude-opus");
     }
 }

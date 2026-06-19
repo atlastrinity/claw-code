@@ -191,8 +191,8 @@ pub use task_packet::{
 };
 pub use task_registry::{LaneBoard, LaneBoardEntry, LaneFreshness, LaneHeartbeat};
 pub use tool_dispatch::{
-    batch_tool_calls, dispatch_report, execute_parallel_batch, is_parallelizable,
-    DispatchReport, ParallelToolConfig, ToolBatch, ToolCallRequest, ToolCallResult,
+    batch_tool_calls, dispatch_report, execute_parallel_batch, is_parallelizable, DispatchReport,
+    ParallelToolConfig, ToolBatch, ToolCallRequest, ToolCallResult,
 };
 #[cfg(test)]
 pub use trust_resolver::{TrustConfig, TrustDecision, TrustEvent, TrustPolicy, TrustResolver};

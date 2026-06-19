@@ -7,10 +7,9 @@ use aspect_macros::aspect;
 use aspect_std::LoggingAspect;
 
 use api::{
-    model_family_identity_for, resolve_model_alias, ApiError,
-    ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest, MessageResponse,
-    OutputContentBlock, ProviderClient, StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition,
-    ToolResultContentBlock,
+    model_family_identity_for, resolve_model_alias, ApiError, ContentBlockDelta, InputContentBlock,
+    InputMessage, MessageRequest, MessageResponse, OutputContentBlock, ProviderClient,
+    StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
 };
 use plugins::PluginTool;
 use reqwest::blocking::Client;
@@ -37,6 +36,9 @@ use serde_json::{json, Value};
 
 mod provider_pipeline;
 pub use provider_pipeline::*;
+
+mod pipeline_error;
+pub use pipeline_error::*;
 
 /// Global task registry shared across tool invocations within a session.
 fn global_lsp_registry() -> &'static LspRegistry {
@@ -455,7 +457,10 @@ impl GlobalToolRegistry {
             return to_pretty_json(output);
         }
 
-        if let Some(spec) = mvp_tool_specs().iter().find(|spec| spec.name.eq_ignore_ascii_case(name)) {
+        if let Some(spec) = mvp_tool_specs()
+            .iter()
+            .find(|spec| spec.name.eq_ignore_ascii_case(name))
+        {
             return execute_tool_with_enforcer(self.enforcer.as_ref(), spec.name, input);
         }
         self.plugin_tools
@@ -5576,7 +5581,8 @@ impl ApiClient for ProviderRuntimeClient {
 
         let tools_opt = (!tools.is_empty()).then(|| tools);
 
-        self.chain.stream_with_fallback(&self.runtime, messages, system, tools_opt, tool_choice)
+        self.chain
+            .stream_with_fallback(&self.runtime, messages, system, tools_opt, tool_choice)
     }
 }
 
@@ -8988,7 +8994,8 @@ mod tests {
         .expect("ToolSearch should succeed");
         let keyword_output: serde_json::Value = serde_json::from_str(&keyword).expect("valid json");
         let matches = keyword_output["matches"].as_array().expect("matches");
-        println!("{:?}", matches); assert!(matches.iter().any(|value| value == "WebSearch"));
+        println!("{:?}", matches);
+        assert!(matches.iter().any(|value| value == "WebSearch"));
 
         let selected = execute_tool("ToolSearch", &json!({"query": "select:Agent,Skill"}))
             .expect("ToolSearch should succeed");

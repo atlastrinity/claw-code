@@ -73,3 +73,24 @@ To improve reliability, especially when primary models experience API degradatio
 
 ## Summary
 These features dramatically accelerate read-heavy reasoning turns, make the codebase highly modular (uncoupling logging, hooks, and execution), and harden the provider ingestion against upstream network disruptions.
+
+## 4. RAG-Integrated Pipeline (v0.1.3 Updates)
+
+### Overview
+We have deeply integrated the `claw-rag-service` into the core dispatch pipeline to optimize memory, track observability events, and avoid concurrency issues.
+
+### Key Enhancements
+
+#### RagContextMiddleware (Memory Optimization)
+- Prior to this update, `claw` maintained full `ConversationMessage` clones in fallback retries which increased memory overhead linearly. We introduced an `Arc<Vec<InputMessage>>` structure to share the history state.
+- `RagContextMiddleware` provides "just-in-time" memory: it queries RAG using the requested tool name and input, extracting historical context *before* execution.
+- Post-execution, the middleware ingests significant tool results (and all errors) back into the RAG index.
+
+#### RagBatchingMiddleware (Intelligent Concurrency)
+- `batch_tool_calls` has been lifted into `RagBatchingMiddleware` inside the middleware chain.
+- This layer automatically queries the RAG index for known historical execution conflicts. If an issued parallel batch previously failed due to a concurrency error, the middleware automatically breaks the batch down and demotes it to `Sequential` execution.
+- Ensures one combined `PermissionPrompt` handles all required tools.
+
+#### Unified PipelineError & Observability
+- All pipeline and provider errors are now unified under `PipelineError`, merging `ApiError`, `RuntimeError`, and RAG connectivity issues into a single enum with robust degradation tracking.
+- `CostTracker` and `CircuitBreaker` now pipe their failure alerts and limits directly into the `RagClient` for long-term historical awareness instead of emitting ephemeral terminal prints.

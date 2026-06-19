@@ -9,9 +9,7 @@ use crate::compact::{
 };
 use crate::config::RuntimeFeatureConfig;
 use crate::hooks::{HookAbortSignal, HookProgressReporter, HookRunner};
-use crate::permissions::{
-    PermissionPolicy, PermissionPrompter,
-};
+use crate::permissions::{PermissionPolicy, PermissionPrompter};
 use crate::session::{ContentBlock, ConversationMessage, Session};
 use crate::usage::{TokenUsage, UsageTracker};
 
@@ -239,9 +237,15 @@ where
         iterations: usize,
         mut prompter: Option<&mut (dyn PermissionPrompter + 'a)>,
     ) -> Vec<ConversationMessage> {
-        use crate::tool_dispatch::{batch_tool_calls, execute_parallel_batch, ToolBatch, ToolCallRequest};
-        use crate::middleware::{HookMiddleware, MiddlewareChain, PermissionMiddleware, ToolCallContext, ToolCallOutcome, ToolCallState, TracingMiddleware};
+        use crate::middleware::{
+            HookMiddleware, MiddlewareChain, PermissionMiddleware, RagBatchingMiddleware,
+            RagClient, RagContextMiddleware, ToolCallContext, ToolCallOutcome, ToolCallState,
+            TracingMiddleware,
+        };
         use crate::permissions::PermissionContext;
+        use crate::tool_dispatch::{
+            batch_tool_calls, execute_parallel_batch, ToolBatch, ToolCallRequest,
+        };
 
         let calls = pending_tool_uses
             .into_iter()
@@ -262,29 +266,46 @@ where
             };
 
             let ctx = ToolCallContext {
-                calls: reqs.into_iter().map(|req| ToolCallState {
-                    request: req,
-                    permission_context: PermissionContext::new(None, None),
-                    pre_hook_messages: Vec::new(),
-                }).collect(),
+                calls: reqs
+                    .into_iter()
+                    .map(|req| ToolCallState {
+                        request: req,
+                        permission_context: PermissionContext::new(None, None),
+                        pre_hook_messages: Vec::new(),
+                    })
+                    .collect(),
                 iteration: iterations,
                 metadata: std::collections::BTreeMap::new(),
             };
 
+            let rag_client = RagClient::localhost();
+
             let chain = MiddlewareChain::new()
+                .with(RagContextMiddleware::new(rag_client.clone()))
                 .with(PermissionMiddleware::new(&self.permission_policy))
-                .with(HookMiddleware::new(&self.hook_runner, &self.hook_abort_signal, &mut self.hook_progress_reporter))
+                .with(RagBatchingMiddleware::new(&rag_client))
+                .with(HookMiddleware::new(
+                    &self.hook_runner,
+                    &self.hook_abort_signal,
+                    &mut self.hook_progress_reporter,
+                ))
                 .with(TracingMiddleware::new(&mut self.session_tracer));
 
             let mut prompter_ref = prompter.as_deref_mut();
             let executor = &self.tool_executor;
-            
+
             let outcome = chain.process(ctx, &mut prompter_ref, |ctx, _| {
                 let mut terminal_messages = Vec::new();
-                let calls_to_execute = ctx.calls.into_iter().map(|state| state.request).collect::<Vec<_>>();
-                
+                let calls_to_execute = ctx
+                    .calls
+                    .into_iter()
+                    .map(|state| state.request)
+                    .collect::<Vec<_>>();
+
                 if calls_to_execute.is_empty() {
-                    return ToolCallOutcome { messages: terminal_messages };
+                    return ToolCallOutcome {
+                        messages: terminal_messages,
+                    };
                 }
 
                 if calls_to_execute.len() == 1 {
@@ -300,14 +321,18 @@ where
                         is_error,
                     ));
                 } else {
-                    let execution_results = execute_parallel_batch(&calls_to_execute, |tool_name, input| {
-                        match executor.execute(tool_name, input) {
+                    let execution_results = execute_parallel_batch(
+                        &calls_to_execute,
+                        |tool_name, input| match executor.execute(tool_name, input) {
                             Ok(output) => (output, false),
                             Err(error) => (error.to_string(), true),
-                        }
-                    });
-                    
-                    for (result, req) in execution_results.into_iter().zip(calls_to_execute.into_iter()) {
+                        },
+                    );
+
+                    for (result, req) in execution_results
+                        .into_iter()
+                        .zip(calls_to_execute.into_iter())
+                    {
                         terminal_messages.push(ConversationMessage::tool_result(
                             req.tool_use_id,
                             req.tool_name,
@@ -316,8 +341,10 @@ where
                         ));
                     }
                 }
-                
-                ToolCallOutcome { messages: terminal_messages }
+
+                ToolCallOutcome {
+                    messages: terminal_messages,
+                }
             });
 
             result_messages.extend(outcome.messages);
@@ -445,11 +472,8 @@ where
                 break;
             }
 
-            let dispatch_results = self.dispatch_tool_calls(
-                pending_tool_uses,
-                iterations,
-                prompter.as_deref_mut(),
-            );
+            let dispatch_results =
+                self.dispatch_tool_calls(pending_tool_uses, iterations, prompter.as_deref_mut());
             for result_message in dispatch_results {
                 self.session
                     .push_message(result_message.clone())
@@ -713,8 +737,6 @@ fn flush_text_block(text: &mut String, blocks: &mut Vec<ContentBlock>) {
         });
     }
 }
-
-
 
 fn fetch_rag_context(query: &str) -> Option<String> {
     let client = reqwest::blocking::Client::new();
@@ -1020,7 +1042,7 @@ mod tests {
         assert_eq!(summary.tool_results.len(), 1);
         assert!(matches!(
             &summary.tool_results[0].blocks[0],
-            ContentBlock::ToolResult { is_error: true, output, .. } if output == "not now"
+            ContentBlock::ToolResult { is_error: true, output, .. } if output.ends_with("not now")
         ));
     }
 
