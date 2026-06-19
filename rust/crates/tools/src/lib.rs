@@ -3051,10 +3051,31 @@ fn io_to_string(error: std::io::Error) -> String {
     error.to_string()
 }
 
+fn deserialize_optional_usize<'de, D>(deserializer: D) -> Result<Option<usize>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value: Option<serde_json::Value> = Option::deserialize(deserializer)?;
+    match value {
+        Some(serde_json::Value::Number(n)) => n
+            .as_u64()
+            .map(|v| Some(v as usize))
+            .ok_or_else(|| serde::de::Error::custom("invalid number")),
+        Some(serde_json::Value::String(s)) => s
+            .parse::<usize>()
+            .map(Some)
+            .map_err(serde::de::Error::custom),
+        None | Some(serde_json::Value::Null) => Ok(None),
+        _ => Err(serde::de::Error::custom("expected string or number")),
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct ReadFileInput {
     path: String,
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
     offset: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_optional_usize")]
     limit: Option<usize>,
 }
 
