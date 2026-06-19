@@ -444,8 +444,8 @@ impl GlobalToolRegistry {
         self.enforcer = Some(enforcer);
     }
 
-    pub fn execute(&self, name: &str, input: &Value) -> Result<String, String> {
-        if name == "ToolSearch" {
+    pub fn execute(&self, raw_name: &str, input: &Value) -> Result<String, String> {
+        if raw_name == "ToolSearch" {
             let search_input = serde_json::from_value::<ToolSearchInput>(input.clone())
                 .map_err(|e| e.to_string())?;
             let output = self.search(
@@ -457,18 +457,36 @@ impl GlobalToolRegistry {
             return to_pretty_json(output);
         }
 
+        let coerced_input = normalization::coerce_tool_input(input.clone());
+
+        // First try finding it exactly (ignoring case)
         if let Some(spec) = mvp_tool_specs()
             .iter()
-            .find(|spec| spec.name.eq_ignore_ascii_case(name))
+            .find(|spec| spec.name.eq_ignore_ascii_case(raw_name))
         {
-            return execute_tool_with_enforcer(self.enforcer.as_ref(), spec.name, input);
+            return execute_tool_with_enforcer(self.enforcer.as_ref(), spec.name, &coerced_input);
         }
-        self.plugin_tools
+        
+        // Then try canonical names
+        let resolved_name = self.allowed_tool_aliases().get(raw_name).cloned().unwrap_or_else(|| raw_name.to_string());
+        
+        if let Some(spec) = mvp_tool_specs()
             .iter()
-            .find(|tool| tool.definition().name.eq_ignore_ascii_case(name))
-            .ok_or_else(|| format!("unsupported tool: {name}"))?
-            .execute(input)
-            .map_err(|error| error.to_string())
+            .find(|spec| normalization::canonical_allowed_tool_name(spec.name) == resolved_name)
+        {
+            return execute_tool_with_enforcer(self.enforcer.as_ref(), spec.name, &coerced_input);
+        }
+
+        // Check plugin tools
+        if let Some(tool) = self.plugin_tools.iter().find(|tool| tool.definition().name.eq_ignore_ascii_case(raw_name)) {
+            return tool.execute(&coerced_input).map_err(|e| e.to_string());
+        }
+
+        if let Some(tool) = self.plugin_tools.iter().find(|tool| normalization::canonical_allowed_tool_name(&tool.definition().name) == resolved_name) {
+            return tool.execute(&coerced_input).map_err(|e| e.to_string());
+        }
+        
+        Err(format!("unsupported tool: {resolved_name}"))
     }
 
     fn searchable_tool_specs(&self) -> Vec<SearchableToolSpec> {
@@ -513,29 +531,8 @@ impl GlobalToolRegistry {
     }
 }
 
-pub fn canonical_allowed_tool_name(value: &str) -> String {
-    let trimmed = value.trim().replace('-', "_");
-    let mut output = String::new();
-    let chars = trimmed.chars().collect::<Vec<_>>();
-    for (index, ch) in chars.iter().copied().enumerate() {
-        if ch == '_' || ch.is_whitespace() {
-            output.push('_');
-            continue;
-        }
-        let previous = index.checked_sub(1).and_then(|i| chars.get(i)).copied();
-        let next = chars.get(index + 1).copied();
-        if ch.is_ascii_uppercase()
-            && index > 0
-            && !output.ends_with('_')
-            && (previous.is_some_and(|p| p.is_ascii_lowercase() || p.is_ascii_digit())
-                || next.is_some_and(|n| n.is_ascii_lowercase()))
-        {
-            output.push('_');
-        }
-        output.push(ch.to_ascii_lowercase());
-    }
-    output.trim_matches('_').to_string()
-}
+pub mod normalization;
+use normalization::canonical_allowed_tool_name;
 
 fn allowed_tool_lookup_key(value: &str) -> String {
     canonical_allowed_tool_name(value).replace('_', "")
