@@ -1,3 +1,8 @@
+
+use crate::{ModelProvenance, PermissionModeProvenance, DEFAULT_MODEL, CLI_OPTION_SUGGESTIONS, DEFAULT_DATE, GIT_SHA_SHORT, GIT_SHA, BUILD_TARGET, GIT_BRANCH, GIT_DIRTY};
+use runtime::session_control::PRIMARY_SESSION_EXTENSION;
+use std::env;
+use crate::*;
 use std::fmt::Write as FmtWrite;
 use std::io::{self, Write};
 
@@ -1067,4 +1072,2287 @@ mod tests {
         let output = String::from_utf8_lossy(&out);
         assert!(output.contains("Working"));
     }
+}
+
+
+pub fn format_unknown_option(option: &str) -> String {
+    if option == "--" {
+        return "end_of_flags: `--` terminates flag parsing. Pass literal prompt text after it, for example `claw -- \"-literal prompt\"`.\nRun `claw --help` for usage.".to_string();
+    }
+    let mut message = format!("unknown option: {option}");
+    if let Some(suggestion) = suggest_closest_term(option, CLI_OPTION_SUGGESTIONS) {
+        message.push_str("\nDid you mean ");
+        message.push_str(suggestion);
+        message.push('?');
+    }
+    message.push_str("\nRun `claw --help` for usage.");
+    message
+}
+
+pub fn format_unknown_direct_slash_command(name: &str) -> String {
+    // #827: prefix with classifier-friendly token so classify_error_kind
+    // returns "unknown_slash_command" instead of the opaque fallback.
+    let mut message =
+        format!("unknown_slash_command: unknown slash command outside the REPL: /{name}");
+    if let Some(suggestions) = render_suggestion_line("Did you mean", &suggest_slash_commands(name))
+    {
+        message.push('\n');
+        message.push_str(&suggestions);
+    }
+    if let Some(note) = omc_compatibility_note_for_unknown_slash_command(name) {
+        message.push('\n');
+        message.push_str(note);
+    }
+    message.push_str("\nRun `claw --help` for CLI usage, or start `claw` and use /help.");
+    message
+}
+
+pub fn format_unknown_slash_command(name: &str) -> String {
+    // #827: prefix with classifier-friendly token so classify_error_kind
+    // can return "unknown_slash_command" instead of the opaque fallback.
+    let mut message = format!("unknown_slash_command: Unknown slash command: /{name}");
+    if let Some(suggestions) = render_suggestion_line("Did you mean", &suggest_slash_commands(name))
+    {
+        message.push('\n');
+        message.push_str(&suggestions);
+    }
+    if let Some(note) = omc_compatibility_note_for_unknown_slash_command(name) {
+        message.push('\n');
+        message.push_str(note);
+    }
+    message.push_str("\n  Help             /help lists available slash commands");
+    message
+}
+
+pub fn render_suggestion_line(label: &str, suggestions: &[String]) -> Option<String> {
+    (!suggestions.is_empty()).then(|| format!("  {label:<16} {}", suggestions.join(", "),))
+}
+
+pub fn format_connected_line(model: &str) -> String {
+    let provider = provider_label(detect_provider_kind(model));
+    format!("Connected: {model} via {provider}")
+}
+
+pub fn render_diagnostic_check(check: &DiagnosticCheck) -> String {
+    let mut lines = vec![format!(
+        "{}\n  Status           {}\n  Summary          {}",
+        check.name,
+        check.level.label(),
+        check.summary
+    )];
+    if !check.details.is_empty() {
+        lines.push("  Details".to_string());
+        lines.extend(check.details.iter().map(|detail| format!("    - {detail}")));
+    }
+    lines.join("\n")
+}
+
+pub fn render_doctor_report(
+    config_warning_mode: ConfigWarningMode,
+    permission_mode: PermissionModeProvenance,
+) -> Result<DoctorReport, Box<dyn std::error::Error>> {
+    let cwd = friendly_cwd(env::current_dir()?);
+    let config_loader = ConfigLoader::default_for(&cwd);
+    let config = load_config_with_warning_mode(&config_loader, config_warning_mode);
+    let discovered_config = config_loader.discover();
+    let project_context = ProjectContext::discover_with_git(&cwd, DEFAULT_DATE)?;
+    let (project_root, git_branch) =
+        parse_git_status_metadata(project_context.git_status.as_deref());
+    let git_summary = parse_git_workspace_summary(project_context.git_status.as_deref());
+    let branch_freshness = BranchFreshness::from_git_status(project_context.git_status.as_deref());
+    let stale_base_state = stale_base_state_for(&cwd, None);
+    let empty_config = runtime::RuntimeConfig::empty();
+    let sandbox_config = config.as_ref().ok().unwrap_or(&empty_config);
+    let boot_preflight = build_boot_preflight_snapshot(
+        &cwd,
+        project_root.as_deref(),
+        project_context.git_status.as_deref(),
+        config.as_ref().ok(),
+        config.as_ref().err().map(ToString::to_string).as_deref(),
+    );
+    let memory_files = memory_file_summaries_for(
+        &cwd,
+        project_root.as_deref(),
+        &project_context.instruction_files,
+    );
+    let mcp_validation = config
+        .as_ref()
+        .ok()
+        .map(|runtime_config| McpValidationSummary::from_collection(runtime_config.mcp()))
+        .unwrap_or_default();
+    let hook_validation = config
+        .as_ref()
+        .ok()
+        .map(HookValidationSummary::from_config)
+        .unwrap_or_default();
+    let context = StatusContext {
+        cwd: cwd.clone(),
+        session_path: None,
+        loaded_config_files: config
+            .as_ref()
+            .ok()
+            .map_or(0, |runtime_config| runtime_config.loaded_entries().len()),
+        discovered_config_files: discovered_config.len(),
+        memory_file_count: project_context.instruction_files.len(),
+        memory_files: memory_files.clone(),
+        unloaded_memory_files: unloaded_memory_candidates(
+            &cwd,
+            project_root.as_deref(),
+            &memory_files,
+        ),
+        project_root,
+        git_branch,
+        git_summary,
+        branch_freshness,
+        stale_base_state,
+        session_lifecycle: classify_session_lifecycle_for(&cwd),
+        boot_preflight,
+        sandbox_status: resolve_sandbox_status(sandbox_config.sandbox(), &cwd),
+        binary_provenance: binary_provenance_for(Some(&cwd)),
+        // Doctor path has its own config check; StatusContext here is only
+        // fed into health renderers that don't read config_load_error.
+        config_load_error: config.as_ref().err().map(ToString::to_string),
+        config_load_error_kind: None,
+        mcp_validation: mcp_validation.clone(),
+
+        hook_validation: hook_validation.clone(),
+        duplicate_flags: Vec::new(),
+    };
+    Ok(DoctorReport {
+        checks: vec![
+            check_auth_health(),
+            check_base_url_health(),
+            check_config_health(&config_loader, config.as_ref()),
+            check_mcp_validation_health(&mcp_validation),
+            check_hook_validation_health(&hook_validation),
+            check_install_source_health(),
+            check_workspace_health(&context),
+            check_memory_health(&context),
+            check_boot_preflight_health(&context),
+            check_sandbox_health(&context.sandbox_status),
+            check_permission_health(permission_mode),
+            check_system_health(&cwd, config.as_ref().ok()),
+        ],
+    })
+}
+
+#[cfg(test)]
+fn format_unknown_slash_command_message(name: &str) -> String {
+    let suggestions = suggest_slash_commands(name);
+    let mut message = format!("unknown slash command: /{name}.");
+    if !suggestions.is_empty() {
+        message.push_str(" Did you mean ");
+        message.push_str(&suggestions.join(", "));
+        message.push('?');
+    }
+    if let Some(note) = omc_compatibility_note_for_unknown_slash_command(name) {
+        message.push(' ');
+        message.push_str(note);
+    }
+    message.push_str(" Use /help to list available commands.");
+    message
+}
+
+pub fn format_model_report(model: &str, message_count: usize, turns: u32) -> String {
+    format!(
+        "Model
+  Current model    {model}
+  Session messages {message_count}
+  Session turns    {turns}
+
+Usage
+  Inspect current model with /model
+  Switch models with /model <name>"
+    )
+}
+
+pub fn format_model_switch_report(previous: &str, next: &str, message_count: usize) -> String {
+    format!(
+        "Model updated
+  Previous         {previous}
+  Current          {next}
+  Preserved msgs   {message_count}"
+    )
+}
+
+pub fn format_permissions_report(mode: &str) -> String {
+    let modes = [
+        ("read-only", "Read/search tools only", mode == "read-only"),
+        (
+            "workspace-write",
+            "Edit files inside the workspace",
+            mode == "workspace-write",
+        ),
+        (
+            "danger-full-access",
+            "Unrestricted tool access",
+            mode == "danger-full-access",
+        ),
+    ]
+    .into_iter()
+    .map(|(name, description, is_current)| {
+        let marker = if is_current {
+            "● current"
+        } else {
+            "○ available"
+        };
+        format!("  {name:<18} {marker:<11} {description}")
+    })
+    .collect::<Vec<_>>()
+    .join(
+        "
+",
+    );
+
+    format!(
+        "Permissions
+  Active mode      {mode}
+  Mode status      live session default
+
+Modes
+{modes}
+
+Usage
+  Inspect current mode with /permissions
+  Switch modes with /permissions <mode>"
+    )
+}
+
+pub fn format_permissions_switch_report(previous: &str, next: &str) -> String {
+    format!(
+        "Permissions updated
+  Result           mode switched
+  Previous mode    {previous}
+  Active mode      {next}
+  Applies to       subsequent tool calls
+  Usage            /permissions to inspect current mode"
+    )
+}
+
+pub fn format_cost_report(usage: TokenUsage) -> String {
+    let estimated_cost = usage.estimate_cost_usd();
+    format!(
+        "Cost
+  Input tokens     {}
+  Output tokens    {}
+  Cache create     {}
+  Cache read       {}
+  Total tokens     {}
+  Estimated cost   {}",
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.cache_creation_input_tokens,
+        usage.cache_read_input_tokens,
+        usage.total_tokens(),
+        format_usd(estimated_cost.total_cost_usd()),
+    )
+}
+
+pub fn format_resume_report(session_path: &str, message_count: usize, turns: u32) -> String {
+    format!(
+        "Session resumed
+  Session file     {session_path}
+  Messages         {message_count}
+  Turns            {turns}"
+    )
+}
+
+pub fn render_resume_usage() -> String {
+    format!(
+        "Resume
+  Usage            /resume <session-path|session-id|{LATEST_SESSION_REFERENCE}>
+  Auto-save        .claw/sessions/<workspace-fingerprint>/<session-id>.{PRIMARY_SESSION_EXTENSION}
+  Tip              use /session list to inspect saved sessions"
+    )
+}
+
+pub fn format_compact_report(removed: usize, resulting_messages: usize, skipped: bool) -> String {
+    if skipped {
+        format!(
+            "Compact
+  Result           skipped
+  Reason           session below compaction threshold
+  Messages kept    {resulting_messages}"
+        )
+    } else {
+        format!(
+            "Compact
+  Result           compacted
+  Messages removed {removed}
+  Messages kept    {resulting_messages}"
+        )
+    }
+}
+
+pub fn format_auto_compaction_notice(removed: usize) -> String {
+    format!("[auto-compacted: removed {removed} messages]")
+}
+
+
+
+
+
+pub fn render_repl_help() -> String {
+    [
+        "REPL".to_string(),
+        "  /exit                Quit the REPL".to_string(),
+        "  /quit                Quit the REPL".to_string(),
+        "  Up/Down              Navigate prompt history".to_string(),
+        "  Ctrl-R               Reverse-search prompt history".to_string(),
+        "  Tab                  Complete commands, modes, and recent sessions".to_string(),
+        "  Ctrl-C               Clear input (or exit on empty prompt)".to_string(),
+        "  Shift+Enter/Ctrl+J   Insert a newline".to_string(),
+        "  Auto-save            .claw/sessions/<workspace-fingerprint>/<session-id>.jsonl"
+            .to_string(),
+        "  Resume latest        /resume latest".to_string(),
+        "  Browse sessions      /session list".to_string(),
+        "  Show prompt history  /history [count]".to_string(),
+        String::new(),
+        render_slash_command_help_filtered(STUB_COMMANDS),
+    ]
+    .join(
+        "
+",
+    )
+}
+
+pub fn format_status_report(
+    model: &str,
+    usage: StatusUsage,
+    permission_mode: &str,
+    context: &StatusContext,
+    // #148: optional model provenance to surface in a `Model source` line.
+    // Callers without provenance (legacy resume paths) pass None and the
+    // source line is omitted for backward compat.
+    provenance: Option<&ModelProvenance>,
+    permission_provenance: Option<&PermissionModeProvenance>,
+) -> String {
+    // #143: if config failed to parse, surface a degraded banner at the top
+    // of the text report so humans see the parse error before the body, while
+    // the body below still reports everything that could be resolved without
+    // config (workspace, git, sandbox defaults, etc.).
+    let status_line = if context.config_load_error.is_some() {
+        "Status (degraded)"
+    } else {
+        "Status"
+    };
+    let mut blocks: Vec<String> = Vec::new();
+    if let Some(err) = context.config_load_error.as_deref() {
+        blocks.push(format!(
+            "Config load error\n  Status           fail\n  Summary          runtime config failed to load; reporting partial status\n  Details          {err}\n  Hint             `claw doctor` classifies config parse errors; fix the listed field and rerun"
+        ));
+    }
+    // #148: render Model source line after Model, showing where the string
+    // came from (flag / env / config / default) and the raw input if any.
+    let model_source_line = provenance
+        .map(|p| match &p.raw {
+            Some(raw) if raw != model => {
+                let env_suffix = p
+                    .env_var
+                    .as_deref()
+                    .map_or(String::new(), |name| format!(" via {name}"));
+                format!(
+                    "\n  Model source     {}{env_suffix} (raw: {raw}, alias: {model})",
+                    p.source.as_str()
+                )
+            }
+            Some(_) => {
+                let env_suffix = p
+                    .env_var
+                    .as_deref()
+                    .map_or(String::new(), |name| format!(" via {name}"));
+                format!("\n  Model source     {}{env_suffix}", p.source.as_str())
+            }
+            None => format!("\n  Model source     {}", p.source.as_str()),
+        })
+        .unwrap_or_default();
+    let permission_source_line = permission_provenance
+        .map(|p| {
+            let env_suffix = p
+                .env_var
+                .map_or(String::new(), |name| format!(" via {name}"));
+            format!("\n  Permission source {}{env_suffix}", p.source.as_str())
+        })
+        .unwrap_or_default();
+    blocks.extend([
+        format!(
+            "{status_line}
+  Model            {model}{model_source_line}
+  Permission mode  {permission_mode}{permission_source_line}
+  Messages         {}
+  Turns            {}
+  Estimated tokens {}",
+            usage.message_count, usage.turns, usage.estimated_tokens,
+        ),
+        format!(
+            "Usage
+  Latest total     {}
+  Cumulative input {}
+  Cumulative output {}
+  Cache create     {}
+  Cache read       {}
+  Cumulative total {}
+  Estimated cost   {}",
+            usage.latest.total_tokens(),
+            usage.cumulative.input_tokens,
+            usage.cumulative.output_tokens,
+            usage.cumulative.cache_creation_input_tokens,
+            usage.cumulative.cache_read_input_tokens,
+            usage.cumulative.total_tokens(),
+            format_usd(usage.cumulative.estimate_cost_usd().total_cost_usd()),
+        ),
+        format!(
+            "Workspace
+  Cwd              {}
+  Project root     {}
+  Git branch       {}
+  Git state        {}
+  Changed files    {}
+  Staged           {}
+  Unstaged         {}
+  Untracked        {}
+  Session          {}
+  Lifecycle        {}
+  Branch fresh     {}
+  Boot preflight   {}
+  Config files     loaded {}/{}
+  Memory files     {}
+  Loaded memory    {}
+  Suggested flow   /status → /diff → /commit",
+            context.cwd.display(),
+            context
+                .project_root
+                .as_ref()
+                .map_or_else(|| "unknown".to_string(), |path| path.display().to_string()),
+            context.git_branch.as_deref().unwrap_or("unknown"),
+            if context.project_root.is_some() {
+                context.git_summary.headline()
+            } else {
+                "no_git_repo".to_string()
+            },
+            context.git_summary.changed_files,
+            context.git_summary.staged_files,
+            context.git_summary.unstaged_files,
+            context.git_summary.untracked_files,
+            context.session_path.as_ref().map_or_else(
+                || "live-repl".to_string(),
+                |path| path.display().to_string()
+            ),
+            context.session_lifecycle.signal(),
+            context
+                .branch_freshness
+                .fresh
+                .map(|fresh| if fresh { "yes" } else { "behind" })
+                .unwrap_or("no upstream"),
+            context.boot_preflight.summary(),
+            context.loaded_config_files,
+            context.discovered_config_files,
+            context.memory_file_count,
+            if context.memory_files.is_empty() {
+                "<none>".to_string()
+            } else {
+                context
+                    .memory_files
+                    .iter()
+                    .map(|file| format!("{}:{}", file.source, file.path))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            },
+        ),
+        format_sandbox_report(&context.sandbox_status),
+    ]);
+    blocks.join("\n\n")
+}
+
+pub fn format_sandbox_report(status: &runtime::SandboxStatus) -> String {
+    format!(
+        "Sandbox
+  Enabled           {}
+  Active            {}
+  Supported         {}
+  In container      {}
+  Requested ns      {}
+  Active ns         {}
+  Requested net     {}
+  Active net        {}
+  Filesystem mode   {}
+  Filesystem active {}
+  Allowed mounts    {}
+  Markers           {}
+  Fallback reason   {}",
+        status.enabled,
+        status.active,
+        status.supported,
+        status.in_container,
+        status.requested.namespace_restrictions,
+        status.namespace_active,
+        status.requested.network_isolation,
+        status.network_active,
+        status.filesystem_mode.as_str(),
+        status.filesystem_active,
+        if status.allowed_mounts.is_empty() {
+            "<none>".to_string()
+        } else {
+            status.allowed_mounts.join(", ")
+        },
+        if status.container_markers.is_empty() {
+            "<none>".to_string()
+        } else {
+            status.container_markers.join(", ")
+        },
+        status
+            .fallback_reason
+            .clone()
+            .unwrap_or_else(|| "<none>".to_string()),
+    )
+}
+
+pub fn format_commit_preflight_report(branch: Option<&str>, summary: GitWorkspaceSummary) -> String {
+    format!(
+        "Commit
+  Result           ready
+  Branch           {}
+  Workspace        {}
+  Changed files    {}
+  Action           create a git commit from the current workspace changes",
+        branch.unwrap_or("unknown"),
+        summary.headline(),
+        summary.changed_files,
+    )
+}
+
+pub fn format_commit_skipped_report() -> String {
+    "Commit
+  Result           skipped
+  Reason           no workspace changes
+  Action           create a git commit from the current workspace changes
+  Next             /status to inspect context · /diff to inspect repo changes"
+        .to_string()
+}
+
+pub fn render_help_topic(topic: LocalHelpTopic) -> String {
+    match topic {
+        LocalHelpTopic::Status => "Status
+  Usage            claw status [--output-format <format>]
+  Purpose          show the local workspace snapshot without entering the REPL
+  Output           model, permissions, git state, config files, and sandbox status
+  Formats          text (default), json
+  Related          /status · claw --resume latest /status"
+            .to_string(),
+        LocalHelpTopic::Sandbox => "Sandbox
+  Usage            claw sandbox [--output-format <format>]
+  Purpose          inspect the resolved sandbox and isolation state for the current directory
+  Output           namespace, network, filesystem, and fallback details
+  Formats          text (default), json
+  Related          /sandbox · claw status"
+            .to_string(),
+        LocalHelpTopic::Doctor => "Doctor
+  Usage            claw doctor [--output-format <format>]
+  Purpose          diagnose local auth, config, workspace, sandbox, and build metadata
+  Output           local-only health report; no provider request or session resume required
+  Formats          text (default), json
+  Related          /doctor · claw --resume latest /doctor"
+            .to_string(),
+        LocalHelpTopic::Acp => "ACP / Zed
+  Usage            claw acp [serve] [--output-format <format>]
+  Aliases          claw --acp · claw -acp
+  Purpose          explain the current editor-facing ACP/Zed launch contract without starting the runtime
+  Status           discoverability only; `serve` is a status alias and does not launch a daemon yet
+  Formats          text (default), json
+  Related          ROADMAP #64a (discoverability) · ROADMAP #76 (real ACP support) · claw --help"
+            .to_string(),
+        LocalHelpTopic::Init => "Init
+  Usage            claw init [--output-format <format>]
+  Purpose          create .claw/settings.json, .claw.json, .gitignore, and CLAUDE.md in the current project
+  Output           per-artifact created/updated/partial/deferred/skipped status (idempotent: safe to re-run)
+  Formats          text (default), json
+  Related          claw status · claw doctor"
+            .to_string(),
+        LocalHelpTopic::State => "State
+  Usage            claw state [--output-format <format>]
+  Purpose          read .claw/worker-state.json written by the interactive REPL or a one-shot prompt
+  Output           worker id, model, permissions, session reference (text or json)
+  Formats          text (default), json
+  Produces state   `claw` (interactive REPL) or `claw prompt <text>` (one non-interactive turn)
+  Observes state   `claw state` reads; clawhip/CI may poll this file without HTTP
+  Exit codes       0 if state file exists and parses; 1 with actionable hint otherwise
+  Related          claw status · ROADMAP #139 (this worker-concept contract)"
+            .to_string(),
+        LocalHelpTopic::Resume => format!(
+            "Resume\n  Usage            claw resume [session-path|session-id|{LATEST_SESSION_REFERENCE}] [/slash-command ...] [--output-format <format>]\n  Alias            claw --resume [session-path|session-id|{LATEST_SESSION_REFERENCE}]\n  Purpose          restore or inspect a saved session without starting a new provider turn\n  Output           session restore or resume-safe command output; missing sessions return session_not_found\n  Formats          text (default), json\n  Related          /resume · /session list · claw --resume {LATEST_SESSION_REFERENCE} /status"
+        ),
+        LocalHelpTopic::Session => "Session
+  Usage            claw session --help [--output-format <format>]
+  Purpose          show /session command guidance without loading config, credentials, or a session
+  Actions          list · exists <id> · switch <id> · fork <name> · delete <id>
+  Direct use       run /session in the REPL or claw --resume SESSION.jsonl /session <action>
+  Formats          text (default), json
+  Related          claw resume · claw export · .claw/sessions/"
+            .to_string(),
+        LocalHelpTopic::Compact => "Compact
+  Usage            claw compact --help [--output-format <format>]
+  Purpose          show compaction guidance without loading config, credentials, or a session
+  Direct use       run /compact in the REPL or claw --resume SESSION.jsonl /compact
+  Output           compaction removes older tool-detail messages when the selected session is large enough
+  Formats          text (default), json
+  Related          claw resume · /compact · /status"
+            .to_string(),
+        LocalHelpTopic::Export => "Export
+  Usage            claw export [--session <id|latest>] [--output <path>] [--output-format <format>]
+  Purpose          serialize a managed session to JSON for review, transfer, or archival
+  Defaults         --session latest (most recent managed session in .claw/sessions/)
+  Formats          text (default), json
+  Related          /session list · claw --resume latest"
+            .to_string(),
+        LocalHelpTopic::Version => "Version
+  Usage            claw version [--output-format <format>]
+  Aliases          claw --version · claw -V
+  Purpose          print the claw CLI version and build metadata
+  Formats          text (default), json
+  Related          claw doctor (full build/auth/config diagnostic)"
+            .to_string(),
+        LocalHelpTopic::SystemPrompt => "System Prompt
+  Usage            claw system-prompt [--cwd <path>] [--date YYYY-MM-DD] [--output-format <format>]
+  Purpose          render the resolved system prompt that `claw` would send for the given cwd + date
+  Options          --cwd overrides the workspace dir · --date injects a deterministic date stamp
+  Formats          text (default), json
+  Related          claw doctor · claw dump-manifests"
+            .to_string(),
+        LocalHelpTopic::DumpManifests => "Dump Manifests
+  Usage            claw dump-manifests [--manifests-dir <path>] [--output-format <format>]
+  Purpose          emit every skill/agent/tool manifest the resolver would load for the current cwd
+  Options          --manifests-dir scopes discovery to a specific directory
+  Formats          text (default), json
+  Related          claw skills · claw agents · claw doctor"
+            .to_string(),
+        LocalHelpTopic::BootstrapPlan => "Bootstrap Plan
+  Usage            claw bootstrap-plan [--output-format <format>]
+  Purpose          list the ordered startup phases the CLI would execute before dispatch
+  Output           phase names (text) or structured phase list (json) — primary output is the plan itself
+  Formats          text (default), json
+  Related          claw doctor · claw status"
+            .to_string(),
+        LocalHelpTopic::Agents => commands::handle_agents_slash_command(
+            Some("--help"),
+            &env::current_dir().unwrap_or_default(),
+        )
+        .unwrap_or_else(|_| "agents help unavailable".to_string()),
+        LocalHelpTopic::Skills => commands::handle_skills_slash_command(
+            Some("--help"),
+            &env::current_dir().unwrap_or_default(),
+        )
+        .unwrap_or_else(|_| "skills help unavailable".to_string()),
+        LocalHelpTopic::Plugins => "Plugins
+  Usage            claw plugins [list|show <name>|install <path>|enable <name>|disable <name>|uninstall <name>]
+  Purpose          manage lifecycle of plugins that extend tool and hook capabilities
+  Formats          text (default), json
+  Related          /plugins · claw plugins --help"
+            .to_string(),
+        LocalHelpTopic::Mcp => "MCP Servers
+  Usage            claw mcp [list|show <server>] [--output-format <format>]
+  Purpose          inspect configured MCP servers and their connection status
+  Formats          text (default), json
+  Related          /mcp · claw mcp list"
+            .to_string(),
+        LocalHelpTopic::Config => "Config
+  Usage            claw config [section] [--output-format <format>]
+  Purpose          show effective runtime configuration (model, hooks, plugins, env)
+  Formats          text (default), json
+  Related          /config · claw doctor"
+            .to_string(),
+        LocalHelpTopic::Model => "Models
+  Usage            claw models [help] [--output-format <format>]
+  Aliases          claw model
+  Purpose          show bounded local model command guidance without entering the REPL
+  Output           supported model-selection surfaces and current config model value
+  Formats          text (default), json
+  Related          /model · claw config model · claw status"
+            .to_string(),
+        LocalHelpTopic::Settings => "Settings
+  Usage            claw settings [help] [--output-format <format>]
+  Purpose          show effective settings/config using the local config envelope
+  Output           same as claw config settings; no provider request or session resume required
+  Formats          text (default), json
+  Related          claw config · claw doctor"
+            .to_string(),
+        LocalHelpTopic::Diff => "Diff
+  Usage            claw diff [--output-format <format>]
+  Purpose          show the diff of changes relative to the expected base commit
+  Formats          text (default), json
+  Related          /diff · ROADMAP #148"
+            .to_string(),
+        LocalHelpTopic::Setup => "Setup
+  Usage            claw setup
+  Aliases          /setup (inside the REPL)
+  Purpose          run the interactive provider setup wizard to configure API key, model, and base URL
+  Output           writes provider settings to ~/.claw/settings.json (0600 permissions)
+  Related          /model · /config · claw doctor"
+            .to_string(),
+    }
+}
+
+pub fn render_export_help_json() -> serde_json::Value {
+    json!({
+        "kind": "help",
+        "action": "help",
+        "status": "ok",
+        "topic": "export",
+        "command": "export",
+        "usage": "claw export [--session <id|latest>] [--output <path>] [--output-format <format>]",
+        "purpose": "serialize a managed session to JSON for review, transfer, or archival",
+        "defaults": {
+            "session": LATEST_SESSION_REFERENCE,
+            "session_source": ".claw/sessions/",
+            "output": "derived from the selected session when omitted"
+        },
+        "formats": ["text", "json"],
+        "options": [
+            {
+                "name": "--session",
+                "value": "<id|latest>",
+                "default": LATEST_SESSION_REFERENCE,
+                "description": "managed session to export"
+            },
+            {
+                "name": "--output",
+                "aliases": ["-o"],
+                "value": "<path>",
+                "description": "write the exported transcript to this path"
+            },
+            {
+                "name": "--output-format",
+                "value": "<format>",
+                "values": ["text", "json"],
+                "default": "text",
+                "description": "format for the command result envelope"
+            },
+            {
+                "name": "--help",
+                "aliases": ["-h"],
+                "description": "show help for the export command"
+            }
+        ],
+        "related": ["/session list", "claw --resume latest"]
+    })
+}
+
+pub fn render_doctor_help_json() -> serde_json::Value {
+    json!({
+        "kind": "help",
+        "action": "help",
+        "status": "ok",
+        "topic": "doctor",
+        "command": "doctor",
+        "schema_version": "1.0",
+        "usage": "claw doctor [--output-format <format>]",
+        "purpose": "diagnose local auth, config, workspace memory, permissions, sandbox, boot preflight, and build metadata",
+        "formats": ["text", "json"],
+        "local_only": true,
+        "requires_credentials": false,
+        "requires_provider_request": false,
+        "requires_session_resume": false,
+        "mutates_workspace": false,
+        "output_fields": ["kind", "action", "status", "message", "report", "has_failures", "summary", "checks", "tools"],
+        "check_names": ["auth", "config", "mcp validation", "hook validation", "install source", "workspace", "memory", "boot preflight", "sandbox", "permissions", "system"],
+        "status_values": ["ok", "warn", "fail"],
+        "options": [
+            {
+                "name": "--output-format",
+                "value": "<format>",
+                "values": ["text", "json"],
+                "default": "text",
+                "description": "format for the doctor report or help envelope"
+            },
+            {
+                "name": "--help",
+                "aliases": ["-h"],
+                "description": "show help for the doctor command without running diagnostics"
+            }
+        ],
+        "related": ["/doctor", "claw --resume latest /doctor"],
+        "message": render_help_topic(LocalHelpTopic::Doctor),
+    })
+}
+
+pub fn render_help_topic_json(topic: LocalHelpTopic) -> serde_json::Value {
+    if topic == LocalHelpTopic::Export {
+        return render_export_help_json();
+    }
+    if topic == LocalHelpTopic::Doctor {
+        return render_doctor_help_json();
+    }
+
+    // #683-#692: extract structured metadata from help prose for machine consumption
+    let (usage, purpose, output_desc, formats, related, aliases, local_only, requires_credentials) =
+        extract_help_metadata(topic);
+    let mut obj = serde_json::json!({
+        "kind": "help",
+        "action": "help",
+        "status": "ok",
+        "topic": local_help_topic_command(topic),
+        "command": local_help_topic_command(topic),
+        "message": render_help_topic(topic),
+        "usage": usage,
+        "purpose": purpose,
+        "formats": formats,
+        "related": related,
+        "local_only": local_only,
+        "requires_credentials": requires_credentials,
+    });
+    if let Some(desc) = output_desc {
+        obj["output_fields"] = serde_json::Value::String(desc);
+    }
+    if let Some(a) = aliases {
+        obj["aliases"] = serde_json::json!(a);
+    }
+    obj
+}
+
+pub fn render_config_report(section: Option<&str>) -> Result<String, Box<dyn std::error::Error>> {
+    let cwd = env::current_dir()?;
+    let loader = ConfigLoader::default_for(&cwd);
+    let discovered = loader.discover();
+    let runtime_config = loader.load()?;
+
+    let mut lines = vec![
+        format!(
+            "Config
+  Working directory {}
+  Loaded files      {}
+  Merged keys       {}",
+            cwd.display(),
+            runtime_config.loaded_entries().len(),
+            runtime_config.merged().len()
+        ),
+        "Discovered files".to_string(),
+    ];
+    for entry in discovered {
+        let source = match entry.source {
+            ConfigSource::User => "user",
+            ConfigSource::Project => "project",
+            ConfigSource::Local => "local",
+        };
+        let status = if runtime_config
+            .loaded_entries()
+            .iter()
+            .any(|loaded_entry| loaded_entry.path == entry.path)
+        {
+            "loaded"
+        } else {
+            "missing"
+        };
+        lines.push(format!(
+            "  {source:<7} {status:<7} {}",
+            entry.path.display()
+        ));
+    }
+
+    if let Some(section) = section {
+        lines.push(format!("Merged section: {section}"));
+        let rendered = match section {
+            "env" => runtime_config.get("env").map(|value| value.render()),
+            "hooks" => runtime_config.get("hooks").map(|value| value.render()),
+            "model" => runtime_config.get("model").map(|value| value.render()),
+            "plugins" => runtime_config
+                .get("plugins")
+                .or_else(|| runtime_config.get("enabledPlugins"))
+                .map(|value| value.render()),
+            "mcp" | "mcp_servers" | "mcpServers" => runtime_config
+                .get("mcp")
+                .or_else(|| runtime_config.get("mcp_servers"))
+                .or_else(|| runtime_config.get("mcpServers"))
+                .map(|value| value.render()),
+            "sandbox" => runtime_config.get("sandbox").map(|value| value.render()),
+            "permissions" => runtime_config
+                .get("permissions")
+                .map(|value| value.render()),
+            "skills" => runtime_config.get("skills").map(|value| value.render()),
+            "agents" => runtime_config.get("agents").map(|value| value.render()),
+            "settings" => Some(runtime_config.as_json().render()),
+            // #344: /config help shows available sections
+            "help" => {
+                lines.push("Available config sections:".to_string());
+                lines.push("  env          Environment variables".to_string());
+                lines.push("  hooks        Hook configuration".to_string());
+                lines.push("  model        Model configuration".to_string());
+                lines.push("  plugins      Plugin configuration".to_string());
+                lines.push("  mcp          MCP server configuration".to_string());
+                lines.push("  sandbox      Sandbox configuration".to_string());
+                lines.push("  permissions  Permission rules".to_string());
+                lines.push("  skills       Skills configuration".to_string());
+                lines.push("  agents       Agent configuration".to_string());
+                lines.push("  settings     Full merged settings".to_string());
+                lines.push(format!("  Loaded keys: {}", runtime_config.merged().len()));
+                return Ok(lines.join("\n"));
+            }
+            other => {
+                lines.push(format!(
+                    "  Unsupported config section '{other}'. Use: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents, or settings."
+                ));
+                return Ok(lines.join(
+                    "
+",
+                ));
+            }
+        };
+        lines.push(format!(
+            "  {}",
+            rendered.unwrap_or_else(|| "<unset>".to_string())
+        ));
+        return Ok(lines.join(
+            "
+",
+        ));
+    }
+
+    lines.push("Merged JSON".to_string());
+    lines.push(format!("  {}", runtime_config.as_json().render()));
+    Ok(lines.join(
+        "
+",
+    ))
+}
+
+pub fn render_config_json(
+    section: Option<&str>,
+) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let cwd = env::current_dir()?;
+    let loader = ConfigLoader::default_for(&cwd);
+    // #773: keep deprecation warnings in the JSON envelope, and #407: include
+    // per-file status/reason/detail for every discovered config path.
+    let inspection = loader.inspect_collecting_warnings();
+    if section.is_some() {
+        if let Some(error) = &inspection.load_error {
+            return Err(error.clone().into());
+        }
+    }
+    let runtime_config = inspection
+        .runtime_config
+        .clone()
+        .unwrap_or_else(runtime::RuntimeConfig::empty);
+    let loaded_files = runtime_config.loaded_entries().len();
+    let merged_keys = runtime_config.merged().len();
+    // #415: expose actual merged key-value pairs, not just count
+    let merged_json_str = serde_json::json!(runtime_config
+        .merged()
+        .iter()
+        .map(|(k, v)| { (k.clone(), serde_json::Value::String(v.render())) })
+        .collect::<serde_json::Map<String, serde_json::Value>>());
+    let files: Vec<_> = inspection
+        .files
+        .iter()
+        .map(config_file_report_json)
+        .collect();
+
+    let warnings_json: Vec<serde_json::Value> = inspection
+        .warnings
+        .iter()
+        .map(|w| serde_json::Value::String(w.clone()))
+        .collect();
+
+    let hook_validation = HookValidationSummary::from_config(&runtime_config);
+    let has_hook_issues = hook_validation.has_invalid_hooks();
+    let status_value = if inspection.load_error.is_some() {
+        "error"
+    } else if has_hook_issues {
+        "degraded"
+    } else {
+        "ok"
+    };
+    let base = serde_json::json!({
+        "kind": "config",
+        "action": if section.is_some() { "show" } else { "list" },
+        "status": status_value,
+        "cwd": cwd.display().to_string(),
+        "loaded_files": loaded_files,
+        "merged_keys": merged_keys,
+        "merged_key_count": merged_keys,
+        "merged": merged_json_str,
+        "merged_keys_meaning": "count of top-level keys in the effective merged JSON object",
+
+        "files": files,
+        "warnings": warnings_json,
+        "load_error": inspection.load_error.clone(),
+        "hook_validation": hook_validation.json_value(),
+    });
+
+    if let Some(section) = section {
+        let section_rendered: Option<String> = match section {
+            "env" => runtime_config.get("env").map(|v| v.render()),
+            "hooks" => runtime_config.get("hooks").map(|v| v.render()),
+            "model" => runtime_config.get("model").map(|v| v.render()),
+            "plugins" => runtime_config
+                .get("plugins")
+                .or_else(|| runtime_config.get("enabledPlugins"))
+                .map(|v| v.render()),
+            // These sections are structurally present in config files but may not have
+            // dedicated runtime_config keys yet; return null section_value rather than error.
+            "mcp" | "mcp_servers" | "mcpServers" => runtime_config
+                .get("mcp")
+                .or_else(|| runtime_config.get("mcp_servers"))
+                .or_else(|| runtime_config.get("mcpServers"))
+                .map(|v| v.render()),
+            "sandbox" => runtime_config.get("sandbox").map(|v| v.render()),
+            "permissions" => runtime_config.get("permissions").map(|v| v.render()),
+            "skills" => runtime_config.get("skills").map(|v| v.render()),
+            "agents" => runtime_config.get("agents").map(|v| v.render()),
+            "settings" => Some(runtime_config.as_json().render()),
+            // #344: /config help returns structured section list
+            "help" => {
+                return Ok(serde_json::json!({
+                    "kind": "config",
+                    "action": "help",
+                    "status": "ok",
+                    "section": "help",
+                    "available_sections": ["env", "hooks", "model", "plugins", "mcp", "sandbox", "permissions", "skills", "agents", "settings"],
+                    "loaded_keys": runtime_config.merged().len(),
+                }));
+            }
+            other => {
+                // #741: populate hint field for unsupported section errors so callers reading
+                // .hint get actionable guidance instead of null
+                let hint = if matches!(other, "list" | "show" | "info") {
+                    format!(
+                        "'claw config {other}' is not a subcommand. To list all config: `claw config`. To inspect a section: `claw config <section>` where section is one of: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents, settings."
+                    )
+                } else {
+                    format!(
+                        "'{other}' is not a config section. Supported: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents, settings."
+                    )
+                };
+                return Ok(serde_json::json!({
+                    "kind": "config",
+                    "action": "show",
+                    "status": "error",
+                    "error_kind": "unsupported_config_section",
+                    "section": other,
+                    "ok": false,
+                    "error": format!("Unsupported config section '{other}'. Use: env, hooks, model, plugins, mcp, sandbox, permissions, skills, agents, or settings."),
+                    "hint": hint,
+                    "supported_sections": ["env", "hooks", "model", "plugins", "mcp", "sandbox", "permissions", "skills", "agents", "settings"],
+                    "cwd": cwd.display().to_string(),
+                    "loaded_files": loaded_files,
+                    "files": base["files"].clone(),
+                }));
+            }
+        };
+        // Parse the rendered JSON string back into serde_json::Value so that
+        // section_value is a real JSON object/array in the envelope, not a quoted string.
+        let section_value: serde_json::Value = section_rendered
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or(serde_json::Value::Null);
+        let mut obj = base;
+        let map = obj.as_object_mut().expect("base is object");
+        map.insert(
+            "section".to_string(),
+            serde_json::Value::String(section.to_string()),
+        );
+        map.insert("section_value".to_string(), section_value);
+        return Ok(obj);
+    }
+
+    Ok(base)
+}
+
+pub fn render_memory_report() -> Result<String, Box<dyn std::error::Error>> {
+    let cwd = env::current_dir()?;
+    let project_context = ProjectContext::discover(&cwd, DEFAULT_DATE)?;
+    let mut lines = vec![format!(
+        "Memory
+  Working directory {}
+  Instruction files {}",
+        cwd.display(),
+        project_context.instruction_files.len()
+    )];
+    if project_context.instruction_files.is_empty() {
+        lines.push("Discovered files".to_string());
+        lines.push(
+            "  No CLAUDE.md, CLAW.md, AGENTS.md, or scoped instruction files discovered in the current directory ancestry."
+                .to_string(),
+        );
+    } else {
+        lines.push("Discovered files".to_string());
+        for (index, file) in project_context.instruction_files.iter().enumerate() {
+            let preview = file.content.lines().next().unwrap_or("").trim();
+            let preview = if preview.is_empty() {
+                "<empty>"
+            } else {
+                preview
+            };
+            lines.push(format!("  {}. {}", index + 1, file.path.display(),));
+            lines.push(format!(
+                "     source={} lines={} chars={} preview={}",
+                file.source(),
+                file.content.lines().count(),
+                file.char_count(),
+                preview
+            ));
+        }
+    }
+    Ok(lines.join(
+        "
+",
+    ))
+}
+
+pub fn render_memory_json() -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let cwd = env::current_dir()?;
+    let project_context = ProjectContext::discover(&cwd, DEFAULT_DATE)?;
+    let files: Vec<_> = project_context
+        .instruction_files
+        .iter()
+        .map(|f| {
+            json!({
+                "path": f.path.display().to_string(),
+                "lines": f.content.lines().count(),
+                "preview": f.content.lines().next().unwrap_or("").trim(),
+            })
+        })
+        .collect();
+    Ok(json!({
+        "kind": "memory",
+        "action": "list",
+        "status": "ok",
+        "cwd": cwd.display().to_string(),
+        "instruction_files": files.len(),
+        "files": files,
+    }))
+}
+
+pub fn render_diff_report() -> Result<String, Box<dyn std::error::Error>> {
+    render_diff_report_for(&env::current_dir()?)
+}
+
+pub fn render_diff_report_for(cwd: &Path) -> Result<String, Box<dyn std::error::Error>> {
+    // Verify we are inside a git repository before calling `git diff`.
+    // Running `git diff --cached` outside a git tree produces a misleading
+    // "unknown option `cached`" error because git falls back to --no-index mode.
+    let in_git_repo = std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(cwd)
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !in_git_repo {
+        return Ok(format!(
+            "Diff\n  Result           no git repository\n  Detail           {} is not inside a git project",
+            cwd.display()
+        ));
+    }
+    let staged = run_git_diff_command_in(cwd, &["diff", "--cached"])?;
+    let unstaged = run_git_diff_command_in(cwd, &["diff"])?;
+    if staged.trim().is_empty() && unstaged.trim().is_empty() {
+        return Ok(
+            "Diff\n  Result           clean working tree\n  Detail           no current changes"
+                .to_string(),
+        );
+    }
+
+    let mut sections = Vec::new();
+    if !staged.trim().is_empty() {
+        sections.push(format!("Staged changes:\n{}", staged.trim_end()));
+    }
+    if !unstaged.trim().is_empty() {
+        sections.push(format!("Unstaged changes:\n{}", unstaged.trim_end()));
+    }
+
+    Ok(format!("Diff\n\n{}", sections.join("\n\n")))
+}
+
+pub fn render_diff_json_for(cwd: &Path) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+    let in_git_repo = std::process::Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(cwd)
+        .output()
+        .is_ok_and(|o| o.status.success());
+    if !in_git_repo {
+        // #801: add error_kind, hint, message fields for envelope parity with other error paths
+        return Ok(serde_json::json!({
+            "kind": "diff",
+            "action": "diff",
+            "status": "error",
+            "error_kind": "no_git_repo",
+            "result": "no_git_repo",
+            "message": format!("{} is not inside a git project", cwd.display()),
+            "hint": "Run `git init` to create a repository, or change to a directory that is inside a git project.",
+            "working_directory": cwd.display().to_string(),
+            "detail": format!("{} is not inside a git project", cwd.display()),
+        }));
+    }
+    let staged = run_git_diff_command_in(cwd, &["diff", "--cached"])?;
+    let unstaged = run_git_diff_command_in(cwd, &["diff"])?;
+    // #733: add changed_file_count so callers don't have to count diff hunks
+    let staged_files =
+        run_git_diff_command_in(cwd, &["diff", "--cached", "--name-only"]).unwrap_or_default();
+    let unstaged_files = run_git_diff_command_in(cwd, &["diff", "--name-only"]).unwrap_or_default();
+    let mut changed: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for line in staged_files.lines().chain(unstaged_files.lines()) {
+        let t = line.trim();
+        if !t.is_empty() {
+            changed.insert(t);
+        }
+    }
+    let changed_file_count = changed.len();
+    Ok(serde_json::json!({
+        "kind": "diff",
+        "action": "diff",
+        "status": "ok",
+        "working_directory": cwd.display().to_string(),
+        "result": if staged.trim().is_empty() && unstaged.trim().is_empty() { "clean" } else { "changes" },
+        "changed_file_count": changed_file_count,
+        "staged": staged.trim(),
+        "unstaged": unstaged.trim(),
+    }))
+}
+
+pub fn render_teleport_report(target: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let cwd = env::current_dir()?;
+
+    let file_list = Command::new("rg")
+        .args(["--files"])
+        .current_dir(&cwd)
+        .output()?;
+    let file_matches = if file_list.status.success() {
+        String::from_utf8(file_list.stdout)?
+            .lines()
+            .filter(|line| line.contains(target))
+            .take(10)
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+
+    let content_output = Command::new("rg")
+        .args(["-n", "-S", "--color", "never", target, "."])
+        .current_dir(&cwd)
+        .output()?;
+
+    let mut lines = vec![
+        "Teleport".to_string(),
+        format!("  Target           {target}"),
+        "  Action           search workspace files and content for the target".to_string(),
+    ];
+    if !file_matches.is_empty() {
+        lines.push(String::new());
+        lines.push("File matches".to_string());
+        lines.extend(file_matches.into_iter().map(|path| format!("  {path}")));
+    }
+
+    if content_output.status.success() {
+        let matches = String::from_utf8(content_output.stdout)?;
+        if !matches.trim().is_empty() {
+            lines.push(String::new());
+            lines.push("Content matches".to_string());
+            lines.push(truncate_for_prompt(&matches, 4_000));
+        }
+    }
+
+    if lines.len() == 1 {
+        lines.push("  Result           no matches found".to_string());
+    }
+
+    Ok(lines.join("\n"))
+}
+
+pub fn render_last_tool_debug_report(session: &Session) -> Result<String, Box<dyn std::error::Error>> {
+    let last_tool_use = session
+        .messages
+        .iter()
+        .rev()
+        .find_map(|message| {
+            message.blocks.iter().rev().find_map(|block| match block {
+                ContentBlock::ToolUse { id, name, input } => {
+                    Some((id.clone(), name.clone(), input.clone()))
+                }
+                _ => None,
+            })
+        })
+        .ok_or_else(|| "no prior tool call found in session".to_string())?;
+
+    let tool_result = session.messages.iter().rev().find_map(|message| {
+        message.blocks.iter().rev().find_map(|block| match block {
+            ContentBlock::ToolResult {
+                tool_use_id,
+                tool_name,
+                output,
+                is_error,
+            } if tool_use_id == &last_tool_use.0 => {
+                Some((tool_name.clone(), output.clone(), *is_error))
+            }
+            _ => None,
+        })
+    });
+
+    let mut lines = vec![
+        "Debug tool call".to_string(),
+        "  Action           inspect the last recorded tool call and its result".to_string(),
+        format!("  Tool id          {}", last_tool_use.0),
+        format!("  Tool name        {}", last_tool_use.1),
+        "  Input".to_string(),
+        indent_block(&last_tool_use.2, 4),
+    ];
+
+    match tool_result {
+        Some((tool_name, output, is_error)) => {
+            lines.push("  Result".to_string());
+            lines.push(format!("    name           {tool_name}"));
+            lines.push(format!(
+                "    status         {}",
+                if is_error { "error" } else { "ok" }
+            ));
+            lines.push(indent_block(&output, 4));
+        }
+        None => lines.push("  Result           missing tool result".to_string()),
+    }
+
+    Ok(lines.join("\n"))
+}
+
+pub fn format_bughunter_report(scope: Option<&str>) -> String {
+    format!(
+        "Bughunter
+  Scope            {}
+  Action           inspect the selected code for likely bugs and correctness issues
+  Output           findings should include file paths, severity, and suggested fixes",
+        scope.unwrap_or("the current repository")
+    )
+}
+
+pub fn format_ultraplan_report(task: Option<&str>) -> String {
+    format!(
+        "Ultraplan
+  Task             {}
+  Action           break work into a multi-step execution plan
+  Output           plan should cover goals, risks, sequencing, verification, and rollback",
+        task.unwrap_or("the current repo work")
+    )
+}
+
+pub fn format_pr_report(branch: &str, context: Option<&str>) -> String {
+    format!(
+        "PR
+  Branch           {branch}
+  Context          {}
+  Action           draft or create a pull request for the current branch
+  Output           title and markdown body suitable for GitHub",
+        context.unwrap_or("none")
+    )
+}
+
+pub fn format_issue_report(context: Option<&str>) -> String {
+    format!(
+        "Issue
+  Context          {}
+  Action           draft or create a GitHub issue from the current context
+  Output           title and markdown body suitable for GitHub",
+        context.unwrap_or("none")
+    )
+}
+
+pub fn format_history_timestamp(timestamp_ms: u64) -> String {
+    let secs = timestamp_ms / 1_000;
+    let subsec_ms = timestamp_ms % 1_000;
+    let days_since_epoch = secs / 86_400;
+    let seconds_of_day = secs % 86_400;
+    let hours = seconds_of_day / 3_600;
+    let minutes = (seconds_of_day % 3_600) / 60;
+    let seconds = seconds_of_day % 60;
+
+    let (year, month, day) = civil_from_days(i64::try_from(days_since_epoch).unwrap_or(0));
+    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{subsec_ms:03}Z")
+}
+
+pub fn render_prompt_history_report(entries: &[PromptHistoryEntry], limit: usize) -> String {
+    if entries.is_empty() {
+        return "Prompt history\n  Result           no prompts recorded yet".to_string();
+    }
+
+    let total = entries.len();
+    let start = total.saturating_sub(limit);
+    let shown = &entries[start..];
+    let mut lines = vec![
+        "Prompt history".to_string(),
+        format!("  Total            {total}"),
+        format!("  Showing          {} most recent", shown.len()),
+        format!("  Reverse search   Ctrl-R in the REPL"),
+        String::new(),
+    ];
+    for (offset, entry) in shown.iter().enumerate() {
+        let absolute_index = start + offset + 1;
+        let timestamp = format_history_timestamp(entry.timestamp_ms);
+        let first_line = entry.text.lines().next().unwrap_or("").trim();
+        let display = if first_line.chars().count() > 80 {
+            let truncated: String = first_line.chars().take(77).collect();
+            format!("{truncated}...")
+        } else {
+            first_line.to_string()
+        };
+        lines.push(format!("  {absolute_index:>3}. [{timestamp}] {display}"));
+    }
+    lines.join("\n")
+}
+
+pub fn render_version_report() -> String {
+    let git_sha = GIT_SHA_SHORT.or(GIT_SHA).unwrap_or("unknown");
+    let target = BUILD_TARGET.unwrap_or("unknown");
+    let branch = GIT_BRANCH.unwrap_or("unknown");
+    let dirty = GIT_DIRTY.unwrap_or("unknown");
+    format!(
+        "Claw Code\n  Version          {VERSION}\n  Git SHA          {git_sha}\n  Branch           {branch}\n  Dirty            {dirty}\n  Target           {target}\n  Build date       {DEFAULT_DATE}"
+    )
+}
+
+pub fn render_export_text(session: &Session) -> String {
+    let mut lines = vec!["# Conversation Export".to_string(), String::new()];
+    for (index, message) in session.messages.iter().enumerate() {
+        let role = match message.role {
+            MessageRole::System => "system",
+            MessageRole::User => "user",
+            MessageRole::Assistant => "assistant",
+            MessageRole::Tool => "tool",
+        };
+        lines.push(format!("## {}. {role}", index + 1));
+        for block in &message.blocks {
+            match block {
+                ContentBlock::Text { text } => lines.push(text.clone()),
+                ContentBlock::Thinking { .. } => {}
+                ContentBlock::ToolUse { id, name, input } => {
+                    lines.push(format!("[tool_use id={id} name={name}] {input}"));
+                }
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    tool_name,
+                    output,
+                    is_error,
+                } => {
+                    lines.push(format!(
+                        "[tool_result id={tool_use_id} name={tool_name} error={is_error}] {output}"
+                    ));
+                }
+            }
+        }
+        lines.push(String::new());
+    }
+    lines.join("\n")
+}
+
+pub fn render_session_markdown(session: &Session, session_id: &str, session_path: &Path) -> String {
+    let mut lines = vec![
+        "# Conversation Export".to_string(),
+        String::new(),
+        format!("- **Session**: `{session_id}`"),
+        format!("- **File**: `{}`", session_path.display()),
+        format!("- **Messages**: {}", session.messages.len()),
+    ];
+    if let Some(workspace_root) = session.workspace_root() {
+        lines.push(format!("- **Workspace**: `{}`", workspace_root.display()));
+    }
+    if let Some(fork) = &session.fork {
+        let branch = fork.branch_name.as_deref().unwrap_or("(unnamed)");
+        lines.push(format!(
+            "- **Forked from**: `{}` (branch `{branch}`)",
+            fork.parent_session_id
+        ));
+    }
+    if let Some(compaction) = &session.compaction {
+        lines.push(format!(
+            "- **Compactions**: {} (last removed {} messages)",
+            compaction.count, compaction.removed_message_count
+        ));
+    }
+    lines.push(String::new());
+    lines.push("---".to_string());
+    lines.push(String::new());
+
+    for (index, message) in session.messages.iter().enumerate() {
+        let role = match message.role {
+            MessageRole::System => "System",
+            MessageRole::User => "User",
+            MessageRole::Assistant => "Assistant",
+            MessageRole::Tool => "Tool",
+        };
+        lines.push(format!("## {}. {role}", index + 1));
+        lines.push(String::new());
+        for block in &message.blocks {
+            match block {
+                ContentBlock::Text { text } => {
+                    let trimmed = text.trim_end();
+                    if !trimmed.is_empty() {
+                        lines.push(trimmed.to_string());
+                        lines.push(String::new());
+                    }
+                }
+                ContentBlock::Thinking { .. } => {}
+                ContentBlock::ToolUse { id, name, input } => {
+                    lines.push(format!(
+                        "**Tool call** `{name}` _(id `{}`)_",
+                        short_tool_id(id)
+                    ));
+                    let summary = summarize_tool_payload_for_markdown(input);
+                    if !summary.is_empty() {
+                        lines.push(format!("> {summary}"));
+                    }
+                    lines.push(String::new());
+                }
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    tool_name,
+                    output,
+                    is_error,
+                } => {
+                    let status = if *is_error { "error" } else { "ok" };
+                    lines.push(format!(
+                        "**Tool result** `{tool_name}` _(id `{}`, {status})_",
+                        short_tool_id(tool_use_id)
+                    ));
+                    let summary = summarize_tool_payload_for_markdown(output);
+                    if !summary.is_empty() {
+                        lines.push(format!("> {summary}"));
+                    }
+                    lines.push(String::new());
+                }
+            }
+        }
+        if let Some(usage) = message.usage {
+            lines.push(format!(
+                "_tokens: in={} out={} cache_create={} cache_read={}_",
+                usage.input_tokens,
+                usage.output_tokens,
+                usage.cache_creation_input_tokens,
+                usage.cache_read_input_tokens,
+            ));
+            lines.push(String::new());
+        }
+    }
+    lines.join("\n")
+}
+
+pub fn format_internal_prompt_progress_line(
+    event: InternalPromptProgressEvent,
+    snapshot: &InternalPromptProgressState,
+    elapsed: Duration,
+    error: Option<&str>,
+) -> String {
+    let elapsed_seconds = elapsed.as_secs();
+    let step_label = if snapshot.step == 0 {
+        "current step pending".to_string()
+    } else {
+        format!("current step {}", snapshot.step)
+    };
+    let mut status_bits = vec![step_label, format!("phase {}", snapshot.phase)];
+    if let Some(detail) = snapshot
+        .detail
+        .as_deref()
+        .filter(|detail| !detail.is_empty())
+    {
+        status_bits.push(detail.to_string());
+    }
+    let status = status_bits.join(" · ");
+    match event {
+        InternalPromptProgressEvent::Started => {
+            format!(
+                "🧭 {} status · planning started · {status}",
+                snapshot.command_label
+            )
+        }
+        InternalPromptProgressEvent::Update => {
+            format!("… {} status · {status}", snapshot.command_label)
+        }
+        InternalPromptProgressEvent::Heartbeat => format!(
+            "… {} heartbeat · {elapsed_seconds}s elapsed · {status}",
+            snapshot.command_label
+        ),
+        InternalPromptProgressEvent::Complete => format!(
+            "✔ {} status · completed · {elapsed_seconds}s elapsed · {} steps total",
+            snapshot.command_label, snapshot.step
+        ),
+        InternalPromptProgressEvent::Failed => format!(
+            "✘ {} status · failed · {elapsed_seconds}s elapsed · {}",
+            snapshot.command_label,
+            error.unwrap_or("unknown error")
+        ),
+    }
+}
+
+pub fn format_user_visible_api_error(session_id: &str, error: &api::ApiError) -> String {
+    if error.is_context_window_failure() {
+        format_context_window_blocked_error(session_id, error)
+    } else if error.is_generic_fatal_wrapper() {
+        let mut qualifiers = vec![format!("session {session_id}")];
+        if let Some(request_id) = error.request_id() {
+            qualifiers.push(format!("trace {request_id}"));
+        }
+        format!(
+            "{} ({}): {}",
+            error.safe_failure_class(),
+            qualifiers.join(", "),
+            error
+        )
+    } else {
+        error.to_string()
+    }
+}
+
+pub fn format_context_window_blocked_error(session_id: &str, error: &api::ApiError) -> String {
+    let mut lines = vec![
+        "Context window blocked".to_string(),
+        "  Failure class    context_window_blocked".to_string(),
+        format!("  Session          {session_id}"),
+    ];
+
+    if let Some(request_id) = error.request_id() {
+        lines.push(format!("  Trace            {request_id}"));
+    }
+
+    match error {
+        api::ApiError::ContextWindowExceeded {
+            model,
+            estimated_input_tokens,
+            requested_output_tokens,
+            estimated_total_tokens,
+            context_window_tokens,
+        } => {
+            lines.push(format!("  Model            {model}"));
+            lines.push(format!(
+                "  Input estimate   ~{estimated_input_tokens} tokens (heuristic)"
+            ));
+            lines.push(format!(
+                "  Requested output {requested_output_tokens} tokens"
+            ));
+            lines.push(format!(
+                "  Total estimate   ~{estimated_total_tokens} tokens (heuristic)"
+            ));
+            lines.push(format!("  Context window   {context_window_tokens} tokens"));
+        }
+        api::ApiError::Api { message, body, .. } => {
+            let detail = message.as_deref().unwrap_or(body).trim();
+            if !detail.is_empty() {
+                lines.push(format!(
+                    "  Detail           {}",
+                    truncate_for_summary(detail, 120)
+                ));
+            }
+        }
+        api::ApiError::RetriesExhausted { last_error, .. } => {
+            let detail = match last_error.as_ref() {
+                api::ApiError::Api { message, body, .. } => message.as_deref().unwrap_or(body),
+                other => return format_context_window_blocked_error(session_id, other),
+            }
+            .trim();
+            if !detail.is_empty() {
+                lines.push(format!(
+                    "  Detail           {}",
+                    truncate_for_summary(detail, 120)
+                ));
+            }
+        }
+        _ => {}
+    }
+
+    lines.push(String::new());
+    lines.push("Recovery".to_string());
+    lines.push("  Compact          /compact".to_string());
+    lines.push(format!(
+        "  Resume compact   claw --resume {session_id} /compact"
+    ));
+    lines.push("  Fresh session    /clear --confirm".to_string());
+    lines.push(
+        "  Reduce scope     remove large pasted context/files or ask for a smaller slice"
+            .to_string(),
+    );
+    lines.push("  Retry            rerun after compacting or reducing the request".to_string());
+
+    lines.join("\n")
+}
+
+pub fn format_tool_call_start(name: &str, input: &str) -> String {
+    let parsed: serde_json::Value =
+        serde_json::from_str(input).unwrap_or(serde_json::Value::String(input.to_string()));
+
+    let detail = match name {
+        "bash" | "Bash" => format_bash_call(&parsed),
+        "read_file" | "Read" => {
+            let path = extract_tool_path(&parsed);
+            format!("\x1b[2m📄 Reading {path}…\x1b[0m")
+        }
+        "write_file" | "Write" => {
+            let path = extract_tool_path(&parsed);
+            let lines = parsed
+                .get("content")
+                .and_then(|value| value.as_str())
+                .map_or(0, |content| content.lines().count());
+            format!("\x1b[1;32m✏️ Writing {path}\x1b[0m \x1b[2m({lines} lines)\x1b[0m")
+        }
+        "edit_file" | "Edit" => {
+            let path = extract_tool_path(&parsed);
+            let old_value = parsed
+                .get("old_string")
+                .or_else(|| parsed.get("oldString"))
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            let new_value = parsed
+                .get("new_string")
+                .or_else(|| parsed.get("newString"))
+                .and_then(|value| value.as_str())
+                .unwrap_or_default();
+            format!(
+                "\x1b[1;33m📝 Editing {path}\x1b[0m{}",
+                format_patch_preview(old_value, new_value)
+                    .map(|preview| format!("\n{preview}"))
+                    .unwrap_or_default()
+            )
+        }
+        "glob_search" | "Glob" => format_search_start("🔎 Glob", &parsed),
+        "grep_search" | "Grep" => format_search_start("🔎 Grep", &parsed),
+        "web_search" | "WebSearch" => parsed
+            .get("query")
+            .and_then(|value| value.as_str())
+            .unwrap_or("?")
+            .to_string(),
+        _ => summarize_tool_payload(input),
+    };
+
+    let border = "─".repeat(name.len() + 8);
+    format!(
+        "\x1b[38;5;245m╭─ \x1b[1;36m{name}\x1b[0;38;5;245m ─╮\x1b[0m\n\x1b[38;5;245m│\x1b[0m {detail}\n\x1b[38;5;245m╰{border}╯\x1b[0m"
+    )
+}
+
+pub fn format_tool_result(name: &str, output: &str, is_error: bool) -> String {
+    let icon = if is_error {
+        "\x1b[1;31m✗\x1b[0m"
+    } else {
+        "\x1b[1;32m✓\x1b[0m"
+    };
+    if is_error {
+        let summary = truncate_for_summary(output.trim(), 160);
+        return if summary.is_empty() {
+            format!("{icon} \x1b[38;5;245m{name}\x1b[0m")
+        } else {
+            format!("{icon} \x1b[38;5;245m{name}\x1b[0m\n\x1b[38;5;203m{summary}\x1b[0m")
+        };
+    }
+
+    let parsed: serde_json::Value =
+        serde_json::from_str(output).unwrap_or(serde_json::Value::String(output.to_string()));
+    match name {
+        "bash" | "Bash" => format_bash_result(icon, &parsed),
+        "read_file" | "Read" => format_read_result(icon, &parsed),
+        "write_file" | "Write" => format_write_result(icon, &parsed),
+        "edit_file" | "Edit" => format_edit_result(icon, &parsed),
+        "glob_search" | "Glob" => format_glob_result(icon, &parsed),
+        "grep_search" | "Grep" => format_grep_result(icon, &parsed),
+        _ => format_generic_tool_result(icon, name, &parsed),
+    }
+}
+
+pub fn format_search_start(label: &str, parsed: &serde_json::Value) -> String {
+    let pattern = parsed
+        .get("pattern")
+        .and_then(|value| value.as_str())
+        .unwrap_or("?");
+    let scope = parsed
+        .get("path")
+        .and_then(|value| value.as_str())
+        .unwrap_or(".");
+    format!("{label} {pattern}\n\x1b[2min {scope}\x1b[0m")
+}
+
+pub fn format_patch_preview(old_value: &str, new_value: &str) -> Option<String> {
+    if old_value.is_empty() && new_value.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "\x1b[38;5;203m- {}\x1b[0m\n\x1b[38;5;70m+ {}\x1b[0m",
+        truncate_for_summary(first_visible_line(old_value), 72),
+        truncate_for_summary(first_visible_line(new_value), 72)
+    ))
+}
+
+pub fn format_bash_call(parsed: &serde_json::Value) -> String {
+    let command = parsed
+        .get("command")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    if command.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "\x1b[48;5;236;38;5;255m $ {} \x1b[0m",
+            truncate_for_summary(command, 160)
+        )
+    }
+}
+
+pub fn format_bash_result(icon: &str, parsed: &serde_json::Value) -> String {
+    use std::fmt::Write as _;
+
+    let mut lines = vec![format!("{icon} \x1b[38;5;245mbash\x1b[0m")];
+    if let Some(task_id) = parsed
+        .get("backgroundTaskId")
+        .and_then(|value| value.as_str())
+    {
+        write!(&mut lines[0], " backgrounded ({task_id})").expect("write to string");
+    } else if let Some(status) = parsed
+        .get("returnCodeInterpretation")
+        .and_then(|value| value.as_str())
+        .filter(|status| !status.is_empty())
+    {
+        write!(&mut lines[0], " {status}").expect("write to string");
+    }
+
+    if let Some(stdout) = parsed.get("stdout").and_then(|value| value.as_str()) {
+        if !stdout.trim().is_empty() {
+            lines.push(truncate_output_for_display(
+                stdout,
+                TOOL_OUTPUT_DISPLAY_MAX_LINES,
+                TOOL_OUTPUT_DISPLAY_MAX_CHARS,
+            ));
+        }
+    }
+    if let Some(stderr) = parsed.get("stderr").and_then(|value| value.as_str()) {
+        if !stderr.trim().is_empty() {
+            lines.push(format!(
+                "\x1b[38;5;203m{}\x1b[0m",
+                truncate_output_for_display(
+                    stderr,
+                    TOOL_OUTPUT_DISPLAY_MAX_LINES,
+                    TOOL_OUTPUT_DISPLAY_MAX_CHARS,
+                )
+            ));
+        }
+    }
+
+    lines.join("\n\n")
+}
+
+pub fn format_read_result(icon: &str, parsed: &serde_json::Value) -> String {
+    let file = parsed.get("file").unwrap_or(parsed);
+    let path = extract_tool_path(file);
+    let start_line = file
+        .get("startLine")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(1);
+    let num_lines = file
+        .get("numLines")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let total_lines = file
+        .get("totalLines")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(num_lines);
+    let content = file
+        .get("content")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let end_line = start_line.saturating_add(num_lines.saturating_sub(1));
+
+    format!(
+        "{icon} \x1b[2m📄 Read {path} (lines {}-{} of {})\x1b[0m\n{}",
+        start_line,
+        end_line.max(start_line),
+        total_lines,
+        truncate_output_for_display(content, READ_DISPLAY_MAX_LINES, READ_DISPLAY_MAX_CHARS)
+    )
+}
+
+pub fn format_write_result(icon: &str, parsed: &serde_json::Value) -> String {
+    let path = extract_tool_path(parsed);
+    let kind = parsed
+        .get("type")
+        .and_then(|value| value.as_str())
+        .unwrap_or("write");
+    let line_count = parsed
+        .get("content")
+        .and_then(|value| value.as_str())
+        .map_or(0, |content| content.lines().count());
+    format!(
+        "{icon} \x1b[1;32m✏️ {} {path}\x1b[0m \x1b[2m({line_count} lines)\x1b[0m",
+        if kind == "create" { "Wrote" } else { "Updated" },
+    )
+}
+
+pub fn format_structured_patch_preview(parsed: &serde_json::Value) -> Option<String> {
+    let hunks = parsed.get("structuredPatch")?.as_array()?;
+    let mut preview = Vec::new();
+    for hunk in hunks.iter().take(2) {
+        let lines = hunk.get("lines")?.as_array()?;
+        for line in lines.iter().filter_map(|value| value.as_str()).take(6) {
+            match line.chars().next() {
+                Some('+') => preview.push(format!("\x1b[38;5;70m{line}\x1b[0m")),
+                Some('-') => preview.push(format!("\x1b[38;5;203m{line}\x1b[0m")),
+                _ => preview.push(line.to_string()),
+            }
+        }
+    }
+    if preview.is_empty() {
+        None
+    } else {
+        Some(preview.join("\n"))
+    }
+}
+
+pub fn format_edit_result(icon: &str, parsed: &serde_json::Value) -> String {
+    let path = extract_tool_path(parsed);
+    let suffix = if parsed
+        .get("replaceAll")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false)
+    {
+        " (replace all)"
+    } else {
+        ""
+    };
+    let preview = format_structured_patch_preview(parsed).or_else(|| {
+        let old_value = parsed
+            .get("oldString")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        let new_value = parsed
+            .get("newString")
+            .and_then(|value| value.as_str())
+            .unwrap_or_default();
+        format_patch_preview(old_value, new_value)
+    });
+
+    match preview {
+        Some(preview) => format!("{icon} \x1b[1;33m📝 Edited {path}{suffix}\x1b[0m\n{preview}"),
+        None => format!("{icon} \x1b[1;33m📝 Edited {path}{suffix}\x1b[0m"),
+    }
+}
+
+pub fn format_glob_result(icon: &str, parsed: &serde_json::Value) -> String {
+    let num_files = parsed
+        .get("numFiles")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let filenames = parsed
+        .get("filenames")
+        .and_then(|value| value.as_array())
+        .map(|files| {
+            files
+                .iter()
+                .filter_map(|value| value.as_str())
+                .take(8)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    if filenames.is_empty() {
+        format!("{icon} \x1b[38;5;245mglob_search\x1b[0m matched {num_files} files")
+    } else {
+        format!("{icon} \x1b[38;5;245mglob_search\x1b[0m matched {num_files} files\n{filenames}")
+    }
+}
+
+pub fn format_grep_result(icon: &str, parsed: &serde_json::Value) -> String {
+    let num_matches = parsed
+        .get("numMatches")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let num_files = parsed
+        .get("numFiles")
+        .and_then(serde_json::Value::as_u64)
+        .unwrap_or(0);
+    let content = parsed
+        .get("content")
+        .and_then(|value| value.as_str())
+        .unwrap_or_default();
+    let filenames = parsed
+        .get("filenames")
+        .and_then(|value| value.as_array())
+        .map(|files| {
+            files
+                .iter()
+                .filter_map(|value| value.as_str())
+                .take(8)
+                .collect::<Vec<_>>()
+                .join("\n")
+        })
+        .unwrap_or_default();
+    let summary = format!(
+        "{icon} \x1b[38;5;245mgrep_search\x1b[0m {num_matches} matches across {num_files} files"
+    );
+    if !content.trim().is_empty() {
+        format!(
+            "{summary}\n{}",
+            truncate_output_for_display(
+                content,
+                TOOL_OUTPUT_DISPLAY_MAX_LINES,
+                TOOL_OUTPUT_DISPLAY_MAX_CHARS,
+            )
+        )
+    } else if !filenames.is_empty() {
+        format!("{summary}\n{filenames}")
+    } else {
+        summary
+    }
+}
+
+pub fn format_generic_tool_result(icon: &str, name: &str, parsed: &serde_json::Value) -> String {
+    let rendered_output = match parsed {
+        serde_json::Value::String(text) => text.clone(),
+        serde_json::Value::Null => String::new(),
+        serde_json::Value::Object(_) | serde_json::Value::Array(_) => {
+            serde_json::to_string_pretty(parsed).unwrap_or_else(|_| parsed.to_string())
+        }
+        _ => parsed.to_string(),
+    };
+    let preview = truncate_output_for_display(
+        &rendered_output,
+        TOOL_OUTPUT_DISPLAY_MAX_LINES,
+        TOOL_OUTPUT_DISPLAY_MAX_CHARS,
+    );
+
+    if preview.is_empty() {
+        format!("{icon} \x1b[38;5;245m{name}\x1b[0m")
+    } else if preview.contains('\n') {
+        format!("{icon} \x1b[38;5;245m{name}\x1b[0m\n{preview}")
+    } else {
+        format!("{icon} \x1b[38;5;245m{name}:\x1b[0m {preview}")
+    }
+}
+
+pub fn render_thinking_block_summary(
+    out: &mut (impl Write + ?Sized),
+    char_count: Option<usize>,
+    redacted: bool,
+) -> Result<(), RuntimeError> {
+    let summary = if redacted {
+        "\n▶ Thinking block hidden by provider\n".to_string()
+    } else if let Some(char_count) = char_count {
+        format!("\n▶ Thinking ({char_count} chars hidden)\n")
+    } else {
+        "\n▶ Thinking hidden\n".to_string()
+    };
+    write!(out, "{summary}")
+        .and_then(|()| out.flush())
+        .map_err(|error| RuntimeError::new(error.to_string()))
+}
+
+
+
+
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DoctorReport {
+    pub checks: Vec<DiagnosticCheck>,
+}
+
+impl DoctorReport {
+    pub fn counts(&self) -> (usize, usize, usize) {
+        (
+            self.checks
+                .iter()
+                .filter(|check| check.level == DiagnosticLevel::Ok)
+                .count(),
+            self.checks
+                .iter()
+                .filter(|check| check.level == DiagnosticLevel::Warn)
+                .count(),
+            self.checks
+                .iter()
+                .filter(|check| check.level == DiagnosticLevel::Fail)
+                .count(),
+        )
+    }
+
+    pub fn has_failures(&self) -> bool {
+        self.checks.iter().any(|check| check.level.is_failure())
+    }
+
+    pub fn status(&self) -> &'static str {
+        let (_, warn_count, fail_count) = self.counts();
+        if fail_count > 0 {
+            "fail"
+        } else if warn_count > 0 {
+            "warn"
+        } else {
+            "ok"
+        }
+    }
+
+    pub fn render(&self) -> String {
+        let (ok_count, warn_count, fail_count) = self.counts();
+        let mut lines = vec![
+            "Doctor".to_string(),
+            format!(
+                "Summary\n  OK               {ok_count}\n  Warnings         {warn_count}\n  Failures         {fail_count}"
+            ),
+        ];
+        lines.extend(self.checks.iter().map(render_diagnostic_check));
+        lines.join("\n\n")
+    }
+
+    pub fn json_value(&self) -> Value {
+        let report = self.render();
+        let (ok_count, warn_count, fail_count) = self.counts();
+        let tool_registry = GlobalToolRegistry::builtin();
+        json!({
+            "kind": "doctor",
+            "action": "doctor",
+            "status": self.status(),
+            "message": report,
+            "report": report,
+            "has_failures": self.has_failures(),
+            "summary": {
+                "total": self.checks.len(),
+                "ok": ok_count,
+                "warnings": warn_count,
+                "failures": fail_count,
+            },
+            "checks": self
+                .checks
+                .iter()
+                .map(DiagnosticCheck::json_value)
+                .collect::<Vec<_>>(),
+            "tools": {
+                "available": tool_registry.canonical_allowed_tool_names(),
+                "aliases": allowed_tool_aliases_json(&tool_registry),
+            },
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiagnosticCheck {
+    pub name: &'static str,
+    pub level: DiagnosticLevel,
+    pub summary: String,
+    pub details: Vec<String>,
+    pub data: Map<String, Value>,
+    /// #778: stable remediation hint for warn/fail checks so automation can read
+    /// a structured field instead of parsing details_prose.
+    pub hint: Option<String>,
+}
+
+impl DiagnosticCheck {
+    pub fn new(name: &'static str, level: DiagnosticLevel, summary: impl Into<String>) -> Self {
+        Self {
+            name,
+            level,
+            summary: summary.into(),
+            details: Vec::new(),
+            data: Map::new(),
+            hint: None,
+        }
+    }
+
+    pub fn with_details(mut self, details: Vec<String>) -> Self {
+        self.details = details;
+        self
+    }
+
+    pub fn with_data(mut self, data: Map<String, Value>) -> Self {
+        self.data = data;
+        self
+    }
+
+    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
+        let h = hint.into();
+        if !h.is_empty() {
+            self.hint = Some(h);
+        }
+        self
+    }
+
+    pub fn json_value(&self) -> Value {
+        // Derive a stable snake_case id from the check name for machine-readable keying (#704).
+        let id = self
+            .name
+            .to_ascii_lowercase()
+            .replace(' ', "_")
+            .replace('-', "_");
+        let mut value = Map::from_iter([
+            ("id".to_string(), Value::String(id.clone())),
+            (
+                "name".to_string(),
+                Value::String(self.name.to_ascii_lowercase()),
+            ),
+            (
+                "status".to_string(),
+                Value::String(self.level.label().to_string()),
+            ),
+            ("summary".to_string(), Value::String(self.summary.clone())),
+            (
+                // #701 (complete): `details[]` is now the canonical structured form —
+                // `{key, value}` objects instead of padded prose strings. The legacy
+                // prose representation is preserved as `details_prose[]` for callers
+                // that still scrape the formatted strings.
+                "details_prose".to_string(),
+                Value::Array(
+                    self.details
+                        .iter()
+                        .cloned()
+                        .map(Value::String)
+                        .collect::<Vec<_>>(),
+                ),
+            ),
+            (
+                // details[] is now structured {key,value} objects (was prose strings).
+                "details".to_string(),
+                Value::Array(
+                    self.details
+                        .iter()
+                        .map(|s| {
+                            // Split on first run of 2+ spaces to separate key from value.
+                            let parts: Vec<&str> = s.splitn(2, "  ").collect();
+                            if parts.len() == 2 {
+                                let k = parts[0].trim().to_string();
+                                let v_str = parts[1].trim();
+                                let v: Value = if v_str == "true" {
+                                    Value::Bool(true)
+                                } else if v_str == "false" {
+                                    Value::Bool(false)
+                                } else if let Ok(n) = v_str.parse::<i64>() {
+                                    Value::Number(n.into())
+                                } else {
+                                    Value::String(v_str.to_string())
+                                };
+                                json!({"key": k, "value": v})
+                            } else {
+                                json!({"key": s.trim(), "value": Value::Null})
+                            }
+                        })
+                        .collect::<Vec<_>>(),
+                ),
+            ),
+        ]);
+        // #778: include hint field so automation can read remediation without parsing prose
+        value.insert(
+            "hint".to_string(),
+            self.hint
+                .as_deref()
+                .map(|h| Value::String(h.to_string()))
+                .unwrap_or(Value::Null),
+        );
+        value.extend(self.data.clone());
+        Value::Object(value)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct PromptHistoryEntry {
+    pub timestamp_ms: u64,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InternalPromptProgressEvent {
+    Started,
+    Update,
+    Heartbeat,
+    Complete,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InternalPromptProgressState {
+    pub command_label: &'static str,
+    pub task_label: String,
+    pub step: usize,
+    pub phase: String,
+    pub detail: Option<String>,
+    pub saw_final_text: bool,
 }

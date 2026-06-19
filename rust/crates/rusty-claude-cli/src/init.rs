@@ -61,7 +61,7 @@ pub(crate) struct InitArtifact {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct InitReport {
+pub struct InitReport {
     pub(crate) project_root: PathBuf,
     pub(crate) artifacts: Vec<InitArtifact>,
 }
