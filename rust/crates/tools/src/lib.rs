@@ -452,12 +452,12 @@ impl GlobalToolRegistry {
             return to_pretty_json(output);
         }
 
-        if mvp_tool_specs().iter().any(|spec| spec.name == name) {
-            return execute_tool_with_enforcer(self.enforcer.as_ref(), name, input);
+        if let Some(spec) = mvp_tool_specs().iter().find(|spec| spec.name.eq_ignore_ascii_case(name)) {
+            return execute_tool_with_enforcer(self.enforcer.as_ref(), spec.name, input);
         }
         self.plugin_tools
             .iter()
-            .find(|tool| tool.definition().name == name)
+            .find(|tool| tool.definition().name.eq_ignore_ascii_case(name))
             .ok_or_else(|| format!("unsupported tool: {name}"))?
             .execute(input)
             .map_err(|error| error.to_string())
