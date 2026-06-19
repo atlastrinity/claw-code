@@ -7929,7 +7929,7 @@ UU conflicted.rs",
         assert!(allowed.contains("mcp__alpha__echo"));
         assert!(allowed.contains("mcp_tool"));
 
-        let mut executor =
+        let executor =
             CliToolExecutor::new(false, state.tool_registry.clone(), state.mcp_state.clone());
 
         let tool_output = executor
@@ -8023,7 +8023,7 @@ UU conflicted.rs",
         let runtime_config = loader.load().expect("runtime config should load");
         let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &runtime_config)
             .expect("runtime plugin state should load");
-        let mut executor =
+        let executor =
             CliToolExecutor::new(false, state.tool_registry.clone(), state.mcp_state.clone());
 
         let search_output = executor

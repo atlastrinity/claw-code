@@ -1,22 +1,32 @@
 [
   {
-    "content": "Analyze available driver files for different macOS versions",
-    "activeForm": "Analyzing available driver files",
+    "content": "Analyze current test failures and system state",
+    "activeForm": "Analyzing test failures and system state",
     "status": "completed"
   },
   {
-    "content": "Create installation guide for macOS 26.6 (Sequoia)",
-    "activeForm": "Creating installation guide for macOS 26.6",
+    "content": "Run Doctor to diagnose system issues",
+    "activeForm": "Running Doctor to diagnose issues",
     "status": "completed"
   },
   {
-    "content": "Create automated installation script for Alfa AWUS036AC",
-    "activeForm": "Creating automated installation script",
-    "status": "in_progress"
+    "content": "Fix bash password handling tests",
+    "activeForm": "Fixing bash password handling tests",
+    "status": "completed"
   },
   {
-    "content": "Test and verify driver installation",
-    "activeForm": "Testing and verifying driver installation",
-    "status": "pending"
+    "content": "Fix prompt discovery tests",
+    "activeForm": "Fixing prompt discovery tests",
+    "status": "completed"
+  },
+  {
+    "content": "Fix git_context and stale_base tests",
+    "activeForm": "Fixing git_context and stale_base tests",
+    "status": "completed"
+  },
+  {
+    "content": "Run full test suite to verify all fixes",
+    "activeForm": "Running full test suite to verify fixes",
+    "status": "completed"
   }
 ]
