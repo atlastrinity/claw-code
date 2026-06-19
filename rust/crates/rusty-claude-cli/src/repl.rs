@@ -564,13 +564,21 @@ impl LiveCli {
                     || error_str.contains("Service Unavailable")
                     || error_str.contains("502")
                     || error_str.contains("503")
-                    || error_str.contains("504");
+                    || error_str.contains("504")
+                    || error_str.contains("429")
+                    || error_str.contains("Too Many Requests")
+                    || error_str.contains("api_rate_limit_error");
 
                 if is_network_error {
-                    let max_retries = 3;
-                    for round in 1..=max_retries {
-                        println!("  Network error detected. Retrying ({round}/{max_retries})...");
-                        std::thread::sleep(std::time::Duration::from_secs(1));
+                    let mut current_timeout_secs = 5;
+                    let mut round = 1;
+                    let original_timeout = std::env::var("CLAW_API_REQUEST_TIMEOUT").ok();
+
+                    loop {
+                        println!("  Network error detected. Waiting {current_timeout_secs}s before retrying (round {round})...");
+                        std::thread::sleep(std::time::Duration::from_secs(current_timeout_secs));
+
+                        std::env::set_var("CLAW_API_REQUEST_TIMEOUT", current_timeout_secs.to_string());
 
                         let (mut new_runtime, new_monitor) = self.prepare_turn_runtime(true)?;
                         let mut new_prompter = CliPermissionPrompter::new(self.permission_mode);
@@ -588,6 +596,12 @@ impl LiveCli {
                         
                         match retry_result {
                             Ok(summary) => {
+                                if let Some(orig) = &original_timeout {
+                                    std::env::set_var("CLAW_API_REQUEST_TIMEOUT", orig);
+                                } else {
+                                    std::env::remove_var("CLAW_API_REQUEST_TIMEOUT");
+                                }
+
                                 self.replace_runtime(new_runtime)?;
                                 spinner.finish(
                                     "✨ Done",
@@ -626,12 +640,22 @@ impl LiveCli {
                                     || retry_str.contains("Service Unavailable")
                                     || retry_str.contains("502")
                                     || retry_str.contains("503")
-                                    || retry_str.contains("504");
+                                    || retry_str.contains("504")
+                                    || retry_str.contains("429")
+                                    || retry_str.contains("Too Many Requests")
+                                    || retry_str.contains("api_rate_limit_error");
                                     
-                                if still_network_error && round < max_retries {
+                                if still_network_error {
+                                    round += 1;
+                                    current_timeout_secs += 10;
                                     continue;
                                 }
                                 
+                                if let Some(orig) = &original_timeout {
+                                    std::env::set_var("CLAW_API_REQUEST_TIMEOUT", orig);
+                                } else {
+                                    std::env::remove_var("CLAW_API_REQUEST_TIMEOUT");
+                                }
                                 return Err(Box::new(retry_error));
                             }
                         }
