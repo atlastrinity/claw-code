@@ -532,7 +532,7 @@ impl GlobalToolRegistry {
 }
 
 pub mod normalization;
-use normalization::canonical_allowed_tool_name;
+pub use normalization::canonical_allowed_tool_name;
 
 fn allowed_tool_lookup_key(value: &str) -> String {
     canonical_allowed_tool_name(value).replace('_', "")
