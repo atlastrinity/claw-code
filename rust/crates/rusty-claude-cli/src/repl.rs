@@ -552,7 +552,93 @@ impl LiveCli {
                     }
                 }
 
-                // If not a context window error, return original error
+                // ============================================================================
+                // Auto-retry on network errors
+                // ============================================================================
+                let is_network_error = error_str.contains("error decoding response body")
+                    || error_str.contains("connection closed")
+                    || error_str.contains("timeout")
+                    || error_str.contains("broken pipe")
+                    || error_str.contains("connection reset")
+                    || error_str.contains("Bad Gateway")
+                    || error_str.contains("Service Unavailable")
+                    || error_str.contains("502")
+                    || error_str.contains("503")
+                    || error_str.contains("504");
+
+                if is_network_error {
+                    let max_retries = 3;
+                    for round in 1..=max_retries {
+                        println!("  Network error detected. Retrying ({round}/{max_retries})...");
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+
+                        let (mut new_runtime, new_monitor) = self.prepare_turn_runtime(true)?;
+                        let mut new_prompter = CliPermissionPrompter::new(self.permission_mode);
+                        
+                        let mut spinner = Spinner::new();
+                        let mut stdout = io::stdout();
+                        spinner.tick(
+                            "🦀 Thinking...",
+                            TerminalRenderer::new().color_theme(),
+                            &mut stdout,
+                        )?;
+                        
+                        let retry_result = new_runtime.run_turn(input, Some(&mut new_prompter));
+                        new_monitor.stop();
+                        
+                        match retry_result {
+                            Ok(summary) => {
+                                self.replace_runtime(new_runtime)?;
+                                spinner.finish(
+                                    "✨ Done",
+                                    TerminalRenderer::new().color_theme(),
+                                    &mut stdout,
+                                )?;
+                                let final_text = final_assistant_text(&summary);
+                                if !final_text.is_empty() {
+                                    println!("{final_text}");
+                                }
+                                println!();
+                                if let Some(event) = summary.auto_compaction {
+                                    println!(
+                                        "{}",
+                                        format_auto_compaction_notice(event.removed_message_count)
+                                    );
+                                }
+                                self.persist_session()?;
+                                return Ok(());
+                            }
+                            Err(retry_error) => {
+                                new_runtime.shutdown_plugins()?;
+                                spinner.fail(
+                                    "❌ Request failed",
+                                    TerminalRenderer::new().color_theme(),
+                                    &mut stdout,
+                                )?;
+                                
+                                let retry_str = retry_error.to_string();
+                                let still_network_error = retry_str.contains("error decoding response body")
+                                    || retry_str.contains("connection closed")
+                                    || retry_str.contains("timeout")
+                                    || retry_str.contains("broken pipe")
+                                    || retry_str.contains("connection reset")
+                                    || retry_str.contains("Bad Gateway")
+                                    || retry_str.contains("Service Unavailable")
+                                    || retry_str.contains("502")
+                                    || retry_str.contains("503")
+                                    || retry_str.contains("504");
+                                    
+                                if still_network_error && round < max_retries {
+                                    continue;
+                                }
+                                
+                                return Err(Box::new(retry_error));
+                            }
+                        }
+                    }
+                }
+
+                // If not a context window or network error, return original error
                 Err(Box::new(error))
             }
         }
