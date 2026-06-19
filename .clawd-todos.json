@@ -1,22 +1,22 @@
 [
   {
-    "content": "Identify ALFA WiFi adapter model",
-    "activeForm": "Identifying ALFA WiFi adapter model",
+    "content": "Analyze available driver files for different macOS versions",
+    "activeForm": "Analyzing available driver files",
     "status": "completed"
   },
   {
-    "content": "Clone ALFA WiFi driver repository from GitHub",
-    "activeForm": "Cloning ALFA WiFi driver repository",
+    "content": "Create installation guide for macOS 26.6 (Sequoia)",
+    "activeForm": "Creating installation guide for macOS 26.6",
+    "status": "completed"
+  },
+  {
+    "content": "Create automated installation script for Alfa AWUS036AC",
+    "activeForm": "Creating automated installation script",
     "status": "in_progress"
   },
   {
-    "content": "Install drivers for macOS",
-    "activeForm": "Installing drivers for macOS",
-    "status": "pending"
-  },
-  {
-    "content": "Verify adapter functionality",
-    "activeForm": "Verifying adapter functionality",
+    "content": "Test and verify driver installation",
+    "activeForm": "Testing and verifying driver installation",
     "status": "pending"
   }
 ]

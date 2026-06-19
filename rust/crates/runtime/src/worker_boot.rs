@@ -60,6 +60,7 @@ pub enum WorkerFailureKind {
     PromptDelivery,
     Protocol,
     Provider,
+    ProviderTimeout,
     StartupNoEvidence,
 }
 
@@ -742,6 +743,37 @@ impl WorkerRegistry {
                 None,
             );
         }
+
+        Ok(worker.clone())
+    }
+
+    /// Handle scenarios where the LLM provider hangs or times out.
+    /// Cancels any in-flight prompt delivery and arms prompt replay for auto-recovery.
+    pub fn observe_provider_timeout(&self, worker_id: &str) -> Result<Worker, String> {
+        let mut inner = self.inner.lock().expect("worker registry lock poisoned");
+        let worker = inner
+            .workers
+            .get_mut(worker_id)
+            .ok_or_else(|| format!("worker not found: {worker_id}"))?;
+
+        worker.last_error = Some(WorkerFailure {
+            kind: WorkerFailureKind::ProviderTimeout,
+            message: "provider timed out or hung during prompt execution".to_string(),
+            created_at: now_secs(),
+        });
+        worker.prompt_in_flight = false;
+        
+        // Arm replay prompt to retry automatically
+        worker.replay_prompt = worker.last_prompt.clone();
+        worker.status = WorkerStatus::ReadyForPrompt;
+        
+        push_event(
+            worker,
+            WorkerEventKind::PromptReplayArmed,
+            WorkerStatus::ReadyForPrompt,
+            Some("prompt replay armed after provider timeout".to_string()),
+            None,
+        );
 
         Ok(worker.clone())
     }

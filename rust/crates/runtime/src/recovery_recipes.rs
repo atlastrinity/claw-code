@@ -23,6 +23,7 @@ pub enum FailureScenario {
     McpHandshakeFailure,
     PartialPluginStartup,
     ProviderFailure,
+    ProviderTimeout,
 }
 
 impl FailureScenario {
@@ -37,6 +38,7 @@ impl FailureScenario {
             Self::McpHandshakeFailure,
             Self::PartialPluginStartup,
             Self::ProviderFailure,
+            Self::ProviderTimeout,
         ]
     }
 
@@ -53,6 +55,7 @@ impl FailureScenario {
             WorkerFailureKind::Provider | WorkerFailureKind::StartupNoEvidence => {
                 Self::ProviderFailure
             }
+            WorkerFailureKind::ProviderTimeout => Self::ProviderTimeout,
         }
     }
 }
@@ -67,6 +70,7 @@ impl std::fmt::Display for FailureScenario {
             Self::McpHandshakeFailure => write!(f, "mcp_handshake_failure"),
             Self::PartialPluginStartup => write!(f, "partial_plugin_startup"),
             Self::ProviderFailure => write!(f, "provider_failure"),
+            Self::ProviderTimeout => write!(f, "provider_timeout"),
         }
     }
 }
@@ -82,6 +86,7 @@ pub enum RecoveryStep {
     RetryMcpHandshake { timeout: u64 },
     RestartPlugin { name: String },
     RestartWorker,
+    RetryPrompt,
     EscalateToHuman { reason: String },
 }
 
@@ -327,6 +332,12 @@ pub fn recipe_for(scenario: &FailureScenario) -> RecoveryRecipe {
         FailureScenario::ProviderFailure => RecoveryRecipe {
             scenario: *scenario,
             steps: vec![RecoveryStep::RestartWorker],
+            max_attempts: 1,
+            escalation_policy: EscalationPolicy::AlertHuman,
+        },
+        FailureScenario::ProviderTimeout => RecoveryRecipe {
+            scenario: *scenario,
+            steps: vec![RecoveryStep::RetryPrompt],
             max_attempts: 1,
             escalation_policy: EscalationPolicy::AlertHuman,
         },
