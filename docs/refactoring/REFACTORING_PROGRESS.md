@@ -38,9 +38,9 @@ This document tracks the progress of refactoring the massive `main.rs` file (ori
 **Purpose**: Model Context Protocol integration.
 **Status**: ✅ Complete
 
-### 8. ✅ Core Application Logic Module (live_core.rs)
+### 8. ✅ Core Application Logic Module (live_core.rs -> Decomposed)
 **Purpose**: The central execution logic, REPL looping, and orchestrating other components.
-*(Note: Renamed from `commands.rs` to avoid workspace namespace collision with the `commands` crate).*
+*(Note: Originally extracted as `live_core.rs`, but subsequently micro-modularized into: `setup.rs`, `export.rs`, `doctor.rs`, `repl.rs`, `tool_executor.rs`, `session_orchestrator.rs`, and `utils.rs`)*.
 **Status**: ✅ Complete
 
 ### 9. ✅ Render Module (render.rs)

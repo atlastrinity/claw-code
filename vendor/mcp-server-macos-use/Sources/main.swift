@@ -895,7 +895,7 @@ func captureWindow(pid: pid_t) async -> CGImage? {
     
     do {
         let content = try await SCShareableContent.current
-        guard let app = content.applications.first(where: { $0.processID == pid }) else { return nil }
+        guard content.applications.contains(where: { $0.processID == pid }) else { return nil }
         
         let appWindows = content.windows.filter { $0.owningApplication?.processID == pid && $0.isOnScreen }
         

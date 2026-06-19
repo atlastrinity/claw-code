@@ -82,6 +82,13 @@ pub mod status; pub use status::*;
 pub mod validation; pub use validation::*;
 pub mod help; pub use help::*;
 pub mod mcp; pub use mcp::*;
+pub mod setup; pub use setup::*;
+pub mod export; pub use export::*;
+pub mod doctor; pub use doctor::*;
+pub mod tool_executor;
+pub mod session_orchestrator; pub use tool_executor::*;
+pub use session_orchestrator::*;
+pub mod repl; pub use repl::*;
 
 
 
@@ -111,7 +118,7 @@ pub const CLI_OPTION_SUGGESTIONS: &[&str] = &[
     "--base-commit", "-p",
 ];
 
-pub mod live_core; pub use live_core::*;
+pub mod utils; pub use utils::*;
 
 use runtime::session_control::LATEST_SESSION_REFERENCE;
 
