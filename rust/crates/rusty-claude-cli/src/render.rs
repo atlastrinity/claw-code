@@ -1237,7 +1237,7 @@ pub fn render_doctor_report(
 }
 
 #[cfg(test)]
-fn format_unknown_slash_command_message(name: &str) -> String {
+pub fn format_unknown_slash_command_message(name: &str) -> String {
     let suggestions = suggest_slash_commands(name);
     let mut message = format!("unknown slash command: /{name}.");
     if !suggestions.is_empty() {

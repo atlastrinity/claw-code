@@ -4881,29 +4881,36 @@ mod tests {
         classify_error_kind, classify_session_lifecycle_from_panes, collect_session_prompt_history,
         create_managed_session_handle, describe_tool_progress, filter_tool_specs,
         format_bughunter_report, format_commit_preflight_report, format_commit_skipped_report,
-        format_compact_report, format_connected_line, format_cost_report, format_history_timestamp,
+        format_compact_report, format_connected_line, format_cost_report,
         format_internal_prompt_progress_line, format_issue_report, format_model_report,
         format_model_switch_report, format_permissions_report, format_permissions_switch_report,
         format_pr_report, format_resume_report, format_status_report, format_tool_call_start,
         format_tool_result, format_ultraplan_report, format_unknown_slash_command,
-        format_unknown_slash_command_message, format_user_visible_api_error,
-        merge_prompt_with_stdin, normalize_permission_mode, parse_args, parse_export_args,
+        format_user_visible_api_error,
+        normalize_permission_mode, parse_export_args,
         parse_git_status_branch, parse_git_status_metadata_for, parse_git_workspace_summary,
-        parse_history_count, permission_policy, print_help_to, push_output_block,
+        parse_history_count, permission_policy, push_output_block,
         render_config_report, render_diff_report, render_diff_report_for, render_help_topic,
-        render_help_topic_json, render_memory_report, render_prompt_history_report,
+        render_memory_report, render_prompt_history_report,
         render_repl_help, render_resume_usage, render_session_list, render_session_markdown,
         resolve_model_alias, resolve_model_alias_with_config, resolve_repl_model,
         resolve_session_reference, response_to_events, resume_supported_slash_commands,
         run_resume_command, short_tool_id, slash_command_completion_candidates_with_sessions,
         split_error_hint, status_context, status_json_value, summarize_tool_payload_for_markdown,
         try_resolve_bare_skill_prompt, validate_no_args, write_mcp_server_fixture, CliAction,
-        CliOutputFormat, CliToolExecutor, GitOperation, GitWorkspaceSummary,
+        CliOutputFormat, CliToolExecutor, GitOperation,
         InternalPromptProgressEvent, InternalPromptProgressState, LiveCli, LocalHelpTopic,
         PermissionModeProvenance, PromptHistoryEntry, SessionLifecycleKind,
         SessionLifecycleSummary, SlashCommand, StatusUsage, TmuxPaneSnapshot, DEFAULT_MODEL,
         LATEST_SESSION_REFERENCE, 
     };
+    use crate::cli::parse_args;
+    use crate::config::validate_model_syntax;
+    use crate::git::GitWorkspaceSummary;
+    use crate::help::print_help_to;
+    use crate::render::{format_history_timestamp, format_unknown_slash_command_message, render_help_topic_json};
+    use crate::merge_prompt_with_stdin;
+    use crate::STUB_COMMANDS;
     use api::{ApiError, MessageResponse, OutputContentBlock, Usage};
     use plugins::{
         PluginManager, PluginManagerConfig, PluginTool, PluginToolDefinition, PluginToolPermission,
@@ -5247,7 +5254,7 @@ mod tests {
             parse_args(&[]).expect("args should parse"),
             CliAction::Repl {
                 model: DEFAULT_MODEL.to_string(),
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 base_commit: None,
                 reasoning_effort: None,
@@ -5380,7 +5387,7 @@ mod tests {
                 prompt: "hello world".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -5471,7 +5478,7 @@ mod tests {
                 prompt: "explain this".to_string(),
                 model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Json,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -5493,7 +5500,7 @@ mod tests {
                 prompt: "-prompt-with-dash".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -5509,7 +5516,7 @@ mod tests {
                 prompt: "-not-a-flag".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -5525,7 +5532,7 @@ mod tests {
                 prompt: "--bogus-flag-like literal".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -5563,7 +5570,7 @@ mod tests {
                 prompt: "summarize this".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: true,
                 base_commit: None,
@@ -5578,7 +5585,7 @@ mod tests {
                 prompt: "hello".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: true,
                 base_commit: None,
@@ -5621,7 +5628,7 @@ mod tests {
                 prompt: "explain this".to_string(),
                 model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -5710,7 +5717,7 @@ mod tests {
             parse_args(&args).expect("args should parse"),
             CliAction::Repl {
                 model: DEFAULT_MODEL.to_string(),
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::ReadOnly,
                 base_commit: None,
                 reasoning_effort: None,
@@ -5731,7 +5738,7 @@ mod tests {
             parsed,
             CliAction::Repl {
                 model: DEFAULT_MODEL.to_string(),
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
                 base_commit: None,
                 reasoning_effort: None,
@@ -5760,7 +5767,7 @@ mod tests {
                 prompt: "do the thing".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
                 compact: false,
                 base_commit: None,
@@ -5783,7 +5790,7 @@ mod tests {
             parse_args(&args).expect("args should parse"),
             CliAction::Repl {
                 model: DEFAULT_MODEL.to_string(),
-                tools: Some(
+                allowed_tools: Some(
                     ["glob_search", "read_file", "write_file"]
                         .into_iter()
                         .map(str::to_string)
@@ -5963,7 +5970,7 @@ mod tests {
                 prompt: "$help overview".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: crate::default_permission_mode(),
                 compact: false,
                 base_commit: None,
@@ -6710,7 +6717,7 @@ mod tests {
                 model_flag_raw: None, // #148: no --model flag passed
                 permission_mode: PermissionModeProvenance::default_fallback(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
             }
         );
         assert_eq!(
@@ -6778,7 +6785,7 @@ mod tests {
             "Unrelated model errors should not get a hint: {err_garbage}"
         );
 
-        let original_openai_base_url = std::std::env::var_os("OPENAI_BASE_URL");
+        let original_openai_base_url = std::env::var_os("OPENAI_BASE_URL");
         std::env::set_var("OPENAI_BASE_URL", "http://127.0.0.1:11434/v1");
         match parse_args(&[
             "prompt".to_string(),
@@ -7395,7 +7402,7 @@ mod tests {
                 prompt: "please debug this".to_string(),
                 model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: crate::default_permission_mode(),
                 compact: false,
                 base_commit: None,
@@ -7466,7 +7473,7 @@ mod tests {
                 prompt: "$help overview".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: crate::default_permission_mode(),
                 compact: false,
                 base_commit: None,
@@ -7493,7 +7500,7 @@ mod tests {
                 prompt: "$test".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: crate::default_permission_mode(),
                 compact: false,
                 base_commit: None,
@@ -7508,7 +7515,7 @@ mod tests {
                 model_flag_raw: None,
                 permission_mode: PermissionModeProvenance::default_fallback(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
             }
         );
     }
@@ -7628,7 +7635,7 @@ mod tests {
                 prompt: "hello world this is a prompt".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: crate::default_permission_mode(),
                 compact: false,
                 base_commit: None,
@@ -7647,7 +7654,7 @@ mod tests {
                 prompt: "doctorr".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -7676,7 +7683,7 @@ mod tests {
                 prompt: "PARITY_SCENARIO:bash_permission_prompt_approved".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
-                tools: None,
+                allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 compact: false,
                 base_commit: None,
@@ -10347,7 +10354,8 @@ mod alias_resolution_tests {
         }
     }
 
-    use super::{resolve_model_alias_with_config, validate_model_syntax};
+    use super::resolve_model_alias_with_config;
+    use crate::config::validate_model_syntax;
 
     #[test]
     fn test_alias_resolution_builtin() {

@@ -47,6 +47,7 @@ use crate::{
     suggest_similar_subcommand, render_suggestion_line, is_help_flag,
 };
 
+#[derive(Debug, PartialEq)]
 pub enum CliAction {
     DumpManifests {
         output_format: CliOutputFormat,
