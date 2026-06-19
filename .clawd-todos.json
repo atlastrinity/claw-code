@@ -1,32 +1,17 @@
 [
   {
-    "content": "Analyze current test failures and system state",
-    "activeForm": "Analyzing test failures and system state",
+    "content": "Update USAGE.md with runtime modernization features",
+    "activeForm": "Updating USAGE.md with runtime modernization features",
     "status": "completed"
   },
   {
-    "content": "Run Doctor to diagnose system issues",
-    "activeForm": "Running Doctor to diagnose issues",
-    "status": "completed"
+    "content": "Check and update other documentation files",
+    "activeForm": "Checking and updating other documentation files",
+    "status": "in_progress"
   },
   {
-    "content": "Fix bash password handling tests",
-    "activeForm": "Fixing bash password handling tests",
-    "status": "completed"
-  },
-  {
-    "content": "Fix prompt discovery tests",
-    "activeForm": "Fixing prompt discovery tests",
-    "status": "completed"
-  },
-  {
-    "content": "Fix git_context and stale_base tests",
-    "activeForm": "Fixing git_context and stale_base tests",
-    "status": "completed"
-  },
-  {
-    "content": "Run full test suite to verify all fixes",
-    "activeForm": "Running full test suite to verify fixes",
-    "status": "completed"
+    "content": "Add example usage for new features",
+    "activeForm": "Adding example usage for new features",
+    "status": "pending"
   }
 ]

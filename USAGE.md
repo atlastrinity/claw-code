@@ -474,6 +474,40 @@ When the `serve` process is running and `RAG_BASE_URL` is set, agents can use tw
 
 When the `serve` process is running and `RAG_BASE_URL` is set, autonomous agents equipped with these tools (part of the standard `--tools` set) can automatically query the codebase and even chunk and embed new code directly into the local SQLite index on-the-fly, preventing context overflow during long-running sessions. The default SQLite database is stored at `.claw-rag/index.sqlite` and can be deleted to force a re-index.
 
+### Runtime Modernization Features
+
+The Claw runtime has been modernized with several performance and reliability improvements:
+
+#### Parallel Tool Execution
+Multiple read-only tool calls (e.g., `read_file`, `grep_search`, `ToolSearch`) now execute concurrently instead of sequentially, dramatically reducing latency for large batch operations. Write operations (e.g., `bash`, `write_file`) remain isolated to prevent race conditions.
+
+```bash
+# Fast batch of read operations
+claw prompt "find all TODO comments and explain what they're for"
+# All read operations run in parallel under the hood
+```
+
+#### Middleware Pipeline
+Execution flows now traverse a composable middleware chain that handles tracing, permissions, hooks, and execution in separate, testable layers. This makes the system more modular and easier to extend.
+
+#### Resilient Provider Chain
+The provider fallback logic now includes circuit breaking and cost tracking. If a primary model (e.g., Claude) experiences degradation or rate limits, Claw automatically switches to backup providers (Grok, OpenAI-compatible) with minimal latency impact.
+
+```bash
+# Claw automatically handles provider fallback
+claw --model sonnet prompt "analyze this codebase"
+# If Claude is degraded, it seamlessly switches to Grok or OpenAI-compatible backends
+```
+
+#### Cost Tracking
+The runtime tracks total input/output tokens and estimated costs across all retries and provider handoffs, making it easy to monitor usage:
+
+```bash
+# Check cost summary
+claw prompt "review the entire codebase"
+# The runtime reports total tokens and estimated cost at the end of execution
+```
+
 ## File context and navigation
 
 Use `@path/to/file` in prompts to submit repository files as context, for example `Read @src/app.ts and explain the bug`, `Compare @old.md and @new.md`, or `Use @logs/error.txt as context and suggest a fix`. Prompt history, `Ctrl-r`, and long-output scrolling come from your shell, terminal, or tmux rather than from Claw itself. See [`docs/navigation-file-context.md`](./docs/navigation-file-context.md) for scrollback, attachment, and secret-redaction guidance.
