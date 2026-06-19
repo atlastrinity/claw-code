@@ -1,32 +1,22 @@
 [
   {
-    "content": "Extract error handling functions (classify_error_kind, split_error_hint, etc.) to error module",
-    "activeForm": "Extracting error handling functions to error module",
+    "content": "Identify ALFA WiFi adapter model",
+    "activeForm": "Identifying ALFA WiFi adapter model",
+    "status": "completed"
+  },
+  {
+    "content": "Clone ALFA WiFi driver repository from GitHub",
+    "activeForm": "Cloning ALFA WiFi driver repository",
     "status": "in_progress"
   },
   {
-    "content": "Extract environment and config helper functions to env module",
-    "activeForm": "Extracting environment and config helper functions",
+    "content": "Install drivers for macOS",
+    "activeForm": "Installing drivers for macOS",
     "status": "pending"
   },
   {
-    "content": "Extract global CWD and stdin functions to a new module",
-    "activeForm": "Extracting global CWD and stdin functions",
-    "status": "pending"
-  },
-  {
-    "content": "Extract plugin JSON functions to plugin module",
-    "activeForm": "Extracting plugin JSON functions",
-    "status": "pending"
-  },
-  {
-    "content": "Update main.rs to use all new modules and remove extracted code",
-    "activeForm": "Updating main.rs to use all new modules",
-    "status": "pending"
-  },
-  {
-    "content": "Test the refactored code to ensure it compiles and runs correctly",
-    "activeForm": "Testing the refactored code",
+    "content": "Verify adapter functionality",
+    "activeForm": "Verifying adapter functionality",
     "status": "pending"
   }
 ]

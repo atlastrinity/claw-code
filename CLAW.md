@@ -17,3 +17,8 @@ You have full macOS screen vision and GUI control via `macos-use_*` tools. Alway
 
 - **`retrieve_context`**: Query before starting complex tasks to find prior knowledge.
 - **`ingest_context`**: Store findings, patterns, and decisions after significant work for future retrieval. Use descriptive, keyword-rich text.
+
+## 4. System Queries & Automation
+
+- **Prefer CLI over AppleScript:** For any system queries, hardware diagnostics, or configuration tasks (e.g., USB devices, network info), ALWAYS use deterministic macOS CLI tools (like `system_profiler`, `ioreg`, `networksetup`, `scutil`) via bash/zsh. 
+- **Strict AppleScript Limits:** DO NOT use AppleScript or GUI dictionaries (like 'System Information') to query system state. Reserve AppleScript STRICTLY as a last resort for GUI application automation, and ONLY when the dedicated `macos-use_*` (vision/mouse/keyboard) tools cannot accomplish the task. This prevents syntax hallucinations and ensures reliable execution.
