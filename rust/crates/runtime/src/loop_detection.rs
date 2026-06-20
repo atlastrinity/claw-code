@@ -59,7 +59,7 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for LoopDetectionMiddleware<'a> {
             }
 
             if identical_count >= self.max_identical_calls {
-                let reason = "[SYSTEM DIRECTIVE - LOOP DETECTED]\nYou have executed this exact same tool with the exact same input recently in this turn.\nYou are caught in a repetitive loop. Analyze your actions, stop repeating the same cyclical events, try a completely different approach, or STOP and ask the user for clarification.".to_string();
+                let reason = "[SYSTEM DIRECTIVE - LOOP DETECTED]\nYou have executed this exact same tool with the exact same input recently in this turn.\nYou are caught in a repetitive loop. Analyze your actions, stop repeating the same cyclical events, try a completely different approach.".to_string();
 
                 denied_messages.push(ConversationMessage::tool_result(
                     call_state.request.tool_use_id.clone(),
