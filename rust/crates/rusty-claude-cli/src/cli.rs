@@ -420,6 +420,7 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut reasoning_effort: Option<String> = None;
     let mut allow_broad_cwd = false;
     let mut preset: Option<CliPreset> = None;
+    let mut accept_danger_non_interactive = false;
 
     // #755: -p prompt text captured as single token; remaining args continue
     // flag parsing. None until `-p <text>` is seen.
@@ -518,6 +519,10 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
             }
             "--dangerously-skip-permissions" | "--skip-permissions" => {
                 permission_mode_override = Some(PermissionMode::DangerFullAccess);
+                index += 1;
+            }
+            "--accept-danger-non-interactive" => {
+                accept_danger_non_interactive = true;
                 index += 1;
             }
             "--compact" => {
@@ -742,6 +747,14 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     let allowed_tools = normalize_allowed_tools(&allowed_tool_values)?;
+    
+    let permission_mode = permission_mode_override.unwrap_or_else(default_permission_mode);
+    let stdin_is_terminal = std::io::stdin().is_terminal();
+    
+    // Enforcement of Non-TTY Safety
+    if matches!(permission_mode, PermissionMode::DangerFullAccess) && !stdin_is_terminal && !accept_danger_non_interactive {
+        return Err("permission modes 'danger-full-access' and 'allow' are refused when stdin is not a TTY (non-interactive).\nUse --permission-mode read-only or workspace-write for CI/automation, or pass --accept-danger-non-interactive if you accept the risk.".to_string());
+    }
 
     // #755: -p consumed exactly one token; dispatch now that all flags are parsed
     if let Some(prompt) = short_p_prompt {
@@ -750,7 +763,7 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
             model: resolve_model_alias_with_config(&model),
             output_format,
             allowed_tools,
-            permission_mode: permission_mode_override.unwrap_or_else(default_permission_mode),
+            permission_mode,
             compact,
             base_commit,
             reasoning_effort,
@@ -760,7 +773,6 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     if positional_after_separator && !rest.is_empty() {
-        let permission_mode = permission_mode_override.unwrap_or_else(default_permission_mode);
         return Ok(CliAction::Prompt {
             prompt: rest.join(" "),
             model,
@@ -776,8 +788,6 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     if rest.is_empty() {
-        let permission_mode = permission_mode_override.unwrap_or_else(default_permission_mode);
-        let stdin_is_terminal = std::io::stdin().is_terminal();
         if compact && stdin_is_terminal {
             return Err(compact_missing_argument_error());
         }
@@ -821,8 +831,8 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
             base_commit,
             reasoning_effort: reasoning_effort.clone(),
             allow_broad_cwd,
-        preset: preset.clone(),
-            });
+            preset: preset.clone(),
+        });
     }
     if let Some(action) = parse_local_help_action(&rest, output_format) {
         return action;

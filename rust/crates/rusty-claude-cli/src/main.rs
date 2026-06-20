@@ -143,6 +143,8 @@ pub const CLI_OPTION_SUGGESTIONS: &[&str] = &[
     "--compact",
     "--base-commit",
     "-p",
+    "--preset",
+    "--accept-danger-non-interactive",
 ];
 
 pub mod utils;
@@ -421,6 +423,7 @@ fn global_flag_takes_value(flag: &str) -> bool {
     matches!(
         flag,
         "--model"
+            | "--preset"
             | "--output-format"
             | "--permission-mode"
             | "--base-commit"
@@ -431,11 +434,11 @@ fn global_flag_takes_value(flag: &str) -> bool {
 
 fn global_flag_is_value_inline(flag: &str) -> bool {
     flag.starts_with("--model=")
+        || flag.starts_with("--preset=")
         || flag.starts_with("--output-format=")
         || flag.starts_with("--permission-mode=")
         || flag.starts_with("--base-commit=")
         || flag.starts_with("--reasoning-effort=")
-        || flag.starts_with("--tools=")
         || flag.starts_with("--tools=")
 }
 
@@ -448,6 +451,7 @@ fn global_flag_without_value(flag: &str) -> bool {
             | "-V"
             | "--dangerously-skip-permissions"
             | "--skip-permissions"
+            | "--accept-danger-non-interactive"
             | "--compact"
             | "--allow-broad-cwd"
             | "--print"
