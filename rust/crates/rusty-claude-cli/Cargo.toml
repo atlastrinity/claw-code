@@ -10,6 +10,7 @@ name = "claw"
 path = "src/main.rs"
 
 [dependencies]
+claw_logger = { path = "../logger" }
 api = { path = "../api" }
 commands = { path = "../commands" }
 crossterm = "0.28"

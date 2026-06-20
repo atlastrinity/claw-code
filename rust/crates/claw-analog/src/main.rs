@@ -386,6 +386,7 @@ fn build_config(
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let _logger_guard = claw_logger::init_logger("claw-analog");
     let root = RootCli::parse();
     match root.command {
         Some(Commands::Doctor(d)) => {

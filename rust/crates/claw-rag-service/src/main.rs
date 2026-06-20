@@ -87,6 +87,7 @@ fn resolve_embed_config() -> Result<EmbedConfig, String> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let _logger_guard = claw_logger::init_logger("claw-rag-service");
     // Load `.env` if present (walks up parent directories).
     // This is a convenience for local development; CI/production should set real env vars.
     let _ = dotenvy::dotenv();

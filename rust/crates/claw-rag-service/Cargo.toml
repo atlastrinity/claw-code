@@ -7,6 +7,7 @@ publish.workspace = true
 description = "Workspace RAG service: SQLite index, OpenAI-compatible embeddings, query API."
 
 [dependencies]
+claw_logger = { path = "../logger" }
 axum = "0.8"
 clap = { version = "4", features = ["derive", "env"] }
 dotenvy = "0.15"

@@ -15,6 +15,7 @@ name = "claw-analog"
 path = "src/main.rs"
 
 [dependencies]
+claw_logger = { path = "../logger" }
 api = { path = "../api" }
 clap = { version = "4", features = ["derive"] }
 clap_complete = "4"

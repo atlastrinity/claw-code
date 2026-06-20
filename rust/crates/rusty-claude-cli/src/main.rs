@@ -151,6 +151,7 @@ pub use utils::*;
 use runtime::session_control::LATEST_SESSION_REFERENCE;
 
 fn main() {
+    let _logger_guard = claw_logger::init_logger("claw");
     let _ = dotenvy::dotenv();
     if let Err(error) = run() {
         let message = error.to_string();
