@@ -1877,6 +1877,17 @@ func setupAndStartServer() async throws -> Server {
                 let withAccessibility = try getOptionalBool(from: params.arguments, key: "withAccessibility") ?? false
                 let targetPid = try getOptionalInt(from: params.arguments, key: "pid")
 
+                // Check Screen Recording permission FIRST to avoid SCShareableContent.current hanging indefinitely
+                // when the binary signature changes or permissions are missing in a non-interactive CLI.
+                if #available(macOS 11.0, *) {
+                    if !CGPreflightScreenCaptureAccess() {
+                        // In non-interactive mode, don't attempt to open system settings directly if we can't ensure it's visible,
+                        // but it's safe to call openSystemSettings() as it just asks macOS to open the pane.
+                        // However, to be safe, we just return the error immediately.
+                        return .init(content: [.text("Screen Recording access denied or invalidated (did the binary signature change?). Please remove and re-add the server binary in System Settings > Privacy & Security > Screen Recording.")], isError: true)
+                    }
+                }
+
                 // Try window-targeted capture first if PID is provided (smaller image = fewer tokens)
                 var capturedImage: CGImage?
                 var usedWindowCapture = false
