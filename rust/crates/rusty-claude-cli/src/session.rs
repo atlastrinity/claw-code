@@ -33,13 +33,20 @@ pub fn current_session_store() -> Result<runtime::SessionStore, Box<dyn std::err
 }
 
 pub fn new_cli_session() -> Result<Session, Box<dyn std::error::Error>> {
-    Ok(Session::new().with_workspace_root(std::env::current_dir()?))
+    let session = Session::new().with_workspace_root(std::env::current_dir()?);
+    tracing::info!(session_id = %session.session_id, "new CLI session created");
+    Ok(session)
 }
 
 pub fn create_managed_session_handle(
     session_id: &str,
 ) -> Result<SessionHandle, Box<dyn std::error::Error>> {
     let handle = current_session_store()?.create_handle(session_id);
+    tracing::debug!(
+        session_id = %handle.id,
+        path = %handle.path.display(),
+        "managed session handle created"
+    );
     Ok(SessionHandle {
         id: handle.id,
         path: handle.path,
@@ -124,6 +131,11 @@ pub fn load_session_reference_excluding(
     let loaded = store
         .load_session_excluding(reference, exclude_id)
         .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)?;
+    tracing::info!(
+        session_id = %loaded.handle.id,
+        message_count = loaded.session.messages.len(),
+        "session loaded"
+    );
     Ok((
         SessionHandle {
             id: loaded.handle.id,
@@ -137,6 +149,7 @@ pub fn delete_managed_session(path: &Path) -> Result<(), Box<dyn std::error::Err
     if !path.exists() {
         return Err(format!("session file does not exist: {}", path.display()).into());
     }
+    tracing::info!(path = %path.display(), "deleting session file");
     fs::remove_file(path)?;
     Ok(())
 }

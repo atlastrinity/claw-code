@@ -483,6 +483,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml",
+ "tracing",
  "walkdir",
 ]
 
@@ -504,6 +505,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2316,6 +2318,7 @@ dependencies = [
  "telemetry",
  "tempfile",
  "tokio",
+ "tracing",
  "walkdir",
 ]
 
@@ -2450,6 +2453,7 @@ dependencies = [
  "syntect",
  "tokio",
  "tools",
+ "tracing",
 ]
 
 [[package]]

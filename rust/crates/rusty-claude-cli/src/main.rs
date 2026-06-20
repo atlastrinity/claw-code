@@ -153,8 +153,14 @@ use runtime::session_control::LATEST_SESSION_REFERENCE;
 fn main() {
     let _logger_guard = claw_logger::init_logger("claw");
     let _ = dotenvy::dotenv();
+    tracing::info!(
+        version = VERSION,
+        git_sha = GIT_SHA.unwrap_or("unknown"),
+        "claw starting"
+    );
     if let Err(error) = run() {
         let message = error.to_string();
+        tracing::error!(error = %error, "claw exiting with error");
         // When --output-format json is active, emit errors as JSON so downstream
         // tools can parse failures the same way they parse successes (ROADMAP #42).
         let argv: Vec<String> = std::env::args().collect();
@@ -568,6 +574,7 @@ pub fn plugin_load_failure_json(failure: &plugins::PluginLoadFailure) -> Value {
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    tracing::debug!(args = ?args, "parsing CLI arguments");
     // #824: suppress config deprecation prose warnings to stderr when JSON
     // output mode is active.  Scan the raw argv before parse_args so the
     // suppression is in place before any settings file is loaded.
@@ -577,6 +584,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     let (args, cwd) = split_global_cwd_args(&args)?;
     apply_global_cwd(cwd)?;
+    let cwd_display = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "<unknown>".to_string());
+    tracing::info!(cwd = %cwd_display, "working directory set");
     match parse_args(&args)? {
         CliAction::DumpManifests {
             output_format,
@@ -641,6 +652,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             reasoning_effort,
             allow_broad_cwd,
         } => {
+            tracing::info!(model = %model, permission_mode = %permission_mode.as_str(), "running prompt mode");
             enforce_broad_cwd_policy(allow_broad_cwd, output_format)?;
             run_stale_base_preflight(base_commit.as_deref());
             // Only consume piped stdin as prompt context when the permission
@@ -716,14 +728,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             base_commit,
             reasoning_effort,
             allow_broad_cwd,
-        } => run_repl(
-            model,
-            tools,
-            permission_mode,
-            base_commit,
-            reasoning_effort,
-            allow_broad_cwd,
-        )?,
+        } => {
+            tracing::info!(model = %model, permission_mode = %permission_mode.as_str(), "entering REPL mode");
+            run_repl(
+                model,
+                tools,
+                permission_mode,
+                base_commit,
+                reasoning_effort,
+                allow_broad_cwd,
+            )?;
+        }
         CliAction::HelpTopic {
             topic,
             output_format,

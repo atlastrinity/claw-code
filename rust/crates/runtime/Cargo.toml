@@ -15,6 +15,7 @@ serde_json.workspace = true
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }
 telemetry = { path = "../telemetry" }
 tokio = { version = "1", features = ["io-std", "io-util", "macros", "process", "rt", "rt-multi-thread", "time"] }
+tracing.workspace = true
 walkdir = "2"
 
 [dev-dependencies]

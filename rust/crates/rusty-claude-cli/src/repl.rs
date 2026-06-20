@@ -253,6 +253,11 @@ impl LiveCli {
             session,
             prompt_history: Vec::new(),
         };
+        tracing::info!(
+            session_id = %cli.session.id,
+            model = %cli.model,
+            "LiveCli session created"
+        );
         cli.persist_session()?;
         Ok(cli)
     }
@@ -341,6 +346,7 @@ impl LiveCli {
         Ok(())
     }
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
+        tracing::info!(input_len = input.len(), session_id = %self.session.id, "starting turn");
         let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(true)?;
         let mut spinner = Spinner::new();
         let mut stdout = io::stdout();
@@ -355,6 +361,11 @@ impl LiveCli {
         match result {
             Ok(summary) => {
                 self.replace_runtime(runtime)?;
+                tracing::info!(
+                    iterations = summary.iterations,
+                    tool_results = summary.tool_results.len(),
+                    "turn completed successfully"
+                );
                 spinner.finish(
                     "✨ Done",
                     TerminalRenderer::new().color_theme(),
@@ -376,6 +387,7 @@ impl LiveCli {
             }
             Err(error) => {
                 runtime.shutdown_plugins()?;
+                tracing::warn!(error = %error, "turn failed");
                 spinner.fail(
                     "❌ Request failed",
                     TerminalRenderer::new().color_theme(),

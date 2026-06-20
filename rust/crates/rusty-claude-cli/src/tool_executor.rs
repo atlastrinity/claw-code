@@ -89,9 +89,11 @@ impl CliToolExecutor {
 
 impl ToolExecutor for CliToolExecutor {
     fn execute(&self, tool_name: &str, input: &str) -> Result<String, ToolError> {
+        tracing::debug!(tool = %tool_name, "executing tool");
         if !self.tool_registry.is_tool_allowed(tool_name) {
-            return Err(ToolError::new(format!(
-                "tool `{tool_name}` is not enabled by the current --tools setting"
+            tracing::warn!(tool = %tool_name, "tool not allowed by --tools setting");
+            return Err(ToolError::new(format!
+                ("tool `{tool_name}` is not enabled by the current --tools setting"
             )));
         }
         let value = serde_json::from_str(input)
@@ -107,6 +109,7 @@ impl ToolExecutor for CliToolExecutor {
         };
         match result {
             Ok(output) => {
+                tracing::debug!(tool = %tool_name, output_len = output.len(), "tool succeeded");
                 if self.emit_output {
                     let markdown = format_tool_result(tool_name, &output, false);
                     let renderer = self.renderer.lock().unwrap();
@@ -117,6 +120,7 @@ impl ToolExecutor for CliToolExecutor {
                 Ok(output)
             }
             Err(error) => {
+                tracing::warn!(tool = %tool_name, error = %error, "tool failed");
                 if self.emit_output {
                     let markdown = format_tool_result(tool_name, &error.to_string(), true);
                     let renderer = self.renderer.lock().unwrap();

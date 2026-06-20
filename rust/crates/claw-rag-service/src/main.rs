@@ -98,6 +98,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let cfg = resolve_embed_config()?;
         let client = reqwest::Client::new();
         let st = run_ingest(&a.workspace, &a.db, &cfg, &client).await?;
+        tracing::info!(
+            files = st.files_indexed,
+            chunks = st.chunks_total,
+            embeddings = st.embeddings_written,
+            "ingest complete"
+        );
         eprintln!(
             "ingest: files={} chunks={} embeddings={}",
             st.files_indexed, st.chunks_total, st.embeddings_written
@@ -134,6 +140,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST));
     let addr = std::net::SocketAddr::from((host, port));
+    tracing::info!(
+        db = %state.db_path.display(),
+        listen = %format!("http://{addr}"),
+        "claw-rag-service starting"
+    );
     eprintln!(
         "claw-rag-service db={} listen=http://{addr}",
         state.db_path.display()
@@ -198,16 +209,26 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 eprintln!(
                     "[claw-rag-service] Detected file changes. Triggering automatic ingest..."
                 );
+                tracing::info!("detected file changes, triggering auto-ingest");
                 if let Ok(cfg) = resolve_embed_config() {
                     let client = reqwest::Client::new();
                     match handle.block_on(run_ingest(&serve_workspaces, &db_path, &cfg, &client)) {
                         Ok(st) => {
+                            tracing::info!(
+                                files = st.files_indexed,
+                                chunks = st.chunks_total,
+                                embeddings = st.embeddings_written,
+                                "auto-ingest complete"
+                            );
                             eprintln!(
                                 "[claw-rag-service] Auto-ingest complete: files={} chunks={} embeddings={}",
                                 st.files_indexed, st.chunks_total, st.embeddings_written
                             );
                         }
-                        Err(e) => eprintln!("[claw-rag-service] Auto-ingest error: {}", e),
+                        Err(e) => {
+                            tracing::error!(error = %e, "auto-ingest failed");
+                            eprintln!("[claw-rag-service] Auto-ingest error: {}", e);
+                        }
                     }
                 }
             }

@@ -388,6 +388,7 @@ fn build_config(
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _logger_guard = claw_logger::init_logger("claw-analog");
     let root = RootCli::parse();
+    tracing::info!("claw-analog starting");
     match root.command {
         Some(Commands::Doctor(d)) => {
             let code = doctor::run_doctor(d);
@@ -397,6 +398,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             let code = match agents::run_agents(a) {
                 Ok(()) => 0,
                 Err(e) => {
+                    tracing::error!(error = %e, "agents command failed");
                     eprintln!("agents: {e}");
                     1
                 }
@@ -507,10 +509,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         preset,
         permission_mode,
     );
+    tracing::info!(
+        model = %config.model,
+        workspace = %config.workspace.display(),
+        permission_mode = ?config.permission_mode,
+        "claw-analog run config resolved"
+    );
     let output_format = config.output_format;
 
     let mut out = std::io::stdout();
     if let Err(e) = claw_analog::run(config, &mut out).await {
+        tracing::error!(error = %e, "claw-analog run failed");
         if matches!(output_format, OutputFormat::Json) {
             println!(
                 "{}",

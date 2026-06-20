@@ -391,6 +391,12 @@ where
         }
 
         self.record_turn_started(&user_input);
+        tracing::info!(
+            session_id = %self.session.session_id,
+            input_len = user_input.len(),
+            message_count = self.session.messages.len(),
+            "turn started"
+        );
         self.session
             .push_user_text(user_input.clone())
             .map_err(|error| RuntimeError::new(error.to_string()))?;
@@ -425,6 +431,11 @@ where
             let events = match self.api_client.stream(request) {
                 Ok(events) => events,
                 Err(error) => {
+                    tracing::error!(
+                        iteration = iterations,
+                        error = %error,
+                        "API stream failed"
+                    );
                     self.record_turn_failed(iterations, &error);
                     return Err(error);
                 }
@@ -465,6 +476,10 @@ where
             // Run auto-compaction check before next API call, including on the terminal
             // (no-tool) iteration, to prevent unbounded session growth (#3106).
             if let Some(compaction) = self.maybe_auto_compact() {
+                tracing::warn!(
+                    removed = compaction.removed_message_count,
+                    "auto-compaction triggered"
+                );
                 auto_compaction = Some(compaction);
             }
 
@@ -491,6 +506,13 @@ where
             usage: self.usage_tracker.cumulative_usage(),
             auto_compaction,
         };
+        tracing::info!(
+            iterations = summary.iterations,
+            assistant_msgs = summary.assistant_messages.len(),
+            tool_results = summary.tool_results.len(),
+            total_tokens = summary.usage.total_tokens(),
+            "turn completed"
+        );
         self.record_turn_completed(&summary);
 
         Ok(summary)

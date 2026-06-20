@@ -20,6 +20,7 @@ ignore = "0.4"
 qdrant-client = { version = "1.17", optional = true }
 blake3 = "1"
 notify = "6"
+tracing.workspace = true
 
 [dev-dependencies]
 tempfile = "3"
