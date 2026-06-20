@@ -26,6 +26,10 @@
     "macos-use": {
       "command": "/Users/dev/Documents/GitHub/claw-code/vendor/mcp-server-macos-use/.build/release/mcp-server-macos-use",
       "args": []
+    },
+    "xcodebuild": {
+      "command": "node",
+      "args": ["/Users/dev/Documents/GitHub/claw-code/vendor/XcodeBuildMCP/build/cli.js", "mcp"]
     }
   }
 }
