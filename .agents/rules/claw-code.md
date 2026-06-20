@@ -43,3 +43,12 @@ To run the main applications from the workspace root:
 - `docs/concept.md` - The source of truth for architectural principles and boundaries.
 - `docs/how_to_run.md` - Deep dive into how `claw-analog` works and how to execute it.
 - `rust/TUI-ENHANCEMENT-PLAN.md` - Current plans and refactoring guidelines for the terminal interface.
+
+## 6. Sessions & Conversation History
+
+Conversation context and message history for the CLI are stored locally in JSON Lines format:
+
+- **Location**: `.claw/sessions/<workspace-id>/`
+- **Format**: `session-<timestamp>-<index>.jsonl`
+
+If you need to analyze the exact messages sent to/from the LLM, the raw tool calls, or the exact tool results in a given session, parse these `.jsonl` files. They represent the "ground truth" of the AI's conversation state.
