@@ -237,6 +237,7 @@ where
         iterations: usize,
         mut prompter: Option<&mut (dyn PermissionPrompter + 'a)>,
     ) -> Vec<ConversationMessage> {
+        use crate::loop_detection::LoopDetectionMiddleware;
         use crate::middleware::{
             HookMiddleware, MiddlewareChain, PermissionMiddleware, RagBatchingMiddleware,
             RagClient, RagContextMiddleware, ToolCallContext, ToolCallOutcome, ToolCallState,
@@ -281,6 +282,7 @@ where
             let rag_client = RagClient::localhost();
 
             let chain = MiddlewareChain::new()
+                .with(LoopDetectionMiddleware::new(&self.session))
                 .with(RagContextMiddleware::new(rag_client.clone()))
                 .with(PermissionMiddleware::new(&self.permission_policy))
                 .with(RagBatchingMiddleware::new(&rag_client))

@@ -20,6 +20,7 @@ pub mod green_contract;
 mod hooks;
 mod json;
 mod lane_events;
+pub mod loop_detection;
 pub mod lsp_client;
 mod mcp;
 mod mcp_client;
@@ -190,6 +191,7 @@ pub use task_packet::{
     validate_packet, TaskPacket, TaskPacketValidationError, TaskResource, ValidatedPacket,
 };
 pub use task_registry::{LaneBoard, LaneBoardEntry, LaneFreshness, LaneHeartbeat};
+pub use loop_detection::LoopDetectionMiddleware;
 pub use tool_dispatch::{
     batch_tool_calls, dispatch_report, execute_parallel_batch, is_parallelizable, DispatchReport,
     ParallelToolConfig, ToolBatch, ToolCallRequest, ToolCallResult,
