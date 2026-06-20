@@ -1,0 +1,1058 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Claw Code — Архітектура системи</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #0a0d14;
+      --surface: #111722;
+      --surface2: #161e2e;
+      --border: #1e2d45;
+      --border2: #243551;
+
+      --cyan: #00d4ff;
+      --cyan-dim: #0097b5;
+      --purple: #a855f7;
+      --purple-dim: #7c3aed;
+      --green: #22d3a5;
+      --green-dim: #0f9e7c;
+      --orange: #fb923c;
+      --orange-dim: #c2580e;
+      --pink: #f472b6;
+      --yellow: #fbbf24;
+      --red: #f87171;
+      --blue: #60a5fa;
+
+      --text: #e2e8f0;
+      --text-dim: #94a3b8;
+      --text-muted: #475569;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      min-height: 100vh;
+      overflow-x: auto;
+    }
+
+    /* ─── HEADER ─────────────────────────────────── */
+    header {
+      padding: 32px 48px 24px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(135deg, #0d1420 0%, #111722 100%);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .logo {
+      width: 44px; height: 44px;
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      border-radius: 12px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 22px;
+      flex-shrink: 0;
+      box-shadow: 0 0 24px rgba(0,212,255,0.3);
+    }
+    header h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px; }
+    header p { font-size: 13px; color: var(--text-dim); margin-top: 2px; }
+    .badge {
+      margin-left: auto;
+      background: rgba(0,212,255,0.1);
+      border: 1px solid rgba(0,212,255,0.3);
+      color: var(--cyan);
+      font-size: 11px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+
+    /* ─── MAIN LAYOUT ────────────────────────────── */
+    main {
+      padding: 40px 48px;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    /* ─── SECTION TITLE ──────────────────────────── */
+    .section-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .section-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ─── TOP LEVEL: PROVIDERS ───────────────────── */
+    .providers-row {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 8px;
+      justify-content: center;
+    }
+    .provider-pill {
+      background: linear-gradient(135deg, rgba(168,85,247,0.12), rgba(168,85,247,0.06));
+      border: 1px solid rgba(168,85,247,0.35);
+      border-radius: 10px;
+      padding: 10px 20px;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--purple);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+      cursor: default;
+    }
+    .provider-pill:hover {
+      border-color: var(--purple);
+      box-shadow: 0 0 16px rgba(168,85,247,0.2);
+      transform: translateY(-2px);
+    }
+    .provider-pill .dot {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--purple);
+      box-shadow: 0 0 6px var(--purple);
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+
+    /* ─── CONNECTOR ARROWS ───────────────────────── */
+    .connector {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 36px;
+      position: relative;
+    }
+    .connector::before {
+      content: '';
+      width: 1px;
+      height: 100%;
+      background: linear-gradient(to bottom, transparent, var(--border2), transparent);
+    }
+    .connector-arrow {
+      position: absolute;
+      font-size: 16px;
+      color: var(--border2);
+    }
+
+    .connector-row {
+      display: flex;
+      gap: 16px;
+      justify-content: center;
+      height: 40px;
+      position: relative;
+    }
+    .connector-row .line {
+      width: 1px;
+      background: linear-gradient(to bottom, var(--border2), transparent);
+      flex-shrink: 0;
+    }
+
+    /* ─── THREE APPS ROW ─────────────────────────── */
+    .apps-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 20px;
+      margin-bottom: 8px;
+    }
+
+    .app-card {
+      border-radius: 16px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      overflow: hidden;
+      transition: all 0.25s;
+      cursor: default;
+    }
+    .app-card:hover {
+      transform: translateY(-3px);
+    }
+    .app-card.claw { border-color: var(--cyan-dim); }
+    .app-card.claw:hover { border-color: var(--cyan); box-shadow: 0 8px 32px rgba(0,212,255,0.12); }
+    .app-card.analog { border-color: var(--green-dim); }
+    .app-card.analog:hover { border-color: var(--green); box-shadow: 0 8px 32px rgba(34,211,165,0.12); }
+    .app-card.rag { border-color: var(--orange-dim); }
+    .app-card.rag:hover { border-color: var(--orange); box-shadow: 0 8px 32px rgba(251,146,60,0.12); }
+
+    .app-card-header {
+      padding: 16px 20px 12px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .app-icon {
+      width: 36px; height: 36px;
+      border-radius: 10px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 18px;
+      flex-shrink: 0;
+    }
+    .claw .app-icon { background: rgba(0,212,255,0.12); }
+    .analog .app-icon { background: rgba(34,211,165,0.12); }
+    .rag .app-icon { background: rgba(251,146,60,0.12); }
+
+    .app-name { font-size: 14px; font-weight: 700; }
+    .app-bin {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .claw .app-name { color: var(--cyan); }
+    .analog .app-name { color: var(--green); }
+    .rag .app-name { color: var(--orange); }
+
+    .app-card-body { padding: 14px 20px; }
+    .app-feature {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+    .app-feature-dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      margin-top: 5px;
+      flex-shrink: 0;
+    }
+    .claw .app-feature-dot { background: var(--cyan); }
+    .analog .app-feature-dot { background: var(--green); }
+    .rag .app-feature-dot { background: var(--orange); }
+
+    /* ─── API CRATE ──────────────────────────────── */
+    .api-crate-wrapper {
+      display: flex;
+      justify-content: center;
+      margin: 24px 0;
+    }
+    .api-crate {
+      border: 1px solid var(--border2);
+      border-radius: 12px;
+      background: var(--surface2);
+      padding: 14px 28px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      position: relative;
+    }
+    .api-crate::before {
+      content: 'crate: api';
+      position: absolute;
+      top: -9px;
+      left: 20px;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted);
+      background: var(--surface2);
+      padding: 0 6px;
+      letter-spacing: 1px;
+      text-transform: uppercase;
+    }
+    .api-module {
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--blue);
+      font-family: 'JetBrains Mono', monospace;
+      padding: 5px 10px;
+      border-radius: 6px;
+      background: rgba(96,165,250,0.08);
+      border: 1px solid rgba(96,165,250,0.2);
+      transition: all 0.2s;
+    }
+    .api-module:hover {
+      background: rgba(96,165,250,0.15);
+      border-color: rgba(96,165,250,0.4);
+    }
+
+    /* ─── RUNTIME CRATE (ORCHESTRATOR) ──────────── */
+    .runtime-wrapper {
+      margin: 0 0 24px 0;
+    }
+    .runtime-label {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .runtime-label::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .runtime-card {
+      border: 1.5px solid rgba(0,212,255,0.25);
+      border-radius: 20px;
+      background: linear-gradient(135deg, #0d1822 0%, #111722 100%);
+      padding: 0;
+      position: relative;
+      overflow: visible;
+    }
+
+    .runtime-title-bar {
+      padding: 18px 24px 16px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .runtime-icon {
+      width: 42px; height: 42px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, rgba(0,212,255,0.2), rgba(168,85,247,0.2));
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px;
+      box-shadow: 0 0 20px rgba(0,212,255,0.15);
+    }
+    .runtime-title { font-size: 16px; font-weight: 700; color: var(--cyan); }
+    .runtime-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+    /* ─── ORCHESTRATOR MAIN LOOP ─────────────────── */
+    .orchestrator-body { padding: 20px 24px; }
+
+    .loop-box {
+      border: 1.5px dashed rgba(0,212,255,0.3);
+      border-radius: 16px;
+      padding: 16px;
+      position: relative;
+      background: rgba(0,212,255,0.02);
+    }
+    .loop-label {
+      position: absolute;
+      top: -10px;
+      left: 16px;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--cyan);
+      background: #0d1822;
+      padding: 0 8px;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .steps-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .step {
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .step:hover {
+      border-color: var(--border2);
+      background: var(--surface2);
+      transform: translateX(4px);
+    }
+    .step-num {
+      width: 24px; height: 24px;
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 11px;
+      font-weight: 700;
+      flex-shrink: 0;
+    }
+    .step-name {
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .step-detail {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+    .step-tag {
+      margin-left: auto;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 2px 8px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+
+    /* step colors */
+    .step-rag      { border-color: rgba(251,146,60,0.3); }
+    .step-rag .step-num { background: rgba(251,146,60,0.15); color: var(--orange); }
+    .step-rag .step-name { color: var(--orange); }
+    .step-rag .step-tag { background: rgba(251,146,60,0.12); color: var(--orange); border: 1px solid rgba(251,146,60,0.3); }
+
+    .step-api      { border-color: rgba(96,165,250,0.3); }
+    .step-api .step-num { background: rgba(96,165,250,0.15); color: var(--blue); }
+    .step-api .step-name { color: var(--blue); }
+    .step-api .step-tag { background: rgba(96,165,250,0.12); color: var(--blue); border: 1px solid rgba(96,165,250,0.3); }
+
+    .step-parse    { border-color: rgba(250,191,36,0.3); }
+    .step-parse .step-num { background: rgba(250,191,36,0.15); color: var(--yellow); }
+    .step-parse .step-name { color: var(--yellow); }
+    .step-parse .step-tag { background: rgba(250,191,36,0.12); color: var(--yellow); border: 1px solid rgba(250,191,36,0.3); }
+
+    .step-tools    { border-color: rgba(34,211,165,0.3); }
+    .step-tools .step-num { background: rgba(34,211,165,0.15); color: var(--green); }
+    .step-tools .step-name { color: var(--green); }
+    .step-tools .step-tag { background: rgba(34,211,165,0.12); color: var(--green); border: 1px solid rgba(34,211,165,0.3); }
+
+    .step-compact  { border-color: rgba(168,85,247,0.3); }
+    .step-compact .step-num { background: rgba(168,85,247,0.15); color: var(--purple); }
+    .step-compact .step-name { color: var(--purple); }
+    .step-compact .step-tag { background: rgba(168,85,247,0.12); color: var(--purple); border: 1px solid rgba(168,85,247,0.3); }
+
+    .step-done     { border-color: rgba(248,113,113,0.3); }
+    .step-done .step-num { background: rgba(248,113,113,0.15); color: var(--red); }
+    .step-done .step-name { color: var(--red); }
+    .step-done .step-tag { background: rgba(248,113,113,0.12); color: var(--red); border: 1px solid rgba(248,113,113,0.3); }
+
+    .step-arrow {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--border2);
+      font-size: 14px;
+    }
+    .step-arrow.loop-back {
+      color: rgba(0,212,255,0.5);
+      font-size: 11px;
+      font-family: 'JetBrains Mono', monospace;
+      font-weight: 600;
+      justify-content: flex-end;
+    }
+
+    /* ─── MIDDLEWARE PIPELINE ────────────────────── */
+    .middleware-section {
+      margin-top: 20px;
+    }
+    .middleware-title {
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 1.5px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      padding-left: 2px;
+    }
+
+    .pipeline {
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    .mw-stage {
+      flex: 1;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      border-right: 1px solid var(--border);
+      transition: all 0.2s;
+      cursor: default;
+      position: relative;
+    }
+    .mw-stage:last-child { border-right: none; }
+    .mw-stage:hover { background: var(--surface2); }
+
+    .mw-icon { font-size: 20px; margin-bottom: 6px; }
+    .mw-name { font-size: 11px; font-weight: 700; margin-bottom: 3px; }
+    .mw-desc { font-size: 10px; color: var(--text-muted); line-height: 1.4; }
+
+    .mw-loop   .mw-name { color: var(--red); }
+    .mw-rag-ctx .mw-name { color: var(--orange); }
+    .mw-perm   .mw-name { color: var(--yellow); }
+    .mw-batch  .mw-name { color: var(--blue); }
+    .mw-hook   .mw-name { color: var(--green); }
+    .mw-trace  .mw-name { color: var(--purple); }
+
+    .mw-arrow {
+      position: absolute;
+      right: -6px;
+      top: 50%;
+      transform: translateY(-50%);
+      z-index: 2;
+      width: 12px; height: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border2);
+      border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 8px;
+      color: var(--text-dim);
+    }
+    .mw-stage:last-child .mw-arrow { display: none; }
+
+    /* ─── TOOL DISPATCH ──────────────────────────── */
+    .dispatch-section {
+      margin-top: 20px;
+    }
+    .dispatch-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .dispatch-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      background: var(--surface);
+      transition: all 0.2s;
+    }
+    .dispatch-card:hover {
+      border-color: var(--border2);
+      background: var(--surface2);
+    }
+    .dispatch-card.parallel { border-left: 3px solid var(--green); }
+    .dispatch-card.sequential { border-left: 3px solid var(--yellow); }
+    .dispatch-card-title {
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dispatch-card.parallel .dispatch-card-title { color: var(--green); }
+    .dispatch-card.sequential .dispatch-card-title { color: var(--yellow); }
+    .dispatch-tools {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+    .tool-chip {
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      padding: 2px 7px;
+      border-radius: 4px;
+    }
+    .parallel .tool-chip { background: rgba(34,211,165,0.1); color: var(--green); border: 1px solid rgba(34,211,165,0.25); }
+    .sequential .tool-chip { background: rgba(250,191,36,0.1); color: var(--yellow); border: 1px solid rgba(250,191,36,0.25); }
+
+    /* ─── BOTTOM ROW: FILESYSTEM + LOGS ──────────── */
+    .bottom-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 16px;
+      margin-top: 24px;
+    }
+    .bottom-card {
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--surface);
+      padding: 16px 18px;
+      transition: all 0.2s;
+      cursor: default;
+    }
+    .bottom-card:hover {
+      border-color: var(--border2);
+      transform: translateY(-2px);
+      box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+    }
+    .bottom-card-title {
+      font-size: 13px;
+      font-weight: 700;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .bottom-card.fs .bottom-card-title { color: var(--green); }
+    .bottom-card.sessions .bottom-card-title { color: var(--cyan); }
+    .bottom-card.logs .bottom-card-title { color: var(--purple); }
+
+    .path-item {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+      padding: 3px 6px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.03);
+    }
+    .path-item span { color: var(--text-dim); }
+
+    /* ─── LEGEND ─────────────────────────────────── */
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin-top: 32px;
+      padding: 16px 20px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: var(--surface);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .legend-dot {
+      width: 10px; height: 10px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    /* ─── FLOW ARROWS between major sections ─────── */
+    .major-connector {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 32px;
+      gap: 8px;
+      color: var(--text-muted);
+      font-size: 11px;
+    }
+    .major-connector .arrow-line {
+      width: 40px;
+      height: 1px;
+      background: linear-gradient(to right, transparent, var(--border2), transparent);
+    }
+    .major-connector .arrow-sym {
+      font-size: 16px;
+      color: var(--border2);
+    }
+
+    /* ─── TOOLTIP ─────────────────────────────────── */
+    [data-tooltip] {
+      position: relative;
+    }
+    [data-tooltip]:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1e293b;
+      border: 1px solid var(--border2);
+      color: var(--text);
+      font-size: 11px;
+      padding: 6px 10px;
+      border-radius: 6px;
+      white-space: nowrap;
+      z-index: 100;
+      pointer-events: none;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    }
+
+    /* ─── ANIMATIONS ─────────────────────────────── */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    .animate { animation: fadeIn 0.5s ease forwards; }
+    .d1 { animation-delay: 0.05s; }
+    .d2 { animation-delay: 0.10s; }
+    .d3 { animation-delay: 0.15s; }
+    .d4 { animation-delay: 0.20s; }
+    .d5 { animation-delay: 0.25s; }
+    .d6 { animation-delay: 0.30s; }
+    .d7 { animation-delay: 0.35s; }
+
+    /* ─── SCROLLBAR ─────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg); }
+    ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">🦀</div>
+  <div>
+    <h1>Claw Code — Архітектура системи</h1>
+    <p>Rust workspace · <code style="font-size:11px;color:var(--text-muted)">rust/crates/</code> · Деталізований оркестратор</p>
+  </div>
+  <div class="badge">Rust</div>
+</header>
+
+<main>
+
+  <!-- ═══ PROVIDERS ═════════════════════════════════════════ -->
+  <div class="section-title">Зовнішні провайдери LLM</div>
+
+  <div class="providers-row animate d1">
+    <div class="provider-pill" data-tooltip="Anthropic API — Claude models (claude-3-5-sonnet, etc.)">
+      <div class="dot"></div> Anthropic Claude
+    </div>
+    <div class="provider-pill" data-tooltip="OpenAI-compatible API — також xAI Grok, GLM, etc.">
+      <div class="dot"></div> OpenAI-compatible
+    </div>
+    <div class="provider-pill" data-tooltip="xAI Grok API — підтримується через crate api">
+      <div class="dot"></div> xAI Grok
+    </div>
+    <div class="provider-pill" data-tooltip="GLM (ZhipuAI), Deepseek, etc. через OpenAI-compatible endpoint">
+      <div class="dot"></div> GLM / DeepSeek
+    </div>
+  </div>
+
+  <div class="connector animate d1"><div class="connector-arrow">▼</div></div>
+
+  <!-- ═══ API CRATE ════════════════════════════════════════ -->
+  <div class="api-crate-wrapper animate d2">
+    <div class="api-crate" data-tooltip="Спільний шар клієнтів провайдерів — crates/api">
+      <div style="font-size:13px;font-weight:700;color:var(--blue);margin-right:8px;">📡 crate: api</div>
+      <div class="api-module" data-tooltip="HTTP streaming клієнт">StreamClient</div>
+      <div class="api-module" data-tooltip="Нормалізація типів запиту/відповіді">RequestTypes</div>
+      <div class="api-module" data-tooltip="Server-Sent Events парсер">SSE Parser</div>
+      <div class="api-module" data-tooltip="OAuth 2.0 flow">OAuth</div>
+      <div class="api-module" data-tooltip="Трансформація між провайдерами">ProviderAdapter</div>
+    </div>
+  </div>
+
+  <div class="connector animate d2"><div class="connector-arrow">▼</div></div>
+
+  <!-- ═══ THREE APPS ══════════════════════════════════════ -->
+  <div class="section-title">Основні бінарі</div>
+
+  <div class="apps-row animate d3">
+
+    <!-- CLAW -->
+    <div class="app-card claw" data-tooltip="bin: claw — повнофункціональний агент для розробника">
+      <div class="app-card-header">
+        <div class="app-icon">💎</div>
+        <div>
+          <div class="app-name">rusty-claude-cli</div>
+          <div class="app-bin">bin: claw</div>
+        </div>
+      </div>
+      <div class="app-card-body">
+        <div class="app-feature"><div class="app-feature-dot"></div>REPL з інтерактивним TUI</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>OAuth / ключі провайдерів</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>MCP клієнт + плагіни</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>Bash, File, Git інструменти</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>Сесії + compaction</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>LSP клієнт (code intelligence)</div>
+      </div>
+    </div>
+
+    <!-- ANALOG -->
+    <div class="app-card analog" data-tooltip="bin: claw-analog — lean loop для CI/CD і скриптів">
+      <div class="app-card-header">
+        <div class="app-icon">⚡</div>
+        <div>
+          <div class="app-name">claw-analog</div>
+          <div class="app-bin">bin: claw-analog</div>
+        </div>
+      </div>
+      <div class="app-card-body">
+        <div class="app-feature"><div class="app-feature-dot"></div>NDJSON streaming вивід</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>Explicit FS bounds (workspace)</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>PermissionMode: read/audit/write</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>retrieve_context (RAG)</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>Без bash / MCP (за замовч.)</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>Придатний для CI / агентів</div>
+      </div>
+    </div>
+
+    <!-- RAG SERVICE -->
+    <div class="app-card rag" data-tooltip="bin: claw-rag-service — окремий HTTP сервіс індексації">
+      <div class="app-card-header">
+        <div class="app-icon">🔍</div>
+        <div>
+          <div class="app-name">claw-rag-service</div>
+          <div class="app-bin">bin: claw-rag-service</div>
+        </div>
+      </div>
+      <div class="app-card-body">
+        <div class="app-feature"><div class="app-feature-dot"></div>POST /v1/query — семантичний пошук</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>POST /v1/ingest — індексація</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>SQLite + вектори ембеддингів</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>OpenAI-compatible embeddings</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>GET / — Web UI для перегляду</div>
+        <div class="app-feature"><div class="app-feature-dot"></div>GET /health, /v1/stats</div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="connector animate d3"><div class="connector-arrow">▼</div></div>
+
+  <!-- ═══ RUNTIME / ORCHESTRATOR ══════════════════════════ -->
+  <div class="section-title">Оркестратор — crate: runtime</div>
+
+  <div class="runtime-wrapper animate d4">
+    <div class="runtime-card">
+
+      <div class="runtime-title-bar">
+        <div class="runtime-icon">🎛️</div>
+        <div>
+          <div class="runtime-title">ConversationRuntime&lt;C: ApiClient, T: ToolExecutor&gt;</div>
+          <div class="runtime-subtitle">conversation.rs · Координує model loop, tool execution, hooks, session updates</div>
+        </div>
+        <div style="margin-left:auto;display:flex;gap:8px;align-items:center;flex-shrink:0;">
+          <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-muted);">max_iterations: usize::MAX</span>
+          <span style="font-size:11px;font-family:'JetBrains Mono',monospace;color:var(--text-muted);">threshold: 100k tokens</span>
+        </div>
+      </div>
+
+      <div class="orchestrator-body">
+
+        <!-- MAIN LOOP -->
+        <div class="loop-box">
+          <div class="loop-label">run_turn() — головний цикл агента</div>
+
+          <div class="steps-flow">
+
+            <div class="step step-rag" data-tooltip="Лише на 1-й ітерації — запитує /v1/query на localhost:8787">
+              <div class="step-num">0</div>
+              <div>
+                <div class="step-name">Health Probe (якщо compacted)</div>
+                <div class="step-detail">glob_search("*.health-check-probe-") → перевірка стану після compaction</div>
+              </div>
+              <div class="step-tag">session.compaction?</div>
+            </div>
+
+            <div class="step-arrow">▼</div>
+
+            <div class="step step-rag" data-tooltip="fetch_rag_context() → POST /v1/query top_k=5, timeout=2s">
+              <div class="step-num">1</div>
+              <div>
+                <div class="step-name">RAG Context Fetch</div>
+                <div class="step-detail">Запит до claw-rag-service → додає &#x3C;rag_context&#x3E; до system_prompt</div>
+              </div>
+              <div class="step-tag">iter == 1</div>
+            </div>
+
+            <div class="step-arrow">▼</div>
+
+            <div class="step step-api" data-tooltip="api_client.stream(ApiRequest { system_prompt, messages }) → Vec&lt;AssistantEvent&gt;">
+              <div class="step-num">2</div>
+              <div>
+                <div class="step-name">ApiClient::stream() → LLM запит</div>
+                <div class="step-detail">ApiRequest = { system_prompt: Vec&lt;String&gt;, messages: session.messages.clone() }</div>
+              </div>
+              <div class="step-tag">blocking SSE</div>
+            </div>
+
+            <div class="step-arrow">▼</div>
+
+            <div class="step step-parse" data-tooltip="build_assistant_message() — збирає Thinking, TextDelta, ToolUse блоки зі стріму">
+              <div class="step-num">3</div>
+              <div>
+                <div class="step-name">Парсинг стріму → AssistantMessage</div>
+                <div class="step-detail">Events: Thinking | TextDelta | ToolUse | Usage | PromptCache | MessageStop</div>
+              </div>
+              <div class="step-tag">build_assistant_message()</div>
+            </div>
+
+            <div class="step-arrow">▼</div>
+
+            <div class="step step-tools" data-tooltip="Якщо ToolUse блоків > 0 — dispatch_tool_calls(), інакше → break (кінець ходу)">
+              <div class="step-num">4</div>
+              <div>
+                <div class="step-name">Перевірка: є tool_uses?</div>
+                <div class="step-detail">pending_tool_uses: Vec&lt;(tool_use_id, tool_name, input)&gt; → якщо порожньо — DONE</div>
+              </div>
+              <div class="step-tag">if empty → break</div>
+            </div>
+
+            <div class="step-arrow">▼</div>
+
+            <div class="step step-compact" data-tooltip="maybe_auto_compact() — якщо input_tokens > 100k → compact_session()">
+              <div class="step-num">5</div>
+              <div>
+                <div class="step-name">Auto-Compaction Check</div>
+                <div class="step-detail">UsageTracker.cumulative_usage().input_tokens ≥ threshold → видаляє старі повідомлення</div>
+              </div>
+              <div class="step-tag">AutoCompactionEvent</div>
+            </div>
+
+            <div class="step-arrow">▼</div>
+
+            <div class="step step-tools" data-tooltip="dispatch_tool_calls() → MiddlewareChain → ToolExecutor::execute()">
+              <div class="step-num">6</div>
+              <div>
+                <div class="step-name">dispatch_tool_calls() → Middleware Pipeline</div>
+                <div class="step-detail">batch_tool_calls() → Parallel/Sequential → MiddlewareChain.process() → tool results</div>
+              </div>
+              <div class="step-tag">Middleware Chain ↓</div>
+            </div>
+
+            <div class="step-arrow loop-back">↺ → session.push_message(tool_results) → loop (ітерація + 1)</div>
+
+          </div>
+        </div>
+
+        <!-- MIDDLEWARE PIPELINE -->
+        <div class="middleware-section">
+          <div class="middleware-title">Middleware Pipeline (виконується для кожного batch інструментів)</div>
+          <div class="pipeline">
+
+            <div class="mw-stage mw-loop" data-tooltip="LoopDetectionMiddleware — сканує session.messages назад до User, рахує ідентичні ToolUse блоки. ≥2 → DENY з SYSTEM DIRECTIVE">
+              <div class="mw-arrow">▶</div>
+              <div class="mw-icon">🔄</div>
+              <div class="mw-name">Loop Detection</div>
+              <div class="mw-desc">max_identical_calls=2<br>сканує history backwards</div>
+            </div>
+
+            <div class="mw-stage mw-rag-ctx" data-tooltip="RagContextMiddleware — Pre: query(tool+input) → додає rag_context до pre_hook_messages. Post: ingest_async() якщо is_error або output > 1KB">
+              <div class="mw-arrow">▶</div>
+              <div class="mw-icon">🧠</div>
+              <div class="mw-name">RAG Context</div>
+              <div class="mw-desc">Pre: query context<br>Post: ingest result</div>
+            </div>
+
+            <div class="mw-stage mw-perm" data-tooltip="PermissionMiddleware — PermissionPolicy::authorize_with_context() → Allow | Deny{reason}. Може промпт користувача через PermissionPrompter">
+              <div class="mw-arrow">▶</div>
+              <div class="mw-icon">🔐</div>
+              <div class="mw-name">Permission Check</div>
+              <div class="mw-desc">Policy::authorize()<br>Allow | Deny</div>
+            </div>
+
+            <div class="mw-stage mw-batch" data-tooltip="RagBatchingMiddleware — batch_tool_calls() → Parallel/Sequential. RAG hint: якщо parallel combo historically failed → demote to sequential">
+              <div class="mw-arrow">▶</div>
+              <div class="mw-icon">⚡</div>
+              <div class="mw-name">RAG Batching</div>
+              <div class="mw-desc">Parallel vs Sequential<br>RAG-guided demotion</div>
+            </div>
+
+            <div class="mw-stage mw-hook" data-tooltip="HookMiddleware — run_pre_tool_use() може: cancel/deny/update_input/override_permission. run_post_tool_use() може: модифікувати output. Якщо error: додає SYSTEM DIRECTIVE">
+              <div class="mw-arrow">▶</div>
+              <div class="mw-icon">🪝</div>
+              <div class="mw-name">Hooks</div>
+              <div class="mw-desc">Pre + Post hooks<br>cancel / modify / inject</div>
+            </div>
+
+            <div class="mw-stage mw-trace" data-tooltip="TracingMiddleware — SessionTracer::record() → tool_execution_started / tool_execution_completed з iteration, tool_name, status">
+              <div class="mw-icon">📊</div>
+              <div class="mw-name">Tracing</div>
+              <div class="mw-desc">SessionTracer events<br>started / completed</div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- TOOL DISPATCH -->
+        <div class="dispatch-section">
+          <div class="middleware-title">Tool Dispatch Strategy (tool_dispatch.rs)</div>
+          <div class="dispatch-row">
+            <div class="dispatch-card parallel" data-tooltip="execute_parallel_batch() → std::thread::scope → scoped threads → результати в порядку оригінальних calls">
+              <div class="dispatch-card-title">⚡ Parallel Batch — std::thread::scope</div>
+              <div class="dispatch-tools">
+                <div class="tool-chip">read_file</div>
+                <div class="tool-chip">grep_search</div>
+                <div class="tool-chip">glob_search</div>
+                <div class="tool-chip">list_dir</div>
+                <div class="tool-chip">Read</div>
+                <div class="tool-chip">ListDir</div>
+                <div class="tool-chip">ToolSearch</div>
+                <div class="tool-chip">ReadMcpResourceTool</div>
+              </div>
+            </div>
+            <div class="dispatch-card sequential" data-tooltip="Виконується по одному — bash, write_file, edit_file, MCP tools, невідомі інструменти">
+              <div class="dispatch-card-title">🔒 Sequential — один за одним</div>
+              <div class="dispatch-tools">
+                <div class="tool-chip">bash</div>
+                <div class="tool-chip">write_file</div>
+                <div class="tool-chip">edit_file</div>
+                <div class="tool-chip">Write</div>
+                <div class="tool-chip">Edit</div>
+                <div class="tool-chip">mcp_tool_*</div>
+                <div class="tool-chip">custom_tools</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ BOTTOM ROW ═══════════════════════════════════════ -->
+  <div class="major-connector animate d5">
+    <div class="arrow-line"></div>
+    <div class="arrow-sym">▼</div>
+    <div class="arrow-line"></div>
+  </div>
+
+  <div class="bottom-row animate d6">
+
+    <div class="bottom-card fs" data-tooltip="Workspace файлова система — межі задаються -w флагом">
+      <div class="bottom-card-title">📁 Filesystem / Workspace</div>
+      <div class="path-item"><span>-w</span> ./workspace_root/</div>
+      <div class="path-item">read_file, write_file, glob, grep</div>
+      <div class="path-item">sandbox: заборона ".." виходу</div>
+      <div class="path-item">canonical path validation</div>
+    </div>
+
+    <div class="bottom-card sessions" data-tooltip="SessionStore — JSONL файли сесій, fingerprint-based namespace">
+      <div class="bottom-card-title">💾 Sessions Store</div>
+      <div class="path-item">.claw/sessions/&lt;fingerprint&gt;/</div>
+      <div class="path-item">~/.claw/sessions/ (global)</div>
+      <div class="path-item">Format: session-*.jsonl</div>
+      <div class="path-item">fork / resume / compaction</div>
+    </div>
+
+    <div class="bottom-card logs" data-tooltip="tracing-appender — daily rotating log files в ~/.claw/logs/">
+      <div class="bottom-card-title">📋 Logs (tracing-appender)</div>
+      <div class="path-item">~/.claw/logs/claw.log.YYYY-MM-DD</div>
+      <div class="path-item">claw-analog.log.YYYY-MM-DD</div>
+      <div class="path-item">claw-rag-service.log.YYYY-MM-DD</div>
+      <div class="path-item">crate: logger (claw_logger)</div>
+    </div>
+
+  </div>
+
+  <!-- ═══ LEGEND ═══════════════════════════════════════════ -->
+  <div class="legend animate d7">
+    <div style="font-size:11px;font-weight:600;color:var(--text-muted);margin-right:8px;">Позначення:</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--cyan)"></div> claw CLI (повний)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> claw-analog (lean)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--orange)"></div> RAG Service / RAG Context</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--blue)"></div> API / Провайдери</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--purple)"></div> Session / Compaction / Tracing</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--yellow)"></div> Permissions / Sequential</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Loop Detection / Error</div>
+    <div class="legend-item"><div class="legend-dot" style="background:var(--pink)"></div> Hooks (Pre/Post)</div>
+    <div style="margin-left:auto;font-size:10px;color:var(--text-muted);font-family:'JetBrains Mono',monospace;">
+      Hover по блоках для деталей · conversation.rs · middleware.rs · tool_dispatch.rs
+    </div>
+  </div>
+
+</main>
+
+</body>
+</html>
