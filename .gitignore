@@ -30,3 +30,6 @@ opencore-atheros-kext-main/
 # Logs
 logs/
 *.log
+
+# Dynamic AI Todo files
+.clawd-todos.json
