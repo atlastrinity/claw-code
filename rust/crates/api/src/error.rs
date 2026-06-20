@@ -23,6 +23,18 @@ const CONTEXT_WINDOW_ERROR_MARKERS: &[&str] = &[
     "no parseable body",
 ];
 
+#[derive(Debug, Clone)]
+pub struct ApiErrorInfo {
+    pub status: reqwest::StatusCode,
+    pub error_type: Option<String>,
+    pub message: Option<String>,
+    pub request_id: Option<String>,
+    pub body: String,
+    pub retryable: bool,
+    pub suggested_action: Option<String>,
+    pub retry_after: Option<Duration>,
+}
+
 #[derive(Debug)]
 pub enum ApiError {
     MissingCredentials {
@@ -52,19 +64,7 @@ pub enum ApiError {
         body_snippet: String,
         source: serde_json::Error,
     },
-    Api {
-        status: reqwest::StatusCode,
-        error_type: Option<String>,
-        message: Option<String>,
-        request_id: Option<String>,
-        body: String,
-        retryable: bool,
-        /// Suggested user action based on error type (e.g., "Reduce prompt size" for 413)
-        suggested_action: Option<String>,
-        /// Parsed Retry-After header value (seconds) for 429 responses.
-        /// When present, overrides the exponential backoff delay.
-        retry_after: Option<Duration>,
-    },
+    Api(Box<ApiErrorInfo>),
     RetriesExhausted {
         attempts: u32,
         last_error: Box<ApiError>,
@@ -137,7 +137,7 @@ impl ApiError {
     /// over the computed backoff delay when it exists.
     pub fn retry_after(&self) -> Option<Duration> {
         match self {
-            Self::Api { retry_after, .. } => *retry_after,
+            Self::Api(info) => info.retry_after,
             Self::RetriesExhausted { last_error, .. } => last_error.retry_after(),
             _ => None,
         }
@@ -152,7 +152,7 @@ impl ApiError {
                     || error.is_body()
                     || error.is_decode()
             }
-            Self::Api { retryable, .. } => *retryable,
+            Self::Api(info) => info.retryable,
             Self::RetriesExhausted { last_error, .. } => last_error.is_retryable(),
             Self::MissingCredentials { .. }
             | Self::ContextWindowExceeded { .. }
@@ -170,7 +170,7 @@ impl ApiError {
     #[must_use]
     pub fn request_id(&self) -> Option<&str> {
         match self {
-            Self::Api { request_id, .. } => request_id.as_deref(),
+            Self::Api(info) => info.request_id.as_deref(),
             Self::RetriesExhausted { last_error, .. } => last_error.request_id(),
             Self::MissingCredentials { .. }
             | Self::ContextWindowExceeded { .. }
@@ -197,12 +197,12 @@ impl ApiError {
             Self::MissingCredentials { .. } | Self::ExpiredOAuthToken | Self::Auth(_) => {
                 "provider_auth"
             }
-            Self::Api { status, .. } if matches!(status.as_u16(), 401 | 403) => "provider_auth",
+            Self::Api(info) if matches!(info.status.as_u16(), 401 | 403) => "provider_auth",
             Self::ContextWindowExceeded { .. } => "context_window",
-            Self::Api { .. } if self.is_context_window_failure() => "context_window",
-            Self::Api { status, .. } if status.as_u16() == 429 => "provider_rate_limit",
-            Self::Api { .. } if self.is_generic_fatal_wrapper() => "provider_internal",
-            Self::Api { .. } => "provider_error",
+            Self::Api(_) if self.is_context_window_failure() => "context_window",
+            Self::Api(info) if info.status.as_u16() == 429 => "provider_rate_limit",
+            Self::Api(_) if self.is_generic_fatal_wrapper() => "provider_internal",
+            Self::Api(_) => "provider_error",
             Self::Http(_) | Self::InvalidSseFrame(_) | Self::BackoffOverflow { .. } => {
                 "provider_transport"
             }
@@ -214,11 +214,11 @@ impl ApiError {
     #[must_use]
     pub fn is_generic_fatal_wrapper(&self) -> bool {
         match self {
-            Self::Api { message, body, .. } => {
-                message
+            Self::Api(info) => {
+                info.message
                     .as_deref()
                     .is_some_and(looks_like_generic_fatal_wrapper)
-                    || looks_like_generic_fatal_wrapper(body)
+                    || looks_like_generic_fatal_wrapper(&info.body)
             }
             Self::RetriesExhausted { last_error, .. } => last_error.is_generic_fatal_wrapper(),
             Self::MissingCredentials { .. }
@@ -239,17 +239,12 @@ impl ApiError {
     pub fn is_context_window_failure(&self) -> bool {
         match self {
             Self::ContextWindowExceeded { .. } => true,
-            Self::Api {
-                status,
-                message,
-                body,
-                ..
-            } => {
-                matches!(status.as_u16(), 400 | 413 | 422)
-                    && (message
+            Self::Api(info) => {
+                matches!(info.status.as_u16(), 400 | 413 | 422)
+                    && (info.message
                         .as_deref()
                         .is_some_and(looks_like_context_window_error)
-                        || looks_like_context_window_error(body))
+                        || looks_like_context_window_error(&info.body))
             }
             Self::RetriesExhausted { last_error, .. } => last_error.is_context_window_failure(),
             Self::MissingCredentials { .. }
@@ -333,26 +328,19 @@ impl Display for ApiError {
                 "failed to parse {provider} response for model {model}: {source}; first 200 chars of body: {body_snippet}"
             ),
             // #28: enhance 401/403 errors with actionable auth guidance
-            Self::Api {
-                status,
-                error_type,
-                message,
-                request_id,
-                body,
-                ..
-            } if matches!(status.as_u16(), 401 | 403) => {
-                if let (Some(error_type), Some(message)) = (error_type, message) {
-                    write!(f, "api returned {status} ({error_type})")?;
-                    if let Some(request_id) = request_id {
-                        write!(f, " [trace {request_id}]")?;
+            Self::Api(info) if matches!(info.status.as_u16(), 401 | 403) => {
+                if let (Some(error_type), Some(message)) = (&info.error_type, &info.message) {
+                    write!(f, "api returned {} ({})", info.status, error_type)?;
+                    if let Some(request_id) = &info.request_id {
+                        write!(f, " [trace {}]", request_id)?;
                     }
-                    write!(f, ": {message}")?;
+                    write!(f, ": {}", message)?;
                 } else {
-                    write!(f, "api returned {status}")?;
-                    if let Some(request_id) = request_id {
-                        write!(f, " [trace {request_id}]")?;
+                    write!(f, "api returned {}", info.status)?;
+                    if let Some(request_id) = &info.request_id {
+                        write!(f, " [trace {}]", request_id)?;
                     }
-                    write!(f, ": {body}")?;
+                    write!(f, ": {}", info.body)?;
                 }
                 write!(
                     f,
@@ -362,26 +350,19 @@ impl Display for ApiError {
                      Run `claw doctor` to verify your credential configuration."
                 )
             }
-            Self::Api {
-                status,
-                error_type,
-                message,
-                request_id,
-                body,
-                ..
-            } => {
-                if let (Some(error_type), Some(message)) = (error_type, message) {
-                    write!(f, "api returned {status} ({error_type})")?;
-                    if let Some(request_id) = request_id {
-                        write!(f, " [trace {request_id}]")?;
+            Self::Api(info) => {
+                if let (Some(error_type), Some(message)) = (&info.error_type, &info.message) {
+                    write!(f, "api returned {} ({})", info.status, error_type)?;
+                    if let Some(request_id) = &info.request_id {
+                        write!(f, " [trace {}]", request_id)?;
                     }
-                    write!(f, ": {message}")
+                    write!(f, ": {}", message)
                 } else {
-                    write!(f, "api returned {status}")?;
-                    if let Some(request_id) = request_id {
-                        write!(f, " [trace {request_id}]")?;
+                    write!(f, "api returned {}", info.status)?;
+                    if let Some(request_id) = &info.request_id {
+                        write!(f, " [trace {}]", request_id)?;
                     }
-                    write!(f, ": {body}")
+                    write!(f, ": {}", info.body)
                 }
             }
             Self::RetriesExhausted {
@@ -539,7 +520,7 @@ mod tests {
 
     #[test]
     fn detects_generic_fatal_wrapper_and_classifies_it_as_provider_internal() {
-        let error = ApiError::Api {
+        let error = ApiError::Api(Box::new(crate::error::ApiErrorInfo {
             status: reqwest::StatusCode::INTERNAL_SERVER_ERROR,
             error_type: Some("api_error".to_string()),
             message: Some(
@@ -550,8 +531,8 @@ mod tests {
             body: String::new(),
             retryable: true,
             suggested_action: None,
-        retry_after: None,
-        };
+            retry_after: None,
+        }));
 
         assert!(error.is_generic_fatal_wrapper());
         assert_eq!(error.safe_failure_class(), "provider_internal");
@@ -563,7 +544,7 @@ mod tests {
     fn retries_exhausted_preserves_nested_request_id_and_failure_class() {
         let error = ApiError::RetriesExhausted {
             attempts: 3,
-            last_error: Box::new(ApiError::Api {
+            last_error: Box::new(ApiError::Api(Box::new(crate::error::ApiErrorInfo {
                 status: reqwest::StatusCode::BAD_GATEWAY,
                 error_type: Some("api_error".to_string()),
                 message: Some(
@@ -574,8 +555,8 @@ mod tests {
                 body: String::new(),
                 retryable: true,
                 suggested_action: None,
-            retry_after: None,
-            }),
+                retry_after: None,
+            }))),
         };
 
         assert!(error.is_generic_fatal_wrapper());
@@ -585,7 +566,7 @@ mod tests {
 
     #[test]
     fn classifies_provider_context_window_errors() {
-        let error = ApiError::Api {
+        let error = ApiError::Api(Box::new(crate::error::ApiErrorInfo {
             status: reqwest::StatusCode::BAD_REQUEST,
             error_type: Some("invalid_request_error".to_string()),
             message: Some(
@@ -596,8 +577,8 @@ mod tests {
             body: String::new(),
             retryable: false,
             suggested_action: None,
-        retry_after: None,
-        };
+            retry_after: None,
+        }));
 
         assert!(error.is_context_window_failure());
         assert_eq!(error.safe_failure_class(), "context_window");
@@ -606,7 +587,7 @@ mod tests {
 
     #[test]
     fn classifies_openai_configured_limit_errors_as_context_window_failures() {
-        let error = ApiError::Api {
+        let error = ApiError::Api(Box::new(crate::error::ApiErrorInfo {
             status: reqwest::StatusCode::BAD_REQUEST,
             error_type: Some("invalid_request_error".to_string()),
             message: Some(
@@ -618,7 +599,7 @@ mod tests {
             retryable: false,
             suggested_action: None,
             retry_after: None,
-        };
+        }));
 
         assert!(error.is_context_window_failure());
         assert_eq!(error.safe_failure_class(), "context_window");

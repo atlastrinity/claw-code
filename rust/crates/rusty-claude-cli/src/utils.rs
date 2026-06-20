@@ -228,9 +228,7 @@ pub fn parse_system_prompt_args(
                 })?;
                 // #99: validate --date is a plausible date string (no newlines, reasonable length)
                 if value.contains('\n') || value.contains('\r') {
-                    return Err(format!(
-                        "invalid_flag_value: --date value contains invalid characters.\nUsage: --date <YYYY-MM-DD>"
-                    ));
+                    return Err("invalid_flag_value: --date value contains invalid characters.\nUsage: --date <YYYY-MM-DD>".to_string());
                 }
                 if value.len() > 20 {
                     return Err(format!(
@@ -1068,7 +1066,6 @@ pub fn path_matches_trusted_root_local(cwd: &Path, trusted_root: &str) -> bool {
 }
 
 #[allow(clippy::too_many_lines)]
-
 /// Detect if the current working directory is "broad" (home directory or
 /// filesystem root). Returns the cwd path if broad, None otherwise.
 pub fn detect_broad_cwd() -> Option<PathBuf> {
@@ -1183,7 +1180,6 @@ pub fn run_stale_base_preflight(flag_value: Option<&str>) {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-
 pub fn print_status_snapshot(
     model: &str,
     model_flag_raw: Option<&str>,
@@ -1251,6 +1247,7 @@ pub fn print_status_snapshot(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn status_json_value(
     model: Option<&str>,
     usage: StatusUsage,
@@ -1533,9 +1530,7 @@ pub fn sandbox_json_value(status: &runtime::SandboxStatus) -> serde_json::Value 
     //        (#731: "not supported on macOS" is a degraded state, not a hard error;
     //         filesystem_active:true means partial containment is working)
     // error = enabled but unsupported AND no filesystem sandbox either (nothing active)
-    let top_status = if !status.enabled {
-        "ok"
-    } else if status.active {
+    let top_status = if !status.enabled || status.active {
         "ok"
     } else if status.supported {
         "warn"
@@ -1666,6 +1661,7 @@ pub fn print_models(
 }
 
 /// #683-#692: extract structured metadata from help prose
+#[allow(clippy::type_complexity)]
 pub fn extract_help_metadata(
     topic: LocalHelpTopic,
 ) -> (
@@ -2926,9 +2922,9 @@ pub fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
             let content = message
                 .blocks
                 .iter()
-                .filter_map(|block| match block {
+                .map(|block| match block {
                     ContentBlock::Text { text } => {
-                        Some(InputContentBlock::Text { text: text.clone() })
+                        InputContentBlock::Text { text: text.clone() }
                     }
                     ContentBlock::Thinking {
                         thinking,
@@ -2936,29 +2932,29 @@ pub fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
                     } => {
                         // 保留 Thinking 块：OpenAI 兼容协议会把它转成 reasoning_content 字段
                         // 回传给 DeepSeek V4（避免 400 "reasoning_content must be passed back" 错误）
-                        Some(InputContentBlock::Thinking {
+                        InputContentBlock::Thinking {
                             thinking: thinking.clone(),
                             signature: signature.clone(),
-                        })
+                        }
                     }
-                    ContentBlock::ToolUse { id, name, input } => Some(InputContentBlock::ToolUse {
+                    ContentBlock::ToolUse { id, name, input } => InputContentBlock::ToolUse {
                         id: id.clone(),
                         name: name.clone(),
                         input: serde_json::from_str(input)
                             .unwrap_or_else(|_| serde_json::json!({ "raw": input })),
-                    }),
+                    },
                     ContentBlock::ToolResult {
                         tool_use_id,
                         output,
                         is_error,
                         ..
-                    } => Some(InputContentBlock::ToolResult {
+                    } => InputContentBlock::ToolResult {
                         tool_use_id: tool_use_id.clone(),
                         content: vec![ToolResultContentBlock::Text {
                             text: output.clone(),
                         }],
                         is_error: *is_error,
-                    }),
+                    },
                 })
                 .collect::<Vec<_>>();
             (!content.is_empty()).then(|| InputMessage {
@@ -5686,7 +5682,7 @@ mod tests {
         for action in ["remove", "uninstall", "delete"] {
             assert_eq!(
                 parse_args(&["skills".to_string(), action.to_string()])
-                    .expect(&format!("skills {action} should parse")),
+                    .unwrap_or_else(|_| panic!("skills {action} should parse")),
                 CliAction::Skills {
                     args: Some(action.to_string()),
                     output_format: CliOutputFormat::Text,

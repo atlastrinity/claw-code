@@ -36,7 +36,6 @@ pub fn run_doctor(
 }
 
 /// Run the interactive setup wizard to configure provider, API key, and model.
-
 #[allow(clippy::too_many_lines)]
 pub fn check_auth_health() -> DiagnosticCheck {
     let api_key_present = std::env::var("ANTHROPIC_API_KEY")

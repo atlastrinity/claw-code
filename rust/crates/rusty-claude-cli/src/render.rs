@@ -2728,7 +2728,9 @@ pub fn format_context_window_blocked_error(session_id: &str, error: &api::ApiErr
             ));
             lines.push(format!("  Context window   {context_window_tokens} tokens"));
         }
-        api::ApiError::Api { message, body, .. } => {
+        api::ApiError::Api(info) => {
+            let message = &info.message;
+            let body = &info.body;
             let detail = message.as_deref().unwrap_or(body).trim();
             if !detail.is_empty() {
                 lines.push(format!(
@@ -2739,7 +2741,7 @@ pub fn format_context_window_blocked_error(session_id: &str, error: &api::ApiErr
         }
         api::ApiError::RetriesExhausted { last_error, .. } => {
             let detail = match last_error.as_ref() {
-                api::ApiError::Api { message, body, .. } => message.as_deref().unwrap_or(body),
+                api::ApiError::Api(info) => info.message.as_deref().unwrap_or(&info.body),
                 other => return format_context_window_blocked_error(session_id, other),
             }
             .trim();
@@ -3261,8 +3263,7 @@ impl DiagnosticCheck {
         let id = self
             .name
             .to_ascii_lowercase()
-            .replace(' ', "_")
-            .replace('-', "_");
+            .replace([' ', '-'], "_");
         let mut value = Map::from_iter([
             ("id".to_string(), Value::String(id.clone())),
             (

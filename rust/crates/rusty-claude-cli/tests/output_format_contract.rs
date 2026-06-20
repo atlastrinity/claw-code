@@ -1008,13 +1008,13 @@ fn inventory_commands_emit_structured_json_when_requested() {
     assert!(
         !plugins
             .as_object()
-            .map_or(false, |o| o.contains_key("reload_runtime")),
+            .is_some_and(|o| o.contains_key("reload_runtime")),
         "plugins list should not include reload_runtime"
     );
     assert!(
         !plugins
             .as_object()
-            .map_or(false, |o| o.contains_key("target")),
+            .is_some_and(|o| o.contains_key("target")),
         "plugins list should not include target"
     );
     // #703: structured summary replaces prose message
@@ -1707,13 +1707,13 @@ fn resumed_inventory_commands_emit_structured_json_when_requested() {
     assert!(
         !plugins
             .as_object()
-            .map_or(false, |o| o.contains_key("reload_runtime")),
+            .is_some_and(|o| o.contains_key("reload_runtime")),
         "plugins list should not include reload_runtime"
     );
     assert!(
         !plugins
             .as_object()
-            .map_or(false, |o| o.contains_key("target")),
+            .is_some_and(|o| o.contains_key("target")),
         "plugins list should not include target"
     );
     assert!(
@@ -2946,7 +2946,7 @@ fn prompt_empty_arg_json_stdout_missing_prompt_823() {
         "claw prompt empty arg must retain abort action (#823); got: {parsed}"
     );
     assert!(
-        parsed["hint"].as_str().map_or(false, |h| !h.is_empty()),
+        parsed["hint"].as_str().is_some_and(|h| !h.is_empty()),
         "claw prompt empty arg missing_prompt hint must be non-empty (#823)"
     );
 }
@@ -2984,7 +2984,7 @@ fn flag_value_errors_have_error_kind_and_hint_756() {
         "invalid --reasoning-effort must be invalid_flag_value (#756): {parsed}"
     );
     assert!(
-        parsed["hint"].as_str().map_or(false, |h| h.contains("low")
+        parsed["hint"].as_str().is_some_and(|h| h.contains("low")
             || h.contains("medium")
             || h.contains("high")),
         "hint must mention valid values (#756): {parsed}"
@@ -3012,7 +3012,7 @@ fn flag_value_errors_have_error_kind_and_hint_756() {
         "missing --model value must be missing_flag_value (#756): {parsed2}"
     );
     assert!(
-        parsed2["hint"].as_str().map_or(false, |h| !h.is_empty()),
+        parsed2["hint"].as_str().is_some_and(|h| !h.is_empty()),
         "missing --model hint must be non-empty (#756): {parsed2}"
     );
 }
@@ -3256,7 +3256,7 @@ fn short_p_flag_swallows_no_flags_755() {
         "flag-like token after -p must be rejected as missing_prompt (#755): {parsed2}"
     );
     assert!(
-        parsed2["hint"].as_str().map_or(false, |h| !h.is_empty()),
+        parsed2["hint"].as_str().is_some_and(|h| !h.is_empty()),
         "missing_prompt hint must be non-empty (#755)"
     );
 }
@@ -3398,7 +3398,7 @@ fn config_unsupported_section_json_hint_741() {
         assert!(
             parsed["supported_sections"]
                 .as_array()
-                .map_or(false, |a| !a.is_empty()),
+                .is_some_and(|a| !a.is_empty()),
             "config {section} JSON must include supported_sections (#741)"
         );
     }

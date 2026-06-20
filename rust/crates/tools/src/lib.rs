@@ -295,7 +295,7 @@ impl GlobalToolRegistry {
     pub fn definitions(&self) -> Vec<ToolDefinition> {
         let builtin = mvp_tool_specs()
             .into_iter()
-            .filter(|spec| self.is_tool_injected(&spec.name))
+            .filter(|spec| self.is_tool_injected(spec.name))
             .map(|spec| ToolDefinition {
                 name: spec.name.to_string(),
                 description: Some(spec.description.to_string()),
@@ -5576,7 +5576,7 @@ impl ApiClient for ProviderRuntimeClient {
             (!request.system_prompt.is_empty()).then(|| request.system_prompt.join("\n\n"));
         let tool_choice = (!self.tools.is_empty()).then_some(ToolChoice::Auto);
 
-        let tools_opt = (!tools.is_empty()).then(|| tools);
+        let tools_opt = (!tools.is_empty()).then_some(tools);
 
         self.chain
             .stream_with_fallback(&self.runtime, messages, system, tools_opt, tool_choice)

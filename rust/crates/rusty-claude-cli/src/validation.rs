@@ -69,7 +69,7 @@ pub fn validate_path_exists(path: &PathBuf, require_write: bool) -> ValidationRe
 }
 
 /// Validate that a path is within allowed directories
-pub fn validate_path_allowed(path: &PathBuf, allowed_dirs: &[PathBuf]) -> ValidationResult {
+pub fn validate_path_allowed(path: &std::path::Path, allowed_dirs: &[PathBuf]) -> ValidationResult {
     let path_str = path.display().to_string();
 
     for allowed_dir in allowed_dirs {

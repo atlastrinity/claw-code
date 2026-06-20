@@ -41,7 +41,7 @@ impl Display for PipelineErrorStage {
 #[derive(Debug)]
 pub enum PipelineError {
     /// Upstream model-provider failure (wraps [`ApiError`]).
-    Provider { source: ApiError, provider: String },
+    Provider { source: Box<ApiError>, provider: String },
 
     /// RAG service was unreachable or returned an error.
     /// RAG failures are *never* fatal — the pipeline degrades gracefully.
@@ -166,7 +166,7 @@ impl From<ApiError> for PipelineError {
     fn from(source: ApiError) -> Self {
         Self::Provider {
             provider: String::from("unknown"),
-            source,
+            source: Box::new(source),
         }
     }
 }
@@ -236,7 +236,7 @@ mod tests {
             retry_after: None,
         };
         let pipeline_err = PipelineError::Provider {
-            source: api_err,
+            source: Box::new(api_err),
             provider: "test-provider".into(),
         };
         assert_eq!(pipeline_err.error_stage(), PipelineErrorStage::Provider);
@@ -259,7 +259,7 @@ mod tests {
             retry_after: None,
         };
         let pipeline_err = PipelineError::Provider {
-            source: api_err,
+            source: Box::new(api_err),
             provider: "anthropic".into(),
         };
         assert!(!pipeline_err.is_retryable());

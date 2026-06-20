@@ -71,6 +71,12 @@ pub struct MiddlewareChain<'a, 'p: 'a> {
     middlewares: Vec<Box<dyn TurnMiddleware<'a, 'p> + 'a>>,
 }
 
+impl<'a, 'p: 'a> Default for MiddlewareChain<'a, 'p> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<'a, 'p: 'a> MiddlewareChain<'a, 'p> {
     #[must_use]
     pub fn new() -> Self {
@@ -98,6 +104,7 @@ impl<'a, 'p: 'a> MiddlewareChain<'a, 'p> {
             ) -> ToolCallOutcome
             + 'a,
     ) -> ToolCallOutcome {
+        #[allow(clippy::type_complexity)]
         let mut next: Box<
             dyn FnMut(
                     ToolCallContext,

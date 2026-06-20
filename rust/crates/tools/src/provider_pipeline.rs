@@ -255,12 +255,12 @@ impl ResilientProviderChain {
                         );
                         last_error = Some(PipelineError::Provider {
                             provider: entry.model.clone(),
-                            source: error,
+                            source: Box::new(error),
                         });
                     } else {
                         return Err(PipelineError::Provider {
                             provider: entry.model.clone(),
-                            source: error,
+                            source: Box::new(error),
                         });
                     }
                 }

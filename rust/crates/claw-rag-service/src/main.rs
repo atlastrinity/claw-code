@@ -198,7 +198,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 loop {
                     std::thread::sleep(std::time::Duration::from_secs(10));
                     let mut got_more = false;
-                    while let Ok(_) = rx.try_recv() {
+                    while rx.try_recv().is_ok() {
                         got_more = true;
                     }
                     if !got_more {
