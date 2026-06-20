@@ -42,6 +42,7 @@ static SKIP_DIR_NAMES: &[&str] = &[
     "dist",
     "build",
     ".env",
+    "logs",
 ];
 
 static TEXT_EXTENSIONS: &[&str] = &[

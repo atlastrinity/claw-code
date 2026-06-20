@@ -26,3 +26,7 @@ opencore-atheros-kext/
 opencore-atheros-kext-main/
 
 .env
+
+# Logs
+logs/
+*.log
