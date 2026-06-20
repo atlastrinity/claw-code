@@ -18,8 +18,13 @@ pub fn init_logger(app_name: &str) -> Option<WorkerGuard> {
     // Ensure the directory exists
     let _ = std::fs::create_dir_all(&log_dir);
 
-    // Create a daily rolling appender
-    let file_appender = tracing_appender::rolling::daily(log_dir, format!("{}.log", app_name));
+    // Create a daily rolling appender that keeps the last 14 days of logs
+    let file_appender = tracing_appender::rolling::Builder::new()
+        .rotation(tracing_appender::rolling::Rotation::DAILY)
+        .filename_prefix(format!("{}.log", app_name))
+        .max_log_files(14) // Automatically delete logs older than 14 days
+        .build(&log_dir)
+        .expect("Failed to initialize rolling file appender");
 
     // Make it non-blocking
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
