@@ -113,6 +113,13 @@ cd rust
 ./target/debug/claw --output-format json prompt "status"
 ```
 
+### NDJSON streaming for agents
+
+```bash
+cd rust
+./target/debug/claw --output-format ndjson prompt "status"
+```
+
 ### Inspect worker state
 
 The `claw state` command reads `.claw/worker-state.json`, which is written by the interactive REPL or a one-shot prompt when a worker executes a task. This file contains the worker ID, session reference, model, and permission mode.
@@ -197,6 +204,7 @@ Output: A list of suspicious patterns with explanations (e.g., "unchecked unwrap
 ```bash
 cd rust
 ./target/debug/claw --model sonnet prompt "review this diff"
+./target/debug/claw --preset explain prompt "explain the codebase"
 ./target/debug/claw --permission-mode read-only prompt "summarize Cargo.toml"
 ./target/debug/claw --permission-mode workspace-write prompt "update README.md"
 ./target/debug/claw --tools read,glob "inspect the runtime crate"
@@ -207,13 +215,20 @@ Global workspace override flags: `--cwd PATH`, `-C PATH`, and `--directory PATH`
 
 `--tools` accepts canonical snake_case tool names (for example `read_file`, `glob_search`, `web_fetch`) plus documented aliases such as `read`, `glob`, `Read`, and `WebFetch`. `claw status --output-format json` exposes `tools.available` and `tools.aliases`, and invalid values return typed `invalid_tool_name` JSON with `tool_name`, `available`, and `tool_aliases`. A missing value before a subcommand or another flag returns `missing_argument` with `argument:"--tools"`.
 
-`--output-format` accepts `text` or `json` case-insensitively and normalizes to the canonical lowercase modes. `CLAW_OUTPUT_FORMAT=json` sets the default output format for scripts, while an explicit `--output-format` flag takes precedence. Repeating the flag emits a stderr warning and JSON status envelopes expose `format_source`, `format_raw`, and `format_overridden` so composed flag arrays are auditable; invalid values return typed `invalid_output_format` JSON with `value` and `expected:["text","json"]`.
+`--output-format` accepts `text`, `json`, or `ndjson` case-insensitively and normalizes to the canonical lowercase modes. `CLAW_OUTPUT_FORMAT=json` sets the default output format for scripts, while an explicit `--output-format` flag takes precedence. Repeating the flag emits a stderr warning and JSON status envelopes expose `format_source`, `format_raw`, and `format_overridden` so composed flag arrays are auditable; invalid values return typed `invalid_output_format` JSON with `value` and `expected:["text","json","ndjson"]`.
+
+The `--preset` flag dynamically modifies the system prompt to enforce specialized behaviors:
+- `audit`: Focuses the agent strictly on reading, analyzing, and reporting on the codebase without modifying files.
+- `explain`: Modifies the agent's behavior to provide educational, clear, and comprehensive explanations of code structure and concepts.
+- `implement`: Instructs the agent to prioritize writing code, making edits, and implementing features efficiently.
 
 Supported permission modes (default: `workspace-write`):
 
 - `read-only` allows inspection-only local tools such as file reads, glob/grep searches, local skills, and status-style reporting. It does not allow workspace mutation, network-fetch/search tools, or arbitrary command execution.
 - `workspace-write` is the safe default. It allows reads plus direct file-editing tools inside the current workspace, including write/edit/notebook/config/plan-mode updates, while still gating network-fetch/search tools, arbitrary shell execution, subagent launches, REPL subprocesses, and other full-access tools behind an explicit escalation.
 - `danger-full-access` allows every registered tool requirement, including arbitrary command execution, web fetch/search, subagent launches, subprocess REPLs, and unrestricted tool access. Select it only with an explicit `--permission-mode danger-full-access`, `--dangerously-skip-permissions`, `--skip-permissions`, env, or config opt-in.
+
+**Non-TTY Safety**: If you use `--dangerously-skip-permissions` in a headless environment (e.g., CI/CD or scripts with no interactive TTY), execution will be blocked to prevent unintended destructive actions. You MUST pass `--accept-danger-non-interactive` alongside it to bypass this safeguard.
 
 Model aliases currently supported by the CLI:
 

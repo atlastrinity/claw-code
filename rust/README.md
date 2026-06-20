@@ -22,6 +22,9 @@ cargo run -p rusty-claude-cli -- prompt "explain this codebase"
 
 # JSON output for automation
 cargo run -p rusty-claude-cli -- --output-format json prompt "summarize src/main.rs"
+
+# NDJSON streaming for agents
+cargo run -p rusty-claude-cli -- --output-format ndjson prompt "summarize src/main.rs"
 ```
 
 ## Configuration
@@ -127,10 +130,12 @@ claw [OPTIONS] [COMMAND]
 
 Flags:
   --model MODEL
-  --output-format text|json  (case-insensitive; CLAW_OUTPUT_FORMAT supplies the default, flags override env)
+  --preset PRESET             audit, explain, implement
+  --output-format FORMAT      text|json|ndjson (case-insensitive; CLAW_OUTPUT_FORMAT supplies the default)
   --permission-mode MODE
   --cwd PATH, -C PATH, --directory PATH
   --dangerously-skip-permissions, --skip-permissions
+  --accept-danger-non-interactive
   --tools TOOLS               canonical snake_case names or aliases; status JSON exposes tools.available/aliases
   --resume [SESSION.jsonl|session-id|latest]
   --version, -V
@@ -152,7 +157,7 @@ Top-level commands:
 ```
 
 `claw acp` is a local discoverability surface for editor-first users: it reports the current ACP/Zed status without starting the runtime. As of April 16, 2026, claw-code does **not** ship an ACP/Zed daemon or JSON-RPC entrypoint yet, and `claw acp serve` is only a status alias until the real protocol surface lands. Status queries exit 0 and expose the same machine-readable contract via `--output-format json`; malformed ACP invocations exit 1 with `kind: unsupported_acp_invocation`.
-`--output-format` accepts `text` or `json` in any casing. `CLAW_OUTPUT_FORMAT=json` selects JSON as the default for non-interactive commands, explicit flags override it, repeated flags warn on stderr, and status JSON exposes `format_source`, `format_raw`, and `format_overridden`. Help and doctor output also surface `CLAW_LOG` / `RUST_LOG` as the logging environment knobs.
+`--output-format` accepts `text`, `json`, or `ndjson` in any casing. `CLAW_OUTPUT_FORMAT=json` selects JSON as the default for non-interactive commands, explicit flags override it, repeated flags warn on stderr, and status JSON exposes `format_source`, `format_raw`, and `format_overridden`. Help and doctor output also surface `CLAW_LOG` / `RUST_LOG` as the logging environment knobs.
 `claw version --output-format json` is the provenance probe for automation: it reports full `git_sha`, derived `git_sha_short`, `is_dirty`, `branch`, `commit_date`, `commit_timestamp`, `rustc_version`, runtime `executable_path`, and `binary_provenance`; the text report is available as `human_readable` instead of a duplicate `message` field.
 `status --output-format json` reports loaded project memory files under `workspace.memory_files[]` with each file's `path`, `source` (`claude_md`, `claw_md`, `agents_md`, or scoped/rule sources), `origin`, `scope_path`, `outside_project`, `chars`, and `contributes`; `claw doctor --output-format json` includes a dedicated `memory` check. Root instruction-file priority is `CLAUDE.md`, then `CLAW.md`, then `AGENTS.md`, discovery is bounded to the current git root when present (otherwise cwd only), and all non-duplicate loaded files contribute to the rendered system prompt.
 `claw mcp --output-format json` reports partial MCP config success: valid servers remain in `servers[]` while malformed siblings appear in `invalid_servers[]`, with `total_configured`, `valid_count`, and `invalid_count` split out for automation. `status` mirrors this as `mcp_validation`, and doctor includes an `mcp validation` check.
