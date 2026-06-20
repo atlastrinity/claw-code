@@ -65,6 +65,7 @@ cd /path/to/your/repo
 Text mode (human-readable) shows artifact creation summary with project path and next steps. Idempotent — running multiple times in the same repo marks already-created files as "skipped", reports `.claw/` as "partial" when missing sub-files are materialized, and keeps `.claw/sessions/` deferred until the first successful session save.
 
 JSON mode for scripting:
+
 ```bash
 ./target/debug/claw init --output-format json
 ```
@@ -132,12 +133,14 @@ cd rust
 ```
 
 JSON mode:
+
 ```bash
 ./target/debug/claw state --output-format json
 ```
 
 If you run `claw state` before any worker has executed, you will see a helpful error:
-```
+
+```text
 error: no worker state file found at .claw/worker-state.json
   Hint: worker state is written by the interactive REPL or a non-interactive prompt.
   Run:   claw               # start the REPL (writes state on first turn)
@@ -218,6 +221,7 @@ Global workspace override flags: `--cwd PATH`, `-C PATH`, and `--directory PATH`
 `--output-format` accepts `text`, `json`, or `ndjson` case-insensitively and normalizes to the canonical lowercase modes. `CLAW_OUTPUT_FORMAT=json` sets the default output format for scripts, while an explicit `--output-format` flag takes precedence. Repeating the flag emits a stderr warning and JSON status envelopes expose `format_source`, `format_raw`, and `format_overridden` so composed flag arrays are auditable; invalid values return typed `invalid_output_format` JSON with `value` and `expected:["text","json","ndjson"]`.
 
 The `--preset` flag dynamically modifies the system prompt to enforce specialized behaviors:
+
 - `audit`: Focuses the agent strictly on reading, analyzing, and reporting on the codebase without modifying files.
 - `explain`: Modifies the agent's behavior to provide educational, clear, and comprehensive explanations of code structure and concepts.
 - `implement`: Instructs the agent to prioritize writing code, making edits, and implementing features efficiently.
@@ -256,7 +260,7 @@ export ANTHROPIC_AUTH_TOKEN="anthropic-oauth-or-proxy-bearer-token"
 `claw` accepts two Anthropic credential env vars and they are **not interchangeable** — the HTTP header Anthropic expects differs per credential shape. Putting the wrong value in the wrong slot is the most common 401 we see.
 
 | Credential shape | Env var | HTTP header | Typical source |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `sk-ant-*` API key | `ANTHROPIC_API_KEY` | `x-api-key: sk-ant-...` | [console.anthropic.com](https://console.anthropic.com) |
 | OAuth access token (opaque) | `ANTHROPIC_AUTH_TOKEN` | `Authorization: Bearer ...` | an Anthropic-compatible proxy or OAuth flow that mints bearer tokens |
 | OpenRouter key (`sk-or-v1-*`) | `OPENAI_API_KEY` + `OPENAI_BASE_URL=https://openrouter.ai/api/v1` | `Authorization: Bearer ...` | [openrouter.ai/keys](https://openrouter.ai/keys) |
@@ -265,7 +269,6 @@ export ANTHROPIC_AUTH_TOKEN="anthropic-oauth-or-proxy-bearer-token"
 **Why this matters:** if you paste an `sk-ant-*` key into `ANTHROPIC_AUTH_TOKEN`, Anthropic's API will return `401 Invalid bearer token` because `sk-ant-*` keys are rejected over the Bearer header. The fix is a one-line env var swap — move the key to `ANTHROPIC_API_KEY`. Recent `claw` builds detect this exact shape (401 + `sk-ant-*` in the Bearer slot) and append a hint to the error message pointing at the fix.
 
 **If you meant a different provider:** if `claw` reports missing Anthropic credentials but you already have `OPENAI_API_KEY`, `XAI_API_KEY`, or `DASHSCOPE_API_KEY` exported, you most likely forgot to prefix the model name with the provider's routing prefix. Use `--model openai/gpt-4.1-mini` (OpenAI-compat / OpenRouter / Ollama), `--model grok` (xAI), or `--model qwen-plus` (DashScope) and the prefix router will select the right backend regardless of the ambient credentials. The error message now includes a hint that names the detected env var.
-
 
 ### Windows PowerShell provider switching
 
@@ -374,7 +377,7 @@ Reasoning variants (`qwen-qwq-*`, `qwq-*`, `*-thinking`) automatically strip `te
 ### Provider matrix
 
 | Provider | Protocol | Auth env var(s) | Base URL env var | Default base URL |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | **Anthropic** (direct) | Anthropic Messages API | `ANTHROPIC_API_KEY` or `ANTHROPIC_AUTH_TOKEN` | `ANTHROPIC_BASE_URL` | `https://api.anthropic.com` |
 | **xAI** | OpenAI-compatible | `XAI_API_KEY` | `XAI_BASE_URL` | `https://api.x.ai/v1` |
 | **OpenAI-compatible** | OpenAI Chat Completions | `OPENAI_API_KEY` | `OPENAI_BASE_URL` | `https://api.openai.com/v1` |
@@ -389,7 +392,7 @@ The OpenAI-compatible backend also serves as the gateway for **OpenRouter**, **O
 These are the models registered in the built-in alias table with known token limits:
 
 | Alias | Resolved model name | Provider | Max output tokens | Context window |
-|---|---|---|---|---|
+| --- | --- | --- | --- | --- |
 | `opus` | `claude-opus-4-7` | Anthropic | 32 000 | 200 000 |
 | `sonnet` | `claude-sonnet-4-6` | Anthropic | 64 000 | 200 000 |
 | `haiku` | `claude-haiku-4-5-20251213` | Anthropic | 64 000 | 200 000 |
@@ -432,7 +435,6 @@ Model selection precedence is CLI flag, environment, config, then default. The e
 6. Otherwise, `claw` checks which credential is set: Anthropic first, then OpenAI, then xAI. If only `OPENAI_BASE_URL` is set, it still routes to OpenAI-compatible for authless local servers.
 7. If nothing matches, it defaults to Anthropic.
 
-
 ### Provider diagnostics and custom OpenAI-compatible parameters
 
 The API layer exposes a provider diagnostics snapshot via `api::provider_diagnostics_for_model(model)`. It reports the resolved provider, auth/base-url environment variables, default base URL, whether the provider uses the OpenAI-compatible wire format, whether reasoning tuning parameters are stripped, whether DeepSeek V4 reasoning history is preserved, proxy support, extra-body support, and whether slash-containing model IDs are preserved for custom OpenAI-compatible gateways.
@@ -459,6 +461,7 @@ cargo run -p claw-rag-service -- ingest --workspace /path/to/repo
 ### RAG Environment Variables
 
 To configure the embedding model used by the RAG service, use the following variables (defaults to OpenAI if unset):
+
 ```bash
 export CLAW_RAG_EMBEDDING_BASE_URL="http://127.0.0.1:11434/v1" # E.g., local Ollama
 export CLAW_RAG_EMBEDDING_MODEL="nomic-embed-text:latest"
@@ -466,6 +469,7 @@ export CLAW_RAG_OPENAI_API_KEY="ollama"
 ```
 
 To enable the agent's RAG tools (`retrieve_context` and `ingest_context`) to connect to the service, you MUST set the `RAG_BASE_URL` in the environment where the agent runs:
+
 ```bash
 export RAG_BASE_URL="http://127.0.0.1:8787"
 ```
@@ -494,6 +498,7 @@ When the `serve` process is running and `RAG_BASE_URL` is set, autonomous agents
 The Claw runtime has been modernized with several performance and reliability improvements:
 
 #### Parallel Tool Execution
+
 Multiple read-only tool calls (e.g., `read_file`, `grep_search`, `ToolSearch`) now execute concurrently instead of sequentially, dramatically reducing latency for large batch operations. Write operations (e.g., `bash`, `write_file`) remain isolated to prevent race conditions.
 
 ```bash
@@ -503,9 +508,11 @@ claw prompt "find all TODO comments and explain what they're for"
 ```
 
 #### Middleware Pipeline
+
 Execution flows now traverse a composable middleware chain that handles tracing, permissions, hooks, and execution in separate, testable layers. This makes the system more modular and easier to extend.
 
 #### Resilient Provider Chain
+
 The provider fallback logic now includes circuit breaking and cost tracking. If a primary model (e.g., Claude) experiences degradation or rate limits, Claw automatically switches to backup providers (Grok, OpenAI-compatible) with minimal latency impact.
 
 ```bash
@@ -515,6 +522,7 @@ claw --model sonnet prompt "analyze this codebase"
 ```
 
 #### Cost Tracking
+
 The runtime tracks total input/output tokens and estimated costs across all retries and provider handoffs, making it easy to monitor usage:
 
 ```bash

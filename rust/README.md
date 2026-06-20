@@ -86,7 +86,7 @@ Primary artifacts:
 ## Features
 
 | Feature | Status |
-|---------|--------|
+| ------- | ------ |
 | Anthropic / OpenAI-compatible provider flows + streaming | ✅ |
 | Direct bearer-token auth via `ANTHROPIC_AUTH_TOKEN` | ✅ |
 | Interactive REPL (rustyline) | ✅ |
@@ -116,7 +116,7 @@ Primary artifacts:
 Short names resolve to the latest model versions:
 
 | Alias | Resolves To |
-|-------|------------|
+| ----- | ----------- |
 | `opus` | `claude-opus-4-7` |
 | `sonnet` | `claude-sonnet-4-6` |
 | `haiku` | `claude-haiku-4-5-20251213` |
@@ -182,8 +182,8 @@ The REPL now exposes a much broader surface than the original minimal shell:
 - discovery / debugging: `/mcp`, `/agents`, `/skills`, `/doctor`, `/tasks`, `/context`, `/desktop`
 - automation / analysis: `/review`, `/advisor`, `/insights`, `/security-review`, `/subagent`, `/team`, `/telemetry`, `/providers`, `/cron`, and more
 - plugin management: `/plugin` (with aliases `/plugins`, `/marketplace`)
-
 Notable claw-first surfaces now available directly in slash form:
+
 - `/skills [list|show <name>|install <path>|uninstall <name>|help]`
 - `/agents [list|show <name>|create <name>|help]`
 - `/mcp [list|show <server>|help]`
