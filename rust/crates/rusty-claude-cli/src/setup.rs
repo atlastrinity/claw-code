@@ -29,7 +29,7 @@ pub fn run_worker_state(output_format: CliOutputFormat) -> Result<(), Box<dyn st
     let raw = std::fs::read_to_string(&state_path)?;
     match output_format {
         CliOutputFormat::Text => println!("{raw}"),
-        CliOutputFormat::Json => {
+        CliOutputFormat::Json | CliOutputFormat::Ndjson => {
             let _: serde_json::Value = serde_json::from_str(&raw)?;
             println!("{raw}");
         }
@@ -48,7 +48,7 @@ pub fn run_init(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error
     let message = report.render();
     match output_format {
         CliOutputFormat::Text => println!("{message}"),
-        CliOutputFormat::Json => println!(
+        CliOutputFormat::Json | CliOutputFormat::Ndjson => println!(
             "{}",
             serde_json::to_string_pretty(&init_json_value(&report, &message))?
         ),

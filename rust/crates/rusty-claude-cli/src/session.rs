@@ -372,7 +372,7 @@ pub fn run_session_list(output_format: CliOutputFormat) -> Result<(), Box<dyn st
             let text = render_session_list("").unwrap_or_else(|e| format!("error: {e}"));
             println!("{text}");
         }
-        CliOutputFormat::Json => {
+        CliOutputFormat::Json | CliOutputFormat::Ndjson => {
             println!(
                 "{}",
                 serde_json::json!({

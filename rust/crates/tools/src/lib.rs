@@ -466,10 +466,14 @@ impl GlobalToolRegistry {
         {
             return execute_tool_with_enforcer(self.enforcer.as_ref(), spec.name, &coerced_input);
         }
-        
+
         // Then try canonical names
-        let resolved_name = self.allowed_tool_aliases().get(raw_name).cloned().unwrap_or_else(|| raw_name.to_string());
-        
+        let resolved_name = self
+            .allowed_tool_aliases()
+            .get(raw_name)
+            .cloned()
+            .unwrap_or_else(|| raw_name.to_string());
+
         if let Some(spec) = mvp_tool_specs()
             .iter()
             .find(|spec| normalization::canonical_allowed_tool_name(spec.name) == resolved_name)
@@ -478,14 +482,20 @@ impl GlobalToolRegistry {
         }
 
         // Check plugin tools
-        if let Some(tool) = self.plugin_tools.iter().find(|tool| tool.definition().name.eq_ignore_ascii_case(raw_name)) {
+        if let Some(tool) = self
+            .plugin_tools
+            .iter()
+            .find(|tool| tool.definition().name.eq_ignore_ascii_case(raw_name))
+        {
             return tool.execute(&coerced_input).map_err(|e| e.to_string());
         }
 
-        if let Some(tool) = self.plugin_tools.iter().find(|tool| normalization::canonical_allowed_tool_name(&tool.definition().name) == resolved_name) {
+        if let Some(tool) = self.plugin_tools.iter().find(|tool| {
+            normalization::canonical_allowed_tool_name(&tool.definition().name) == resolved_name
+        }) {
             return tool.execute(&coerced_input).map_err(|e| e.to_string());
         }
-        
+
         Err(format!("unsupported tool: {resolved_name}"))
     }
 

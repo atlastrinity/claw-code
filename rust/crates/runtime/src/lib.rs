@@ -104,6 +104,7 @@ pub use lane_events::{
     LaneFailureClass, LaneOwnership, SessionIdentity, ShipMergeMethod, ShipProvenance,
     WatcherAction,
 };
+pub use loop_detection::LoopDetectionMiddleware;
 pub use mcp::{
     mcp_server_signature, mcp_tool_name, mcp_tool_prefix, normalize_name_for_mcp,
     scoped_mcp_config_hash, unwrap_ccr_proxy_url,
@@ -191,7 +192,6 @@ pub use task_packet::{
     validate_packet, TaskPacket, TaskPacketValidationError, TaskResource, ValidatedPacket,
 };
 pub use task_registry::{LaneBoard, LaneBoardEntry, LaneFreshness, LaneHeartbeat};
-pub use loop_detection::LoopDetectionMiddleware;
 pub use tool_dispatch::{
     batch_tool_calls, dispatch_report, execute_parallel_batch, is_parallelizable, DispatchReport,
     ParallelToolConfig, ToolBatch, ToolCallRequest, ToolCallResult,

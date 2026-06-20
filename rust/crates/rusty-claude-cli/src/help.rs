@@ -31,7 +31,7 @@ pub fn print_help_topic(
     }
     match output_format {
         CliOutputFormat::Text => println!("{}", render_help_topic(topic)),
-        CliOutputFormat::Json => println!(
+        CliOutputFormat::Json | CliOutputFormat::Ndjson => println!(
             "{}",
             serde_json::to_string_pretty(&render_help_topic_json(topic))?
         ),
@@ -143,7 +143,8 @@ pub fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(
         out,
-        "  --dangerously-skip-permissions, --skip-permissions  Skip all permission checks"
+        "  --preset PRESET             Load extra system prompt (audit, explain, implement)
+  --dangerously-skip-permissions, --skip-permissions  Skip all permission checks"
     )?;
     writeln!(
         out,
@@ -216,7 +217,7 @@ pub fn print_help(output_format: CliOutputFormat) -> Result<(), Box<dyn std::err
     let message = String::from_utf8(buffer)?;
     match output_format {
         CliOutputFormat::Text => print!("{message}"),
-        CliOutputFormat::Json => {
+        CliOutputFormat::Json | CliOutputFormat::Ndjson => {
             // #325: include structured command list in top-level help JSON
             let commands: Vec<serde_json::Value> = commands::slash_command_specs()
                 .iter()

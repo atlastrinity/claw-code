@@ -623,6 +623,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands,
             output_format,
             allow_broad_cwd,
+            preset,
         } => {
             enforce_broad_cwd_policy(allow_broad_cwd, output_format)?;
             resume_session(&session_path, &commands, output_format)
@@ -651,6 +652,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             base_commit,
             reasoning_effort,
             allow_broad_cwd,
+            preset,
         } => {
             tracing::info!(model = %model, permission_mode = %permission_mode.as_str(), "running prompt mode");
             enforce_broad_cwd_policy(allow_broad_cwd, output_format)?;
@@ -693,7 +695,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             CliOutputFormat::Text => {
                 println!("{}", render_config_report(section.as_deref())?);
             }
-            CliOutputFormat::Json => {
+            CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
                 println!(
                     "{}",
                     serde_json::to_string_pretty(&render_config_json(section.as_deref())?)?
@@ -708,7 +710,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             CliOutputFormat::Text => {
                 println!("{}", render_diff_report()?);
             }
-            CliOutputFormat::Json => {
+            CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
                 let cwd = friendly_cwd(std::env::current_dir()?);
                 println!(
                     "{}",
@@ -728,6 +730,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             base_commit,
             reasoning_effort,
             allow_broad_cwd,
+            preset,
         } => {
             tracing::info!(model = %model, permission_mode = %permission_mode.as_str(), "entering REPL mode");
             run_repl(
@@ -1066,6 +1069,7 @@ fn parse_direct_slash_cli_action(
                     base_commit,
                     reasoning_effort: reasoning_effort.clone(),
                     allow_broad_cwd,
+                    preset: None,
                 }),
                 SkillSlashDispatch::Local => Ok(CliAction::Skills {
                     args,

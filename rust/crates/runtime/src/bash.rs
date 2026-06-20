@@ -357,7 +357,11 @@ fn rewrite_sudo_command(command: &str, cwd: &Path) -> Option<String> {
     rewrite_sudo_command_with_env(command, cwd, env::var("SUDO_PASSWORD").ok())
 }
 
-fn rewrite_sudo_command_with_env(command: &str, cwd: &Path, env_var: Option<String>) -> Option<String> {
+fn rewrite_sudo_command_with_env(
+    command: &str,
+    cwd: &Path,
+    env_var: Option<String>,
+) -> Option<String> {
     let trimmed = command.trim();
 
     // Fast path: does the command even mention sudo?
@@ -599,8 +603,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join(".env"), "SUDO_PASSWORD=pass").expect("write .env");
 
-        let result =
-            rewrite_sudo_command_with_env("sudo -S apt update", dir.path(), None).expect("should rewrite");
+        let result = rewrite_sudo_command_with_env("sudo -S apt update", dir.path(), None)
+            .expect("should rewrite");
         // Should NOT have double -S
         assert!(
             !result.contains("-S -S"),
@@ -618,8 +622,8 @@ mod tests {
         std::fs::write(dir.path().join(".env"), "SUDO_PASSWORD=\"p@ss'w0rd$\"")
             .expect("write .env");
 
-        let result =
-            rewrite_sudo_command_with_env("sudo rm -rf /tmp/test", dir.path(), None).expect("should rewrite");
+        let result = rewrite_sudo_command_with_env("sudo rm -rf /tmp/test", dir.path(), None)
+            .expect("should rewrite");
         // Single quotes in password should be escaped
         assert!(
             result.contains("p@ss'\\''w0rd$"),

@@ -2984,9 +2984,9 @@ fn flag_value_errors_have_error_kind_and_hint_756() {
         "invalid --reasoning-effort must be invalid_flag_value (#756): {parsed}"
     );
     assert!(
-        parsed["hint"].as_str().is_some_and(|h| h.contains("low")
-            || h.contains("medium")
-            || h.contains("high")),
+        parsed["hint"]
+            .as_str()
+            .is_some_and(|h| h.contains("low") || h.contains("medium") || h.contains("high")),
         "hint must mention valid values (#756): {parsed}"
     );
 

@@ -128,7 +128,7 @@ pub fn run_export(
         );
         match output_format {
             CliOutputFormat::Text => println!("{report}"),
-            CliOutputFormat::Json => println!(
+            CliOutputFormat::Json | CliOutputFormat::Ndjson => println!(
                 "{}",
                 serde_json::to_string_pretty(&json!({
                     "kind": "export",
@@ -151,7 +151,7 @@ pub fn run_export(
                 println!();
             }
         }
-        CliOutputFormat::Json => println!(
+        CliOutputFormat::Json | CliOutputFormat::Ndjson => println!(
             "{}",
             serde_json::to_string_pretty(&json!({
                 "kind": "export",

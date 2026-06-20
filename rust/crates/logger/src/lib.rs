@@ -1,4 +1,3 @@
-
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     fmt::{self, format::FmtSpan},
@@ -29,10 +28,9 @@ pub fn init_logger(app_name: &str) -> Option<WorkerGuard> {
     // Make it non-blocking
     let (non_blocking, guard) = tracing_appender::non_blocking(file_appender);
 
-    // We only log to file by default, to avoid messing up CLI/TUI stdout, 
+    // We only log to file by default, to avoid messing up CLI/TUI stdout,
     // but we can respect RUST_LOG for filtering (defaulting to info).
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     // We'll use a JSON format or a clean text format. A clean text format without ANSI
     // is easiest for humans, but let's use a standard format with targets and spans.

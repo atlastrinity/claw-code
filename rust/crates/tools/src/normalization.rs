@@ -67,7 +67,7 @@ mod tests {
             },
             "name": "grep"
         });
-        
+
         let expected = json!({
             "timeout": 120000,
             "dry_run": true,
@@ -76,7 +76,7 @@ mod tests {
             },
             "name": "grep"
         });
-        
+
         assert_eq!(coerce_tool_input(input), expected);
     }
 }

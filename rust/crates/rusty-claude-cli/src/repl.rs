@@ -239,7 +239,7 @@ impl LiveCli {
             model.clone(),
             system_prompt.clone(),
             enable_tools,
-            true,
+            crate::cli::CliOutputFormat::Text,
             tools.clone(),
             permission_mode,
             None,
@@ -321,7 +321,7 @@ impl LiveCli {
     }
     fn prepare_turn_runtime(
         &self,
-        emit_output: bool,
+        output_format: crate::cli::CliOutputFormat,
     ) -> Result<(BuiltRuntime, HookAbortMonitor), Box<dyn std::error::Error>> {
         let hook_abort_signal = runtime::HookAbortSignal::new();
         let runtime = build_runtime(
@@ -330,7 +330,7 @@ impl LiveCli {
             self.model.clone(),
             self.system_prompt.clone(),
             true,
-            emit_output,
+            output_format,
             self.tools.clone(),
             self.permission_mode,
             None,
@@ -347,7 +347,8 @@ impl LiveCli {
     }
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(input_len = input.len(), session_id = %self.session.id, "starting turn");
-        let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(true)?;
+        let (mut runtime, hook_abort_monitor) =
+            self.prepare_turn_runtime(crate::cli::CliOutputFormat::Text)?;
         let mut spinner = Spinner::new();
         let mut stdout = io::stdout();
         spinner.tick(
@@ -453,7 +454,11 @@ impl LiveCli {
                     let max_compact_rounds = 4;
                     let preserve_schedule = [4, 2, 1, 0];
 
-                    for (round, &preserve) in preserve_schedule.iter().enumerate().take(max_compact_rounds) {
+                    for (round, &preserve) in preserve_schedule
+                        .iter()
+                        .enumerate()
+                        .take(max_compact_rounds)
+                    {
                         println!(
                             "  Auto-compacting session (round {}/{}, preserving {} recent messages)...",
                             round + 1,
@@ -496,7 +501,7 @@ impl LiveCli {
 
                         // Build a new runtime with the compacted session and retry
                         let (mut new_runtime, hook_abort_monitor) =
-                            self.prepare_turn_runtime(true)?;
+                            self.prepare_turn_runtime(crate::cli::CliOutputFormat::Text)?;
                         drop(hook_abort_monitor);
 
                         let mut rp = CliPermissionPrompter::new(self.permission_mode);
@@ -589,11 +594,15 @@ impl LiveCli {
                         println!("  Network error detected. Waiting {current_timeout_secs}s before retrying (round {round})...");
                         std::thread::sleep(std::time::Duration::from_secs(current_timeout_secs));
 
-                        std::env::set_var("CLAW_API_REQUEST_TIMEOUT", current_timeout_secs.to_string());
+                        std::env::set_var(
+                            "CLAW_API_REQUEST_TIMEOUT",
+                            current_timeout_secs.to_string(),
+                        );
 
-                        let (mut new_runtime, new_monitor) = self.prepare_turn_runtime(true)?;
+                        let (mut new_runtime, new_monitor) =
+                            self.prepare_turn_runtime(crate::cli::CliOutputFormat::Text)?;
                         let mut new_prompter = CliPermissionPrompter::new(self.permission_mode);
-                        
+
                         let mut spinner = Spinner::new();
                         let mut stdout = io::stdout();
                         spinner.tick(
@@ -601,10 +610,10 @@ impl LiveCli {
                             TerminalRenderer::new().color_theme(),
                             &mut stdout,
                         )?;
-                        
+
                         let retry_result = new_runtime.run_turn(input, Some(&mut new_prompter));
                         new_monitor.stop();
-                        
+
                         match retry_result {
                             Ok(summary) => {
                                 if let Some(orig) = &original_timeout {
@@ -640,9 +649,10 @@ impl LiveCli {
                                     TerminalRenderer::new().color_theme(),
                                     &mut stdout,
                                 )?;
-                                
+
                                 let retry_str = retry_error.to_string();
-                                let still_network_error = retry_str.contains("error decoding response body")
+                                let still_network_error = retry_str
+                                    .contains("error decoding response body")
                                     || retry_str.contains("connection closed")
                                     || retry_str.contains("timeout")
                                     || retry_str.contains("broken pipe")
@@ -655,13 +665,13 @@ impl LiveCli {
                                     || retry_str.contains("429")
                                     || retry_str.contains("Too Many Requests")
                                     || retry_str.contains("api_rate_limit_error");
-                                    
+
                                 if still_network_error {
                                     round += 1;
                                     current_timeout_secs += 10;
                                     continue;
                                 }
-                                
+
                                 if let Some(orig) = &original_timeout {
                                     std::env::set_var("CLAW_API_REQUEST_TIMEOUT", orig);
                                 } else {
@@ -685,14 +695,19 @@ impl LiveCli {
         compact: bool,
     ) -> Result<(), Box<dyn std::error::Error>> {
         match output_format {
-            CliOutputFormat::Json if compact => self.run_prompt_compact_json(input),
+            CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson if compact => {
+                self.run_prompt_compact_json(input, output_format)
+            }
             CliOutputFormat::Text if compact => self.run_prompt_compact(input),
             CliOutputFormat::Text => self.run_turn(input),
-            CliOutputFormat::Json => self.run_prompt_json(input),
+            CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
+                self.run_prompt_json(input, output_format)
+            }
         }
     }
     fn run_prompt_compact(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(false)?;
+        let (mut runtime, hook_abort_monitor) =
+            self.prepare_turn_runtime(crate::cli::CliOutputFormat::Json)?;
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
         let result = runtime.run_turn(input, Some(&mut permission_prompter));
         hook_abort_monitor.stop();
@@ -703,65 +718,95 @@ impl LiveCli {
         println!("{final_text}");
         Ok(())
     }
-    fn run_prompt_compact_json(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(false)?;
+    fn run_prompt_compact_json(
+        &mut self,
+        input: &str,
+        output_format: crate::cli::CliOutputFormat,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(output_format)?;
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
         let result = runtime.run_turn(input, Some(&mut permission_prompter));
         hook_abort_monitor.stop();
         let summary = result?;
         self.replace_runtime(runtime)?;
         self.persist_session()?;
-        println!(
-            "{}",
-            json!({
-                "message": final_assistant_text(&summary),
-                "compact": true,
-                "model": self.model,
-                "usage": {
-                    "input_tokens": summary.usage.input_tokens,
-                    "output_tokens": summary.usage.output_tokens,
-                    "cache_creation_input_tokens": summary.usage.cache_creation_input_tokens,
-                    "cache_read_input_tokens": summary.usage.cache_read_input_tokens,
-                },
-            })
-        );
+
+        if output_format == crate::cli::CliOutputFormat::Ndjson {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "type": "assistant_turn",
+                    "usage": {
+                        "input_tokens": summary.usage.input_tokens,
+                        "output_tokens": summary.usage.output_tokens,
+                        "cache_creation_input_tokens": summary.usage.cache_creation_input_tokens,
+                        "cache_read_input_tokens": summary.usage.cache_read_input_tokens,
+                    },
+                    "text": final_assistant_text(&summary),
+                })
+            );
+        } else {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "message": final_assistant_text(&summary),
+                    "compact": true,
+                    "model": self.model,
+                    "usage": {
+                        "input_tokens": summary.usage.input_tokens,
+                        "output_tokens": summary.usage.output_tokens,
+                        "cache_creation_input_tokens": summary.usage.cache_creation_input_tokens,
+                        "cache_read_input_tokens": summary.usage.cache_read_input_tokens,
+                    },
+                })
+            );
+        }
+
         Ok(())
     }
-    fn run_prompt_json(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(false)?;
+    fn run_prompt_json(
+        &mut self,
+        input: &str,
+        output_format: crate::cli::CliOutputFormat,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(output_format)?;
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
         let result = runtime.run_turn(input, Some(&mut permission_prompter));
         hook_abort_monitor.stop();
         let summary = result?;
         self.replace_runtime(runtime)?;
         self.persist_session()?;
-        println!(
-            "{}",
-            json!({
-                "message": final_assistant_text(&summary),
-                "model": self.model,
-                "iterations": summary.iterations,
-                "auto_compaction": summary.auto_compaction.map(|event| json!({
-                    "removed_messages": event.removed_message_count,
-                    "notice": format_auto_compaction_notice(event.removed_message_count),
-                })),
-                "tool_uses": collect_tool_uses(&summary),
-                "tool_results": collect_tool_results(&summary),
-                "prompt_cache_events": collect_prompt_cache_events(&summary),
-                "usage": {
-                    "input_tokens": summary.usage.input_tokens,
-                    "output_tokens": summary.usage.output_tokens,
-                    "cache_creation_input_tokens": summary.usage.cache_creation_input_tokens,
-                    "cache_read_input_tokens": summary.usage.cache_read_input_tokens,
-                },
-                "estimated_cost": format_usd(
-                    summary.usage.estimate_cost_usd_with_pricing(
-                        pricing_for_model(&self.model)
-                            .unwrap_or_else(runtime::ModelPricing::default_sonnet_tier)
-                    ).total_cost_usd()
-                )
-            })
-        );
+
+        if output_format == crate::cli::CliOutputFormat::Ndjson {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "type": "assistant_turn",
+                    "usage": {
+                        "input_tokens": summary.usage.input_tokens,
+                        "output_tokens": summary.usage.output_tokens,
+                        "cache_creation_input_tokens": summary.usage.cache_creation_input_tokens,
+                        "cache_read_input_tokens": summary.usage.cache_read_input_tokens,
+                    },
+                    "text": final_assistant_text(&summary),
+                })
+            );
+        } else {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "message": final_assistant_text(&summary),
+                    "model": self.model,
+                    "usage": {
+                        "input_tokens": summary.usage.input_tokens,
+                        "output_tokens": summary.usage.output_tokens,
+                        "cache_creation_input_tokens": summary.usage.cache_creation_input_tokens,
+                        "cache_read_input_tokens": summary.usage.cache_read_input_tokens,
+                    },
+                })
+            );
+        }
+
         Ok(())
     }
 
@@ -1077,7 +1122,7 @@ impl LiveCli {
             model.clone(),
             self.system_prompt.clone(),
             true,
-            true,
+            crate::cli::CliOutputFormat::Text,
             self.tools.clone(),
             self.permission_mode,
             None,
@@ -1122,7 +1167,7 @@ impl LiveCli {
             self.model.clone(),
             self.system_prompt.clone(),
             true,
-            true,
+            crate::cli::CliOutputFormat::Text,
             self.tools.clone(),
             self.permission_mode,
             None,
@@ -1151,7 +1196,7 @@ impl LiveCli {
             self.model.clone(),
             self.system_prompt.clone(),
             true,
-            true,
+            crate::cli::CliOutputFormat::Text,
             self.tools.clone(),
             self.permission_mode,
             None,
@@ -1191,7 +1236,7 @@ impl LiveCli {
             self.model.clone(),
             self.system_prompt.clone(),
             true,
-            true,
+            crate::cli::CliOutputFormat::Text,
             self.tools.clone(),
             self.permission_mode,
             None,
@@ -1226,7 +1271,7 @@ impl LiveCli {
         let cwd = std::env::current_dir()?;
         match output_format {
             CliOutputFormat::Text => println!("{}", handle_agents_slash_command(args, &cwd)?),
-            CliOutputFormat::Json => {
+            CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
                 let value = handle_agents_slash_command_json(args, &cwd)?;
                 // #789: parity with print_mcp/#788 print_skills — exit 1 when envelope
                 // reports an error so automation can rely on exit code instead of
@@ -1253,7 +1298,7 @@ impl LiveCli {
         let cwd = std::env::current_dir()?;
         match output_format {
             CliOutputFormat::Text => println!("{}", handle_mcp_slash_command(args, &cwd)?),
-            CliOutputFormat::Json => {
+            CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
                 let value = handle_mcp_slash_command_json(args, &cwd)?;
                 // Propagate ok:false → non-zero exit so automation callers
                 // can rely on exit code instead of inspecting the envelope.
@@ -1275,7 +1320,7 @@ impl LiveCli {
         let cwd = std::env::current_dir()?;
         match output_format {
             CliOutputFormat::Text => println!("{}", handle_skills_slash_command(args, &cwd)?),
-            CliOutputFormat::Json => {
+            CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
                 let result = handle_skills_slash_command_json(args, &cwd)?;
                 let is_error = result.get("status").and_then(|v| v.as_str()) == Some("error");
                 // #739: action:"help" with unexpected set is a usage response, not a fatal error;
@@ -1334,7 +1379,9 @@ impl LiveCli {
             action,
             target,
             match output_format {
-                CliOutputFormat::Json => ConfigWarningMode::SuppressStderr,
+                CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
+                    ConfigWarningMode::SuppressStderr
+                }
                 CliOutputFormat::Text => ConfigWarningMode::EmitStderr,
             },
         )?;
@@ -1361,7 +1408,7 @@ impl LiveCli {
                 }
                 println!("{}", payload.message);
             }
-            CliOutputFormat::Json => {
+            CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
                 let action_str = action.unwrap_or("list");
                 // #743/#420: plugins help must return a usage envelope matching agents/mcp/skills help shape.
                 if matches!(action_str, "help" | "-h" | "--help") {
@@ -1535,7 +1582,7 @@ impl LiveCli {
                     self.model.clone(),
                     self.system_prompt.clone(),
                     true,
-                    true,
+                    crate::cli::CliOutputFormat::Text,
                     self.tools.clone(),
                     self.permission_mode,
                     None,
@@ -1570,7 +1617,7 @@ impl LiveCli {
                     self.model.clone(),
                     self.system_prompt.clone(),
                     true,
-                    true,
+                    crate::cli::CliOutputFormat::Text,
                     self.tools.clone(),
                     self.permission_mode,
                     None,
@@ -1662,7 +1709,7 @@ impl LiveCli {
             self.model.clone(),
             self.system_prompt.clone(),
             true,
-            true,
+            crate::cli::CliOutputFormat::Text,
             self.tools.clone(),
             self.permission_mode,
             None,
@@ -1681,7 +1728,7 @@ impl LiveCli {
             self.model.clone(),
             self.system_prompt.clone(),
             true,
-            true,
+            crate::cli::CliOutputFormat::Text,
             self.tools.clone(),
             self.permission_mode,
             None,
@@ -1704,7 +1751,7 @@ impl LiveCli {
             self.model.clone(),
             self.system_prompt.clone(),
             enable_tools,
-            false,
+            crate::cli::CliOutputFormat::Json,
             self.tools.clone(),
             self.permission_mode,
             progress,

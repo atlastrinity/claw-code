@@ -241,7 +241,8 @@ impl ApiError {
             Self::ContextWindowExceeded { .. } => true,
             Self::Api(info) => {
                 matches!(info.status.as_u16(), 400 | 413 | 422)
-                    && (info.message
+                    && (info
+                        .message
                         .as_deref()
                         .is_some_and(looks_like_context_window_error)
                         || looks_like_context_window_error(&info.body))

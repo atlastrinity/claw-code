@@ -41,7 +41,10 @@ impl Display for PipelineErrorStage {
 #[derive(Debug)]
 pub enum PipelineError {
     /// Upstream model-provider failure (wraps [`ApiError`]).
-    Provider { source: Box<ApiError>, provider: String },
+    Provider {
+        source: Box<ApiError>,
+        provider: String,
+    },
 
     /// RAG service was unreachable or returned an error.
     /// RAG failures are *never* fatal — the pipeline degrades gracefully.

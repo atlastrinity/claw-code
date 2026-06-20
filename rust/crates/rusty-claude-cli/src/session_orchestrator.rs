@@ -54,6 +54,7 @@ pub fn parse_resume_args(
         commands,
         output_format,
         allow_broad_cwd,
+        preset: None,
     })
 }
 
@@ -446,7 +447,9 @@ pub fn run_resume_command(
         }
         SlashCommand::Plugins { action, target } => {
             // Only list is supported in resume mode (no runtime to reload)
-            if let Some(action @ ("install" | "uninstall" | "enable" | "disable" | "update")) = action.as_deref() {
+            if let Some(action @ ("install" | "uninstall" | "enable" | "disable" | "update")) =
+                action.as_deref()
+            {
                 // #777: use interactive_only: prefix + \n hint so #776's classify/split
                 // emits error_kind:interactive_only + non-null hint instead of unknown+null.
                 // Orchestrators can now detect this and switch to a live REPL instead of retrying.

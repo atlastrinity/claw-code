@@ -48,6 +48,33 @@ use crate::{
 use commands::{classify_skills_slash_command, SkillSlashDispatch};
 use std::io::IsTerminal;
 
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CliPreset {
+    Audit,
+    Explain,
+    Implement,
+}
+
+impl CliPreset {
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "audit" => Some(Self::Audit),
+            "explain" => Some(Self::Explain),
+            "implement" => Some(Self::Implement),
+            _ => None,
+        }
+    }
+
+    pub fn extra_system(&self) -> &'static str {
+        match self {
+            Self::Audit => "Preset: audit — prioritize security, correctness, and suspicious patterns; cite file paths and evidence; prefer read-only investigation.",
+            Self::Explain => "Preset: explain — teach clearly; define terms; ground claims in repository content; avoid unnecessary jargon.",
+            Self::Implement => "Preset: implement — make focused edits; read before writing when unsure; keep changes small and explain what you changed.",
+        }
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub enum CliAction {
     DumpManifests {
@@ -91,6 +118,7 @@ pub enum CliAction {
         commands: Vec<String>,
         output_format: CliOutputFormat,
         allow_broad_cwd: bool,
+        preset: Option<CliPreset>,
     },
     Status {
         model: String,
@@ -115,6 +143,7 @@ pub enum CliAction {
         base_commit: Option<String>,
         reasoning_effort: Option<String>,
         allow_broad_cwd: bool,
+        preset: Option<CliPreset>,
     },
     Doctor {
         output_format: CliOutputFormat,
@@ -157,6 +186,7 @@ pub enum CliAction {
         base_commit: Option<String>,
         reasoning_effort: Option<String>,
         allow_broad_cwd: bool,
+        preset: Option<CliPreset>,
     },
     HelpTopic {
         topic: LocalHelpTopic,
@@ -202,6 +232,7 @@ pub enum LocalHelpTopic {
 pub enum CliOutputFormat {
     Text,
     Json,
+    Ndjson,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -362,6 +393,7 @@ impl CliOutputFormat {
         match self {
             Self::Text => "text",
             Self::Json => "json",
+            Self::Ndjson => "ndjson",
         }
     }
 }
@@ -387,6 +419,7 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut base_commit: Option<String> = None;
     let mut reasoning_effort: Option<String> = None;
     let mut allow_broad_cwd = false;
+    let mut preset: Option<CliPreset> = None;
 
     // #755: -p prompt text captured as single token; remaining args continue
     // flag parsing. None until `-p <text>` is seen.
@@ -532,6 +565,17 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     ));
                 }
                 reasoning_effort = Some(value.to_string());
+                index += 1;
+            }
+
+            "--preset" => {
+                let value = args.get(index + 1).ok_or_else(|| "missing_flag_value: missing value for --preset.\nUsage: --preset audit|explain|implement".to_string())?;
+                preset = Some(CliPreset::from_str(value).ok_or_else(|| format!("invalid_flag_value: unrecognized preset '{}'.\nUsage: --preset audit|explain|implement", value))?);
+                index += 2;
+            }
+            flag if flag.starts_with("--preset=") => {
+                let value = &flag[9..];
+                preset = Some(CliPreset::from_str(value).ok_or_else(|| format!("invalid_flag_value: unrecognized preset '{}'.\nUsage: --preset audit|explain|implement", value))?);
                 index += 1;
             }
             "--allow-broad-cwd" => {
@@ -711,7 +755,8 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
             base_commit,
             reasoning_effort,
             allow_broad_cwd,
-        });
+        preset: preset.clone(),
+            });
     }
 
     if positional_after_separator && !rest.is_empty() {
@@ -726,7 +771,8 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
             base_commit,
             reasoning_effort: reasoning_effort.clone(),
             allow_broad_cwd,
-        });
+        preset: preset.clone(),
+            });
     }
 
     if rest.is_empty() {
@@ -754,7 +800,8 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     base_commit,
                     reasoning_effort,
                     allow_broad_cwd,
-                });
+                preset: preset.clone(),
+            });
             }
             if compact {
                 return Err(compact_missing_argument_error());
@@ -774,7 +821,8 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
             base_commit,
             reasoning_effort: reasoning_effort.clone(),
             allow_broad_cwd,
-        });
+        preset: preset.clone(),
+            });
     }
     if let Some(action) = parse_local_help_action(&rest, output_format) {
         return action;
@@ -1001,7 +1049,8 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     base_commit,
                     reasoning_effort: reasoning_effort.clone(),
                     allow_broad_cwd,
-                }),
+                preset: preset.clone(),
+            }),
                 SkillSlashDispatch::Local => Ok(CliAction::Skills {
                     args,
                     output_format,
@@ -1093,6 +1142,7 @@ Usage: claw prompt <text>  or  echo '<text>' | claw prompt".to_string());
                 base_commit: base_commit.clone(),
                 reasoning_effort: reasoning_effort.clone(),
                 allow_broad_cwd,
+            preset: preset.clone(),
             })
         }
         other if other.starts_with('/') => parse_direct_slash_cli_action(
@@ -1154,6 +1204,7 @@ Usage: claw prompt <text>  or  echo '<text>' | claw prompt".to_string());
                 base_commit,
                 reasoning_effort: reasoning_effort.clone(),
                 allow_broad_cwd,
+            preset: preset.clone(),
             })
         }
     }

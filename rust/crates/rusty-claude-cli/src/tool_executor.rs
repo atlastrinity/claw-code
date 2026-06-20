@@ -92,8 +92,8 @@ impl ToolExecutor for CliToolExecutor {
         tracing::debug!(tool = %tool_name, "executing tool");
         if !self.tool_registry.is_tool_allowed(tool_name) {
             tracing::warn!(tool = %tool_name, "tool not allowed by --tools setting");
-            return Err(ToolError::new(format!
-                ("tool `{tool_name}` is not enabled by the current --tools setting"
+            return Err(ToolError::new(format!(
+                "tool `{tool_name}` is not enabled by the current --tools setting"
             )));
         }
         let value = serde_json::from_str(input)

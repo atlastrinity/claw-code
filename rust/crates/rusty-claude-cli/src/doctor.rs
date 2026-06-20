@@ -17,7 +17,7 @@ pub fn run_doctor(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let report = render_doctor_report(
         match output_format {
-            CliOutputFormat::Json => ConfigWarningMode::SuppressStderr,
+            CliOutputFormat::Json | CliOutputFormat::Ndjson => ConfigWarningMode::SuppressStderr,
             CliOutputFormat::Text => ConfigWarningMode::EmitStderr,
         },
         permission_mode,
@@ -25,7 +25,7 @@ pub fn run_doctor(
     let message = report.render();
     match output_format {
         CliOutputFormat::Text => println!("{message}"),
-        CliOutputFormat::Json => {
+        CliOutputFormat::Json | CliOutputFormat::Ndjson => {
             println!("{}", serde_json::to_string_pretty(&report.json_value())?);
         }
     }
@@ -172,24 +172,47 @@ pub fn check_github_health() -> DiagnosticCheck {
     let gh_token_present = std::env::var("GH_TOKEN")
         .ok()
         .is_some_and(|value| !value.trim().is_empty());
-    
+
     let token_present = github_token_present || gh_token_present;
 
     let env_details = format!(
         "Environment       GITHUB_TOKEN={} GH_TOKEN={}",
-        if github_token_present { "present" } else { "absent" },
-        if gh_token_present { "present" } else { "absent" }
+        if github_token_present {
+            "present"
+        } else {
+            "absent"
+        },
+        if gh_token_present {
+            "present"
+        } else {
+            "absent"
+        }
     );
 
     DiagnosticCheck::new(
         "GitHub Integration",
-        if token_present { DiagnosticLevel::Ok } else { DiagnosticLevel::Warn },
-        if token_present { "GitHub token is configured for CI/CD access" } else { "no GitHub token found in environment" }
+        if token_present {
+            DiagnosticLevel::Ok
+        } else {
+            DiagnosticLevel::Warn
+        },
+        if token_present {
+            "GitHub token is configured for CI/CD access"
+        } else {
+            "no GitHub token found in environment"
+        },
     )
     .with_details(vec![env_details])
-    .with_hint(if !token_present { "Set GITHUB_TOKEN or GH_TOKEN to allow the agent to interact with GitHub/CI systems." } else { "" })
+    .with_hint(if !token_present {
+        "Set GITHUB_TOKEN or GH_TOKEN to allow the agent to interact with GitHub/CI systems."
+    } else {
+        ""
+    })
     .with_data(Map::from_iter([
-        ("github_token_present".to_string(), json!(github_token_present)),
+        (
+            "github_token_present".to_string(),
+            json!(github_token_present),
+        ),
         ("gh_token_present".to_string(), json!(gh_token_present)),
     ]))
 }

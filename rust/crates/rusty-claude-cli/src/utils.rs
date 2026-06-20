@@ -456,7 +456,9 @@ pub fn dump_manifests_at_path(
             println!("  Skills           {}", manifest["skills"]);
             println!("  Bootstrap phases {}", manifest["bootstrap_phases"]);
         }
-        CliOutputFormat::Json => println!("{}", serde_json::to_string_pretty(&manifest)?),
+        CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
+            println!("{}", serde_json::to_string_pretty(&manifest)?)
+        }
     }
     Ok(())
 }
@@ -537,7 +539,7 @@ pub fn print_bootstrap_plan(
                 println!("- {phase:?}");
             }
         }
-        CliOutputFormat::Json => {
+        CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
             // #412: emit structured phase objects with label and description
             let phase_objects: Vec<serde_json::Value> = phases
                 .phases()
@@ -659,7 +661,7 @@ pub fn print_system_prompt(
         .position(|s| s.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     match output_format {
         CliOutputFormat::Text => println!("{message}"),
-        CliOutputFormat::Json => println!(
+        CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => println!(
             "{}",
             serde_json::to_string_pretty(&json!({
                 "kind": "system-prompt",
@@ -679,7 +681,7 @@ pub fn print_system_prompt(
 pub fn print_version(output_format: CliOutputFormat) -> Result<(), Box<dyn std::error::Error>> {
     match output_format {
         CliOutputFormat::Text => println!("{}", render_version_report()),
-        CliOutputFormat::Json => {
+        CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
             println!("{}", serde_json::to_string_pretty(&version_json_value())?);
         }
     }
@@ -1128,7 +1130,7 @@ pub fn enforce_broad_cwd_policy(
             cwd.display()
         );
         match output_format {
-            CliOutputFormat::Json => {
+            CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
                 println!(
                     "{}",
                     serde_json::json!({
@@ -1205,7 +1207,7 @@ pub fn print_status_snapshot(
     let provenance = match provenance_result {
         Ok(provenance) => provenance,
         Err(error) => match output_format {
-            CliOutputFormat::Json => {
+            CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
                 return print_model_validation_warning_status(
                     &error,
                     usage,
@@ -1230,7 +1232,7 @@ pub fn print_status_snapshot(
                 Some(&permission_mode),
             )
         ),
-        CliOutputFormat::Json => println!(
+        CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => println!(
             "{}",
             serde_json::to_string_pretty(&status_json_value(
                 Some(&provenance.resolved),
@@ -1513,7 +1515,7 @@ pub fn print_sandbox_status_snapshot(
     let status = resolve_sandbox_status(runtime_config.sandbox(), &cwd);
     match output_format {
         CliOutputFormat::Text => println!("{}", format_sandbox_report(&status)),
-        CliOutputFormat::Json => println!(
+        CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => println!(
             "{}",
             serde_json::to_string_pretty(&sandbox_json_value(&status))?
         ),
@@ -1634,7 +1636,7 @@ pub fn print_models(
             }
             println!("  Usage            claw --model <provider/model> prompt <text>");
         }
-        CliOutputFormat::Json => {
+        CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&json!({
@@ -1778,7 +1780,7 @@ pub fn print_acp_status(output_format: CliOutputFormat) -> Result<(), Box<dyn st
                 acp_status_message()
             );
         }
-        CliOutputFormat::Json => {
+        CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
             println!("{}", serde_json::to_string_pretty(&acp_status_json())?);
         }
     }
@@ -2270,7 +2272,7 @@ pub fn build_runtime(
     model: String,
     system_prompt: Vec<String>,
     enable_tools: bool,
-    emit_output: bool,
+    output_format: CliOutputFormat,
     tools: Option<AllowedToolSet>,
     permission_mode: PermissionMode,
     progress_reporter: Option<InternalPromptProgressReporter>,
@@ -2282,7 +2284,7 @@ pub fn build_runtime(
         model,
         system_prompt,
         enable_tools,
-        emit_output,
+        output_format,
         tools,
         permission_mode,
         progress_reporter,
@@ -2298,7 +2300,7 @@ pub fn build_runtime_with_plugin_state(
     model: String,
     system_prompt: Vec<String>,
     enable_tools: bool,
-    emit_output: bool,
+    output_format: CliOutputFormat,
     tools: Option<AllowedToolSet>,
     permission_mode: PermissionMode,
     progress_reporter: Option<InternalPromptProgressReporter>,
@@ -2334,16 +2336,20 @@ pub fn build_runtime_with_plugin_state(
             session_id,
             model,
             enable_tools,
-            emit_output,
+            output_format,
             tool_registry.clone(),
             progress_reporter,
         )?,
-        CliToolExecutor::new(emit_output, tool_registry.clone(), mcp_state.clone()),
+        CliToolExecutor::new(
+            output_format == CliOutputFormat::Text,
+            tool_registry.clone(),
+            mcp_state.clone(),
+        ),
         policy,
         system_prompt,
         &feature_config,
     );
-    if emit_output {
+    if output_format == CliOutputFormat::Text {
         runtime = runtime.with_hook_progress_reporter(Box::new(CliHookProgressReporter));
     }
     Ok(BuiltRuntime::new(runtime, plugin_registry, mcp_state))
@@ -2923,9 +2929,7 @@ pub fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
                 .blocks
                 .iter()
                 .map(|block| match block {
-                    ContentBlock::Text { text } => {
-                        InputContentBlock::Text { text: text.clone() }
-                    }
+                    ContentBlock::Text { text } => InputContentBlock::Text { text: text.clone() },
                     ContentBlock::Thinking {
                         thinking,
                         signature,
@@ -8822,7 +8826,7 @@ pub struct AnthropicRuntimeClient {
     session_id: String,
     model: String,
     enable_tools: bool,
-    emit_output: bool,
+    output_format: CliOutputFormat,
     tool_registry: GlobalToolRegistry,
     progress_reporter: Option<InternalPromptProgressReporter>,
     reasoning_effort: Option<String>,
@@ -8833,7 +8837,7 @@ impl AnthropicRuntimeClient {
         session_id: &str,
         model: String,
         enable_tools: bool,
-        emit_output: bool,
+        output_format: CliOutputFormat,
         tool_registry: GlobalToolRegistry,
         progress_reporter: Option<InternalPromptProgressReporter>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
@@ -8885,7 +8889,7 @@ impl AnthropicRuntimeClient {
             session_id: session_id.to_string(),
             model,
             enable_tools,
-            emit_output,
+            output_format,
             tool_registry,
             progress_reporter,
             reasoning_effort: None,
@@ -8964,11 +8968,12 @@ impl AnthropicRuntimeClient {
             })?;
         let mut stdout = io::stdout();
         let mut sink = io::sink();
-        let out: &mut dyn Write = if self.emit_output {
+        let out: &mut dyn Write = if self.output_format == CliOutputFormat::Text {
             &mut stdout
         } else {
             &mut sink
         };
+        let emit_ndjson = self.output_format == CliOutputFormat::Ndjson;
         let renderer = TerminalRenderer::new();
         let mut markdown_stream = MarkdownStreamState::default();
         let mut events = Vec::new();
@@ -9038,6 +9043,13 @@ impl AnthropicRuntimeClient {
                         if !text.is_empty() {
                             if let Some(progress_reporter) = &self.progress_reporter {
                                 progress_reporter.mark_text_phase(&text);
+                            }
+                            if emit_ndjson {
+                                let _ = writeln!(
+                                    io::stdout(),
+                                    "{}",
+                                    serde_json::json!({ "type": "assistant_text_delta", "text": &text })
+                                );
                             }
                             if let Some(rendered) = markdown_stream.push(&renderer, &text) {
                                 write!(out, "{rendered}")

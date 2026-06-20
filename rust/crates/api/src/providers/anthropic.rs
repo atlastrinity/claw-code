@@ -952,8 +952,7 @@ fn is_retryable_400(status: reqwest::StatusCode, body: &str) -> bool {
 const SK_ANT_BEARER_HINT: &str = "sk-ant-* keys go in ANTHROPIC_API_KEY (x-api-key header), not ANTHROPIC_AUTH_TOKEN (Bearer header). Move your key to ANTHROPIC_API_KEY.";
 
 fn enrich_bearer_auth_error(error: ApiError, auth: &AuthSource) -> ApiError {
-    let ApiError::Api(info) = error
-    else {
+    let ApiError::Api(info) = error else {
         return error;
     };
     if info.status.as_u16() != 401 {

@@ -29,8 +29,7 @@ impl Default for TridentConfig {
 }
 
 /// Statistics from a Trident compaction run.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TridentStats {
     pub superseded_count: usize,
     pub collapsed_chains: usize,
@@ -41,7 +40,6 @@ pub struct TridentStats {
     pub original_message_count: usize,
     pub final_message_count: usize,
 }
-
 
 impl TridentStats {
     pub fn format_report(&self) -> String {
