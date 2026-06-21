@@ -29,7 +29,10 @@
     },
     "xcodebuild": {
       "command": "node",
-      "args": ["/Users/dev/Documents/GitHub/claw-code/vendor/XcodeBuildMCP/build/cli.js", "mcp"]
+      "args": [
+        "/Users/dev/Documents/GitHub/claw-code/vendor/XcodeBuildMCP/build/cli.js",
+        "mcp"
+      ]
     }
   }
 }

@@ -1,1 +1,37 @@
-[]
+[
+  {
+    "content": "Проаналізувати поточний статус проекту ClawController",
+    "activeForm": "Аналізую поточний статус проекту",
+    "status": "completed"
+  },
+  {
+    "content": "Створити Model для системних даних та статусу",
+    "activeForm": "Створюю Model для системних даних",
+    "status": "in_progress"
+  },
+  {
+    "content": "Розробити UI для remote control функціональності",
+    "activeForm": "Розробляю UI для remote control",
+    "status": "pending"
+  },
+  {
+    "content": "Реалізувати Service для управління з'єднанням з remote system",
+    "activeForm": "Реалізую Service для управління з'єднанням",
+    "status": "pending"
+  },
+  {
+    "content": "Додати тестування для UI та бізнес-логіки",
+    "activeForm": "Додаю тестування",
+    "status": "pending"
+  },
+  {
+    "content": "Налаштувати білд-конфігурацію та деплоймент",
+    "activeForm": "Налаштовую білд конфігурацію",
+    "status": "pending"
+  },
+  {
+    "content": "Запустити тести та перевірити роботу на симуляторі",
+    "activeForm": "Запускаю тестування",
+    "status": "pending"
+  }
+]
