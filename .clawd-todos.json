@@ -1,31 +1,37 @@
 [
   {
+    "content": "Build and test ClawController on simulator",
+    "activeForm": "in_progress",
+    "status": "in_progress",
+    "depth": 0
+  },
+  {
     "content": "Find Xcode project or workspace in ClawController directory",
-    "activeForm": "Identify the project structure",
+    "activeForm": "completed",
     "status": "completed",
     "depth": 1
   },
   {
     "content": "Set up Xcodebuild session defaults for simulator",
-    "activeForm": "Configure build settings for simulator",
+    "activeForm": "completed",
     "status": "completed",
     "depth": 1
   },
   {
     "content": "Build the project for simulator with increased timeout",
-    "activeForm": "Compile the app for iOS simulator",
+    "activeForm": "in_progress",
     "status": "in_progress",
     "depth": 1
   },
   {
     "content": "Run tests on the simulator",
-    "activeForm": "Execute unit and UI tests on booted simulator",
+    "activeForm": "todo",
     "status": "pending",
     "depth": 1
   },
   {
     "content": "Verify the app launches and functions correctly on simulator",
-    "activeForm": "Manual verification of UI and core functionality",
+    "activeForm": "todo",
     "status": "pending",
     "depth": 1
   }

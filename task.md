@@ -1,5 +1,6 @@
 # Task List
 
+- [/] Build and test ClawController on simulator
   - [x] Find Xcode project or workspace in ClawController directory
   - [x] Set up Xcodebuild session defaults for simulator
   - [/] Build the project for simulator with increased timeout
