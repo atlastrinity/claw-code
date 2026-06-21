@@ -8,6 +8,7 @@
 import Foundation
 
 /// Main service for remote control functionality
+@available(iOS 17, *)
 @Observable
 public final class RemoteService {
 
