@@ -311,6 +311,24 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
             default_base_url: openai_compat::DEFAULT_DASHSCOPE_BASE_URL,
         });
     }
+    // Cloudflare Workers AI OpenAI-compatible endpoint.
+    if canonical.starts_with("cloudflare/") {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "CLOUDFLARE_API_TOKEN",
+            base_url_env: "CLOUDFLARE_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_CLOUDFLARE_BASE_URL,
+        });
+    }
+    // NVIDIA NIM OpenAI-compatible endpoint.
+    if canonical.starts_with("nvidia/") || canonical.starts_with("nim/") {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "NVIDIA_API_KEY",
+            base_url_env: "NVIDIA_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_NVIDIA_BASE_URL,
+        });
+    }
     None
 }
 
@@ -762,6 +780,16 @@ const FOREIGN_PROVIDER_ENV_VARS: &[(&str, &str, &str)] = &[
         "GLM_API_KEY",
         "Zhipu GLM",
         "prefix your model name with `glm` or `zhipu` (e.g. `--model glm-4-flash`) so prefix routing selects the Zhipu backend",
+    ),
+    (
+        "CLOUDFLARE_API_TOKEN",
+        "Cloudflare Workers AI",
+        "prefix your model name with `cloudflare/` so prefix routing selects the Cloudflare backend",
+    ),
+    (
+        "NVIDIA_API_KEY",
+        "NVIDIA NIM",
+        "prefix your model name with `nvidia/` so prefix routing selects the NVIDIA backend",
     ),
 ];
 

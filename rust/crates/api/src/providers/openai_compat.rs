@@ -22,6 +22,8 @@ pub const DEFAULT_XAI_BASE_URL: &str = "https://api.x.ai/v1";
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_DASHSCOPE_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 pub const DEFAULT_GLM_BASE_URL: &str = "https://open.bigmodel.cn/api/paas/v4";
+pub const DEFAULT_CLOUDFLARE_BASE_URL: &str = "https://api.cloudflare.com/client/v4/accounts/default/ai/v1";
+pub const DEFAULT_NVIDIA_BASE_URL: &str = "https://integrate.api.nvidia.com/v1";
 const REQUEST_ID_HEADER: &str = "request-id";
 const ALT_REQUEST_ID_HEADER: &str = "x-request-id";
 const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
@@ -45,12 +47,16 @@ const XAI_ENV_VARS: &[&str] = &["XAI_API_KEY"];
 const OPENAI_ENV_VARS: &[&str] = &["OPENAI_API_KEY"];
 const DASHSCOPE_ENV_VARS: &[&str] = &["DASHSCOPE_API_KEY"];
 const GLM_ENV_VARS: &[&str] = &["GLM_API_KEY"];
+const CLOUDFLARE_ENV_VARS: &[&str] = &["CLOUDFLARE_API_TOKEN"];
+const NVIDIA_ENV_VARS: &[&str] = &["NVIDIA_API_KEY"];
 
 // Provider-specific request body size limits in bytes
 const XAI_MAX_REQUEST_BODY_BYTES: usize = 52_428_800; // 50MB
 const OPENAI_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const DASHSCOPE_MAX_REQUEST_BODY_BYTES: usize = 6_291_456; // 6MB (observed limit in dogfood)
 const GLM_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
+const CLOUDFLARE_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
+const NVIDIA_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 
 pub const OLLAMA_CONFIG: OpenAiCompatConfig = OpenAiCompatConfig {
     provider_name: "Ollama",
@@ -110,12 +116,36 @@ impl OpenAiCompatConfig {
     }
 
     #[must_use]
+    pub const fn cloudflare() -> Self {
+        Self {
+            provider_name: "Cloudflare",
+            api_key_env: "CLOUDFLARE_API_TOKEN",
+            base_url_env: "CLOUDFLARE_BASE_URL",
+            default_base_url: DEFAULT_CLOUDFLARE_BASE_URL,
+            max_request_body_bytes: CLOUDFLARE_MAX_REQUEST_BODY_BYTES,
+        }
+    }
+
+    #[must_use]
+    pub const fn nvidia() -> Self {
+        Self {
+            provider_name: "NVIDIA",
+            api_key_env: "NVIDIA_API_KEY",
+            base_url_env: "NVIDIA_BASE_URL",
+            default_base_url: DEFAULT_NVIDIA_BASE_URL,
+            max_request_body_bytes: NVIDIA_MAX_REQUEST_BODY_BYTES,
+        }
+    }
+
+    #[must_use]
     pub fn credential_env_vars(self) -> &'static [&'static str] {
         match self.provider_name {
             "xAI" => XAI_ENV_VARS,
             "OpenAI" => OPENAI_ENV_VARS,
             "DashScope" => DASHSCOPE_ENV_VARS,
             "GLM" => GLM_ENV_VARS,
+            "Cloudflare" => CLOUDFLARE_ENV_VARS,
+            "NVIDIA" => NVIDIA_ENV_VARS,
             _ => &[],
         }
     }
@@ -1080,7 +1110,7 @@ fn wire_model_for_base_url<'a>(
 
     if matches!(
         lowered_prefix.as_str(),
-        "xai" | "grok" | "qwen" | "kimi" | "glm" | "zhipu" | "zhipuai"
+        "xai" | "grok" | "qwen" | "kimi" | "glm" | "zhipu" | "zhipuai" | "cloudflare" | "nvidia" | "nim"
     ) {
         let mut stripped = &model[pos + 1..];
         if config.provider_name == "GLM" && stripped.ends_with(":free") {
