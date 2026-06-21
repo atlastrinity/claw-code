@@ -228,7 +228,7 @@ mod tests {
     #[test]
     fn provider_error_classification() {
         // Use an ApiError::Api variant which is easy to construct
-        let api_err = ApiError::Api {
+        let api_err = ApiError::Api(Box::new(api::ApiErrorInfo {
             status: reqwest::StatusCode::TOO_MANY_REQUESTS,
             error_type: Some("rate_limit".into()),
             message: Some("too many requests".into()),
@@ -237,7 +237,7 @@ mod tests {
             retryable: true,
             suggested_action: None,
             retry_after: None,
-        };
+        }));
         let pipeline_err = PipelineError::Provider {
             source: Box::new(api_err),
             provider: "test-provider".into(),
@@ -251,7 +251,7 @@ mod tests {
 
     #[test]
     fn provider_error_non_retryable() {
-        let api_err = ApiError::Api {
+        let api_err = ApiError::Api(Box::new(api::ApiErrorInfo {
             status: reqwest::StatusCode::BAD_REQUEST,
             error_type: Some("invalid_request".into()),
             message: Some("bad input".into()),
@@ -260,7 +260,7 @@ mod tests {
             retryable: false,
             suggested_action: None,
             retry_after: None,
-        };
+        }));
         let pipeline_err = PipelineError::Provider {
             source: Box::new(api_err),
             provider: "anthropic".into(),
