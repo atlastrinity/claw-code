@@ -11,27 +11,27 @@
   },
   {
     "content": "Розробити UI для remote control функціональності",
-    "activeForm": "pending",
-    "status": "pending"
+    "activeForm": "completed",
+    "status": "completed"
   },
   {
     "content": "Створити NavigationStack для переходів між екранами",
-    "activeForm": "pending",
-    "status": "pending"
+    "activeForm": "completed",
+    "status": "completed"
   },
   {
     "content": "Додати тестування для UI та бізнес-логіки",
-    "activeForm": "pending",
-    "status": "pending"
+    "activeForm": "completed",
+    "status": "completed"
   },
   {
     "content": "Налаштувати білд-конфігурацію та деплоймент",
-    "activeForm": "pending",
-    "status": "pending"
+    "activeForm": "completed",
+    "status": "completed"
   },
   {
     "content": "Запустити тести та перевірити роботу на симуляторі",
-    "activeForm": "pending",
-    "status": "pending"
+    "activeForm": "Виправляю конфлікти та запускаю тести",
+    "status": "in_progress"
   }
 ]

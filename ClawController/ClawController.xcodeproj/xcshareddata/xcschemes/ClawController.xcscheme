@@ -30,9 +30,6 @@
       shouldUseLaunchSchemeArgsEnv = "YES">
       <TestPlans>
          <TestPlanReference
-            reference = "container:ClawController.xctestplan">
-         </TestPlanReference>
-         <TestPlanReference
             reference = "container:ClawController/ClawController.xctestplan"
             default = "YES">
          </TestPlanReference>
