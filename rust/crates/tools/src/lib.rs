@@ -722,7 +722,7 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "TodoWrite",
-            description: "Update the structured task list for the current session.",
+            description: "Update the structured task list for the current session. You MUST break down complex tasks recursively into subtasks using the 'depth' parameter to maintain sequential focus.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
