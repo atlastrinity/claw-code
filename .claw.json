@@ -39,22 +39,6 @@
         "mcp"
       ],
       "toolCallTimeoutMs": 600000
-    },
-    "fastlane": {
-      "command": "npx",
-      "args": ["-y", "fastlane-mcp-server"],
-      "env": {
-        "FASTLANE_USER": "oleg1203@me.com"
-      }
-    },
-    "app-store-connect": {
-      "command": "npx",
-      "args": ["-y", "mcp-asc"],
-      "env": {
-        "APP_STORE_CONNECT_KEY_ID": "YOUR_KEY_ID",
-        "APP_STORE_CONNECT_ISSUER_ID": "YOUR_ISSUER_ID",
-        "APP_STORE_CONNECT_PRIVATE_KEY": "YOUR_PRIVATE_KEY_CONTENT_OR_PATH"
-      }
     }
   }
 }
