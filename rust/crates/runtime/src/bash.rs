@@ -70,7 +70,7 @@ pub struct BashCommandOutput {
 }
 
 /// Executes a shell command with the requested sandbox settings.
-pub fn execute_bash(input: BashCommandInput) -> io::Result<BashCommandOutput> {
+pub fn execute_bash(input: BashCommandInput, max_output_bytes: usize) -> io::Result<BashCommandOutput> {
     let cwd = env::current_dir()?;
     let sandbox_status = sandbox_status_for_input(&input, &cwd);
 
@@ -102,7 +102,7 @@ pub fn execute_bash(input: BashCommandInput) -> io::Result<BashCommandOutput> {
     }
 
     let runtime = Builder::new_current_thread().enable_all().build()?;
-    runtime.block_on(execute_bash_async(input, sandbox_status, cwd))
+    runtime.block_on(execute_bash_async(input, sandbox_status, cwd, max_output_bytes))
 }
 
 /// Detect git push to main and emit ship provenance event
@@ -171,6 +171,7 @@ async fn execute_bash_async(
     input: BashCommandInput,
     sandbox_status: SandboxStatus,
     cwd: std::path::PathBuf,
+    max_output_bytes: usize,
 ) -> io::Result<BashCommandOutput> {
     // Detect and emit ship provenance for git push operations
     detect_and_emit_ship_prepared(&input.command);
@@ -188,8 +189,8 @@ async fn execute_bash_async(
     };
 
     let (output, interrupted) = output_result;
-    let stdout = truncate_output(&String::from_utf8_lossy(&output.stdout));
-    let stderr = truncate_output(&String::from_utf8_lossy(&output.stderr));
+    let stdout = truncate_output(&String::from_utf8_lossy(&output.stdout), max_output_bytes);
+    let stderr = truncate_output(&String::from_utf8_lossy(&output.stderr), max_output_bytes);
     let no_output_expected = Some(stdout.trim().is_empty() && stderr.trim().is_empty());
     let return_code_interpretation = output.status.code().and_then(|code| {
         if code == 0 {
@@ -484,7 +485,7 @@ mod tests {
             isolate_network: Some(false),
             filesystem_mode: Some(FilesystemIsolationMode::WorkspaceOnly),
             allowed_mounts: None,
-        })
+        }, 16384)
         .expect("bash command should execute");
 
         assert_eq!(output.stdout, "hello");
@@ -504,7 +505,7 @@ mod tests {
             isolate_network: None,
             filesystem_mode: None,
             allowed_mounts: None,
-        })
+        }, 16384)
         .expect("bash command should execute");
 
         assert!(!output.sandbox_status.expect("sandbox status").enabled);
@@ -522,7 +523,7 @@ mod tests {
             isolate_network: Some(false),
             filesystem_mode: Some(FilesystemIsolationMode::WorkspaceOnly),
             allowed_mounts: None,
-        })
+        }, 16384)
         .expect("bash command should return structured timeout");
 
         assert!(output.interrupted);
@@ -547,7 +548,7 @@ mod tests {
             isolate_network: None,
             filesystem_mode: None,
             allowed_mounts: None,
-        })
+        }, 16384)
         .expect("bash command should execute cleanly");
 
         assert!(
@@ -653,21 +654,18 @@ mod tests {
     }
 }
 
-/// Maximum output bytes before truncation (16 KiB, matching upstream).
-const MAX_OUTPUT_BYTES: usize = 16_384;
-
-/// Truncate output to `MAX_OUTPUT_BYTES`, appending a marker when trimmed.
-fn truncate_output(s: &str) -> String {
-    if s.len() <= MAX_OUTPUT_BYTES {
+/// Truncate output to `max_bytes`, appending a marker when trimmed.
+fn truncate_output(s: &str, max_bytes: usize) -> String {
+    if s.len() <= max_bytes {
         return s.to_string();
     }
-    // Find the last valid UTF-8 boundary at or before MAX_OUTPUT_BYTES
-    let mut end = MAX_OUTPUT_BYTES;
+    // Find the last valid UTF-8 boundary at or before max_bytes
+    let mut end = max_bytes;
     while end > 0 && !s.is_char_boundary(end) {
         end -= 1;
     }
     let mut truncated = s[..end].to_string();
-    truncated.push_str("\n\n[output truncated — exceeded 16384 bytes]");
+    truncated.push_str(&format!("\n\n[output truncated — exceeded {} bytes]", max_bytes));
     truncated
 }
 
@@ -678,27 +676,27 @@ mod truncation_tests {
     #[test]
     fn short_output_unchanged() {
         let s = "hello world";
-        assert_eq!(truncate_output(s), s);
+        assert_eq!(truncate_output(s, 16384), s);
     }
 
     #[test]
     fn long_output_truncated() {
         let s = "x".repeat(20_000);
-        let result = truncate_output(&s);
+        let result = truncate_output(&s, 16384);
         assert!(result.len() < 20_000);
         assert!(result.ends_with("[output truncated — exceeded 16384 bytes]"));
     }
 
     #[test]
     fn exact_boundary_unchanged() {
-        let s = "a".repeat(MAX_OUTPUT_BYTES);
-        assert_eq!(truncate_output(&s), s);
+        let s = "a".repeat(16384);
+        assert_eq!(truncate_output(&s, 16384), s);
     }
 
     #[test]
     fn one_over_boundary_truncated() {
-        let s = "a".repeat(MAX_OUTPUT_BYTES + 1);
-        let result = truncate_output(&s);
+        let s = "a".repeat(16384 + 1);
+        let result = truncate_output(&s, 16384);
         assert!(result.contains("[output truncated"));
     }
 }

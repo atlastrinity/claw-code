@@ -187,6 +187,7 @@ pub fn read_file(
     path: &str,
     offset: Option<usize>,
     limit: Option<usize>,
+    max_lines_budget: usize,
 ) -> io::Result<ReadFileOutput> {
     let absolute_path = normalize_path(path)?;
 
@@ -214,10 +215,7 @@ pub fn read_file(
     let content = fs::read_to_string(&absolute_path)?;
     let lines: Vec<&str> = content.lines().collect();
 
-    let default_max_lines = std::env::var("CLAW_READ_FILE_MAX_LINES")
-        .ok()
-        .and_then(|v| v.parse::<usize>().ok())
-        .unwrap_or(800);
+    let default_max_lines = max_lines_budget;
 
     let start_index = offset.unwrap_or(0).min(lines.len());
     let explicit_limit = limit.unwrap_or(default_max_lines).min(default_max_lines);
@@ -329,14 +327,15 @@ pub fn edit_file(
 }
 
 /// Expands a glob pattern and returns matching filenames.
-pub fn glob_search(pattern: &str, path: Option<&str>) -> io::Result<GlobSearchOutput> {
-    glob_search_impl(pattern, path, None)
+pub fn glob_search(pattern: &str, path: Option<&str>, max_glob_files: usize) -> io::Result<GlobSearchOutput> {
+    glob_search_impl(pattern, path, None, max_glob_files)
 }
 
 fn glob_search_impl(
     pattern: &str,
     path: Option<&str>,
     workspace_root: Option<&Path>,
+    max_glob_files: usize,
 ) -> io::Result<GlobSearchOutput> {
     let started = Instant::now();
     let base_dir = path
@@ -395,10 +394,10 @@ fn glob_search_impl(
             .map(Reverse)
     });
 
-    let truncated = matches.len() > 100;
+    let truncated = matches.len() > max_glob_files;
     let filenames = matches
         .into_iter()
-        .take(100)
+        .take(max_glob_files)
         .map(|path| path.to_string_lossy().into_owned())
         .collect::<Vec<_>>();
 
@@ -411,13 +410,14 @@ fn glob_search_impl(
 }
 
 /// Runs a regex search over workspace files with optional context lines.
-pub fn grep_search(input: &GrepSearchInput) -> io::Result<GrepSearchOutput> {
-    grep_search_impl(input, None)
+pub fn grep_search(input: &GrepSearchInput, max_lines_budget: usize) -> io::Result<GrepSearchOutput> {
+    grep_search_impl(input, None, max_lines_budget)
 }
 
 fn grep_search_impl(
     input: &GrepSearchInput,
     workspace_root: Option<&Path>,
+    max_lines_budget: usize,
 ) -> io::Result<GrepSearchOutput> {
     let base_path = input
         .path
@@ -506,7 +506,7 @@ fn grep_search_impl(
     }
 
     let (filenames, applied_limit, applied_offset) =
-        apply_limit(filenames, input.head_limit, input.offset);
+        apply_limit(filenames, input.head_limit, input.offset, max_lines_budget);
     if output_mode == "content" {
         return Ok(build_grep_content_output(
             output_mode,
@@ -514,6 +514,7 @@ fn grep_search_impl(
             content_lines,
             input.head_limit,
             input.offset,
+            max_lines_budget,
         ));
     }
 
@@ -535,8 +536,9 @@ fn build_grep_content_output(
     content_lines: Vec<String>,
     head_limit: Option<usize>,
     offset: Option<usize>,
+    max_lines_budget: usize,
 ) -> GrepSearchOutput {
-    let (lines, limit, offset) = apply_limit(content_lines, head_limit, offset);
+    let (lines, limit, offset) = apply_limit(content_lines, head_limit, offset, max_lines_budget);
     GrepSearchOutput {
         mode: Some(output_mode),
         num_files: filenames.len(),
@@ -632,10 +634,11 @@ fn apply_limit<T>(
     items: Vec<T>,
     limit: Option<usize>,
     offset: Option<usize>,
+    max_items_budget: usize,
 ) -> (Vec<T>, Option<usize>, Option<usize>) {
     let offset_value = offset.unwrap_or(0);
     let mut items = items.into_iter().skip(offset_value).collect::<Vec<_>>();
-    let explicit_limit = limit.unwrap_or(250);
+    let explicit_limit = limit.unwrap_or(max_items_budget).min(max_items_budget);
     if explicit_limit == 0 {
         return (items, None, (offset_value > 0).then_some(offset_value));
     }
@@ -706,11 +709,12 @@ pub fn read_file_in_workspace(
     offset: Option<usize>,
     limit: Option<usize>,
     workspace_root: &Path,
+    max_lines_budget: usize,
 ) -> io::Result<ReadFileOutput> {
     let absolute_path = normalize_path(path)?;
     let canonical_root = canonicalize_workspace_root(workspace_root);
     validate_workspace_boundary(&absolute_path, &canonical_root)?;
-    read_file(path, offset, limit)
+    read_file(path, offset, limit, max_lines_budget)
 }
 
 /// Write a file with workspace boundary enforcement.
@@ -747,8 +751,9 @@ pub fn glob_search_in_workspace(
     pattern: &str,
     path: Option<&str>,
     workspace_root: &Path,
+    max_glob_files: usize,
 ) -> io::Result<GlobSearchOutput> {
-    glob_search_impl(pattern, path, Some(workspace_root))
+    glob_search_impl(pattern, path, Some(workspace_root), max_glob_files)
 }
 
 /// Search file contents with workspace boundary enforcement.
@@ -756,8 +761,9 @@ pub fn glob_search_in_workspace(
 pub fn grep_search_in_workspace(
     input: &GrepSearchInput,
     workspace_root: &Path,
+    max_lines_budget: usize,
 ) -> io::Result<GrepSearchOutput> {
-    grep_search_impl(input, Some(workspace_root))
+    grep_search_impl(input, Some(workspace_root), max_lines_budget)
 }
 
 /// Check whether a path is a symlink that resolves outside the workspace.
@@ -822,7 +828,7 @@ mod tests {
             .expect("write should succeed");
         assert_eq!(write_output.kind, "create");
 
-        let read_output = read_file(path.to_string_lossy().as_ref(), Some(1), Some(1))
+        let read_output = read_file(path.to_string_lossy().as_ref(), Some(1), Some(1), 1000)
             .expect("read should succeed");
         assert_eq!(read_output.file.content, "two");
     }
@@ -841,7 +847,7 @@ mod tests {
     fn rejects_binary_files() {
         let path = temp_path("binary-test.bin");
         std::fs::write(&path, b"\x00\x01\x02\x03binary content").expect("write should succeed");
-        let result = read_file(path.to_string_lossy().as_ref(), None, None);
+        let result = read_file(path.to_string_lossy().as_ref(), None, None, 1000);
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
@@ -869,7 +875,7 @@ mod tests {
 
         // Reading inside workspace should succeed
         let result =
-            read_file_in_workspace(inside.to_string_lossy().as_ref(), None, None, &workspace);
+            read_file_in_workspace(inside.to_string_lossy().as_ref(), None, None, &workspace, 1000);
         assert!(result.is_ok());
 
         // Reading outside workspace should fail
@@ -877,7 +883,7 @@ mod tests {
         write_file(outside.to_string_lossy().as_ref(), "unsafe content")
             .expect("write outside should succeed");
         let result =
-            read_file_in_workspace(outside.to_string_lossy().as_ref(), None, None, &workspace);
+            read_file_in_workspace(outside.to_string_lossy().as_ref(), None, None, &workspace, 1000);
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
@@ -918,7 +924,7 @@ mod tests {
         std::os::unix::fs::symlink(&outside_file, &link_path).expect("symlink should create");
 
         let result =
-            read_file_in_workspace(link_path.to_string_lossy().as_ref(), None, None, &workspace);
+            read_file_in_workspace(link_path.to_string_lossy().as_ref(), None, None, &workspace, 1000);
 
         assert!(result.is_err(), "symlink escape must be rejected");
         let error = result.unwrap_err();
@@ -977,7 +983,7 @@ mod tests {
         )
         .expect("file write should succeed");
 
-        let globbed = glob_search("**/*.rs", Some(dir.to_string_lossy().as_ref()))
+        let globbed = glob_search("**/*.rs", Some(dir.to_string_lossy().as_ref()), 1000)
             .expect("glob should succeed");
         assert_eq!(globbed.num_files, 1);
 
@@ -996,7 +1002,7 @@ mod tests {
             head_limit: Some(10),
             offset: Some(0),
             multiline: Some(false),
-        })
+        }, 1000)
         .expect("grep should succeed");
         assert!(grep_output.content.unwrap_or_default().contains("hello"));
     }
@@ -1040,7 +1046,7 @@ mod tests {
         std::fs::write(dir.join("c.txt"), "hello").unwrap();
 
         let result =
-            glob_search("*.{rs,toml}", Some(dir.to_str().unwrap())).expect("glob should succeed");
+            glob_search("*.{rs,toml}", Some(dir.to_str().unwrap()), 1000).expect("glob should succeed");
         assert_eq!(
             result.num_files, 2,
             "should match .rs and .toml but not .txt"
@@ -1064,7 +1070,7 @@ mod tests {
         std::fs::write(dir.join("target/debug/deps/AGENTS.md"), "target").unwrap();
 
         let result =
-            glob_search("**/AGENTS.md", Some(dir.to_str().unwrap())).expect("glob should succeed");
+            glob_search("**/AGENTS.md", Some(dir.to_str().unwrap()), 1000).expect("glob should succeed");
 
         assert_eq!(result.num_files, 2, "ignored dirs should be pruned");
         assert!(result

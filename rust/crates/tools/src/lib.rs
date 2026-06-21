@@ -29,7 +29,7 @@ use runtime::{
     ConversationRuntime, GrepSearchInput, LaneCommitProvenance, LaneEvent, LaneEventBlocker,
     LaneEventName, LaneEventStatus, LaneFailureClass, McpDegradedReport, MessageRole,
     PermissionMode, PermissionPolicy, PromptCacheEvent, ProviderFallbackConfig, RuntimeError,
-    Session, TaskPacket, ToolError, ToolExecutor,
+    Session, TaskPacket, ToolError, ToolExecutor, ContextBudget,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -121,6 +121,7 @@ pub struct GlobalToolRegistry {
     enforcer: Option<PermissionEnforcer>,
     pub injected_tools: Option<BTreeSet<String>>,
     pub allowed_tools: Option<BTreeSet<String>>,
+    pub budget: ContextBudget,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -140,6 +141,7 @@ impl GlobalToolRegistry {
             enforcer: None,
             injected_tools: None,
             allowed_tools: None,
+            budget: ContextBudget::default_budget(),
         }
     }
 
@@ -168,6 +170,7 @@ impl GlobalToolRegistry {
             enforcer: None,
             injected_tools: None,
             allowed_tools: None,
+            budget: ContextBudget::default_budget(),
         })
     }
 
@@ -213,6 +216,12 @@ impl GlobalToolRegistry {
     #[must_use]
     pub fn with_enforcer(mut self, enforcer: PermissionEnforcer) -> Self {
         self.set_enforcer(enforcer);
+        self
+    }
+
+    #[must_use]
+    pub fn with_budget(mut self, budget: ContextBudget) -> Self {
+        self.budget = budget;
         self
     }
 
@@ -464,7 +473,7 @@ impl GlobalToolRegistry {
             .iter()
             .find(|spec| spec.name.eq_ignore_ascii_case(raw_name))
         {
-            return execute_tool_with_enforcer(self.enforcer.as_ref(), spec.name, &coerced_input);
+            return execute_tool_with_enforcer(self.enforcer.as_ref(), spec.name, &coerced_input, self.budget);
         }
 
         // Then try canonical names
@@ -478,7 +487,7 @@ impl GlobalToolRegistry {
             .iter()
             .find(|spec| normalization::canonical_allowed_tool_name(spec.name) == resolved_name)
         {
-            return execute_tool_with_enforcer(self.enforcer.as_ref(), spec.name, &coerced_input);
+            return execute_tool_with_enforcer(self.enforcer.as_ref(), spec.name, &coerced_input, self.budget);
         }
 
         // Check plugin tools
@@ -1481,7 +1490,7 @@ pub fn enforce_permission_check(
 }
 
 pub fn execute_tool(name: &str, input: &Value) -> Result<String, String> {
-    execute_tool_with_enforcer(None, name, input)
+    execute_tool_with_enforcer(None, name, input, ContextBudget::default_budget())
 }
 
 #[allow(clippy::too_many_lines)]
@@ -1490,6 +1499,7 @@ fn execute_tool_with_enforcer(
     enforcer: Option<&PermissionEnforcer>,
     name: &str,
     input: &Value,
+    budget: ContextBudget,
 ) -> Result<String, String> {
     match name {
         "bash" => {
@@ -1497,13 +1507,13 @@ fn execute_tool_with_enforcer(
             let bash_input: BashCommandInput = from_value(input)?;
             let classified_mode = classify_bash_permission(&bash_input.command);
             maybe_enforce_permission_check_with_mode(enforcer, name, input, classified_mode)?;
-            run_bash(bash_input)
+            run_bash(bash_input, budget)
         }
         "read_file" => {
             let file_input: ReadFileInput = from_value(input)?;
             let required_mode = classify_read_path_permission(&file_input.path, false);
             maybe_enforce_permission_check_with_mode(enforcer, name, input, required_mode)?;
-            run_read_file(file_input)
+            run_read_file(file_input, budget)
         }
         "write_file" => {
             let file_input: WriteFileInput = from_value(input)?;
@@ -1521,13 +1531,13 @@ fn execute_tool_with_enforcer(
             let glob_input: GlobSearchInputValue = from_value(input)?;
             let required_mode = classify_glob_permission(&glob_input);
             maybe_enforce_permission_check_with_mode(enforcer, name, input, required_mode)?;
-            run_glob_search(glob_input)
+            run_glob_search(glob_input, budget)
         }
         "grep_search" => {
             let grep_input: GrepSearchInput = from_value(input)?;
             let required_mode = classify_grep_permission(&grep_input);
             maybe_enforce_permission_check_with_mode(enforcer, name, input, required_mode)?;
-            run_grep_search(grep_input)
+            run_grep_search(grep_input, budget)
         }
         "WebFetch" => {
             let web_input = from_value::<WebFetchInput>(input)?;
@@ -2599,12 +2609,13 @@ fn looks_like_windows_absolute_path(token: &str) -> bool {
         || token.starts_with(r"\\")
 }
 
-fn run_bash(input: BashCommandInput) -> Result<String, String> {
+fn run_bash(input: BashCommandInput, budget: ContextBudget) -> Result<String, String> {
     if let Some(output) = workspace_test_branch_preflight(&input.command) {
         return serde_json::to_string_pretty(&output).map_err(|error| error.to_string());
     }
-    serde_json::to_string_pretty(&execute_bash(input).map_err(|error| error.to_string())?)
-        .map_err(|error| error.to_string())
+    execute_bash(input, budget.max_bash_output_bytes)
+        .map(|output| to_pretty_json(output).unwrap_or_else(|_| "{}".to_string()))
+        .map_err(|error| format!("failed to execute bash command: {error}"))
 }
 
 fn workspace_test_branch_preflight(command: &str) -> Option<BashCommandOutput> {
@@ -2753,9 +2764,9 @@ fn branch_divergence_output(
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn run_read_file(input: ReadFileInput) -> Result<String, String> {
+fn run_read_file(input: ReadFileInput, budget: ContextBudget) -> Result<String, String> {
     let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
-    match read_file_in_workspace(&input.path, input.offset, input.limit, &workspace) {
+    match read_file_in_workspace(&input.path, input.offset, input.limit, &workspace, budget.max_read_file_lines) {
         Ok(output) => to_pretty_json(output),
         Err(e) => {
             if e.kind() == std::io::ErrorKind::NotFound {
@@ -2794,18 +2805,18 @@ fn run_edit_file(input: EditFileInput) -> Result<String, String> {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn run_glob_search(input: GlobSearchInputValue) -> Result<String, String> {
+fn run_glob_search(input: GlobSearchInputValue, budget: ContextBudget) -> Result<String, String> {
     let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
     to_pretty_json(
-        glob_search_in_workspace(&input.pattern, input.path.as_deref(), &workspace)
+        glob_search_in_workspace(&input.pattern, input.path.as_deref(), &workspace, budget.max_glob_files)
             .map_err(io_to_string)?,
     )
 }
 
 #[allow(clippy::needless_pass_by_value)]
-fn run_grep_search(input: GrepSearchInput) -> Result<String, String> {
+fn run_grep_search(input: GrepSearchInput, budget: ContextBudget) -> Result<String, String> {
     let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
-    to_pretty_json(grep_search_in_workspace(&input, &workspace).map_err(io_to_string)?)
+    to_pretty_json(grep_search_in_workspace(&input, &workspace, budget.max_read_file_lines).map_err(io_to_string)?)
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -4645,10 +4656,15 @@ fn build_agent_runtime(
         .clone()
         .unwrap_or_else(|| DEFAULT_AGENT_MODEL.to_string());
     let tools = job.tools.clone();
-    let api_client = ProviderRuntimeClient::new(model, tools.clone())?;
+    let api_client = ProviderRuntimeClient::new(model.clone(), tools.clone())?;
     let permission_policy = agent_permission_policy();
+    let budget_tokens = api::model_token_limit(&model)
+        .map(|l| l.context_window_tokens)
+        .unwrap_or(64_000);
+    let budget = runtime::ContextBudget::from_context_window(budget_tokens);
     let tool_executor = SubagentToolExecutor::new(tools)
-        .with_enforcer(PermissionEnforcer::new(permission_policy.clone()));
+        .with_enforcer(PermissionEnforcer::new(permission_policy.clone()))
+        .with_budget(budget);
     Ok(ConversationRuntime::new(
         Session::new(),
         api_client,
@@ -5736,6 +5752,7 @@ async fn stream_with_provider(
 struct SubagentToolExecutor {
     tools: BTreeSet<String>,
     enforcer: Option<PermissionEnforcer>,
+    budget: ContextBudget,
 }
 
 impl SubagentToolExecutor {
@@ -5743,11 +5760,17 @@ impl SubagentToolExecutor {
         Self {
             tools,
             enforcer: None,
+            budget: ContextBudget::default_budget(),
         }
     }
 
     fn with_enforcer(mut self, enforcer: PermissionEnforcer) -> Self {
         self.enforcer = Some(enforcer);
+        self
+    }
+
+    fn with_budget(mut self, budget: ContextBudget) -> Self {
+        self.budget = budget;
         self
     }
 }
@@ -5761,7 +5784,7 @@ impl ToolExecutor for SubagentToolExecutor {
         }
         let value = serde_json::from_str(input)
             .map_err(|error| ToolError::new(format!("invalid tool input JSON: {error}")))?;
-        execute_tool_with_enforcer(self.enforcer.as_ref(), tool_name, &value)
+        execute_tool_with_enforcer(self.enforcer.as_ref(), tool_name, &value, self.budget)
             .map_err(ToolError::new)
     }
 }

@@ -12,6 +12,7 @@ pub mod branch_lock;
 mod compact;
 mod config;
 pub mod config_validate;
+pub mod context_budget;
 mod conversation;
 mod file_ops;
 pub mod g004_conformance;
@@ -87,6 +88,7 @@ pub use conversation::{
     ConversationRuntime, PromptCacheEvent, RuntimeError, StaticToolExecutor, ToolError,
     ToolExecutor, TurnSummary,
 };
+pub use context_budget::ContextBudget;
 pub use file_ops::{
     edit_file, edit_file_in_workspace, glob_search, glob_search_in_workspace, grep_search,
     grep_search_in_workspace, read_file, read_file_in_workspace, write_file,

@@ -2318,7 +2318,7 @@ pub fn build_runtime_with_plugin_state(
         config_injected_tools,
         config_allowed_tools,
     } = runtime_plugin_state;
-    let tool_registry = if let Some(cli_tools) = tools {
+    let mut tool_registry = if let Some(cli_tools) = tools {
         tool_registry
             .with_injected_tools(Some(cli_tools.clone()))
             .with_allowed_tools(Some(cli_tools))
@@ -2327,6 +2327,10 @@ pub fn build_runtime_with_plugin_state(
             .with_injected_tools(config_injected_tools)
             .with_allowed_tools(config_allowed_tools)
     };
+    let budget_tokens = api::model_token_limit(&model)
+        .map(|l| l.context_window_tokens)
+        .unwrap_or(64_000);
+    tool_registry = tool_registry.with_budget(runtime::ContextBudget::from_context_window(budget_tokens));
     plugin_registry.initialize()?;
     let policy = permission_policy(permission_mode, &feature_config, &tool_registry)
         .map_err(std::io::Error::other)?;
@@ -3054,7 +3058,7 @@ mod tests {
 
     #[test]
     fn opaque_provider_wrapper_surfaces_failure_class_session_and_trace() {
-        let error = ApiError::Api {
+        let error = ApiError::Api(Box::new(api::ApiErrorInfo {
             status: "500".parse().expect("status"),
             error_type: Some("api_error".to_string()),
             message: Some(
@@ -3066,7 +3070,7 @@ mod tests {
             retryable: true,
             suggested_action: None,
             retry_after: None,
-};
+}));
 
         let rendered = format_user_visible_api_error("session-issue-22", &error);
         assert!(rendered.contains("provider_internal"));
@@ -3078,7 +3082,7 @@ mod tests {
     fn retry_exhaustion_uses_retry_failure_class_for_generic_provider_wrapper() {
         let error = ApiError::RetriesExhausted {
             attempts: 3,
-            last_error: Box::new(ApiError::Api {
+            last_error: Box::new(ApiError::Api(Box::new(api::ApiErrorInfo {
                 status: "502".parse().expect("status"),
                 error_type: Some("api_error".to_string()),
                 message: Some(
@@ -3090,7 +3094,7 @@ mod tests {
                 retryable: true,
                 suggested_action: None,
                 retry_after: None,
-}),
+}))),
         };
 
         let rendered = format_user_visible_api_error("session-issue-22", &error);
@@ -3143,7 +3147,7 @@ mod tests {
 
     #[test]
     fn provider_context_window_errors_are_reframed_with_same_guidance() {
-        let error = ApiError::Api {
+        let error = ApiError::Api(Box::new(api::ApiErrorInfo {
             status: "400".parse().expect("status"),
             error_type: Some("invalid_request_error".to_string()),
             message: Some(
@@ -3155,7 +3159,7 @@ mod tests {
             retryable: false,
             suggested_action: None,
             retry_after: None,
-};
+}));
 
         let rendered = format_user_visible_api_error("session-issue-32", &error);
         assert!(rendered.contains("context_window_blocked"), "{rendered}");
@@ -3177,7 +3181,7 @@ mod tests {
 
     #[test]
     fn openai_configured_limit_errors_are_rendered_as_context_window_guidance() {
-        let error = ApiError::Api {
+        let error = ApiError::Api(Box::new(api::ApiErrorInfo {
             status: "400".parse().expect("status"),
             error_type: Some("invalid_request_error".to_string()),
             message: Some(
@@ -3189,7 +3193,7 @@ mod tests {
             retryable: false,
             suggested_action: None,
             retry_after: None,
-        };
+        }));
 
         let rendered = format_user_visible_api_error("session-issue-32", &error);
         assert!(rendered.contains("Context window blocked"), "{rendered}");
@@ -3215,7 +3219,7 @@ mod tests {
     fn retry_wrapped_context_window_errors_keep_recovery_guidance() {
         let error = ApiError::RetriesExhausted {
             attempts: 2,
-            last_error: Box::new(ApiError::Api {
+            last_error: Box::new(ApiError::Api(Box::new(api::ApiErrorInfo {
                 status: "413".parse().expect("status"),
                 error_type: Some("invalid_request_error".to_string()),
                 message: Some("Request is too large for this model's context window.".to_string()),
@@ -3224,7 +3228,7 @@ mod tests {
                 retryable: false,
                 suggested_action: None,
                 retry_after: None,
-            }),
+            }))),
         };
 
         let rendered = format_user_visible_api_error("session-issue-32", &error);
@@ -3350,7 +3354,7 @@ mod tests {
         std::env::remove_var("RUSTY_CLAUDE_PERMISSION_MODE");
         assert_eq!(
             parse_args(&[]).expect("args should parse"),
-            CliAction::Repl {
+            CliAction::Repl { preset: None,
                 model: DEFAULT_MODEL.to_string(),
                 allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
@@ -3481,7 +3485,7 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "hello world".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -3572,7 +3576,7 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "explain this".to_string(),
                 model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Json,
@@ -3594,7 +3598,7 @@ mod tests {
         assert_eq!(
             parse_args(&["--".to_string(), "-prompt-with-dash".to_string()])
                 .expect("-- should terminate flag parsing"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "-prompt-with-dash".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -3610,7 +3614,7 @@ mod tests {
         assert_eq!(
             parse_args(&["-not-a-flag".to_string()])
                 .expect("unknown dash-prefixed shorthand prompt should parse as prompt text"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "-not-a-flag".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -3626,7 +3630,7 @@ mod tests {
         assert_eq!(
             parse_args(&["--bogus-flag-like".to_string(), "literal".to_string()])
                 .expect("unknown double-dash text should stay eligible for prompt shorthand"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "--bogus-flag-like literal".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -3664,7 +3668,7 @@ mod tests {
         // then compact mode is propagated and other defaults stay unchanged
         assert_eq!(
             parsed,
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "summarize this".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -3679,7 +3683,7 @@ mod tests {
         assert_eq!(
             parse_args(&["--compact".to_string(), "hello".to_string()])
                 .expect("compact single-word prompt should parse"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "hello".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -3705,7 +3709,7 @@ mod tests {
 
         // then compact stays false (opt-in flag)
         match parsed {
-            CliAction::Prompt { compact, .. } => assert!(!compact),
+            CliAction::Prompt { preset: None, compact, .. } => assert!(!compact),
             other => panic!("expected Prompt action, got {other:?}"),
         }
     }
@@ -3722,7 +3726,7 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "explain this".to_string(),
                 model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Text,
@@ -3813,7 +3817,7 @@ mod tests {
         let args = vec!["--permission-mode=read-only".to_string()];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::Repl {
+            CliAction::Repl { preset: None,
                 model: DEFAULT_MODEL.to_string(),
                 allowed_tools: None,
                 permission_mode: PermissionMode::ReadOnly,
@@ -3834,7 +3838,7 @@ mod tests {
 
         assert_eq!(
             parsed,
-            CliAction::Repl {
+            CliAction::Repl { preset: None,
                 model: DEFAULT_MODEL.to_string(),
                 allowed_tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
@@ -3861,7 +3865,7 @@ mod tests {
 
         assert_eq!(
             parsed,
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "do the thing".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -3886,7 +3890,7 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::Repl {
+            CliAction::Repl { preset: None,
                 model: DEFAULT_MODEL.to_string(),
                 allowed_tools: Some(
                     ["glob_search", "read_file", "write_file"]
@@ -4064,7 +4068,7 @@ mod tests {
                 "overview".to_string()
             ])
             .expect("skills help overview should invoke"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "$help overview".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -4853,7 +4857,7 @@ mod tests {
         ])
         .expect("`--model gpt-4` should parse as a bare OpenAI model")
         {
-            CliAction::Prompt { model, .. } => assert_eq!(model, "gpt-4"),
+            CliAction::Prompt { preset: None, model, .. } => assert_eq!(model, "gpt-4"),
             other => panic!("expected CliAction::Prompt, got: {other:?}"),
         }
         let err_qwen = parse_args(&[
@@ -4894,7 +4898,7 @@ mod tests {
         ])
         .expect("Ollama-style tag should parse when OPENAI_BASE_URL is set")
         {
-            CliAction::Prompt { model, .. } => assert_eq!(model, "qwen2.5-coder:7b"),
+            CliAction::Prompt { preset: None, model, .. } => assert_eq!(model, "qwen2.5-coder:7b"),
             other => panic!("expected CliAction::Prompt, got: {other:?}"),
         }
         match parse_args(&[
@@ -4905,7 +4909,7 @@ mod tests {
         ])
         .expect("local/ slash-containing model should parse")
         {
-            CliAction::Prompt { model, .. } => assert_eq!(model, "local/Qwen/Qwen3.6-27B-FP8"),
+            CliAction::Prompt { preset: None, model, .. } => assert_eq!(model, "local/Qwen/Qwen3.6-27B-FP8"),
             other => panic!("expected CliAction::Prompt, got: {other:?}"),
         }
         match original_openai_base_url {
@@ -5497,7 +5501,7 @@ mod tests {
                 "this".to_string(),
             ])
             .expect("prompt shorthand should still work"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "please debug this".to_string(),
                 model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Text,
@@ -5568,7 +5572,7 @@ mod tests {
                 "overview".to_string()
             ])
             .expect("/skills help overview should invoke"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "$help overview".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -5595,7 +5599,7 @@ mod tests {
         assert_eq!(
             parse_args(&["/skills".to_string(), "/test".to_string()])
                 .expect("/skills /test should normalize to a single skill prompt prefix"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "$test".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -5730,7 +5734,7 @@ mod tests {
                 "prompt".to_string(),
             ])
             .expect("multi-word prompt should still parse"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "hello world this is a prompt".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -5749,7 +5753,7 @@ mod tests {
         assert_eq!(
             parse_args(&["prompt".to_string(), "doctorr".to_string()])
                 .expect("explicit prompt subcommand should allow literal typo word"),
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "doctorr".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -5778,7 +5782,7 @@ mod tests {
         });
         assert_eq!(
             result,
-            CliAction::Prompt {
+            CliAction::Prompt { preset: None,
                 prompt: "PARITY_SCENARIO:bash_permission_prompt_approved".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -5811,7 +5815,7 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::ResumeSession {
+            CliAction::ResumeSession { preset: None,
                 session_path: PathBuf::from("session.jsonl"),
                 commands: vec!["/compact".to_string()],
                 output_format: CliOutputFormat::Text,
@@ -5824,7 +5828,7 @@ mod tests {
     fn parses_resume_flag_without_path_as_latest_session() {
         assert_eq!(
             parse_args(&["--resume".to_string()]).expect("args should parse"),
-            CliAction::ResumeSession {
+            CliAction::ResumeSession { preset: None,
                 session_path: PathBuf::from("latest"),
                 commands: vec![],
                 output_format: CliOutputFormat::Text,
@@ -5834,7 +5838,7 @@ mod tests {
         assert_eq!(
             parse_args(&["--resume".to_string(), "/status".to_string()])
                 .expect("resume shortcut should parse"),
-            CliAction::ResumeSession {
+            CliAction::ResumeSession { preset: None,
                 session_path: PathBuf::from("latest"),
                 commands: vec!["/status".to_string()],
                 output_format: CliOutputFormat::Text,
@@ -5854,7 +5858,7 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::ResumeSession {
+            CliAction::ResumeSession { preset: None,
                 session_path: PathBuf::from("session.jsonl"),
                 commands: vec![
                     "/status".to_string(),
@@ -5887,7 +5891,7 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::ResumeSession {
+            CliAction::ResumeSession { preset: None,
                 session_path: PathBuf::from("session.jsonl"),
                 commands: vec![
                     "/export notes.txt".to_string(),
@@ -5910,7 +5914,7 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::ResumeSession {
+            CliAction::ResumeSession { preset: None,
                 session_path: PathBuf::from("session.jsonl"),
                 commands: vec!["/export /tmp/notes.txt".to_string(), "/status".to_string()],
                 output_format: CliOutputFormat::Text,
@@ -8081,7 +8085,7 @@ UU conflicted.rs",
             DEFAULT_MODEL.to_string(),
             vec!["test system prompt".to_string()],
             true,
-            false,
+            crate::cli::CliOutputFormat::Text,
             None,
             PermissionMode::DangerFullAccess,
             None,
@@ -8138,7 +8142,7 @@ UU conflicted.rs",
                 result.is_ok(),
                 "--reasoning-effort {value} should be accepted, got: {result:?}"
             );
-            if let Ok(CliAction::Prompt {
+            if let Ok(CliAction::Prompt { preset: None,
                 reasoning_effort, ..
             }) = result
             {

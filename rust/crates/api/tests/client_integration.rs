@@ -587,11 +587,7 @@ async fn surfaces_retry_exhaustion_for_persistent_retryable_errors() {
             assert_eq!(attempts, 2);
             assert!(matches!(
                 *last_error,
-                ApiError::Api {
-                    status: reqwest::StatusCode::SERVICE_UNAVAILABLE,
-                    retryable: true,
-                    ..
-                }
+                ApiError::Api(ref info) if info.status == reqwest::StatusCode::SERVICE_UNAVAILABLE && info.retryable
             ));
         }
         other => panic!("expected retries exhausted, got {other:?}"),
