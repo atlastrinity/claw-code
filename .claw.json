@@ -37,7 +37,8 @@
       "args": [
         "/Users/dev/Documents/GitHub/claw-code/vendor/XcodeBuildMCP/build/cli.js",
         "mcp"
-      ]
+      ],
+      "toolCallTimeoutMs": 600000
     }
   }
 }
