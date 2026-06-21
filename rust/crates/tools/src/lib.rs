@@ -2754,10 +2754,19 @@ fn branch_divergence_output(
 #[allow(clippy::needless_pass_by_value)]
 fn run_read_file(input: ReadFileInput) -> Result<String, String> {
     let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
-    to_pretty_json(
-        read_file_in_workspace(&input.path, input.offset, input.limit, &workspace)
-            .map_err(io_to_string)?,
-    )
+    match read_file_in_workspace(&input.path, input.offset, input.limit, &workspace) {
+        Ok(output) => to_pretty_json(output),
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Err(format!(
+                    "Error: File '{}' not found. The path might be incorrect or you are in the wrong directory. Please use the `list_dir` or `glob_search` tool to find the correct file path before trying to read again.",
+                    input.path
+                ))
+            } else {
+                Err(io_to_string(e))
+            }
+        }
+    }
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -4160,15 +4169,6 @@ fn execute_todo_write(input: TodoWriteInput) -> Result<TodoWriteOutput, String> 
         input.todos.clone()
     };
 
-    if let Some(parent) = store_path.parent() {
-        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
-    }
-    std::fs::write(
-        &store_path,
-        serde_json::to_string_pretty(&persisted).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
-
     let verification_nudge_needed = (all_done
         && input.todos.len() >= 3
         && !input
@@ -4177,10 +4177,37 @@ fn execute_todo_write(input: TodoWriteInput) -> Result<TodoWriteOutput, String> 
             .any(|todo| todo.content.to_lowercase().contains("verif")))
     .then_some(true);
 
+    if verification_nudge_needed.unwrap_or(false) {
+        return Err(String::from("VERIFICATION_REQUIRED: You cannot mark all tasks as completed without verifying your work. Depending on the task, please run a testing command, check the generated output, or validate your findings. Then add a 'verification' item to your todo list, and try again."));
+    }
+
+    if let Some(parent) = store_path.parent() {
+        std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+        
+        let task_md_path = parent.join("task.md");
+        let mut markdown = String::from("# Task List\n\n");
+        for todo in &input.todos {
+            let checkbox = match todo.status {
+                TodoStatus::Completed => "[x]",
+                TodoStatus::InProgress => "[/]",
+                TodoStatus::Pending => "[ ]",
+            };
+            markdown.push_str(&format!("- {} {}\n", checkbox, todo.content));
+        }
+        // We ignore errors when writing task.md to ensure the core JSON store still works if this fails
+        let _ = std::fs::write(&task_md_path, markdown);
+    }
+    
+    std::fs::write(
+        &store_path,
+        serde_json::to_string_pretty(&persisted).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())?;
+
     Ok(TodoWriteOutput {
         old_todos,
         new_todos: input.todos,
-        verification_nudge_needed,
+        verification_nudge_needed: None,
     })
 }
 
@@ -8583,12 +8610,11 @@ mod tests {
                 ]
             }),
         )
-        .expect("completed todos should succeed");
+        .expect_err("completed todos without verification should fail with VERIFICATION_REQUIRED");
         std::env::remove_var("CLAWD_TODO_STORE");
         let _ = fs::remove_file(path);
 
-        let output: serde_json::Value = serde_json::from_str(&nudge).expect("valid json");
-        assert_eq!(output["verificationNudgeNeeded"], true);
+        assert!(nudge.contains("VERIFICATION_REQUIRED"));
     }
 
     #[test]
