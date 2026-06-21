@@ -5,8 +5,8 @@
     "status": "completed"
   },
   {
-    "content": "Створити Model для системних даних та статусу",
-    "activeForm": "Створюю Model для системних даних",
+    "content": "Оновити Feature модуль та створити моделі даних",
+    "activeForm": "Оновлюю Feature модуль та створюю моделі",
     "status": "in_progress"
   },
   {
@@ -15,8 +15,8 @@
     "status": "pending"
   },
   {
-    "content": "Реалізувати Service для управління з'єднанням з remote system",
-    "activeForm": "Реалізую Service для управління з'єднанням",
+    "content": "Створити NavigationStack для переходів між екранами",
+    "activeForm": "Створюю NavigationStack",
     "status": "pending"
   },
   {
