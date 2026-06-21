@@ -1,37 +1,37 @@
 [
   {
     "content": "Проаналізувати поточний статус проекту ClawController",
-    "activeForm": "Аналізую поточний статус проекту",
+    "activeForm": "completed",
     "status": "completed"
   },
   {
     "content": "Оновити Feature модуль та створити моделі даних",
-    "activeForm": "Оновлюю Feature модуль та створюю моделі",
-    "status": "in_progress"
+    "activeForm": "completed",
+    "status": "completed"
   },
   {
     "content": "Розробити UI для remote control функціональності",
-    "activeForm": "Розробляю UI для remote control",
+    "activeForm": "pending",
     "status": "pending"
   },
   {
     "content": "Створити NavigationStack для переходів між екранами",
-    "activeForm": "Створюю NavigationStack",
+    "activeForm": "pending",
     "status": "pending"
   },
   {
     "content": "Додати тестування для UI та бізнес-логіки",
-    "activeForm": "Додаю тестування",
+    "activeForm": "pending",
     "status": "pending"
   },
   {
     "content": "Налаштувати білд-конфігурацію та деплоймент",
-    "activeForm": "Налаштовую білд конфігурацію",
+    "activeForm": "pending",
     "status": "pending"
   },
   {
     "content": "Запустити тести та перевірити роботу на симуляторі",
-    "activeForm": "Запускаю тестування",
+    "activeForm": "pending",
     "status": "pending"
   }
 ]
