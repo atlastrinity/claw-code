@@ -81,7 +81,12 @@ pub fn validate_model_syntax(model: &str) -> Result<(), String> {
 }
 
 pub fn is_bare_provider_model(model: &str) -> bool {
-    model.starts_with("claude-") || model.starts_with("gpt-")
+    model.starts_with("claude-")
+        || model.starts_with("gpt-")
+        || model.starts_with("gemini-")
+        || model.starts_with("grok-")
+        || model.starts_with("kimi-")
+        || model.starts_with("glm-")
 }
 
 pub fn is_local_openai_model_syntax(model: &str) -> bool {

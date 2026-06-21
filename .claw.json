@@ -8,7 +8,9 @@
     "glm": "zhipuai/glm-4.7-flash:free",
     "qwen": "local/qwen/qwen3-coder:free",
     "kimi": "cloudflare/@cf/moonshotai/kimi-k2.6",
-    "nvidia": "nvidia/meta/llama3-70b-instruct"
+    "nvidia": "nvidia/meta/llama3-70b-instruct",
+    "gemini": "gemini-flash-latest",
+    "gemini-pro": "gemini-pro-latest"
   },
   "injectedTools": [
     "bash",

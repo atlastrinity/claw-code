@@ -24,6 +24,7 @@ pub const DEFAULT_DASHSCOPE_BASE_URL: &str = "https://dashscope.aliyuncs.com/com
 pub const DEFAULT_GLM_BASE_URL: &str = "https://open.bigmodel.cn/api/paas/v4";
 pub const DEFAULT_CLOUDFLARE_BASE_URL: &str = "https://api.cloudflare.com/client/v4/accounts/default/ai/v1";
 pub const DEFAULT_NVIDIA_BASE_URL: &str = "https://integrate.api.nvidia.com/v1";
+pub const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai/";
 const REQUEST_ID_HEADER: &str = "request-id";
 const ALT_REQUEST_ID_HEADER: &str = "x-request-id";
 const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
@@ -49,6 +50,7 @@ const DASHSCOPE_ENV_VARS: &[&str] = &["DASHSCOPE_API_KEY"];
 const GLM_ENV_VARS: &[&str] = &["GLM_API_KEY"];
 const CLOUDFLARE_ENV_VARS: &[&str] = &["CLOUDFLARE_API_TOKEN"];
 const NVIDIA_ENV_VARS: &[&str] = &["NVIDIA_API_KEY"];
+const GEMINI_ENV_VARS: &[&str] = &["GEMINI_API_KEY"];
 
 // Provider-specific request body size limits in bytes
 const XAI_MAX_REQUEST_BODY_BYTES: usize = 52_428_800; // 50MB
@@ -57,6 +59,7 @@ const DASHSCOPE_MAX_REQUEST_BODY_BYTES: usize = 6_291_456; // 6MB (observed limi
 const GLM_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const CLOUDFLARE_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const NVIDIA_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
+const GEMINI_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 
 pub const OLLAMA_CONFIG: OpenAiCompatConfig = OpenAiCompatConfig {
     provider_name: "Ollama",
@@ -138,6 +141,17 @@ impl OpenAiCompatConfig {
     }
 
     #[must_use]
+    pub const fn gemini() -> Self {
+        Self {
+            provider_name: "Gemini",
+            api_key_env: "GEMINI_API_KEY",
+            base_url_env: "GEMINI_BASE_URL",
+            default_base_url: DEFAULT_GEMINI_BASE_URL,
+            max_request_body_bytes: GEMINI_MAX_REQUEST_BODY_BYTES,
+        }
+    }
+
+    #[must_use]
     pub fn credential_env_vars(self) -> &'static [&'static str] {
         match self.provider_name {
             "xAI" => XAI_ENV_VARS,
@@ -146,6 +160,7 @@ impl OpenAiCompatConfig {
             "GLM" => GLM_ENV_VARS,
             "Cloudflare" => CLOUDFLARE_ENV_VARS,
             "NVIDIA" => NVIDIA_ENV_VARS,
+            "Gemini" => GEMINI_ENV_VARS,
             _ => &[],
         }
     }

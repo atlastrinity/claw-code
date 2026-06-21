@@ -50,6 +50,7 @@ impl ProviderClient {
                         Some(meta) if meta.auth_env == "GLM_API_KEY" => OpenAiCompatConfig::glm(),
                         Some(meta) if meta.auth_env == "CLOUDFLARE_API_TOKEN" => OpenAiCompatConfig::cloudflare(),
                         Some(meta) if meta.auth_env == "NVIDIA_API_KEY" => OpenAiCompatConfig::nvidia(),
+                        Some(meta) if meta.auth_env == "GEMINI_API_KEY" => OpenAiCompatConfig::gemini(),
                         _ => OpenAiCompatConfig::openai(),
                     };
                     Ok(Self::OpenAi(OpenAiCompatClient::from_env(config)?))

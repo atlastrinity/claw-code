@@ -209,6 +209,15 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
             default_base_url: openai_compat::DEFAULT_GLM_BASE_URL,
         },
     ),
+    (
+        "gemini",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "GEMINI_API_KEY",
+            base_url_env: "GEMINI_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_GEMINI_BASE_URL,
+        },
+    ),
 ];
 
 #[must_use]
@@ -233,6 +242,8 @@ pub fn resolve_model_alias(model: &str) -> String {
                 },
                 ProviderKind::OpenAi => match *alias {
                     "kimi" => "kimi-k2.5",
+                    "gemini" => "gemini-flash-latest",
+                    "gemini-pro" => "gemini-pro-latest",
                     _ => trimmed,
                 },
             })
@@ -286,6 +297,15 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
             auth_env: "GLM_API_KEY",
             base_url_env: "GLM_BASE_URL",
             default_base_url: openai_compat::DEFAULT_GLM_BASE_URL,
+        });
+    }
+    // Google Gemini models
+    if canonical.starts_with("gemini") {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "GEMINI_API_KEY",
+            base_url_env: "GEMINI_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_GEMINI_BASE_URL,
         });
     }
     // Alibaba DashScope compatible-mode endpoint. Routes qwen/* and bare
@@ -780,6 +800,11 @@ const FOREIGN_PROVIDER_ENV_VARS: &[(&str, &str, &str)] = &[
         "GLM_API_KEY",
         "Zhipu GLM",
         "prefix your model name with `glm` or `zhipu` (e.g. `--model glm-4-flash`) so prefix routing selects the Zhipu backend",
+    ),
+    (
+        "GEMINI_API_KEY",
+        "Google Gemini",
+        "prefix your model name with `gemini` (e.g. `--model gemini-flash-latest`) so prefix routing selects the Google Gemini backend",
     ),
     (
         "CLOUDFLARE_API_TOKEN",
