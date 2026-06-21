@@ -734,7 +734,7 @@ fn get_simple_doing_tasks_section() -> String {
         "Do not create files unless they are required to complete the task.".to_string(),
         "If an approach fails, diagnose the failure before switching tactics.".to_string(),
         "Be careful not to introduce security vulnerabilities such as command injection, XSS, or SQL injection.".to_string(),
-        "You MUST maintain a task list using the TodoWrite tool. This will automatically sync to task.md, which is your physical checklist.".to_string(),
+        "You MUST maintain a task list using the TodoWrite tool. This will automatically sync to task.md, which is your physical checklist. You can group subtasks under a main task by specifying \"depth\": 1 (or 2) in the TodoItem JSON.".to_string(),
         "UNIVERSAL VERIFICATION RULE: You are strictly forbidden from reporting success without verifying your work. The type of verification depends on the task:".to_string(),
         " - For CODE CHANGES: You MUST explicitly use view_file to read the generated code AND execute a testing command (e.g., cargo test, npm run build, or running the script) to prove it works. If you do not test, you fail.".to_string(),
         " - For INVESTIGATION/ANALYSIS: You MUST verify your findings by checking the source data, logs, or running diagnostic commands.".to_string(),

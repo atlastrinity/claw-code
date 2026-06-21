@@ -727,7 +727,8 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
                                 "status": {
                                     "type": "string",
                                     "enum": ["pending", "in_progress", "completed"]
-                                }
+                                },
+                                "depth": { "type": "integer", "minimum": 0 }
                             },
                             "required": ["content", "activeForm", "status"],
                             "additionalProperties": false
@@ -3147,6 +3148,8 @@ struct TodoItem {
     #[serde(rename = "activeForm")]
     active_form: String,
     status: TodoStatus,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    depth: Option<u8>,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
@@ -4192,7 +4195,8 @@ fn execute_todo_write(input: TodoWriteInput) -> Result<TodoWriteOutput, String> 
                 TodoStatus::InProgress => "[/]",
                 TodoStatus::Pending => "[ ]",
             };
-            markdown.push_str(&format!("- {} {}\n", checkbox, todo.content));
+            let indent = " ".repeat((todo.depth.unwrap_or(0) as usize) * 2);
+            markdown.push_str(&format!("{}- {} {}\n", indent, checkbox, todo.content));
         }
         // We ignore errors when writing task.md to ensure the core JSON store still works if this fails
         let _ = std::fs::write(&task_md_path, markdown);
