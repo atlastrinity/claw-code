@@ -8,13 +8,13 @@
   {
     "content": "Set up Xcodebuild session defaults for simulator",
     "activeForm": "Configure build settings for simulator",
-    "status": "in_progress",
+    "status": "completed",
     "depth": 1
   },
   {
     "content": "Build the project for simulator with increased timeout",
     "activeForm": "Compile the app for iOS simulator",
-    "status": "pending",
+    "status": "in_progress",
     "depth": 1
   },
   {
