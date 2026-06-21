@@ -1,9 +1,7 @@
 # Task List
 
-- [x] Проаналізувати поточний статус проекту ClawController
-- [x] Оновити Feature модуль та створити моделі даних
-- [x] Розробити UI для remote control функціональності
-- [x] Створити NavigationStack для переходів між екранами
-- [x] Додати тестування для UI та бізнес-логіки
-- [x] Налаштувати білд-конфігурацію та деплоймент
-- [/] Запустити тести та перевірити роботу на симуляторі
+  - [x] Find Xcode project or workspace in ClawController directory
+  - [/] Set up Xcodebuild session defaults for simulator
+  - [ ] Build the project for simulator with increased timeout
+  - [ ] Run tests on the simulator
+  - [ ] Verify the app launches and functions correctly on simulator

@@ -1,37 +1,32 @@
 [
   {
-    "content": "Проаналізувати поточний статус проекту ClawController",
-    "activeForm": "completed",
-    "status": "completed"
+    "content": "Find Xcode project or workspace in ClawController directory",
+    "activeForm": "Identify the project structure",
+    "status": "completed",
+    "depth": 1
   },
   {
-    "content": "Оновити Feature модуль та створити моделі даних",
-    "activeForm": "completed",
-    "status": "completed"
+    "content": "Set up Xcodebuild session defaults for simulator",
+    "activeForm": "Configure build settings for simulator",
+    "status": "in_progress",
+    "depth": 1
   },
   {
-    "content": "Розробити UI для remote control функціональності",
-    "activeForm": "completed",
-    "status": "completed"
+    "content": "Build the project for simulator with increased timeout",
+    "activeForm": "Compile the app for iOS simulator",
+    "status": "pending",
+    "depth": 1
   },
   {
-    "content": "Створити NavigationStack для переходів між екранами",
-    "activeForm": "completed",
-    "status": "completed"
+    "content": "Run tests on the simulator",
+    "activeForm": "Execute unit and UI tests on booted simulator",
+    "status": "pending",
+    "depth": 1
   },
   {
-    "content": "Додати тестування для UI та бізнес-логіки",
-    "activeForm": "completed",
-    "status": "completed"
-  },
-  {
-    "content": "Налаштувати білд-конфігурацію та деплоймент",
-    "activeForm": "completed",
-    "status": "completed"
-  },
-  {
-    "content": "Запустити тести та перевірити роботу на симуляторі",
-    "activeForm": "Виправляю конфлікти та запускаю тести",
-    "status": "in_progress"
+    "content": "Verify the app launches and functions correctly on simulator",
+    "activeForm": "Manual verification of UI and core functionality",
+    "status": "pending",
+    "depth": 1
   }
 ]
