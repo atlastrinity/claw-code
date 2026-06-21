@@ -46,10 +46,10 @@ struct HistoryView: View {
                     // History List
                     if !filteredHistory.isEmpty {
                         ForEach(filteredHistory) { entry in
-                            HistoryRow(entry: entry)
-                                .onTapGesture {
-                                    selectedEntry = entry
-                                }
+                            NavigationLink(destination: CommandDetailSheet(entry: entry)) {
+                                HistoryRow(entry: entry)
+                            }
+                            .buttonStyle(.plain)
                         }
                     } else {
                         VStack(spacing: 16) {
@@ -73,9 +73,6 @@ struct HistoryView: View {
                 .padding(.vertical, 20)
             }
             .navigationTitle("Command History")
-            .sheet(item: $selectedEntry) { entry in
-                CommandDetailSheet(entry: entry)
-            }
         }
     }
 
@@ -190,57 +187,47 @@ struct FilterTab: View {
 
 struct CommandDetailSheet: View {
     let entry: CommandHistoryEntry
-    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    // Command
-                    DetailSection(title: "Command") {
-                        Text(entry.command)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                // Command
+                DetailSection(title: "Command") {
+                    Text(entry.command)
+                        .font(.body)
+                        .padding()
+                        .background(Color(.secondarySystemBackground))
+                        .cornerRadius(8)
+                }
+
+                // Status
+                DetailSection(title: "Status") {
+                    StatusBadge(status: entry.status)
+                }
+
+                // Timestamp
+                DetailSection(title: "Timestamp") {
+                    Text(entry.timestamp, style: .date)
+                    Text(entry.timestamp, style: .time)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                // Response (if available)
+                if let result = entry.result {
+                    DetailSection(title: "Result") {
+                        Text(result.stdout)
                             .font(.body)
                             .padding()
                             .background(Color(.secondarySystemBackground))
                             .cornerRadius(8)
                     }
-
-                    // Status
-                    DetailSection(title: "Status") {
-                        StatusBadge(status: entry.status)
-                    }
-
-                    // Timestamp
-                    DetailSection(title: "Timestamp") {
-                        Text(entry.timestamp, style: .date)
-                        Text(entry.timestamp, style: .time)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-
-                    // Response (if available)
-                    if let result = entry.result {
-                        DetailSection(title: "Result") {
-                            Text(result.stdout)
-                                .font(.body)
-                                .padding()
-                                .background(Color(.secondarySystemBackground))
-                                .cornerRadius(8)
-                        }
-                    }
-                }
-                .padding()
-            }
-            .navigationTitle("Command Details")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Done") {
-                        dismiss()
-                    }
                 }
             }
+            .padding()
         }
+        .navigationTitle("Command Details")
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 

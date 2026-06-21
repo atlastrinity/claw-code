@@ -15,44 +15,42 @@ public struct ContentView: View {
     public init() {}
 
     public var body: some View {
-        NavigationStack {
-            TabView(selection: $selectedTab) {
+        TabView(selection: $selectedTab) {
+            NavigationStack {
                 DashboardView(connectionStatus: $connectionStatus)
-                    .tabItem {
-                        Label("Dashboard", systemImage: "chart.bar.fill")
-                    }
-                    .tag(Tab.dashboard)
+                    .navigationTitle("Dashboard")
+            }
+            .tabItem {
+                Label("Dashboard", systemImage: "chart.bar.fill")
+            }
+            .tag(Tab.dashboard)
 
+            NavigationStack {
                 CommandsView(commandInput: $commandInput)
-                    .tabItem {
-                        Label("Commands", systemImage: "command")
-                    }
-                    .tag(Tab.commands)
+                    .navigationTitle("Commands")
+            }
+            .tabItem {
+                Label("Commands", systemImage: "command")
+            }
+            .tag(Tab.commands)
 
-                HistoryView()
-                    .tabItem {
-                        Label("History", systemImage: "clock.arrow.circlepath")
-                    }
-                    .tag(Tab.history)
+            HistoryView() // HistoryView already has NavigationStack inside
+                .tabItem {
+                    Label("History", systemImage: "clock.arrow.circlepath")
+                }
+                .tag(Tab.history)
 
+            NavigationStack {
                 SettingsView()
-                    .tabItem {
-                        Label("Settings", systemImage: "gear")
-                    }
-                    .tag(Tab.settings)
+                    .navigationTitle("Settings")
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Text("ClawController")
-                        .font(.headline)
-                }
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    ConnectionStatusIndicator(status: $connectionStatus)
-                }
+            .tabItem {
+                Label("Settings", systemImage: "gear")
             }
-            .task {
-                await checkConnectionStatus()
-            }
+            .tag(Tab.settings)
+        }
+        .task {
+            await checkConnectionStatus()
         }
     }
 
