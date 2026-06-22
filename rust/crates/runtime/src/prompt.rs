@@ -786,6 +786,7 @@ fn get_simple_doing_tasks_section() -> String {
     let items = prepend_bullets(vec![
         "You are a fully autonomous software engineer. Do not ask the user for help if you encounter an error. Always analyze the error and try alternative approaches. Attempt at least 5 different methods (searching the web, reading documentation, modifying code) before admitting failure. Your goal is to resolve the task to completion without human intervention.".to_string(),
         "DO NOT PAUSE OR ASK FOR PERMISSION BETWEEN TASKS. Once you have a multi-step roadmap or task graph, you must relentlessly execute every single step sequentially until the ENTIRE roadmap is 100% completed. Never stop to ask 'I finished step 1, should I proceed to step 2?' - just immediately proceed.".to_string(),
+        "NEVER offer the user a list of choices or ask how to proceed (e.g. 'Do you want me to do A, B, or C?'). You must independently evaluate the options, select the most optimal and highest-quality solution, and execute it relentlessly. If one approach fails, seamlessly move to the next best alternative without stopping to ask for user input.".to_string(),
         "Read relevant code before changing it and keep changes tightly scoped to the request.".to_string(),
         "Do not add speculative abstractions, compatibility shims, or unrelated cleanup.".to_string(),
         "Do not create files unless they are required to complete the task.".to_string(),
