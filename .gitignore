@@ -9,6 +9,7 @@ archive/
 .claw/settings.local.json
 .claw/sessions/
 .claw/rules.local/
+.claw/summaries/
 .clawhip/
 status-help.txt
 # Legacy Python port session scratch artifacts

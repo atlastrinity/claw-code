@@ -130,25 +130,17 @@ pub async fn run_ingest(
         let ws_prefix = workspace.clone();
         let repo_id = repo_id_for_workspace(&workspace);
 
-        let walker = WalkBuilder::new(&workspace)
-            .filter_entry(|e| !should_skip_dir(e.path()))
-            .build();
-
-        for entry in walker {
-            let entry = match entry {
-                Ok(e) => e,
-                Err(_) => continue,
-            };
+        let mut process_entry = |entry: ignore::DirEntry| -> Result<(), String> {
             if !entry.file_type().map(|ft| ft.is_file()).unwrap_or(false) {
-                continue;
+                return Ok(());
             }
             let path = entry.path();
             if !is_text_extension(path) {
-                continue;
+                return Ok(());
             }
             let meta = entry.metadata().map_err(|e| e.to_string())?;
             if meta.len() > DEFAULT_MAX_FILE_BYTES {
-                continue;
+                return Ok(());
             }
             let rel = path
                 .strip_prefix(&ws_prefix)
@@ -158,6 +150,29 @@ pub async fn run_ingest(
             let key = format!("{repo_id}:{rel}");
             seen_paths.push(key.clone());
             all_files.push((key, path.to_path_buf()));
+            Ok(())
+        };
+
+        let walker = WalkBuilder::new(&workspace)
+            .filter_entry(|e| !should_skip_dir(e.path()))
+            .build();
+
+        for entry in walker {
+            if let Ok(e) = entry {
+                let _ = process_entry(e);
+            }
+        }
+
+        let summaries_dir = workspace.join(".claw").join("summaries");
+        if summaries_dir.is_dir() {
+            let walker_summaries = WalkBuilder::new(&summaries_dir)
+                .git_ignore(false)
+                .build();
+            for entry in walker_summaries {
+                if let Ok(e) = entry {
+                    let _ = process_entry(e);
+                }
+            }
         }
     }
 
