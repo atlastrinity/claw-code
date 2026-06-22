@@ -688,7 +688,7 @@ impl StreamState {
                         continue;
                     }
                 }
-                if let Some(delta_event) = state.delta_event(tool_index_offset) {
+                for delta_event in state.delta_events(tool_index_offset) {
                     events.push(StreamEvent::ContentBlockDelta(delta_event));
                 }
                 if choice.finish_reason.as_deref() == Some("tool_calls") && !state.stopped {
@@ -739,7 +739,7 @@ impl StreamState {
                 if let Some(start_event) = state.start_event(tool_index_offset)? {
                     state.started = true;
                     events.push(StreamEvent::ContentBlockStart(start_event));
-                    if let Some(delta_event) = state.delta_event(tool_index_offset) {
+                    for delta_event in state.delta_events(tool_index_offset) {
                         events.push(StreamEvent::ContentBlockDelta(delta_event));
                     }
                 }
@@ -807,9 +807,10 @@ struct ToolCallState {
     name: Option<String>,
     arguments: String,
     signature: Option<String>,
-    emitted_len: usize,
     started: bool,
     stopped: bool,
+    emitted_len: usize,
+    signature_emitted: bool,
 }
 
 impl ToolCallState {
@@ -860,18 +861,33 @@ impl ToolCallState {
         }))
     }
 
-    fn delta_event(&mut self, offset: u32) -> Option<ContentBlockDeltaEvent> {
-        if self.emitted_len >= self.arguments.len() {
-            return None;
+    fn delta_events(&mut self, offset: u32) -> Vec<ContentBlockDeltaEvent> {
+        let mut events = Vec::new();
+
+        if let Some(sig) = &self.signature {
+            if !self.signature_emitted {
+                self.signature_emitted = true;
+                events.push(ContentBlockDeltaEvent {
+                    index: self.block_index(offset),
+                    delta: ContentBlockDelta::SignatureDelta {
+                        signature: sig.clone(),
+                    },
+                });
+            }
         }
-        let delta = self.arguments[self.emitted_len..].to_string();
-        self.emitted_len = self.arguments.len();
-        Some(ContentBlockDeltaEvent {
-            index: self.block_index(offset),
-            delta: ContentBlockDelta::InputJsonDelta {
-                partial_json: delta,
-            },
-        })
+
+        if self.emitted_len < self.arguments.len() {
+            let delta = self.arguments[self.emitted_len..].to_string();
+            self.emitted_len = self.arguments.len();
+            events.push(ContentBlockDeltaEvent {
+                index: self.block_index(offset),
+                delta: ContentBlockDelta::InputJsonDelta {
+                    partial_json: delta,
+                },
+            });
+        }
+
+        events
     }
 }
 

@@ -35,6 +35,7 @@ pub enum AssistantEvent {
         id: String,
         name: String,
         input: String,
+        signature: Option<String>,
     },
     Usage(TokenUsage),
     PromptCache(PromptCacheEvent),
@@ -724,9 +725,9 @@ fn build_assistant_message(
                 });
             }
             AssistantEvent::TextDelta(delta) => text.push_str(&delta),
-            AssistantEvent::ToolUse { id, name, input } => {
+            AssistantEvent::ToolUse { id, name, input, signature } => {
                 flush_text_block(&mut text, &mut blocks);
-                blocks.push(ContentBlock::ToolUse { id, name, input });
+                blocks.push(ContentBlock::ToolUse { id, name, input, signature });
             }
             AssistantEvent::Usage(value) => usage = Some(value),
             AssistantEvent::PromptCache(event) => prompt_cache_events.push(event),
@@ -1212,6 +1213,7 @@ mod tests {
                             id: "tool-1".to_string(),
                             name: "add".to_string(),
                             input: r#"{"lhs":2,"rhs":2}"#.to_string(),
+                            signature: None,
                         },
                         AssistantEvent::MessageStop,
                     ]),
@@ -1287,6 +1289,7 @@ mod tests {
                             id: "tool-1".to_string(),
                             name: "fail".to_string(),
                             input: r#"{"path":"README.md"}"#.to_string(),
+                            signature: None,
                         },
                         AssistantEvent::MessageStop,
                     ]),
@@ -1754,6 +1757,7 @@ mod tests {
                 id: "tool-1".to_string(),
                 name: "echo".to_string(),
                 input: "payload".to_string(),
+                signature: None,
             },
             AssistantEvent::MessageStop,
         ];
@@ -1810,6 +1814,7 @@ mod tests {
                         id: "tool-1".to_string(),
                         name: "echo".to_string(),
                         input: "payload".to_string(),
+                        signature: None,
                     },
                     AssistantEvent::MessageStop,
                 ])

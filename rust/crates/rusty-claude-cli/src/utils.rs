@@ -2810,7 +2810,7 @@ pub fn push_output_block(
     block: OutputContentBlock,
     out: &mut (impl Write + ?Sized),
     events: &mut Vec<AssistantEvent>,
-    pending_tool: &mut Option<(String, String, String)>,
+    pending_tool: &mut Option<(String, String, String, Option<String>)>,
     streaming_tool_input: bool,
     block_has_thinking_summary: &mut bool,
 ) -> Result<(), RuntimeError> {
@@ -2836,7 +2836,7 @@ pub fn push_output_block(
             } else {
                 input.to_string()
             };
-            *pending_tool = Some((id, name, initial_input));
+            *pending_tool = Some((id, name, initial_input, signature));
         }
         OutputContentBlock::Thinking {
             thinking,
@@ -2862,7 +2862,7 @@ pub fn response_to_events(
     out: &mut (impl Write + ?Sized),
 ) -> Result<Vec<AssistantEvent>, RuntimeError> {
     let mut events = Vec::new();
-    let mut pending_tool = None;
+    let mut pending_tool: Option<(String, String, String, Option<String>)> = None;
 
     for block in response.content {
         let mut block_has_thinking_summary = false;
@@ -2874,9 +2874,14 @@ pub fn response_to_events(
             false,
             &mut block_has_thinking_summary,
         )?;
-        if let Some((id, name, input)) = pending_tool.take() {
-            events.push(AssistantEvent::ToolUse { id, name, input });
-        }
+    }
+    if let Some((id, name, input, signature)) = pending_tool {
+        events.push(AssistantEvent::ToolUse {
+            id,
+            name,
+            input,
+            signature,
+        });
     }
 
     events.push(AssistantEvent::Usage(response.usage.token_usage()));
@@ -7695,7 +7700,7 @@ UU conflicted.rs",
     fn push_output_block_renders_markdown_text() {
         let mut out = Vec::new();
         let mut events = Vec::new();
-        let mut pending_tool = None;
+        let mut pending_tool: Option<(String, String, String, Option<String>)> = None;
         let mut block_has_thinking_summary = false;
 
         push_output_block(
@@ -7719,7 +7724,7 @@ UU conflicted.rs",
     fn push_output_block_skips_empty_object_prefix_for_tool_streams() {
         let mut out = Vec::new();
         let mut events = Vec::new();
-        let mut pending_tool = None;
+        let mut pending_tool: Option<(String, String, String, Option<String>)> = None;
         let mut block_has_thinking_summary = false;
 
         push_output_block(
@@ -7739,7 +7744,7 @@ UU conflicted.rs",
         assert!(events.is_empty());
         assert_eq!(
             pending_tool,
-            Some(("tool-1".to_string(), "read_file".to_string(), String::new(),))
+            Some(("tool-1".to_string(), "read_file".to_string(), String::new(), None))
         );
     }
 
@@ -8984,7 +8989,7 @@ impl AnthropicRuntimeClient {
         let renderer = TerminalRenderer::new();
         let mut markdown_stream = MarkdownStreamState::default();
         let mut events = Vec::new();
-        let mut pending_tool: Option<(String, String, String)> = None;
+        let mut pending_tool: Option<(String, String, String, Option<String>)> = None;
         // 累积 reasoning_content 到 Thinking 块（修复 DeepSeek V4 reasoning_content 协议 bug）
         let mut pending_thinking: Option<(String, Option<String>)> = None;
         let mut block_has_thinking_summary = false;
@@ -9067,7 +9072,7 @@ impl AnthropicRuntimeClient {
                         }
                     }
                     ContentBlockDelta::InputJsonDelta { partial_json } => {
-                        if let Some((_, _, input)) = &mut pending_tool {
+                        if let Some((_, _, input, _)) = &mut pending_tool {
                             input.push_str(&partial_json);
                         }
                     }
@@ -9082,8 +9087,10 @@ impl AnthropicRuntimeClient {
                         }
                     }
                     ContentBlockDelta::SignatureDelta { signature } => {
-                        // 累积 signature 到 pending_thinking
-                        if let Some((_, sig)) = &mut pending_thinking {
+                        // 累积 signature
+                        if let Some((_, _, _, sig)) = &mut pending_tool {
+                            sig.get_or_insert_with(String::new).push_str(&signature);
+                        } else if let Some((_, sig)) = &mut pending_thinking {
                             sig.get_or_insert_with(String::new).push_str(&signature);
                         }
                     }
@@ -9102,7 +9109,7 @@ impl AnthropicRuntimeClient {
                             signature,
                         });
                     }
-                    if let Some((id, name, input)) = pending_tool.take() {
+                    if let Some((id, name, input, signature)) = pending_tool.take() {
                         if let Some(progress_reporter) = &self.progress_reporter {
                             progress_reporter.mark_tool_phase(&name, &input);
                         }
@@ -9110,7 +9117,12 @@ impl AnthropicRuntimeClient {
                         writeln!(out, "\n{}", format_tool_call_start(&name, &input))
                             .and_then(|()| out.flush())
                             .map_err(|error| RuntimeError::new(error.to_string()))?;
-                        events.push(AssistantEvent::ToolUse { id, name, input });
+                        events.push(AssistantEvent::ToolUse {
+                            id,
+                            name,
+                            input,
+                            signature,
+                        });
                     }
                 }
                 ApiStreamEvent::MessageDelta(delta) => {

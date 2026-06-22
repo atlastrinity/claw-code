@@ -1106,6 +1106,7 @@ enum BlockKind {
         id: String,
         name: String,
         json: String,
+        signature: Option<String>,
     },
 }
 
@@ -1474,13 +1475,13 @@ async fn stream_to_message_response(
                     block_kind.insert(index, BlockKind::Text);
                     text_buf.insert(index, text);
                 }
-                OutputContentBlock::ToolUse { id, name, input, .. } => {
+                OutputContentBlock::ToolUse { id, name, input, signature } => {
                     let json = if input.as_object().is_some_and(|m| m.is_empty()) {
                         String::new()
                     } else {
                         input.to_string()
                     };
-                    block_kind.insert(index, BlockKind::Tool { id, name, json });
+                    block_kind.insert(index, BlockKind::Tool { id, name, json, signature });
                 }
                 OutputContentBlock::Thinking { .. }
                 | OutputContentBlock::RedactedThinking { .. } => {}
@@ -1508,8 +1509,12 @@ async fn stream_to_message_response(
                         json.push_str(&partial_json);
                     }
                 }
-                ContentBlockDelta::ThinkingDelta { .. }
-                | ContentBlockDelta::SignatureDelta { .. } => {}
+                ContentBlockDelta::SignatureDelta { signature: sig } => {
+                    if let Some(BlockKind::Tool { signature, .. }) = block_kind.get_mut(&delta.index) {
+                        signature.get_or_insert_with(String::new).push_str(&sig);
+                    }
+                }
+                ContentBlockDelta::ThinkingDelta { .. } => {}
             },
             StreamEvent::ContentBlockStop(stop) => {
                 let idx = stop.index;
@@ -1520,10 +1525,10 @@ async fn stream_to_message_response(
                             finished.insert(idx, OutputContentBlock::Text { text: t });
                         }
                     }
-                    Some(BlockKind::Tool { id, name, json }) => {
+                    Some(BlockKind::Tool { id, name, json, signature }) => {
                         let input = serde_json::from_str::<Value>(&json)
                             .unwrap_or_else(|_| json!({ "raw": json }));
-                        finished.insert(idx, OutputContentBlock::ToolUse { id, name, input, signature: None });
+                        finished.insert(idx, OutputContentBlock::ToolUse { id, name, input, signature });
                     }
                     None => {}
                 }
