@@ -1,19 +1,25 @@
 [
   {
-    "content": "Налаштувати RemoteService у симуляторі для підключення до локального або віддаленого інстансу Claw Code.",
-    "activeForm": "Налаштовую підключення симулятора до Claw Code",
+    "content": "Create HackerTheme.swift",
+    "activeForm": "Creating HackerTheme.swift",
+    "status": "completed",
+    "depth": 1
+  },
+  {
+    "content": "Update ContentView.swift",
+    "activeForm": "Modifying ContentView.swift for new theme",
     "status": "in_progress",
-    "depth": 0
+    "depth": 1
   },
   {
-    "content": "Переробити дизайн UI у ClawController на \"хакерський\" крутий стиль.",
-    "activeForm": "Оновлюю дизайн інтерфейсу на \"хакерський\" стиль",
+    "content": "Update remaining views (Dashboard, Chat, History, Commands, Settings)",
+    "activeForm": "Updating existing Views to use theme",
     "status": "pending",
-    "depth": 0
+    "depth": 1
   },
   {
-    "content": "Перевірити потік логів та новий дизайн у запущеному симуляторі.",
-    "activeForm": "Верифікація підключення та дизайну",
+    "content": "Verify UI in simulator",
+    "activeForm": "Verifying UI in simulator",
     "status": "pending",
     "depth": 0
   }

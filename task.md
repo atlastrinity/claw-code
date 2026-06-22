@@ -1,5 +1,6 @@
 # Task List
 
-- [/] Налаштувати RemoteService у симуляторі для підключення до локального або віддаленого інстансу Claw Code.
-- [ ] Переробити дизайн UI у ClawController на "хакерський" крутий стиль.
-- [ ] Перевірити потік логів та новий дизайн у запущеному симуляторі.
+  - [x] Create HackerTheme.swift
+  - [/] Update ContentView.swift
+  - [ ] Update remaining views (Dashboard, Chat, History, Commands, Settings)
+- [ ] Verify UI in simulator

@@ -1413,6 +1413,12 @@ pub fn translate_message(message: &InputMessage, model: &str) -> Vec<Value> {
                             func_obj.insert("thoughtSignature".to_string(), json!(""));
                             call.as_object_mut().unwrap().insert("thought_signature".to_string(), json!(""));
                             call.as_object_mut().unwrap().insert("thoughtSignature".to_string(), json!(""));
+                            call.as_object_mut().unwrap().insert("extra_content".to_string(), json!({
+                                "google": {
+                                    "thought_signature": "",
+                                    "thoughtSignature": ""
+                                }
+                            }));
                         }
                         tool_calls.push(call);
                     }
