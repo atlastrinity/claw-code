@@ -5,6 +5,32 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
+fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
+    if let Ok(content) = std::fs::read_to_string("task.md") {
+        if content.contains("- [ ]") || content.contains("- [/]") {
+            let mut last_assistant_text = String::new();
+            if let Some(last_msg) = cli.runtime.session().messages.last() {
+                if last_msg.role == runtime::MessageRole::Assistant {
+                    for block in &last_msg.blocks {
+                        if let runtime::ContentBlock::Text { text } = block {
+                            last_assistant_text.push_str(text);
+                        }
+                    }
+                }
+            }
+            
+            let trimmed = last_assistant_text.trim();
+            if trimmed.ends_with('?') || trimmed.contains("Please review") || trimmed.contains("let me know") {
+                return (false, String::new());
+            }
+            
+            let prompt = "<system-reminder>You stopped generating tool calls, but `task.md` still contains uncompleted tasks. Please analyze your current stage, verify what has been executed, and continue working. If you have finished the work, you MUST call the appropriate tools to mark the items as [x] in `task.md`. If you are blocked and need user input, explain the issue clearly.</system-reminder>".to_string();
+            return (true, prompt);
+        }
+    }
+    (false, String::new())
+}
+
 pub fn run_repl(
     model: String,
     tools: Option<AllowedToolSet>,
@@ -52,15 +78,33 @@ pub fn run_repl(
                 // matches a known skill name, invoke it as `/skills <input>`
                 // rather than forwarding raw text to the LLM (ROADMAP #36).
                 let cwd = std::env::current_dir().unwrap_or_default();
-                if let Some(prompt) = try_resolve_bare_skill_prompt(&cwd, &trimmed) {
-                    editor.push_history(input);
-                    cli.record_prompt_history(&trimmed);
-                    cli.run_turn(&prompt)?;
-                    continue;
-                }
+                let (mut current_input, display_input) = if let Some(prompt) = try_resolve_bare_skill_prompt(&cwd, &trimmed) {
+                    (prompt, trimmed.clone())
+                } else {
+                    (trimmed.clone(), trimmed.clone())
+                };
+
                 editor.push_history(input);
-                cli.record_prompt_history(&trimmed);
-                cli.run_turn(&trimmed)?;
+                cli.record_prompt_history(&display_input);
+
+                let mut auto_continue_count = 0;
+                let max_auto_continue = 5;
+
+                loop {
+                    cli.run_turn(&current_input)?;
+
+                    let (should_continue, prompt) = check_autonomous_continuation(&cli);
+                    if should_continue && auto_continue_count < max_auto_continue {
+                        println!("🤖 Autonomous mode: Task is incomplete. Forcing continuation...");
+                        current_input = prompt;
+                        auto_continue_count += 1;
+                    } else {
+                        if auto_continue_count >= max_auto_continue {
+                            println!("⚠️ Reached maximum auto-continuation limit. Returning to chat.");
+                        }
+                        break;
+                    }
+                }
             }
             input::ReadOutcome::Cancel => {}
             input::ReadOutcome::Exit => {
