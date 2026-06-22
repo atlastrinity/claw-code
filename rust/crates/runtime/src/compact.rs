@@ -182,16 +182,29 @@ pub fn compact_session(session: &Session, config: CompactionConfig) -> Compactio
     compacted_session.messages = compacted_messages;
     compacted_session.record_compaction(summary.clone(), removed.len());
 
-    // Send summary to RAG by writing it to the workspace for auto-ingestion
+    // Send summary to RAG by writing it to the workspace for auto-ingestion.
+    // We write to `.claw/summaries/` because `.claw-rag` is ignored by both `.gitignore` and `SKIP_DIR_NAMES`,
+    // whereas `.claw/summaries/` is not ignored and will be automatically indexed by claw-rag-service.
+    // We enrich the file with the Session ID and the current active task list (from task.md)
+    // so that RAG queries matching the session or task keywords will match this summary with high relevance.
     if let Ok(workspace) = std::env::current_dir() {
-        let rag_dir = workspace.join(".claw-rag").join("summaries");
+        let rag_dir = workspace.join(".claw").join("summaries");
         if std::fs::create_dir_all(&rag_dir).is_ok() {
             let timestamp = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs();
+            let active_task = std::fs::read_to_string(workspace.join("task.md"))
+                .unwrap_or_else(|_| "No active task list found".to_string());
+            let file_content = format!(
+                "Session ID: {}\nTimestamp: {}\n\nActive Task List at Compaction:\n```markdown\n{}\n```\n\nCompacted Conversation History:\n{}",
+                session.session_id,
+                timestamp,
+                active_task,
+                summary
+            );
             let summary_path = rag_dir.join(format!("summary-{timestamp}.md"));
-            let _ = std::fs::write(&summary_path, &summary);
+            let _ = std::fs::write(&summary_path, file_content);
         }
     }
 
