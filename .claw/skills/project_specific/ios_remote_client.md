@@ -35,3 +35,7 @@
 3. Побудувати SwiftUI-компоненти для чату.
 4. Розробити UI для Task Graph з відображенням ієрархії та статусів (включаючи гілки з провалами `[-]`).
 5. Зв'язати фільтри логів (Errors, Tools) зі стрімом даних, що надходить по сокету.
+
+
+## 6. CRITICAL AUTONOMY RULE
+YOU MUST NOT STOP. Once you start, you must relentlessly execute the entire Task Roadmap (all 5 steps) sequentially. DO NOT ask the user for permission to proceed to the next step. DO NOT say 'I am ready to continue'. Just execute the next step immediately until everything is completed.
