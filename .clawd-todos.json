@@ -1,8 +1,20 @@
 [
   {
-    "content": "List available XcodeBuildMCP tools",
-    "activeForm": "Listing XcodeBuildMCP tools",
+    "content": "Re-architect ClawController as remote management client",
+    "activeForm": "Re-architecting the project for remote management (Frontend-Backend split)",
     "status": "in_progress",
     "depth": 0
+  },
+  {
+    "content": "Analyze communication requirements",
+    "activeForm": "Analyzing communication requirements between claw-code backend and iOS client",
+    "status": "pending",
+    "depth": 1
+  },
+  {
+    "content": "Update UI for remote management",
+    "activeForm": "Updating UI to reflect remote status, task list, and error filtering",
+    "status": "pending",
+    "depth": 1
   }
 ]
