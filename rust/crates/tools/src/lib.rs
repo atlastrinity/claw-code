@@ -731,13 +731,24 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
                         "items": {
                             "type": "object",
                             "properties": {
-                                "content": { "type": "string" },
-                                "activeForm": { "type": "string" },
+                                "content": {
+                                    "type": "string",
+                                    "description": "The title/content of the task (e.g. 'Compile ClawController'). Must not be empty."
+                                },
+                                "activeForm": {
+                                    "type": "string",
+                                    "description": "The active verbal form of the task (e.g. 'Compiling ClawController'). Must not be empty."
+                                },
                                 "status": {
                                     "type": "string",
-                                    "enum": ["pending", "in_progress", "completed"]
+                                    "enum": ["pending", "in_progress", "completed"],
+                                    "description": "The current status of the task."
                                 },
-                                "depth": { "type": "integer", "minimum": 0 }
+                                "depth": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "description": "The indentation/hierarchy depth of the subtask (0 for root tasks)."
+                                }
                             },
                             "required": ["content", "activeForm", "status"],
                             "additionalProperties": false

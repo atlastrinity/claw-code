@@ -1,7 +1,7 @@
 [
   {
     "content": "Phase 1: Simulator Testing Setup & Execution",
-    "activeForm": "Executing",
+    "activeForm": "Overall phase",
     "status": "in_progress",
     "depth": 0
   },
@@ -12,27 +12,99 @@
     "depth": 1
   },
   {
+    "content": "1.1.1 Check Swift version",
+    "activeForm": "To do",
+    "status": "pending",
+    "depth": 2
+  },
+  {
+    "content": "1.1.2 Install dependencies (CocoaPods, SwiftLint)",
+    "activeForm": "To do",
+    "status": "pending",
+    "depth": 2
+  },
+  {
+    "content": "1.1.3 Configure Xcode project settings (signing, deployment target)",
+    "activeForm": "To do",
+    "status": "pending",
+    "depth": 2
+  },
+  {
+    "content": "1.1.4 Validate simulator availability",
+    "activeForm": "To do",
+    "status": "pending",
+    "depth": 2
+  },
+  {
     "content": "1.2 Build Process",
-    "activeForm": "In Progress",
+    "activeForm": "In progress",
     "status": "in_progress",
     "depth": 1
   },
   {
     "content": "1.2.1 Compile ClawController for iOS Simulator",
-    "activeForm": "Resolving Swift compilation errors",
+    "activeForm": "In progress",
     "status": "in_progress",
     "depth": 2
   },
   {
-    "content": "Resolve Swift compilation errors (ambiguous type lookups for SystemInfo, CommandHistoryEntry, etc.)",
-    "activeForm": "Investigating ambiguous type lookups",
-    "status": "in_progress",
+    "content": "1.2.1.1 Identify ambiguous type lookups (SystemInfo, CommandHistoryEntry, etc.)",
+    "activeForm": "To do",
+    "status": "pending",
     "depth": 3
   },
   {
-    "content": "Ensure successful build output",
-    "activeForm": "Not Started",
+    "content": "1.2.1.2 Fix ambiguous type lookups",
+    "activeForm": "To do",
     "status": "pending",
     "depth": 3
+  },
+  {
+    "content": "1.2.1.3 Rebuild and verify no errors",
+    "activeForm": "To do",
+    "status": "pending",
+    "depth": 3
+  },
+  {
+    "content": "1.2.2 Ensure successful build output",
+    "activeForm": "To do",
+    "status": "pending",
+    "depth": 2
+  },
+  {
+    "content": "1.2.2.1 Check build logs for warnings",
+    "activeForm": "To do",
+    "status": "pending",
+    "depth": 3
+  },
+  {
+    "content": "1.2.2.2 Verify .app bundle generated",
+    "activeForm": "To do",
+    "status": "pending",
+    "depth": 3
+  },
+  {
+    "content": "1.3 Test Execution",
+    "activeForm": "To do",
+    "status": "pending",
+    "depth": 1
+  },
+  {
+    "content": "1.3.1 Launch built app in simulator",
+    "activeForm": "To do",
+    "status": "pending",
+    "depth": 2
+  },
+  {
+    "content": "1.3.2 Run automated UI tests",
+    "activeForm": "To do",
+    "status": "pending",
+    "depth": 2
+  },
+  {
+    "content": "1.3.3 Collect logs and verify functionality",
+    "activeForm": "To do",
+    "status": "pending",
+    "depth": 2
   }
 ]
