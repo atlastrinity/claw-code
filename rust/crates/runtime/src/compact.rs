@@ -835,6 +835,7 @@ mod tests {
                     id: tool_id.to_string(),
                     name: "search".to_string(),
                     input: "{\"q\":\"*.rs\"}".to_string(),
+                    signature: None,
                 },
             ]))
             .unwrap();

@@ -1,14 +1,14 @@
 [
   {
     "content": "Phase 1: Simulator Testing Setup & Execution",
-    "activeForm": "Running Phase 1 and Phase 2 tasks",
-    "status": "in_progress",
+    "activeForm": "Running simulator testing setup & execution",
+    "status": "pending",
     "depth": 0
   },
   {
     "content": "1.2.2 Ensure successful build output",
     "activeForm": "Ensuring successful build output",
-    "status": "in_progress",
+    "status": "pending",
     "depth": 1
   },
   {
@@ -20,13 +20,13 @@
   {
     "content": "1.2.2.2 Verify .app bundle generated",
     "activeForm": "Verifying .app bundle generated",
-    "status": "in_progress",
+    "status": "pending",
     "depth": 2
   },
   {
     "content": "1.2.2.2.1 Show session defaults",
     "activeForm": "Showing session defaults",
-    "status": "in_progress",
+    "status": "completed",
     "depth": 3
   },
   {
@@ -55,20 +55,32 @@
   },
   {
     "content": "Phase 2: User Test Request & Joke Telling",
-    "activeForm": "Running Phase 2 tasks",
+    "activeForm": "Running Phase 2: User Test Request & Joke Telling",
     "status": "in_progress",
     "depth": 0
   },
   {
     "content": "2.1 Greet the user in Ukrainian",
     "activeForm": "Greeting the user in Ukrainian",
-    "status": "in_progress",
+    "status": "completed",
     "depth": 1
   },
   {
     "content": "2.2 Formulate and tell a joke in Ukrainian",
     "activeForm": "Formulating and telling a joke in Ukrainian",
-    "status": "pending",
+    "status": "in_progress",
     "depth": 1
+  },
+  {
+    "content": "2.2.1 Formulate a funny IT joke in Ukrainian",
+    "activeForm": "Formulating a funny Ukrainian programming/IT joke",
+    "status": "in_progress",
+    "depth": 2
+  },
+  {
+    "content": "2.2.2 Deliver the joke to the user",
+    "activeForm": "Delivering the joke to the user",
+    "status": "pending",
+    "depth": 2
   }
 ]

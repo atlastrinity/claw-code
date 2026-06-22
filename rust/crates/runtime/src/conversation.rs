@@ -880,6 +880,7 @@ mod tests {
                             id: "tool-1".to_string(),
                             name: "add".to_string(),
                             input: "2,2".to_string(),
+                            signature: None,
                         },
                         AssistantEvent::Usage(TokenUsage {
                             input_tokens: 20,
@@ -1046,6 +1047,7 @@ mod tests {
                         id: "tool-1".to_string(),
                         name: "blocked".to_string(),
                         input: "secret".to_string(),
+                        signature: None,
                     },
                     AssistantEvent::MessageStop,
                 ])
@@ -1091,6 +1093,7 @@ mod tests {
                         id: "tool-1".to_string(),
                         name: "blocked".to_string(),
                         input: r#"{"path":"secret.txt"}"#.to_string(),
+                        signature: None,
                     },
                     AssistantEvent::MessageStop,
                 ])
@@ -1153,6 +1156,7 @@ mod tests {
                         id: "tool-1".to_string(),
                         name: "blocked".to_string(),
                         input: r#"{"path":"secret.txt"}"#.to_string(),
+                        signature: None,
                     },
                     AssistantEvent::MessageStop,
                 ])
@@ -1781,6 +1785,7 @@ mod tests {
                     id: "tool-1".to_string(),
                     name: "echo".to_string(),
                     input: "payload".to_string(),
+                    signature: None,
                 },
             ]
         );
