@@ -722,7 +722,7 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "TaskGraph",
-            description: "Manage the structured task map. Add nodes to form a hierarchy, or update their status. The roadmap is stored globally and NEVER deleted. Use 'failed' status to abandon a branch of execution.",
+            description: "Manage the structured task map. Add nodes to form a hierarchy, or update their status. The roadmap is stored globally and NEVER deleted. Use 'failed' status to abandon a branch of execution. IMPORTANT: The 'id' and 'parent_id' fields MUST be strings (e.g. \"1\", \"1.1\"), NOT integers. Every node MUST have a string 'id'.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
