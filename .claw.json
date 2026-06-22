@@ -20,7 +20,7 @@
     "edit_file",
     "glob_search",
     "grep_search",
-    "TodoWrite",
+    "TaskGraph",
     "Skill",
     "retrieve_context",
     "ingest_context",

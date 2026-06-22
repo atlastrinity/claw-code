@@ -144,7 +144,7 @@ This plan covers a comprehensive analysis of the current terminal user interface
 | Task | Description | Effort |
 |---|---|---|
 | 6.1 | **Add `ratatui` dependency** — Introduce `ratatui` (terminal UI framework) as an optional dependency for the full-screen mode | S |
-| 6.2 | **Split-pane layout** — Top pane: conversation with scrollback; Bottom pane: input area; Right sidebar (optional): tool status/todo list | XL |
+| 6.2 | **Split-pane layout** — Top pane: conversation with scrollback; Bottom pane: input area; Right sidebar (optional): tool status/task graph | XL |
 | 6.3 | **Scrollable conversation view** — Navigate past messages with PgUp/PgDn, search within conversation | L |
 | 6.4 | **Keyboard shortcuts panel** — Show `?` help overlay with all keybindings | M |
 | 6.5 | **Mouse support** — Click to expand tool results, scroll conversation, select text for copy | L |

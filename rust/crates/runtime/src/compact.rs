@@ -424,7 +424,7 @@ fn infer_pending_work(messages: &[ConversationMessage]) -> Vec<String> {
         .filter_map(first_text_block)
         .filter(|text| {
             let lowered = text.to_ascii_lowercase();
-            lowered.contains("todo")
+            lowered.contains("task")
                 || lowered.contains("next")
                 || lowered.contains("pending")
                 || lowered.contains("follow up")

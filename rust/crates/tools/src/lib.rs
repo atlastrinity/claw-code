@@ -4214,7 +4214,7 @@ fn dedupe_hits(hits: &mut Vec<SearchHit>) {
 }
 
 fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> {
-    let store_path = todo_store_path()?;
+    let store_path = task_graph_store_path()?;
     let mut current_nodes = if store_path.exists() {
         serde_json::from_str::<Vec<TaskNode>>(
             &std::fs::read_to_string(&store_path).map_err(|error| error.to_string())?,
@@ -4323,12 +4323,12 @@ fn execute_skill(input: SkillInput) -> Result<SkillOutput, String> {
 
 
 
-fn todo_store_path() -> Result<std::path::PathBuf, String> {
-    if let Ok(path) = std::env::var("CLAWD_TODO_STORE") {
+fn task_graph_store_path() -> Result<std::path::PathBuf, String> {
+    if let Ok(path) = std::env::var("CLAWD_TASK_GRAPH_STORE") {
         return Ok(std::path::PathBuf::from(path));
     }
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
-    Ok(cwd.join(".clawd-todos.json"))
+    Ok(cwd.join(".clawd-task-graph.json"))
 }
 
 fn resolve_skill_path(skill: &str) -> Result<std::path::PathBuf, String> {
@@ -6801,10 +6801,10 @@ fn supported_config_setting(setting: &str) -> Option<ConfigSettingSpec> {
             path: &["terminalProgressBarEnabled"],
             options: None,
         },
-        "todoFeatureEnabled" => ConfigSettingSpec {
+        "taskGraphFeatureEnabled" => ConfigSettingSpec {
             scope: ConfigScope::Global,
             kind: ConfigKind::Boolean,
-            path: &["todoFeatureEnabled"],
+            path: &["taskGraphFeatureEnabled"],
             options: None,
         },
         "model" => ConfigSettingSpec {
@@ -8629,7 +8629,7 @@ mod tests {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let path = temp_path("tasks.json");
-        std::env::set_var("CLAWD_TODO_STORE", &path);
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
 
         let first = execute_tool(
             "TaskGraph",
@@ -8659,7 +8659,7 @@ mod tests {
         let second_output: serde_json::Value = serde_json::from_str(&second).expect("valid json");
         assert_eq!(second_output["nodes_updated"].as_i64().expect("int"), 1);
         
-        std::env::remove_var("CLAWD_TODO_STORE");
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
         let _ = std::fs::remove_file(path);
     }
 

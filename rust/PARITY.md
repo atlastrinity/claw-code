@@ -56,7 +56,7 @@ Hashes below come from `git log --oneline`. Merge line counts come from `git sho
 | **grep_search** | `runtime::file_ops` | ripgrep-style search — **good parity** |
 | **WebFetch** | `tools` | URL fetch + content extraction — **moderate parity** (need to verify content truncation, redirect handling vs upstream) |
 | **WebSearch** | `tools` | search query execution — **moderate parity** |
-| **TodoWrite** | `tools` | todo/note persistence — **moderate parity** |
+| **TaskGraph** | `tools` | task/graph persistence — **moderate parity** |
 | **Skill** | `tools` | skill discovery/install — **moderate parity** |
 | **Agent** | `tools` | agent delegation — **moderate parity** |
 | **TaskCreate** | `runtime::task_registry` + `tools` | in-memory task creation wired into tool dispatch — **good parity** |

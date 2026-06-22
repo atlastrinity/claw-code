@@ -93,7 +93,7 @@ Primary artifacts:
 | Tool system (bash, read, write, edit, grep, glob) | ✅ |
 | Web tools (search, fetch) | ✅ |
 | Sub-agent / agent surfaces | ✅ |
-| Todo tracking | ✅ |
+| TaskGraph tracking | ✅ |
 | Notebook editing | ✅ |
 | CLAUDE.md / CLAW.md / AGENTS.md project memory | ✅ |
 | Config file hierarchy (`.claw.json` + merged config sections) | ✅ |
@@ -221,7 +221,7 @@ rust/
 - **runtime** — `ConversationRuntime`, config loading, session persistence, permission policy, MCP client lifecycle, system prompt assembly, usage tracking
 - **rusty-claude-cli** — REPL, one-shot prompt, direct CLI subcommands, streaming display, tool call rendering, CLI argument parsing
 - **telemetry** — session trace events and supporting telemetry payloads
-- **tools** — tool specs + execution: Bash, ReadFile, WriteFile, EditFile, GlobSearch, GrepSearch, WebSearch, WebFetch, Agent, TodoWrite, NotebookEdit, Skill, ToolSearch, and runtime-facing tool discovery
+- **tools** — tool specs + execution: Bash, ReadFile, WriteFile, EditFile, GlobSearch, GrepSearch, WebSearch, WebFetch, Agent, TaskGraph, NotebookEdit, Skill, ToolSearch, and runtime-facing tool discovery
 
 ## Stats
 
