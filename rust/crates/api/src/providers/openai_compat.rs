@@ -1795,7 +1795,6 @@ fn parse_sse_frame(
             retry_after: None,
         })));
     }
-    tracing::trace!("Raw chunk payload: {}", payload);
     serde_json::from_str::<ChatCompletionChunk>(&payload)
         .map(Some)
         .map_err(|error| ApiError::json_deserialize(provider, model, &payload, error))
