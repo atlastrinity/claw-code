@@ -19,12 +19,12 @@ struct DashboardView: View {
                 // Connection Card
                 ConnectionCard(
                     status: connectionStatus,
-                    isConnected: connectionStatus == RemoteSystemModel.ConnectionState.ConnectionStatus.connected
+                    isConnected: connectionStatus == .connected
                 )
                 .padding(.horizontal)
 
                 // System Stats
-                if connectionStatus == RemoteSystemModel.ConnectionState.ConnectionStatus.connected {
+                if connectionStatus == .connected {
                     SystemStatsView(systemInfo: systemInfo)
                         .padding(.horizontal)
                 }
@@ -68,7 +68,7 @@ struct DashboardView: View {
 // MARK: - Connection Card
 
 struct ConnectionCard: View {
-    let status: RemoteSystemModel.ConnectionState.ConnectionStatus
+    let status: ConnectionState.ConnectionStatus
     let isConnected: Bool
 
     var body: some View {

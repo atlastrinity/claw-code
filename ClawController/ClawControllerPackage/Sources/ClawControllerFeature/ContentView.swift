@@ -9,7 +9,7 @@ import SwiftUI
 
 public struct ContentView: View {
     @State private var selectedTab: Tab = .dashboard
-    @State private var connectionStatus: ConnectionStatus = .disconnected
+    @State private var connectionStatus: ConnectionState.ConnectionStatus = .disconnected
     @State private var commandInput: String = ""
 
     public init() {}
@@ -74,7 +74,7 @@ private enum Tab {
 // MARK: - Connection Status Indicator
 
 struct ConnectionStatusIndicator: View {
-    @Binding var status: ConnectionStatus
+    @Binding var status: ConnectionState.ConnectionStatus
 
     var body: some View {
         HStack(spacing: 8) {

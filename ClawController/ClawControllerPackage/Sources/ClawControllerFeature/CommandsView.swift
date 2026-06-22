@@ -119,7 +119,7 @@ struct CommandRow: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 
-                Text(entry.timestamp, style: .relative)
+                Text(entry.timestamp)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }

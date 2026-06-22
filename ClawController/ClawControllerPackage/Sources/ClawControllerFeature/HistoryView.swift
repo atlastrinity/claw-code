@@ -105,7 +105,7 @@ struct HistoryRow: View {
                     .foregroundStyle(.primary)
                     .lineLimit(1)
 
-                Text(entry.timestamp, style: .relative)
+                Text(entry.timestamp)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
@@ -207,8 +207,8 @@ struct CommandDetailSheet: View {
 
                 // Timestamp
                 DetailSection(title: "Timestamp") {
-                    Text(entry.timestamp, style: .date)
-                    Text(entry.timestamp, style: .time)
+                    Text(entry.timestamp)
+                    Text(entry.timestamp)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -216,7 +216,7 @@ struct CommandDetailSheet: View {
                 // Response (if available)
                 if let result = entry.result {
                     DetailSection(title: "Result") {
-                        Text(result.stdout)
+                        Text(result.message)
                             .font(.body)
                             .padding()
                             .background(Color(.secondarySystemBackground))

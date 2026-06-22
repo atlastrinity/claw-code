@@ -9,11 +9,11 @@ import Foundation
 
 /// Enum representing connection status
 public enum ConnectionStatus: String, Codable, Sendable {
-    case connecting = "connecting"
-    case connected = "connected"
     case disconnected = "disconnected"
     case error = "error"
     case unknown = "unknown"
+    case connecting = "connecting"
+    case connected = "connected"
 
     public var localizedDescription: String {
         switch self {
