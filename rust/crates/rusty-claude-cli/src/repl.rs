@@ -38,11 +38,12 @@ pub fn run_repl(
     base_commit: Option<String>,
     reasoning_effort: Option<String>,
     allow_broad_cwd: bool,
+    extra_sections: Vec<String>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     enforce_broad_cwd_policy(allow_broad_cwd, CliOutputFormat::Text)?;
     run_stale_base_preflight(base_commit.as_deref());
     let resolved_model = resolve_repl_model(model)?;
-    let mut cli = LiveCli::new(resolved_model, true, tools, permission_mode)?;
+    let mut cli = LiveCli::new(resolved_model, true, tools, permission_mode, extra_sections)?;
     cli.set_reasoning_effort(reasoning_effort);
     let mut editor =
         input::LineEditor::new("> ", cli.repl_completion_candidates().unwrap_or_default());
@@ -273,10 +274,11 @@ impl LiveCli {
         enable_tools: bool,
         tools: Option<AllowedToolSet>,
         permission_mode: PermissionMode,
+        extra_sections: Vec<String>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         let session_state = new_cli_session()?;
         let session = create_managed_session_handle(&session_state.session_id)?;
-        let system_prompt = build_system_prompt(&model, Some(&session.id))?;
+        let system_prompt = build_system_prompt(&model, Some(&session.id), extra_sections)?;
         let runtime = build_runtime(
             session_state.with_persistence_path(session.path.clone()),
             &session.id,

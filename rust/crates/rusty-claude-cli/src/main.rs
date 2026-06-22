@@ -657,6 +657,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             reasoning_effort,
             allow_broad_cwd,
             preset,
+            attach_skill,
         } => {
             cleanup_orphaned_processes();
             tracing::info!(model = %model, permission_mode = %permission_mode.as_str(), "running prompt mode");
@@ -674,7 +675,17 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             };
             let effective_prompt = merge_prompt_with_stdin(&prompt, stdin_context.as_deref());
             let resolved_model = resolve_repl_model(model)?;
-            let mut cli = LiveCli::new(resolved_model, true, tools, permission_mode)?;
+            
+            let mut extra_sections = Vec::new();
+            if let Some(skill_name) = attach_skill {
+                let cwd = std::env::current_dir()?;
+                let skill_path = commands::resolve_skill_path(&cwd, &skill_name)
+                    .unwrap_or_else(|_| std::path::PathBuf::from(&skill_name));
+                let content = std::fs::read_to_string(&skill_path)?;
+                extra_sections.push(content);
+            }
+            
+            let mut cli = LiveCli::new(resolved_model, true, tools, permission_mode, extra_sections)?;
             cli.set_reasoning_effort(reasoning_effort);
             cli.run_turn_with_output(&effective_prompt, output_format, compact)?;
         }
@@ -736,9 +747,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             reasoning_effort,
             allow_broad_cwd,
             preset,
+            attach_skill,
         } => {
             cleanup_orphaned_processes();
             tracing::info!(model = %model, permission_mode = %permission_mode.as_str(), "entering REPL mode");
+            let mut extra_sections = Vec::new();
+            if let Some(skill_name) = attach_skill {
+                let cwd = std::env::current_dir()?;
+                let skill_path = commands::resolve_skill_path(&cwd, &skill_name)
+                    .unwrap_or_else(|_| std::path::PathBuf::from(&skill_name));
+                let content = std::fs::read_to_string(&skill_path)?;
+                extra_sections.push(content);
+            }
+
             run_repl(
                 model,
                 tools,
@@ -746,6 +767,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 base_commit,
                 reasoning_effort,
                 allow_broad_cwd,
+                extra_sections,
             )?;
         }
         CliAction::HelpTopic {
@@ -1099,7 +1121,7 @@ fn parse_direct_slash_cli_action(
                     base_commit,
                     reasoning_effort: reasoning_effort.clone(),
                     allow_broad_cwd,
-                    preset: None,
+                    preset: None, attach_skill: None,
                 }),
                 SkillSlashDispatch::Local => Ok(CliAction::Skills {
                     args,

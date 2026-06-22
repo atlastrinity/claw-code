@@ -144,6 +144,7 @@ pub enum CliAction {
         reasoning_effort: Option<String>,
         allow_broad_cwd: bool,
         preset: Option<CliPreset>,
+        attach_skill: Option<String>,
     },
     Doctor {
         output_format: CliOutputFormat,
@@ -187,6 +188,7 @@ pub enum CliAction {
         reasoning_effort: Option<String>,
         allow_broad_cwd: bool,
         preset: Option<CliPreset>,
+        attach_skill: Option<String>,
     },
     HelpTopic {
         topic: LocalHelpTopic,
@@ -420,6 +422,7 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut reasoning_effort: Option<String> = None;
     let mut allow_broad_cwd = false;
     let mut preset: Option<CliPreset> = None;
+    let mut attach_skill: Option<String> = None;
     let mut accept_danger_non_interactive = false;
 
     // #755: -p prompt text captured as single token; remaining args continue
@@ -581,6 +584,19 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
             flag if flag.starts_with("--preset=") => {
                 let value = &flag[9..];
                 preset = Some(CliPreset::from_str(value).ok_or_else(|| format!("invalid_flag_value: unrecognized preset '{}'.\nUsage: --preset audit|explain|implement", value))?);
+                index += 1;
+            }
+            "--attach-skill" | "--skill" => {
+                let value = args.get(index + 1).ok_or_else(|| "missing_flag_value: missing value for --attach-skill.\nUsage: --attach-skill <skill_name_or_path>".to_string())?;
+                attach_skill = Some(value.clone());
+                index += 2;
+            }
+            flag if flag.starts_with("--attach-skill=") => {
+                attach_skill = Some(flag[15..].to_string());
+                index += 1;
+            }
+            flag if flag.starts_with("--skill=") => {
+                attach_skill = Some(flag[8..].to_string());
                 index += 1;
             }
             "--allow-broad-cwd" => {
@@ -768,8 +784,9 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
             base_commit,
             reasoning_effort,
             allow_broad_cwd,
-        preset: preset.clone(),
-            });
+            preset: preset.clone(),
+            attach_skill: attach_skill.clone(),
+        });
     }
 
     if positional_after_separator && !rest.is_empty() {
@@ -783,8 +800,9 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
             base_commit,
             reasoning_effort: reasoning_effort.clone(),
             allow_broad_cwd,
-        preset: preset.clone(),
-            });
+            preset: preset.clone(),
+            attach_skill: attach_skill.clone(),
+        });
     }
 
     if rest.is_empty() {
@@ -810,8 +828,9 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     base_commit,
                     reasoning_effort,
                     allow_broad_cwd,
-                preset: preset.clone(),
-            });
+                    preset: preset.clone(),
+                    attach_skill: attach_skill.clone(),
+                });
             }
             if compact {
                 return Err(compact_missing_argument_error());
@@ -832,6 +851,7 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
             reasoning_effort: reasoning_effort.clone(),
             allow_broad_cwd,
             preset: preset.clone(),
+            attach_skill: attach_skill.clone(),
         });
     }
     if let Some(action) = parse_local_help_action(&rest, output_format) {
@@ -1059,8 +1079,9 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
                     base_commit,
                     reasoning_effort: reasoning_effort.clone(),
                     allow_broad_cwd,
-                preset: preset.clone(),
-            }),
+                    preset: preset.clone(),
+                    attach_skill: attach_skill.clone(),
+                }),
                 SkillSlashDispatch::Local => Ok(CliAction::Skills {
                     args,
                     output_format,
@@ -1152,7 +1173,8 @@ Usage: claw prompt <text>  or  echo '<text>' | claw prompt".to_string());
                 base_commit: base_commit.clone(),
                 reasoning_effort: reasoning_effort.clone(),
                 allow_broad_cwd,
-            preset: preset.clone(),
+                preset: preset.clone(),
+                attach_skill: attach_skill.clone(),
             })
         }
         other if other.starts_with('/') => parse_direct_slash_cli_action(
@@ -1214,7 +1236,8 @@ Usage: claw prompt <text>  or  echo '<text>' | claw prompt".to_string());
                 base_commit,
                 reasoning_effort: reasoning_effort.clone(),
                 allow_broad_cwd,
-            preset: preset.clone(),
+                preset: preset.clone(),
+                attach_skill: attach_skill.clone(),
             })
         }
     }
