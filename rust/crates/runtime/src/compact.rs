@@ -4,6 +4,7 @@ const COMPACT_CONTINUATION_PREAMBLE: &str =
     "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\n";
 const COMPACT_RECENT_MESSAGES_NOTE: &str = "Recent messages are preserved verbatim.";
 const COMPACT_DIRECT_RESUME_INSTRUCTION: &str = "Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, and do not preface with continuation text.";
+const COMPACT_RAG_HOOK_INSTRUCTION: &str = "CRITICAL: Your memory was just compacted. You MUST immediately call the `retrieve_context` tool using keywords from your current task or the summary to restore situational awareness of the codebase before writing any code.";
 
 /// Thresholds controlling when and how a session is compacted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,6 +88,10 @@ pub fn get_compact_continuation_message(
         base.push('\n');
         base.push_str(COMPACT_DIRECT_RESUME_INSTRUCTION);
     }
+
+    base.push('\n');
+    base.push('\n');
+    base.push_str(COMPACT_RAG_HOOK_INSTRUCTION);
 
     base
 }
