@@ -206,7 +206,7 @@ pub fn compact_session(session: &Session, config: CompactionConfig) -> Compactio
             let summary_path = rag_dir.join(format!("summary-{timestamp}.md"));
             let _ = std::fs::write(&summary_path, file_content);
 
-            // Keep only the most recent 20 summary files to prevent workspace clutter.
+            // Keep only the most recent 50 summary files to prevent workspace clutter.
             if let Ok(entries) = std::fs::read_dir(&rag_dir) {
                 let mut files: Vec<_> = entries
                     .filter_map(|e| e.ok())
@@ -222,8 +222,8 @@ pub fn compact_session(session: &Session, config: CompactionConfig) -> Compactio
                     .collect();
                 // Sort by name (which contains the unix timestamp) to delete the oldest first
                 files.sort_by(|a, b| a.1.cmp(&b.1));
-                if files.len() > 20 {
-                    let delete_count = files.len() - 20;
+                if files.len() > 50 {
+                    let delete_count = files.len() - 50;
                     for (path, _) in files.into_iter().take(delete_count) {
                         let _ = std::fs::remove_file(path);
                     }
