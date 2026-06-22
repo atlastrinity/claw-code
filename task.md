@@ -1,26 +1,13 @@
-# Task Roadmap: Claw-Code iOS Remote Client
+# Task List
 
-## 1. Проєктна інфраструктура та моделі даних [completed]
-- [x] 1.1. Аналіз структури проєкту `ClawController`
-- [x] 1.2. Створення базових структур даних (Models) для WebSocket-повідомлень (TaskNode, etc)
-- [x] 1.3. Реалізація `Decodable` для отриманих JSON-даних
-
-## 2. Мережевий рівень (Networking) [completed]
-- [x] 2.1. Створення `WebSocketManager`
-- [x] 2.2. Реалізація механізму реконнекту
-- [x] 2.3. Створення потоку даних (ObservableObject) для оновлення UI
-- [x] 2.4. Реалізація відправки команд з чату до WebSocket
-
-## 3. UI/UX: Чат та Моніторинг [completed]
-- [x] 3.1. Створення базового SwiftUI-інтерфейсу чату (ChatView)
-- [x] 3.2. Розробка компоненту для відображення ієрархії завдань (TaskDashboardView)
-- [x] 3.3. Реалізація відображення статусів (pending, in_progress, completed, failed)
-
-## 4. Фільтрація та логування [completed]
-- [x] 4.1. Створення інтерфейсу фільтрації логів
-- [x] 4.2. Інтеграція фільтрів у стрім даних
-
-## 5. Тестування та Верифікація [completed]
-- [x] 5.1. Мокове тестування WebSocket-з'єднання
-- [x] 5.2. Верифікація відображення Task Graph в UI
-- [x] 5.3. Тестування з'єднання та відправки команд на симуляторі iOS
+- [ ] iOS Remote Client Development
+  - [x] Project Setup & Initial Architecture
+  - [x] Networking & Data Layer (WebSocket/Models)
+  - [x] UI Development: Chat & Task Dashboard
+  - [x] Advanced UI/UX: Terminal Logs, Filters & Themeing
+  - [x] Testing, QA & Deployment Preparation
+  - [/] Final Verification & System Integrity Check
+- [/] Final Verification & System Integrity Check
+  - [ ] Перевірка UI в симуляторі
+  - [ ] Тестування темної теми
+  - [ ] Перевірка кнопок та навігації

@@ -99,7 +99,7 @@ private actor MCPClient {
     }
 
     /// Execute an MCP tool
-    func executeTool(_ toolName: String, arguments: [String: Any]) async throws -> String {
+    func executeTool(_ toolName: String, argumentsJSON: String) async throws -> String {
         try await initialize()
 
         // Build MCP protocol request
@@ -110,7 +110,7 @@ private actor MCPClient {
             "method": "tools/call",
             "params": {
                 "name": "\(toolName)",
-                "arguments": \(arguments)
+                "arguments": \(argumentsJSON)
             }
         }
         """
@@ -306,8 +306,13 @@ public final class RemoteService {
         }
 
         do {
+            let jsonData = try JSONSerialization.data(withJSONObject: arguments, options: [])
+            guard let argumentsJSON = String(data: jsonData, encoding: .utf8) else {
+                throw RemoteError.commandFailed("Failed to encode arguments")
+            }
+            
             // Use MCP client to execute the tool
-            let response = try await mcpClient.executeTool(toolName, arguments: arguments)
+            let response = try await mcpClient.executeTool(toolName, argumentsJSON: argumentsJSON)
 
             // Parse the response and create CommandResult
             let result = CommandResult(
