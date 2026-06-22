@@ -666,7 +666,7 @@ impl LiveCli {
                                     || retry_str.contains("Too Many Requests")
                                     || retry_str.contains("api_rate_limit_error");
 
-                                if still_network_error {
+                                if still_network_error && round <= 3 {
                                     round += 1;
                                     current_timeout_secs += 10;
                                     continue;

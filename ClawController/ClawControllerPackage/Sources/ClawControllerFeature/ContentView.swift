@@ -26,13 +26,12 @@ public struct ContentView: View {
             .tag(Tab.dashboard)
 
             NavigationStack {
-                CommandsView(commandInput: $commandInput)
-                    .navigationTitle("Commands")
+                ChatView()
             }
             .tabItem {
-                Label("Commands", systemImage: "command")
+                Label("Chat", systemImage: "bubble.left.and.bubble.right.fill")
             }
-            .tag(Tab.commands)
+            .tag(Tab.chat)
 
             HistoryView() // HistoryView already has NavigationStack inside
                 .tabItem {
@@ -66,7 +65,7 @@ public struct ContentView: View {
 
 private enum Tab {
     case dashboard
-    case commands
+    case chat
     case history
     case settings
 }
