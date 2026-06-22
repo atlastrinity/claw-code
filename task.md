@@ -10,4 +10,5 @@
   - [ ] 1.3.2 Run automated UI tests
   - [ ] 1.3.3 Collect logs and verify functionality
 - [/] Phase 2: User Test Request & Joke Telling
-  - [/] 2.1 Formulate and tell a joke in Ukrainian
+  - [/] 2.1 Greet the user in Ukrainian
+  - [ ] 2.2 Formulate and tell a joke in Ukrainian

@@ -5658,7 +5658,7 @@ async fn stream_with_provider(
 ) -> Result<Vec<AssistantEvent>, ApiError> {
     let mut stream = client.stream_message(message_request).await?;
     let mut events = Vec::new();
-    let mut pending_tools: BTreeMap<u32, (String, String, String)> = BTreeMap::new();
+    let mut pending_tools: BTreeMap<u32, (String, String, String, Option<String>)> = BTreeMap::new();
     let mut pending_thinking: BTreeMap<u32, (String, Option<String>)> = BTreeMap::new();
     let mut saw_stop = false;
 
@@ -5693,7 +5693,7 @@ async fn stream_with_provider(
                     }
                 }
                 ContentBlockDelta::InputJsonDelta { partial_json } => {
-                    if let Some((_, _, input)) = pending_tools.get_mut(&delta.index) {
+                    if let Some((_, _, input, _)) = pending_tools.get_mut(&delta.index) {
                         input.push_str(&partial_json);
                     }
                 }
@@ -5703,7 +5703,11 @@ async fn stream_with_provider(
                     }
                 }
                 ContentBlockDelta::SignatureDelta { signature } => {
-                    if let Some((_, pending_signature)) = pending_thinking.get_mut(&delta.index) {
+                    if let Some((_, _, _, pending_signature)) = pending_tools.get_mut(&delta.index) {
+                        pending_signature
+                            .get_or_insert_with(String::new)
+                            .push_str(&signature);
+                    } else if let Some((_, pending_signature)) = pending_thinking.get_mut(&delta.index) {
                         pending_signature
                             .get_or_insert_with(String::new)
                             .push_str(&signature);

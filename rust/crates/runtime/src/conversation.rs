@@ -459,7 +459,7 @@ where
                 .blocks
                 .iter()
                 .filter_map(|block| match block {
-                    ContentBlock::ToolUse { id, name, input } => {
+                    ContentBlock::ToolUse { id, name, input, .. } => {
                         Some((id.clone(), name.clone(), input.clone()))
                     }
                     _ => None,

@@ -1,7 +1,7 @@
 [
   {
     "content": "Phase 1: Simulator Testing Setup & Execution",
-    "activeForm": "Keeping Phase 1 in progress",
+    "activeForm": "Running Phase 1 and Phase 2 tasks",
     "status": "in_progress",
     "depth": 0
   },
@@ -13,7 +13,7 @@
   },
   {
     "content": "1.2.2.1 Check build logs for warnings",
-    "activeForm": "Checking build logs",
+    "activeForm": "Checking build logs for warnings",
     "status": "completed",
     "depth": 2
   },
@@ -31,38 +31,44 @@
   },
   {
     "content": "1.2.2.2.2 Locate build path and verify .app existence",
-    "activeForm": "Locating build path",
+    "activeForm": "Locating build path and verifying .app existence",
     "status": "pending",
     "depth": 3
   },
   {
     "content": "1.3.1 Launch built app in simulator",
-    "activeForm": "Launching built app",
+    "activeForm": "Launching built app in simulator",
     "status": "pending",
     "depth": 1
   },
   {
     "content": "1.3.2 Run automated UI tests",
-    "activeForm": "Running UI tests",
+    "activeForm": "Running automated UI tests",
     "status": "pending",
     "depth": 1
   },
   {
     "content": "1.3.3 Collect logs and verify functionality",
-    "activeForm": "Collecting logs",
+    "activeForm": "Collecting logs and verifying functionality",
     "status": "pending",
     "depth": 1
   },
   {
     "content": "Phase 2: User Test Request & Joke Telling",
-    "activeForm": "Responding to the user test request with a joke",
+    "activeForm": "Running Phase 2 tasks",
     "status": "in_progress",
     "depth": 0
   },
   {
-    "content": "2.1 Formulate and tell a joke in Ukrainian",
-    "activeForm": "Formulating and telling a Ukrainian joke",
+    "content": "2.1 Greet the user in Ukrainian",
+    "activeForm": "Greeting the user in Ukrainian",
     "status": "in_progress",
+    "depth": 1
+  },
+  {
+    "content": "2.2 Formulate and tell a joke in Ukrainian",
+    "activeForm": "Formulating and telling a joke in Ukrainian",
+    "status": "pending",
     "depth": 1
   }
 ]

@@ -2474,7 +2474,7 @@ pub fn collect_tool_uses(summary: &runtime::TurnSummary) -> Vec<serde_json::Valu
         .iter()
         .flat_map(|message| message.blocks.iter())
         .filter_map(|block| match block {
-            ContentBlock::ToolUse { id, name, input } => Some(json!({
+            ContentBlock::ToolUse { id, name, input, .. } => Some(json!({
                 "id": id,
                 "name": name,
                 "input": input,
@@ -2824,7 +2824,7 @@ pub fn push_output_block(
                 events.push(AssistantEvent::TextDelta(text));
             }
         }
-        OutputContentBlock::ToolUse { id, name, input, .. } => {
+        OutputContentBlock::ToolUse { id, name, input, signature } => {
             // During streaming, the initial content_block_start has an empty input ({}).
             // The real input arrives via input_json_delta events. In
             // non-streaming responses, preserve a legitimate empty object.
@@ -2952,7 +2952,7 @@ pub fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
                             signature: signature.clone(),
                         }
                     }
-                    ContentBlock::ToolUse { id, name, input } => InputContentBlock::ToolUse {
+                    ContentBlock::ToolUse { id, name, input, .. } => InputContentBlock::ToolUse {
                         id: id.clone(),
                         name: name.clone(),
                         input: serde_json::from_str(input)

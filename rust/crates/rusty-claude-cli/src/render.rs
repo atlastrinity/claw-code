@@ -2365,7 +2365,7 @@ pub fn render_last_tool_debug_report(
         .rev()
         .find_map(|message| {
             message.blocks.iter().rev().find_map(|block| match block {
-                ContentBlock::ToolUse { id, name, input } => {
+                ContentBlock::ToolUse { id, name, input, .. } => {
                     Some((id.clone(), name.clone(), input.clone()))
                 }
                 _ => None,
@@ -2520,7 +2520,7 @@ pub fn render_export_text(session: &Session) -> String {
             match block {
                 ContentBlock::Text { text } => lines.push(text.clone()),
                 ContentBlock::Thinking { .. } => {}
-                ContentBlock::ToolUse { id, name, input } => {
+                ContentBlock::ToolUse { id, name, input, .. } => {
                     lines.push(format!("[tool_use id={id} name={name}] {input}"));
                 }
                 ContentBlock::ToolResult {
@@ -2587,7 +2587,7 @@ pub fn render_session_markdown(session: &Session, session_id: &str, session_path
                     }
                 }
                 ContentBlock::Thinking { .. } => {}
-                ContentBlock::ToolUse { id, name, input } => {
+                ContentBlock::ToolUse { id, name, input, .. } => {
                     lines.push(format!(
                         "**Tool call** `{name}` _(id `{}`)_",
                         short_tool_id(id)
