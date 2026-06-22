@@ -2824,7 +2824,7 @@ pub fn push_output_block(
                 events.push(AssistantEvent::TextDelta(text));
             }
         }
-        OutputContentBlock::ToolUse { id, name, input } => {
+        OutputContentBlock::ToolUse { id, name, input, .. } => {
             // During streaming, the initial content_block_start has an empty input ({}).
             // The real input arrives via input_json_delta events. In
             // non-streaming responses, preserve a legitimate empty object.

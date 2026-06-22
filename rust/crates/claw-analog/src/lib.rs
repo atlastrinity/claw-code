@@ -768,7 +768,7 @@ fn tool_calls_for_json(content: &[OutputContentBlock]) -> Vec<Value> {
     content
         .iter()
         .filter_map(|b| {
-            if let OutputContentBlock::ToolUse { id, name, input } = b {
+            if let OutputContentBlock::ToolUse { id, name, input, .. } = b {
                 Some(json!({
                     "id": id,
                     "name": name,
@@ -1474,7 +1474,7 @@ async fn stream_to_message_response(
                     block_kind.insert(index, BlockKind::Text);
                     text_buf.insert(index, text);
                 }
-                OutputContentBlock::ToolUse { id, name, input } => {
+                OutputContentBlock::ToolUse { id, name, input, .. } => {
                     let json = if input.as_object().is_some_and(|m| m.is_empty()) {
                         String::new()
                     } else {
@@ -1523,7 +1523,7 @@ async fn stream_to_message_response(
                     Some(BlockKind::Tool { id, name, json }) => {
                         let input = serde_json::from_str::<Value>(&json)
                             .unwrap_or_else(|_| json!({ "raw": json }));
-                        finished.insert(idx, OutputContentBlock::ToolUse { id, name, input });
+                        finished.insert(idx, OutputContentBlock::ToolUse { id, name, input, .. });
                     }
                     None => {}
                 }
@@ -1581,7 +1581,7 @@ fn collect_tool_uses(content: &[OutputContentBlock]) -> Vec<ToolUse<'_>> {
     content
         .iter()
         .filter_map(|b| {
-            if let OutputContentBlock::ToolUse { id, name, input } = b {
+            if let OutputContentBlock::ToolUse { id, name, input, .. } = b {
                 Some(ToolUse {
                     id: id.as_str(),
                     name: name.as_str(),
@@ -1601,7 +1601,7 @@ fn output_to_input_blocks(blocks: &[OutputContentBlock]) -> Vec<InputContentBloc
             OutputContentBlock::Text { text } => {
                 Some(InputContentBlock::Text { text: text.clone() })
             }
-            OutputContentBlock::ToolUse { id, name, input } => Some(InputContentBlock::ToolUse {
+            OutputContentBlock::ToolUse { id, name, input, .. } => Some(InputContentBlock::ToolUse {
                 id: id.clone(),
                 name: name.clone(),
                 input: input.clone(),

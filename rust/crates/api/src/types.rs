@@ -100,6 +100,8 @@ pub enum InputContentBlock {
         id: String,
         name: String,
         input: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
     },
     ToolResult {
         tool_use_id: String,
@@ -167,6 +169,8 @@ pub enum OutputContentBlock {
         id: String,
         name: String,
         input: Value,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
     },
     Thinking {
         #[serde(default)]

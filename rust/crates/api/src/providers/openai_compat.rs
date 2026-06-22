@@ -806,6 +806,7 @@ struct ToolCallState {
     id: Option<String>,
     name: Option<String>,
     arguments: String,
+    signature: Option<String>,
     emitted_len: usize,
     started: bool,
     stopped: bool,
@@ -822,6 +823,9 @@ impl ToolCallState {
         }
         if let Some(arguments) = tool_call.function.arguments {
             self.arguments.push_str(&arguments);
+        }
+        if let Some(sig) = tool_call.function.thought_signature {
+            self.signature = Some(sig);
         }
     }
 
@@ -844,6 +848,7 @@ impl ToolCallState {
                 id,
                 name,
                 input: json!({}),
+                signature: self.signature.clone(),
             },
         }))
     }
@@ -903,6 +908,8 @@ struct ResponseToolCall {
 struct ResponseToolFunction {
     name: String,
     arguments: String,
+    #[serde(default)]
+    thought_signature: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -993,6 +1000,8 @@ struct DeltaFunction {
     name: Option<String>,
     #[serde(default)]
     arguments: Option<String>,
+    #[serde(default)]
+    thought_signature: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1340,14 +1349,20 @@ pub fn translate_message(message: &InputMessage, model: &str) -> Vec<Value> {
                     InputContentBlock::Thinking {
                         thinking: value, ..
                     } => reasoning.push_str(value),
-                    InputContentBlock::ToolUse { id, name, input } => tool_calls.push(json!({
-                        "id": id,
-                        "type": "function",
-                        "function": {
-                            "name": name,
-                            "arguments": input.to_string(),
+                    InputContentBlock::ToolUse { id, name, input, signature } => {
+                        let mut call = json!({
+                            "id": id,
+                            "type": "function",
+                            "function": {
+                                "name": name,
+                                "arguments": input.to_string(),
+                            }
+                        });
+                        if let Some(sig) = signature {
+                            call.as_object_mut().unwrap().get_mut("function").unwrap().as_object_mut().unwrap().insert("thought_signature".to_string(), json!(sig));
                         }
-                    })),
+                        tool_calls.push(call);
+                    }
                     InputContentBlock::ToolResult { .. } => {}
                 }
             }
@@ -1597,6 +1612,7 @@ fn normalize_response(
             id: tool_call.id,
             name: tool_call.function.name,
             input: parse_tool_arguments(&tool_call.function.arguments),
+            signature: tool_call.function.thought_signature,
         });
     }
 
@@ -2032,6 +2048,7 @@ mod tests {
                     id: "call_1".to_string(),
                     name: "get_weather".to_string(),
                     input: json!({"city": "Paris"}),
+                    signature: None,
                 }],
             }],
             stream: false,
@@ -2673,6 +2690,7 @@ mod tests {
                     id: "call_1".to_string(),
                     name: "read_file".to_string(),
                     input: serde_json::json!({"path": "/tmp/test"}),
+                    signature: None,
                 }],
             }],
             stream: false,
@@ -2891,6 +2909,7 @@ mod tests {
                         id: "call_1".to_string(),
                         name: "read_file".to_string(),
                         input: serde_json::json!({"path": "/tmp/test"}),
+                        signature: None,
                     }],
                 },
                 InputMessage {

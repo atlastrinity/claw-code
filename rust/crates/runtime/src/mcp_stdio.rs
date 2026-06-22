@@ -1166,6 +1166,21 @@ pub struct McpStdioProcess {
     stdout: BufReader<ChildStdout>,
 }
 
+impl Drop for McpStdioProcess {
+    fn drop(&mut self) {
+        #[cfg(unix)]
+        {
+            if let Some(pid) = self.child.id() {
+                let _ = std::process::Command::new("kill")
+                    .arg("-9")
+                    .arg(format!("-{}", pid))
+                    .spawn()
+                    .and_then(|mut child| child.wait());
+            }
+        }
+    }
+}
+
 impl McpStdioProcess {
     pub fn spawn(transport: &McpStdioTransport) -> io::Result<Self> {
         let mut command = Command::new(&transport.command);
@@ -1175,6 +1190,12 @@ impl McpStdioProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
+            
+        #[cfg(unix)]
+        {
+            command.process_group(0);
+        }
+            
         apply_env(&mut command, &transport.env);
 
         let mut child = command.spawn()?;
