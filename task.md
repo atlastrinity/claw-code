@@ -2,10 +2,6 @@
 
 - [/] Phase 1: Simulator Testing Setup & Execution
   - [x] 1.1 Preparation & Configuration
-    - [ ] 1.1.1 Check Swift version
-    - [ ] 1.1.2 Install dependencies (CocoaPods, SwiftLint)
-    - [ ] 1.1.3 Configure Xcode project settings (signing, deployment target)
-    - [ ] 1.1.4 Validate simulator availability
   - [/] 1.2 Build Process
     - [/] 1.2.1 Compile ClawController for iOS Simulator
       - [ ] 1.2.1.1 Identify ambiguous type lookups (SystemInfo, CommandHistoryEntry, etc.)

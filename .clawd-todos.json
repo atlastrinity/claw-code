@@ -12,30 +12,6 @@
     "depth": 1
   },
   {
-    "content": "1.1.1 Check Swift version",
-    "activeForm": "To do",
-    "status": "pending",
-    "depth": 2
-  },
-  {
-    "content": "1.1.2 Install dependencies (CocoaPods, SwiftLint)",
-    "activeForm": "To do",
-    "status": "pending",
-    "depth": 2
-  },
-  {
-    "content": "1.1.3 Configure Xcode project settings (signing, deployment target)",
-    "activeForm": "To do",
-    "status": "pending",
-    "depth": 2
-  },
-  {
-    "content": "1.1.4 Validate simulator availability",
-    "activeForm": "To do",
-    "status": "pending",
-    "depth": 2
-  },
-  {
     "content": "1.2 Build Process",
     "activeForm": "In progress",
     "status": "in_progress",
