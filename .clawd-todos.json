@@ -1,50 +1,38 @@
 [
   {
-    "content": "Overall task for ClawController simulator testing",
-    "activeForm": "in_progress",
+    "content": "Phase 1: Simulator Testing Setup & Execution",
+    "activeForm": "Executing",
     "status": "in_progress",
     "depth": 0
   },
   {
-    "content": "Prepare ClawController for simulator testing",
-    "activeForm": "in_progress",
+    "content": "1.1 Preparation & Configuration",
+    "activeForm": "Completed",
+    "status": "completed",
+    "depth": 1
+  },
+  {
+    "content": "1.2 Build Process",
+    "activeForm": "In Progress",
     "status": "in_progress",
     "depth": 1
   },
   {
-    "content": "Locate Xcode project or workspace in ClawController directory",
-    "activeForm": "completed",
-    "status": "completed",
-    "depth": 2
-  },
-  {
-    "content": "Configure build environment for simulator",
-    "activeForm": "completed",
-    "status": "completed",
-    "depth": 2
-  },
-  {
-    "content": "Build and execute tests on simulator",
-    "activeForm": "in_progress",
-    "status": "in_progress",
-    "depth": 1
-  },
-  {
-    "content": "Compile ClawController for iOS Simulator",
-    "activeForm": "in_progress",
+    "content": "1.2.1 Compile ClawController for iOS Simulator",
+    "activeForm": "Resolving Swift compilation errors",
     "status": "in_progress",
     "depth": 2
   },
   {
-    "content": "Run test suite on simulator",
-    "activeForm": "pending",
-    "status": "pending",
-    "depth": 2
+    "content": "Resolve Swift compilation errors (ambiguous type lookups for SystemInfo, CommandHistoryEntry, etc.)",
+    "activeForm": "Investigating ambiguous type lookups",
+    "status": "in_progress",
+    "depth": 3
   },
   {
-    "content": "Verify application launches and functions correctly",
-    "activeForm": "pending",
+    "content": "Ensure successful build output",
+    "activeForm": "Not Started",
     "status": "pending",
-    "depth": 2
+    "depth": 3
   }
 ]
