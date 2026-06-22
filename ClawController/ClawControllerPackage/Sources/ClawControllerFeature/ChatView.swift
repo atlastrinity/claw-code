@@ -17,38 +17,77 @@ public struct ChatView: View {
     public init() {}
 
     public var body: some View {
-        VStack {
-            ScrollView {
-                LazyVStack(spacing: 12) {
-                    ForEach(messages) { message in
-                        ChatBubble(message: message)
+        ZStack {
+            Color.black.edgesIgnoringSafeArea(.all)
+            
+            VStack {
+                Text("CLAW_CODE_TERMINAL")
+                    .font(.system(.subheadline, design: .monospaced))
+                    .foregroundColor(.green)
+                    .padding(.top)
+                
+                ScrollView {
+                    LazyVStack(spacing: 12) {
+                        ForEach(messages) { message in
+                            ChatBubble(message: message)
+                        }
                     }
+                    .padding()
                 }
-                .padding()
-            }
 
-            HStack {
-                TextField("Введіть команду...", text: $newMessage)
-                    .textFieldStyle(.roundedBorder)
-                    .padding(.horizontal)
+                HStack {
+                    Image(systemName: "terminal.fill")
+                        .foregroundColor(.green)
+                    
+                    TextField("Enter command...", text: $newMessage)
+                        .textFieldStyle(.plain)
+                        .padding(8)
+                        .background(Color.green.opacity(0.1))
+                        .foregroundColor(.green)
+                        .font(.system(.body, design: .monospaced))
+                        .cornerRadius(4)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(Color.green.opacity(0.5)))
+                        .padding(.horizontal)
 
-                Button(action: sendMessage) {
-                    Image(systemName: "paperplane.fill")
-                        .font(.title2)
+                    Button(action: sendMessage) {
+                        Image(systemName: "paperplane.fill")
+                            .font(.title2)
+                            .foregroundColor(.green)
+                    }
+                    .padding(.trailing)
+                    .disabled(newMessage.isEmpty)
                 }
-                .padding(.trailing)
-                .disabled(newMessage.isEmpty)
+                .padding(.bottom)
             }
-            .padding(.bottom)
         }
-        .navigationTitle("Chat")
+        .navigationTitle("")
+        .toolbarBackground(.hidden, for: .navigationBar)
     }
 
+    @Environment(RemoteService.self) private var remoteService: RemoteService
+
     private func sendMessage() {
-        let new = ChatMessage(text: newMessage, isUser: true)
+        guard !newMessage.isEmpty else { return }
+
+        let text = newMessage
+        let new = ChatMessage(text: text, isUser: true)
         messages.append(new)
         newMessage = ""
-        // В майбутньому тут буде логіка відправки команди на сервер
+
+        // Capturing the remoteService locally to avoid data race in Task
+        let service = remoteService
+        Task {
+            do {
+                let result = try await service.executeMCPTool("chatCommand", arguments: ["text": text])
+                await MainActor.run {
+                    messages.append(ChatMessage(text: "Result: \(result.message)", isUser: false))
+                }
+            } catch {
+                await MainActor.run {
+                    messages.append(ChatMessage(text: "Error: \(error.localizedDescription)", isUser: false))
+                }
+            }
+        }
     }
 }
 

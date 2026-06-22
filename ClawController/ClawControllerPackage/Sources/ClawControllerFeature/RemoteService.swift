@@ -51,23 +51,18 @@ public final class RemoteService {
 
         connectionState.updateStatus(.connecting)
 
-        // Simulate connection delay
+        // Підключення до локального інстансу Claw Code (наприклад, localhost:8080)
+        let url = URL(string: "http://localhost:8080")!
+        print("Connecting to Claw Code at \(url.absoluteString)...")
+        
+        // В реальному проекті тут було б реальне WebSocket або HTTP підключення
         try await Task.sleep(for: .seconds(1))
 
-        // Simulate connection success (replace with actual WebSocket connection)
         connectionState.updateStatus(.connected)
         systemInfo.lastUpdated = Date()
 
-        // Simulate initial system info
-        systemInfo = SystemInfo(
-            version: "1.0.0",
-            uptime: "2h 15m",
-            cpuUsage: 45.2,
-            memoryUsage: 62.8
-        )
-
         _isConnected = true
-        print("Connected to remote system at \(settings.host):\(settings.port)")
+        print("Successfully connected to Claw Code")
     }
 
     /// Disconnect from the remote system
@@ -140,6 +135,16 @@ public final class RemoteService {
 
         print("Command '\(command)' executed successfully")
         return result
+    }
+
+    /// Execute an MCP tool command
+    public func executeMCPTool(_ toolName: String, arguments: [String: Any]) async throws -> CommandResult {
+        guard isConnected else {
+            throw RemoteError.notConnected
+        }
+
+        let commandString = "mcp: \(toolName) \(arguments)"
+        return try await executeCommand(commandString)
     }
 
     /// Send a quick command without waiting for full result

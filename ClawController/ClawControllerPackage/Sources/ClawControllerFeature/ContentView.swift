@@ -12,6 +12,8 @@ public struct ContentView: View {
     @State private var connectionStatus: ConnectionState.ConnectionStatus = .disconnected
     @State private var commandInput: String = ""
 
+    @State private var remoteService = RemoteService()
+
     public init() {}
 
     public var body: some View {
@@ -27,6 +29,7 @@ public struct ContentView: View {
 
             NavigationStack {
                 ChatView()
+                    .environment(remoteService)
             }
             .tabItem {
                 Label("Chat", systemImage: "bubble.left.and.bubble.right.fill")
