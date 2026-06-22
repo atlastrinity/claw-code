@@ -19,7 +19,7 @@ public struct ContentView: View {
     public var body: some View {
         TabView(selection: $selectedTab) {
             NavigationStack {
-                DashboardView(connectionStatus: $connectionStatus)
+                DashboardView()
                     .navigationTitle("Dashboard")
             }
             .tabItem {
@@ -51,20 +51,17 @@ public struct ContentView: View {
             }
             .tag(Tab.settings)
         }
+        .preferredColorScheme(.dark)
+        .tint(HackerTheme.accentColor)
+        .environment(remoteService)
         .task {
-            await checkConnectionStatus()
+            // Auto connect on startup
+            let service = remoteService
+            try? await service.connect()
         }
     }
 
-    private func checkConnectionStatus() async {
-        // Check connection status periodically
-        while true {
-            try? await Task.sleep(for: .seconds(2))
-            // In real app, check actual connection status
-            connectionStatus = .disconnected
-        }
     }
-}
 
 private enum Tab {
     case dashboard

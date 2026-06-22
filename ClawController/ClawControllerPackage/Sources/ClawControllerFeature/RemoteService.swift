@@ -170,6 +170,7 @@ private actor MCPClient {
 /// Main service for remote control functionality
 @available(iOS 17, *)
 @Observable
+@MainActor
 public final class RemoteService {
 
     // MARK: - Properties

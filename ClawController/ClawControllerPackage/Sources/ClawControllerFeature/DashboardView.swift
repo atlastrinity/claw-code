@@ -8,9 +8,8 @@
 import SwiftUI
 
 struct DashboardView: View {
-    @Binding var connectionStatus: ConnectionState.ConnectionStatus
-    @State private var systemInfo: SystemInfo = SystemInfo()
-    @State private var isLoading: Bool = true
+    @Environment(RemoteService.self) private var remoteService
+    @State private var isLoading: Bool = false
     @State private var showConnectionAlert: Bool = false
 
     var body: some View {
@@ -18,14 +17,25 @@ struct DashboardView: View {
             VStack(spacing: 24) {
                 // Connection Card
                 ConnectionCard(
-                    status: connectionStatus,
-                    isConnected: connectionStatus == .connected
+                    status: remoteService.connectionState.connectionStatus,
+                    isConnected: remoteService.isConnected,
+                    action: {
+                        Task {
+                            if remoteService.isConnected {
+                                remoteService.disconnect()
+                            } else {
+                                isLoading = true
+                                try? await remoteService.connect()
+                                isLoading = false
+                            }
+                        }
+                    }
                 )
                 .padding(.horizontal)
 
                 // System Stats
-                if connectionStatus == .connected {
-                    SystemStatsView(systemInfo: systemInfo)
+                if remoteService.isConnected {
+                    SystemStatsView(systemInfo: remoteService.systemInfo)
                         .padding(.horizontal)
                 }
 
@@ -41,27 +51,14 @@ struct DashboardView: View {
             await refreshSystemInfo()
         }
         .overlay {
-            if isLoading && connectionStatus == .disconnected {
+            if isLoading && !remoteService.isConnected {
                 ProgressView("Connecting...")
             }
         }
-        .task {
-            await checkConnection()
-        }
-    }
-
-    private func checkConnection() async {
-        isLoading = true
-        // Simulate connection check
-        try? await Task.sleep(for: .seconds(1))
-        connectionStatus = .disconnected
-        isLoading = false
     }
 
     private func refreshSystemInfo() async {
-        // Simulate refresh
-        try? await Task.sleep(for: .seconds(0.5))
-        // In real app, call RemoteService.refreshSystemInfo()
+        try? await remoteService.refreshSystemInfo()
     }
 }
 
@@ -70,6 +67,7 @@ struct DashboardView: View {
 struct ConnectionCard: View {
     let status: ConnectionState.ConnectionStatus
     let isConnected: Bool
+    let action: () -> Void
 
     var body: some View {
         VStack(spacing: 16) {
@@ -88,22 +86,26 @@ struct ConnectionCard: View {
                 Spacer()
             }
 
-            if isConnected {
-                Button(action: {}) {
-                    Label("Disconnect", systemImage: "power")
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.red.opacity(0.1))
-                        .foregroundStyle(.red)
-                        .cornerRadius(12)
-                }
+            Button(action: action) {
+                Label(isConnected ? "Disconnect" : "Connect", systemImage: isConnected ? "power" : "network")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(isConnected ? Color.red.opacity(0.1) : HackerTheme.accentColor.opacity(0.1))
+                    .foregroundStyle(isConnected ? .red : HackerTheme.accentColor)
+                    .cornerRadius(0)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 0)
+                            .stroke(isConnected ? Color.red.opacity(0.5) : HackerTheme.accentColor.opacity(0.5), lineWidth: 1)
+                    )
             }
         }
         .padding()
-        .frame(maxWidth: .infinity)
-        .background(Color(.systemBackground))
-        .cornerRadius(16)
-        .shadow(color: statusColor.opacity(0.3), radius: 10, x: 0, y: 5)
+        .background(HackerTheme.backgroundColor)
+        .cornerRadius(0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+        )
     }
 
     private var statusIcon: String {
@@ -198,9 +200,13 @@ struct SystemStatsView: View {
                 icon: "clock"
             )
         }
-        .background(Color(.systemBackground))
-        .cornerRadius(16)
-        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 3)
+        .padding()
+        .background(HackerTheme.backgroundColor)
+        .cornerRadius(0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+        )
     }
 }
 
@@ -228,8 +234,12 @@ struct StatRow: View {
                 .fontWeight(.semibold)
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(10)
+        .background(HackerTheme.backgroundColor.opacity(0.5))
+        .cornerRadius(0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(HackerTheme.panelBorderColor.opacity(0.5), lineWidth: 1)
+        )
     }
 }
 
@@ -263,9 +273,12 @@ struct QuickActionsView: View {
             )
         }
         .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(16)
-        .shadow(color: .black.opacity(0.1), radius: 5, x: 0, y: 3)
+        .background(HackerTheme.backgroundColor)
+        .cornerRadius(0)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+        )
     }
 }
 
@@ -292,5 +305,6 @@ struct ActionButton: View {
 // MARK: - Preview
 
 #Preview {
-    DashboardView(connectionStatus: .constant(.disconnected))
+    DashboardView()
+        .environment(RemoteService())
 }

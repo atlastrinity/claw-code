@@ -6,6 +6,11 @@
 //
 
 import SwiftUI
+#if os(iOS)
+import UIKit
+#else
+import AppKit
+#endif
 
 public struct TerminalView: View {
     @Environment(RemoteService.self) private var remoteService
