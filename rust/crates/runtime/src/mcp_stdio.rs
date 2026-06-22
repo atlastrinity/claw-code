@@ -1168,14 +1168,13 @@ pub struct McpStdioProcess {
 
 impl Drop for McpStdioProcess {
     fn drop(&mut self) {
-        #[cfg(unix)]
+        #[cfg(all(unix, not(test)))]
         {
             if let Some(pid) = self.child.id() {
-                let _ = std::process::Command::new("kill")
-                    .arg("-9")
-                    .arg(format!("-{}", pid))
-                    .spawn()
-                    .and_then(|mut child| child.wait());
+                let _ = nix::sys::signal::kill(
+                    nix::unistd::Pid::from_raw(-(pid as i32)),
+                    nix::sys::signal::Signal::SIGKILL,
+                );
             }
         }
     }
@@ -1191,7 +1190,7 @@ impl McpStdioProcess {
             .stderr(Stdio::inherit())
             .kill_on_drop(true);
             
-        #[cfg(unix)]
+        #[cfg(all(unix, not(test)))]
         {
             command.process_group(0);
         }
