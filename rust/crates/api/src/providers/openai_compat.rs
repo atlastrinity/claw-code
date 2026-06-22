@@ -1578,7 +1578,26 @@ pub fn flatten_tool_result_content(content: &[ToolResultContentBlock]) -> String
 fn normalize_object_schema(schema: &mut Value) {
     if let Some(obj) = schema.as_object_mut() {
         if obj.get("type").and_then(Value::as_str) == Some("object") {
-            obj.entry("properties").or_insert_with(|| json!({}));
+            let properties = obj.entry("properties").or_insert_with(|| json!({}));
+            let prop_keys: Vec<String> = properties
+                .as_object()
+                .map(|o| o.keys().cloned().collect())
+                .unwrap_or_default();
+
+            if let Some(required) = obj.get_mut("required").and_then(Value::as_array_mut) {
+                required.retain(|key| {
+                    if let Some(k_str) = key.as_str() {
+                        prop_keys.iter().any(|k| k == k_str)
+                    } else {
+                        false
+                    }
+                });
+            }
+            if let Some(required) = obj.get("required") {
+                if required.as_array().map_or(false, |a| a.is_empty()) {
+                    obj.remove("required");
+                }
+            }
             obj.entry("additionalProperties")
                 .or_insert(Value::Bool(false));
         }
@@ -2282,6 +2301,24 @@ mod tests {
             json!(true),
             "must not overwrite existing"
         );
+
+        // Filter required properties that do not exist in properties
+        let mut schema4 = json!({
+            "type": "object",
+            "properties": {"x": {"type": "string"}},
+            "required": ["x", "y"]
+        });
+        normalize_object_schema(&mut schema4);
+        assert_eq!(schema4["required"], json!(["x"]));
+
+        // Remove empty required array
+        let mut schema5 = json!({
+            "type": "object",
+            "properties": {"x": {"type": "string"}},
+            "required": ["y"]
+        });
+        normalize_object_schema(&mut schema5);
+        assert!(schema5.get("required").is_none());
     }
 
     #[test]
