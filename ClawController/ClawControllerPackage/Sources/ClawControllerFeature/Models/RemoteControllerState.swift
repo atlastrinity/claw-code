@@ -23,6 +23,12 @@ public final class RemoteControllerState {
     public var currentCommand: String?
     public var isExecutingCommand: Bool
 
+    // MARK: - Chat State
+
+    public var chatMessages: [ChatMessage]
+    public var currentChatMessage: String = ""
+    public var isChatActive: Bool = false
+
     // MARK: - Error State
 
     public var errorMessage: String?
@@ -40,6 +46,9 @@ public final class RemoteControllerState {
         commandHistory: [CommandHistoryEntry] = [],
         currentCommand: String? = nil,
         isExecutingCommand: Bool = false,
+        chatMessages: [ChatMessage] = [],
+        currentChatMessage: String = "",
+        isChatActive: Bool = false,
         errorMessage: String? = nil,
         showErrorAlert: Bool = false,
         isSettingsViewPresented: Bool = false,
@@ -51,6 +60,9 @@ public final class RemoteControllerState {
         self.commandHistory = commandHistory
         self.currentCommand = currentCommand
         self.isExecutingCommand = isExecutingCommand
+        self.chatMessages = chatMessages
+        self.currentChatMessage = currentChatMessage
+        self.isChatActive = isChatActive
         self.errorMessage = errorMessage
         self.showErrorAlert = showErrorAlert
         self.isSettingsViewPresented = isSettingsViewPresented
@@ -179,6 +191,35 @@ public final class RemoteControllerState {
         isSettingsViewPresented = false
         isHistoryViewPresented = false
     }
+
+    // MARK: - Chat Actions
+
+    public func addChatMessage(_ message: ChatMessage) {
+        chatMessages.append(message)
+    }
+
+    public func clearChat() {
+        chatMessages = []
+    }
+
+    public func setChatActive(_ isActive: Bool) {
+        isChatActive = isActive
+    }
+}
+
+// MARK: - Chat Message Model
+
+public struct ChatMessage: Identifiable {
+    public let id = UUID()
+    public let text: String
+    public let isUser: Bool
+    public let timestamp: Date
+
+    public init(text: String, isUser: Bool) {
+        self.text = text
+        self.isUser = isUser
+        self.timestamp = Date()
+    }
 }
 
 // MARK: - Convenience Initializers
@@ -205,6 +246,10 @@ extension RemoteControllerState {
                         message: "System info retrieved successfully"
                     )
                 )
+            ],
+            chatMessages: [
+                ChatMessage(text: "Привіт! Я готовий до роботи.", isUser: false),
+                ChatMessage(text: "Chat system is ready!", isUser: false)
             ]
         )
     }

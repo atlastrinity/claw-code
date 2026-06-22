@@ -31,6 +31,12 @@ struct ContentView: View {
                     }
                     .tag(Tab.command)
 
+                ChatView()
+                    .tabItem {
+                        Label("Chat", systemImage: "message")
+                    }
+                    .tag(Tab.chat)
+
                 CommandHistoryView(state: state)
                     .tabItem {
                         Label("History", systemImage: "list.bullet.rectangle")
@@ -52,6 +58,7 @@ struct ContentView: View {
     enum Tab: String, CaseIterable {
         case dashboard = "Dashboard"
         case command = "Command"
+        case chat = "Chat"
         case history = "History"
         case settings = "Settings"
     }

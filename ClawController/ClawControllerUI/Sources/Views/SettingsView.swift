@@ -20,81 +20,115 @@ struct SettingsView: View {
     }
 
     var body: some View {
-        Form {
-            // Connection Settings
-            Section(header: Text("Connection Settings")) {
-                TextField("Host", text: $host)
-                    .textFieldStyle(.roundedBorder)
+        HackerTheme.styledView {
+            Form {
+                // Connection Settings
+                Section(header: Text("Connection Settings").foregroundColor(HackerTheme.accentColor)) {
+                    TextField("Host", text: $host)
+                        .textFieldStyle(.plain)
+                        .padding(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 0)
+                                .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+                        )
 
-                TextField("Port", text: $port)
-                    .textFieldStyle(.roundedBorder)
-                    .keyboardType(.numberPad)
+                    TextField("Port", text: $port)
+                        .textFieldStyle(.plain)
+                        .keyboardType(.numberPad)
+                        .padding(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 0)
+                                .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+                        )
 
-                if state.connectionType == .ssh {
-                    TextField("Username", text: $username)
-                        .textFieldStyle(.roundedBorder)
+                    if state.connectionType == .ssh {
+                        TextField("Username", text: $username)
+                            .textFieldStyle(.plain)
+                            .padding(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 0)
+                                    .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+                            )
 
-                    SecureField("Password", text: $password)
-                        .textFieldStyle(.roundedBorder)
+                        SecureField("Password", text: $password)
+                            .textFieldStyle(.plain)
+                            .padding(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 0)
+                                    .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+                            )
 
-                    TextField("SSH Key Path", text: $sshKeyPath)
-                        .textFieldStyle(.roundedBorder)
-                }
-            }
-
-            // Connection Actions
-            Section(header: Text("Actions")) {
-                Button(action: {
-                    saveAndConnect()
-                }) {
-                    Label("Connect", systemImage: "antenna.radiowaves.left.and.right")
-                        .frame(maxWidth: .infinity, alignment: .center)
-                }
-                .disabled(state.isConnected)
-                .buttonStyle(.borderedProminent)
-
-                if state.isConnected {
-                    Button(action: {
-                        disconnect()
-                    }) {
-                        Label("Disconnect", systemImage: "xmark.circle.fill")
-                            .frame(maxWidth: .infinity, alignment: .center)
+                        TextField("SSH Key Path", text: $sshKeyPath)
+                            .textFieldStyle(.plain)
+                            .padding(8)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 0)
+                                    .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+                            )
                     }
-                    .buttonStyle(.bordered)
                 }
-            }
+                .listRowBackground(HackerTheme.backgroundColor)
 
-            // Connection Status
-            Section(header: Text("Connection Status")) {
-                statusRow("Type", value: state.connectionType.rawValue)
-                statusRow("Host", value: state.host)
-                statusRow("Port", value: state.port)
-                statusRow("Status", value: state.isConnected ? "Connected" : "Disconnected")
-                statusRow("Latency", value: state.latency)
-            }
+                // Connection Actions
+                Section(header: Text("Actions").foregroundColor(HackerTheme.accentColor)) {
+                    Button(action: {
+                        saveAndConnect()
+                    }) {
+                        Label("Connect", systemImage: "antenna.radiowaves.left.and.right")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .foregroundColor(HackerTheme.accentColor)
+                    }
+                    .disabled(state.isConnected)
+                    .buttonStyle(.plain)
+                    .padding(8)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 0)
+                            .stroke(HackerTheme.accentColor, lineWidth: 1)
+                    )
 
-            // About
-            Section(header: Text("About")) {
-                HStack {
-                    Text("Version")
-                    Spacer()
-                    Text("1.0.0")
-                        .foregroundColor(.secondary)
+                    if state.isConnected {
+                        Button(action: {
+                            disconnect()
+                        }) {
+                            Label("Disconnect", systemImage: "xmark.circle.fill")
+                                .frame(maxWidth: .infinity, alignment: .center)
+                                .foregroundColor(.red)
+                        }
+                        .buttonStyle(.plain)
+                        .padding(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 0)
+                                .stroke(Color.red, lineWidth: 1)
+                        )
+                    }
                 }
+                .listRowBackground(HackerTheme.backgroundColor)
+
+                // Connection Status
+                Section(header: Text("Connection Status").foregroundColor(HackerTheme.accentColor)) {
+                    statusRow("Type", value: state.connectionType.rawValue)
+                    statusRow("Host", value: state.host)
+                    statusRow("Port", value: state.port)
+                    statusRow("Status", value: state.isConnected ? "Connected" : "Disconnected")
+                    statusRow("Latency", value: state.latency)
+                }
+                .listRowBackground(HackerTheme.backgroundColor)
+
+                // About
+                Section(header: Text("About").foregroundColor(HackerTheme.accentColor)) {
+                    HStack {
+                        Text("Version")
+                            .foregroundColor(HackerTheme.textColor)
+                        Spacer()
+                        Text("1.0.0")
+                            .foregroundColor(HackerTheme.accentColor)
+                    }
+                }
+                .listRowBackground(HackerTheme.backgroundColor)
             }
+            .scrollContentBackground(.hidden)
+            .background(HackerTheme.backgroundColor)
         }
-        .navigationTitle("Settings")
-        .onAppear {
-            loadSettings()
-        }
-        .alert("Error", isPresented: Binding(
-            get: { state.errorMessage != nil },
-            set: { _ in state.clearError() }
-        ), messages: {
-            if let error = state.errorMessage {
-                Text(error)
-            }
-        })
     }
 
     // MARK: - Status Row

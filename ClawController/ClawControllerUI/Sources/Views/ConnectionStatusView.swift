@@ -11,24 +11,22 @@ struct ConnectionStatusView: View {
     @Bindable var state: RemoteControllerState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Connection Status Header
-            statusHeader
+        HackerTheme.styledView {
+            VStack(alignment: .leading, spacing: 16) {
+                // Connection Status Header
+                statusHeader
 
-            // Connection Info Card
-            if state.isConnected {
-                connectionInfoCard
-            } else {
-                disconnectedCard
+                // Connection Info Card
+                if state.isConnected {
+                    connectionInfoCard
+                } else {
+                    disconnectedCard
+                }
+
+                // System Info Card
+                systemInfoCard
             }
-
-            // System Info Card
-            systemInfoCard
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
     }
 
     // MARK: - Connection Status Header
@@ -40,10 +38,12 @@ struct ConnectionStatusView: View {
                 .foregroundColor(statusColor)
             Text(statusTitle)
                 .font(.headline)
+                .foregroundColor(HackerTheme.accentColor)
             Spacer()
             if state.isConnected {
                 ProgressView()
                     .scaleEffect(0.8)
+                    .tint(HackerTheme.accentColor)
             }
         }
     }
@@ -77,7 +77,7 @@ struct ConnectionStatusView: View {
         case .connecting:
             return .orange
         case .connected:
-            return .green
+            return HackerTheme.accentColor
         }
     }
 
@@ -86,32 +86,39 @@ struct ConnectionStatusView: View {
     private var connectionInfoCard: some View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Connected to", systemImage: "server")
+                .foregroundColor(HackerTheme.accentColor)
             Text("\(state.connectionConfig.host):\(state.connectionConfig.port)")
                 .font(.title2)
                 .fontWeight(.semibold)
-                .foregroundColor(.primary)
+                .foregroundColor(HackerTheme.textColor)
 
             HStack {
                 Image(systemName: "cpu")
                 Text("CPU: \(String(format: "%.1f", state.systemInfo.cpuUsage))%")
             }
             .font(.subheadline)
+            .foregroundColor(HackerTheme.textColor)
 
             HStack {
                 Image(systemName: "memorychip")
                 Text("Memory: \(String(format: "%.1f", state.systemInfo.memoryUsage))%")
             }
             .font(.subheadline)
+            .foregroundColor(HackerTheme.textColor)
 
             HStack {
                 Image(systemName: "internaldrive")
                 Text("Disk: \(state.systemInfo.availableDiskSpace.formatted()) MB")
             }
             .font(.subheadline)
+            .foregroundColor(HackerTheme.textColor)
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(8)
+        .background(HackerTheme.backgroundColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+        )
     }
 
     // MARK: - Disconnected Card
@@ -120,15 +127,18 @@ struct ConnectionStatusView: View {
         VStack(alignment: .leading, spacing: 8) {
             Label("Not Connected", systemImage: "exclamationmark.triangle")
                 .font(.headline)
-                .foregroundColor(.orange)
+                .foregroundColor(.red)
 
             Text("Please configure connection settings and connect to start remote control")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundColor(HackerTheme.textColor)
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(8)
+        .background(HackerTheme.backgroundColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+        )
     }
 
     // MARK: - System Info Card
@@ -138,6 +148,7 @@ struct ConnectionStatusView: View {
             HStack {
                 Text("System Information")
                     .font(.headline)
+                    .foregroundColor(HackerTheme.accentColor)
                 Spacer()
                 Button(action: {
                     Task {
@@ -146,8 +157,9 @@ struct ConnectionStatusView: View {
                 }) {
                     Image(systemName: "arrow.clockwise")
                         .font(.caption)
+                        .foregroundColor(HackerTheme.accentColor)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
             }
 
             if state.isConnected {
@@ -160,23 +172,26 @@ struct ConnectionStatusView: View {
             } else {
                 Text("Connect to see system information")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(HackerTheme.textColor)
             }
         }
         .padding()
-        .background(Color(.secondarySystemBackground))
-        .cornerRadius(8)
+        .background(HackerTheme.backgroundColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+        )
     }
 
     private func infoRow(_ label: String, _ value: String, compact: Bool = false) -> some View {
         HStack {
             Text(label)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(HackerTheme.accentColor)
                 .frame(width: 80, alignment: .leading)
             Text(value)
                 .font(compact ? .caption : .subheadline)
-                .foregroundColor(.primary)
+                .foregroundColor(HackerTheme.textColor)
             Spacer()
         }
     }

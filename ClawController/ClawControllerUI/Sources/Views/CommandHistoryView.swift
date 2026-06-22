@@ -11,21 +11,19 @@ struct CommandHistoryView: View {
     @Bindable var state: RemoteControllerState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Header
-            header
+        HackerTheme.styledView {
+            VStack(alignment: .leading, spacing: 12) {
+                // Header
+                header
 
-            // Command History List
-            if state.commandHistory.isEmpty {
-                emptyState
-            } else {
-                historyList
+                // Command History List
+                if state.commandHistory.isEmpty {
+                    emptyState
+                } else {
+                    historyList
+                }
             }
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
     }
 
     // MARK: - Header
@@ -34,9 +32,10 @@ struct CommandHistoryView: View {
         HStack {
             Image(systemName: "clock.arrow.circlepath")
                 .font(.system(size: 20))
-                .foregroundColor(.green)
+                .foregroundColor(HackerTheme.accentColor)
             Text("Command History")
                 .font(.headline)
+                .foregroundColor(HackerTheme.accentColor)
             Spacer()
             if !state.commandHistory.isEmpty {
                 Button(action: {
@@ -46,11 +45,13 @@ struct CommandHistoryView: View {
                         .font(.caption)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
-                        .background(Color(.systemRed))
-                        .foregroundColor(.white)
-                        .cornerRadius(4)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 0)
+                                .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+                        )
+                        .foregroundColor(HackerTheme.accentColor)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
             }
         }
     }
@@ -61,13 +62,13 @@ struct CommandHistoryView: View {
         VStack(spacing: 12) {
             Image(systemName: "tray")
                 .font(.system(size: 40))
-                .foregroundColor(.secondary)
+                .foregroundColor(HackerTheme.accentColor)
             Text("No commands yet")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundColor(HackerTheme.accentColor)
             Text("Send your first command to see it here")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(HackerTheme.accentColor)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 32)
@@ -94,27 +95,29 @@ struct CommandHistoryView: View {
             Text("\(index + 1)")
                 .font(.caption)
                 .fontWeight(.semibold)
-                .foregroundColor(.secondary)
+                .foregroundColor(HackerTheme.accentColor)
                 .frame(width: 24, height: 24)
-                .background(Color(.tertiarySystemBackground))
-                .cornerRadius(4)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 0)
+                        .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+                )
 
             // Command Content
             VStack(alignment: .leading, spacing: 4) {
                 // Command
                 Text(entry.command)
                     .font(.subheadline)
-                    .foregroundColor(.primary)
+                    .foregroundColor(HackerTheme.textColor)
                     .lineLimit(2)
 
                 // Status
                 HStack(spacing: 6) {
                     if entry.isSuccess {
                         Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
+                            .foregroundColor(HackerTheme.accentColor)
                         Text("Success")
                             .font(.caption)
-                            .foregroundColor(.green)
+                            .foregroundColor(HackerTheme.accentColor)
                     } else {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(.red)
@@ -125,7 +128,7 @@ struct CommandHistoryView: View {
 
                     Text(entry.timestamp)
                         .font(.caption2)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(HackerTheme.accentColor)
                 }
 
                 // Output
@@ -133,19 +136,25 @@ struct CommandHistoryView: View {
                     ScrollView {
                         Text(entry.output)
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(HackerTheme.textColor)
                             .lineSpacing(2)
                     }
                     .frame(maxHeight: 150)
                     .padding(8)
-                    .background(Color(.tertiarySystemBackground))
-                    .cornerRadius(6)
+                    .background(HackerTheme.backgroundColor)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 0)
+                            .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+                    )
                 }
             }
         }
         .padding(8)
-        .background(entry.isSuccess ? Color(.tertiarySystemBackground) : Color(.tertiarySystemBackground).opacity(0.8))
-        .cornerRadius(8)
+        .background(HackerTheme.backgroundColor)
+        .overlay(
+            RoundedRectangle(cornerRadius: 0)
+                .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+        )
     }
 
     // MARK: - Actions
