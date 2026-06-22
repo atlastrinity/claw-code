@@ -203,7 +203,7 @@ pub fn compact_session(session: &Session, config: CompactionConfig) -> Compactio
                 active_task,
                 summary
             );
-            let summary_path = rag_dir.join(format!("summary-{timestamp}.md"));
+            let summary_path = rag_dir.join(format!("summary-{}.md", session.session_id));
             let _ = std::fs::write(&summary_path, file_content);
 
             // Keep only the most recent 50 summary files to prevent workspace clutter.
