@@ -559,8 +559,8 @@ where
     }
 
     fn maybe_auto_compact(&mut self) -> Option<AutoCompactionEvent> {
-        if self.usage_tracker.cumulative_usage().input_tokens
-            < self.auto_compaction_input_tokens_threshold
+        if self.estimated_tokens()
+            < self.auto_compaction_input_tokens_threshold as usize
         {
             return None;
         }
@@ -1521,7 +1521,7 @@ mod tests {
     }
 
     #[test]
-    fn auto_compacts_when_cumulative_input_threshold_is_crossed() {
+    fn auto_compacts_when_estimated_input_threshold_is_crossed() {
         struct SimpleApi;
         impl ApiClient for SimpleApi {
             fn stream(
@@ -1560,7 +1560,7 @@ mod tests {
             PermissionPolicy::new(PermissionMode::DangerFullAccess),
             vec!["system".to_string()],
         )
-        .with_auto_compaction_input_tokens_threshold(100_000);
+        .with_auto_compaction_input_tokens_threshold(5);
 
         let summary = runtime
             .run_turn("trigger", None)
