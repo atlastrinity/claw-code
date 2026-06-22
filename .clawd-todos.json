@@ -1,98 +1,56 @@
 [
   {
     "content": "Phase 1: Simulator Testing Setup & Execution",
-    "activeForm": "Setting up Phase 1",
+    "activeForm": "Setting up Phase 1: Simulator Testing Setup & Execution",
     "status": "in_progress",
     "depth": 0
   },
   {
-    "content": "1.1 Preparation & Configuration",
-    "activeForm": "Completing preparation",
-    "status": "completed",
-    "depth": 1
-  },
-  {
-    "content": "1.2 Build Process",
-    "activeForm": "Building for simulator",
-    "status": "in_progress",
-    "depth": 1
-  },
-  {
-    "content": "1.2.1 Compile ClawController for iOS Simulator",
-    "activeForm": "Compiling ClawController",
-    "status": "in_progress",
-    "depth": 2
-  },
-  {
-    "content": "1.2.1.1 Identify package product dependency issue (missing product 'ClawControllerFeature')",
-    "activeForm": "Identifying package product dependency issue",
-    "status": "in_progress",
-    "depth": 3
-  },
-  {
-    "content": "1.2.1.2 Fix package product dependency",
-    "activeForm": "Fixing package product dependency",
-    "status": "pending",
-    "depth": 3
-  },
-  {
-    "content": "1.2.1.3 Rebuild and verify no errors",
-    "activeForm": "Rebuilding and verifying",
-    "status": "pending",
-    "depth": 3
-  },
-  {
-    "content": "1.2.1.4 Identify ambiguous type lookups (SystemInfo, CommandHistoryEntry, etc.)",
-    "activeForm": "Identifying ambiguous type lookups",
-    "status": "pending",
-    "depth": 3
-  },
-  {
-    "content": "1.2.1.5 Fix ambiguous type lookups",
-    "activeForm": "Fixing ambiguous type lookups",
-    "status": "pending",
-    "depth": 3
-  },
-  {
     "content": "1.2.2 Ensure successful build output",
-    "activeForm": "Ensuring successful build",
-    "status": "pending",
-    "depth": 2
+    "activeForm": "Ensuring successful build output",
+    "status": "in_progress",
+    "depth": 1
   },
   {
     "content": "1.2.2.1 Check build logs for warnings",
-    "activeForm": "Checking build logs",
-    "status": "pending",
-    "depth": 3
+    "activeForm": "Checking build logs for warnings",
+    "status": "completed",
+    "depth": 2
   },
   {
     "content": "1.2.2.2 Verify .app bundle generated",
-    "activeForm": "Verifying .app bundle",
+    "activeForm": "Verifying .app bundle generated",
+    "status": "in_progress",
+    "depth": 2
+  },
+  {
+    "content": "1.2.2.2.1 Show session defaults",
+    "activeForm": "Showing session defaults",
+    "status": "in_progress",
+    "depth": 3
+  },
+  {
+    "content": "1.2.2.2.2 Locate build path and verify .app existence",
+    "activeForm": "Locating build path and verifying .app existence",
     "status": "pending",
     "depth": 3
   },
   {
-    "content": "1.3 Test Execution",
-    "activeForm": "Executing tests",
+    "content": "1.3.1 Launch built app in simulator",
+    "activeForm": "Launching built app in simulator",
     "status": "pending",
     "depth": 1
   },
   {
-    "content": "1.3.1 Launch built app in simulator",
-    "activeForm": "Launching app in simulator",
-    "status": "pending",
-    "depth": 2
-  },
-  {
     "content": "1.3.2 Run automated UI tests",
-    "activeForm": "Running UI tests",
+    "activeForm": "Running automated UI tests",
     "status": "pending",
-    "depth": 2
+    "depth": 1
   },
   {
     "content": "1.3.3 Collect logs and verify functionality",
-    "activeForm": "Collecting logs",
+    "activeForm": "Collecting logs and verifying functionality",
     "status": "pending",
-    "depth": 2
+    "depth": 1
   }
 ]
