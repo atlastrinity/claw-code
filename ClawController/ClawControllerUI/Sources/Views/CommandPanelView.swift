@@ -12,23 +12,21 @@ struct CommandPanelView: View {
     @State private var commandInput: String = ""
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Panel Header
-            panelHeader
+        HackerTheme.styledView {
+            VStack(alignment: .leading, spacing: 12) {
+                // Panel Header
+                panelHeader
 
-            // Command Input
-            commandInputField
+                // Command Input
+                commandInputField
 
-            // Quick Actions
-            quickActions
+                // Quick Actions
+                quickActions
 
-            // Send Button
-            sendButton
+                // Send Button
+                sendButton
+            }
         }
-        .padding()
-        .background(Color(.systemBackground))
-        .cornerRadius(12)
-        .shadow(color: Color.black.opacity(0.1), radius: 4, x: 0, y: 2)
     }
 
     // MARK: - Panel Header
@@ -37,7 +35,7 @@ struct CommandPanelView: View {
         HStack {
             Image(systemName: "command")
                 .font(.system(size: 20))
-                .foregroundColor(.blue)
+                .foregroundColor(HackerTheme.accentColor)
             Text("Command Panel")
                 .font(.headline)
             Spacer()
@@ -48,7 +46,7 @@ struct CommandPanelView: View {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundColor(.red)
                 }
-                .buttonStyle(.borderless)
+                .buttonStyle(.plain)
             }
         }
     }
@@ -59,11 +57,11 @@ struct CommandPanelView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text("Enter command:")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(HackerTheme.accentColor)
 
             HStack {
                 Image(systemName: "terminal")
-                    .foregroundColor(.secondary)
+                    .foregroundColor(HackerTheme.accentColor)
                 TextField("Type command...", text: $commandInput)
                     .textFieldStyle(.plain)
                     .autocapitalization(.none)
@@ -78,16 +76,16 @@ struct CommandPanelView: View {
                     }) {
                         Image(systemName: "delete.left")
                             .font(.caption)
+                            .foregroundColor(HackerTheme.accentColor)
                     }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.plain)
                 }
             }
             .padding(8)
-            .background(Color(.tertiarySystemBackground))
-            .cornerRadius(8)
+            .background(HackerTheme.backgroundColor)
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(Color(.separator), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 0)
+                    .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
             )
 
             if let error = state.errorMessage {
@@ -105,7 +103,7 @@ struct CommandPanelView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Quick Actions:")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(HackerTheme.accentColor)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -117,11 +115,12 @@ struct CommandPanelView: View {
                                 .font(.caption)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 6)
-                                .background(Color(.systemBlue))
-                                .foregroundColor(.white)
-                                .cornerRadius(6)
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 0)
+                                        .stroke(HackerTheme.panelBorderColor, lineWidth: 1)
+                                )
                         }
-                        .buttonStyle(.borderless)
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -153,9 +152,11 @@ struct CommandPanelView: View {
             }
             .frame(maxWidth: .infinity)
             .padding()
-            .background(state.isConnected ? Color(.systemBlue) : Color(.systemGray3))
-            .foregroundColor(.white)
-            .cornerRadius(8)
+            .background(state.isConnected ? HackerTheme.accentColor.opacity(0.2) : Color.gray.opacity(0.1))
+            .overlay(
+                RoundedRectangle(cornerRadius: 0)
+                    .stroke(HackerTheme.accentColor, lineWidth: 1)
+            )
             .disabled(!state.isConnected)
         }
         .buttonStyle(.plain)

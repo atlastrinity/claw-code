@@ -7,14 +7,14 @@
   },
   {
     "content": "Update ContentView.swift",
-    "activeForm": "Modifying ContentView.swift for new theme",
-    "status": "in_progress",
+    "activeForm": "Updating ContentView.swift",
+    "status": "completed",
     "depth": 1
   },
   {
     "content": "Update remaining views (Dashboard, Chat, History, Commands, Settings)",
-    "activeForm": "Updating existing Views to use theme",
-    "status": "pending",
+    "activeForm": "Updating remaining views to use HackerTheme",
+    "status": "in_progress",
     "depth": 1
   },
   {

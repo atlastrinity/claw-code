@@ -11,60 +11,40 @@ struct ContentView: View {
     @State private var state = RemoteControllerState()
     @State private var selectedTab: Tab = .dashboard
 
-    init() {}
+    init() {
+        UITabBar.appearance().backgroundColor = UIColor(HackerTheme.backgroundColor)
+        UITabBar.appearance().unselectedItemTintColor = UIColor.gray
+    }
 
     var body: some View {
-        NavigationView {
-            mainContent
-                .navigationTitle("ClawController")
-                .toolbar {
-                    ToolbarItem(placement: .navigationBarTrailing) {
-                        settingsButton
+        HackerTheme.styledView {
+            TabView(selection: $selectedTab) {
+                ConnectionStatusView(state: state)
+                    .tabItem {
+                        Label("Dashboard", systemImage: "terminal")
                     }
-                }
+                    .tag(Tab.dashboard)
+
+                CommandPanelView(state: state)
+                    .tabItem {
+                        Label("Command", systemImage: "chevron.right.square")
+                    }
+                    .tag(Tab.command)
+
+                CommandHistoryView(state: state)
+                    .tabItem {
+                        Label("History", systemImage: "list.bullet.rectangle")
+                    }
+                    .tag(Tab.history)
+
+                SettingsView(state: state)
+                    .tabItem {
+                        Label("Settings", systemImage: "slider.horizontal.3")
+                    }
+                    .tag(Tab.settings)
+            }
+            .accentColor(HackerTheme.accentColor)
         }
-    }
-
-    // MARK: - Main Content
-
-    private var mainContent: some View {
-        TabView(selection: $selectedTab) {
-            ConnectionStatusView(state: state)
-                .tabItem {
-                    Label("Dashboard", systemImage: "chart.bar")
-                }
-                .tag(Tab.dashboard)
-
-            CommandPanelView(state: state)
-                .tabItem {
-                    Label("Command", systemImage: "command")
-                }
-                .tag(Tab.command)
-
-            CommandHistoryView(state: state)
-                .tabItem {
-                    Label("History", systemImage: "clock.arrow.circlepath")
-                }
-                .tag(Tab.history)
-
-            SettingsView(state: state)
-                .tabItem {
-                    Label("Settings", systemImage: "gear")
-                }
-                .tag(Tab.settings)
-        }
-        .accentColor(.blue)
-    }
-
-    // MARK: - Settings Button
-
-    private var settingsButton: some View {
-        Button(action: {
-            selectedTab = .settings
-        }) {
-            Image(systemName: "gear")
-        }
-        .disabled(!state.isConnected)
     }
 
     // MARK: - Tab Enum
