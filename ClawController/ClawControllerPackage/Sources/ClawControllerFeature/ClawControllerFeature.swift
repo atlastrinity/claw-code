@@ -9,7 +9,7 @@ public struct ClawControllerFeature {
     
     /// Send a command to the remote system
     public func sendCommand(_ command: String) -> CommandHistoryEntry {
-        let remoteCommand = RemoteCommand(command: command, status: .pending)
+        let _ = RemoteCommand(command: command, status: .pending)
         print("Sending command: \(command)")
         // In a real implementation, this would send the command to the remote system
         // and update the command status based on the response

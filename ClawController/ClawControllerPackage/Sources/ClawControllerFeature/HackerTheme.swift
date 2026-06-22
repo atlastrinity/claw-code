@@ -2,6 +2,7 @@ import SwiftUI
 
 public enum HackerTheme {
     public static let backgroundColor = Color(red: 0.05, green: 0.05, blue: 0.05)
+    public static let textColor = Color.white
     public static let accentColor = Color.green
     public static let terminalFont = Font.system(.body, design: .monospaced)
     public static let panelBorderColor = Color.green.opacity(0.3)

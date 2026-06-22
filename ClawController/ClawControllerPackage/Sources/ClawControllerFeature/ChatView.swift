@@ -9,9 +9,9 @@ import SwiftUI
 
 public struct ChatView: View {
     @Environment(RemoteService.self) private var remoteService
-    @State private var messages: [RemoteControllerState.ChatMessage] = [
-        RemoteControllerState.ChatMessage(text: "Привіт! Я готовий до роботи.", isUser: false),
-        RemoteControllerState.ChatMessage(text: "Я Claw Controller - готовий до роботи з MCP tool integration", isUser: false)
+    @State private var messages: [ChatMessage] = [
+        ChatMessage(text: "Привіт! Я готовий до роботи.", isUser: false),
+        ChatMessage(text: "Я Claw Controller - готовий до роботи з MCP tool integration", isUser: false)
     ]
     @State private var newMessage: String = ""
 
@@ -130,11 +130,11 @@ public struct ChatView: View {
             do {
                 let result = try await service.executeMCPTool("chatCommand", arguments: ["text": text])
                 await MainActor.run {
-                    messages.append(RemoteControllerState.ChatMessage(text: result.message, isUser: false))
+                    messages.append(ChatMessage(text: result.message, isUser: false))
                 }
             } catch {
                 await MainActor.run {
-                    messages.append(RemoteControllerState.ChatMessage(text: "Error: \(error.localizedDescription)", isUser: false))
+                    messages.append(ChatMessage(text: "Error: \(error.localizedDescription)", isUser: false))
                 }
             }
         }
@@ -144,7 +144,7 @@ public struct ChatView: View {
 
     private func clearChat() {
         messages = [
-            RemoteControllerState.ChatMessage(text: "Chat cleared. Ready for new messages.", isUser: false)
+            ChatMessage(text: "Chat cleared. Ready for new messages.", isUser: false)
         ]
     }
 }
@@ -152,7 +152,7 @@ public struct ChatView: View {
 // MARK: - Chat Bubble
 
 struct ChatBubble: View {
-    let message: RemoteControllerState.ChatMessage
+    let message: ChatMessage
 
     var body: some View {
         HStack {

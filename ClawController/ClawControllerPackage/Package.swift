@@ -21,9 +21,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ClawControllerFeatureTests",
-            dependencies: [
-                "ClawControllerFeature"
-            ]
+            dependencies: ["ClawControllerFeature"]
         ),
     ]
 )

@@ -6,30 +6,30 @@
 //
 
 import SwiftUI
+import ClawControllerFeature
 
 struct ContentView: View {
     @State private var state = RemoteControllerState()
-    @State private var selectedTab: Tab = .dashboard
+    @State private var selectedTab: Tab = .terminal
 
     init() {
-        UITabBar.appearance().backgroundColor = UIColor(HackerTheme.backgroundColor)
-        UITabBar.appearance().unselectedItemTintColor = UIColor.gray
+        let appearance = UITabBarAppearance()
+        appearance.configureWithOpaqueBackground()
+        appearance.backgroundColor = UIColor(HackerTheme.backgroundColor)
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
     }
 
     var body: some View {
-        HackerTheme.styledView {
+        ZStack {
+            HackerTheme.backgroundColor.ignoresSafeArea()
+            
             TabView(selection: $selectedTab) {
-                ConnectionStatusView(state: state)
+                TerminalView()
                     .tabItem {
-                        Label("Dashboard", systemImage: "terminal")
+                        Label("Terminal", systemImage: "terminal")
                     }
-                    .tag(Tab.dashboard)
-
-                CommandPanelView(state: state)
-                    .tabItem {
-                        Label("Command", systemImage: "chevron.right.square")
-                    }
-                    .tag(Tab.command)
+                    .tag(Tab.terminal)
 
                 ChatView()
                     .tabItem {
@@ -37,30 +37,20 @@ struct ContentView: View {
                     }
                     .tag(Tab.chat)
 
-                CommandHistoryView(state: state)
+                Text("Tasks Processor")
                     .tabItem {
-                        Label("History", systemImage: "list.bullet.rectangle")
+                        Label("Tasks", systemImage: "checklist")
                     }
-                    .tag(Tab.history)
-
-                SettingsView(state: state)
-                    .tabItem {
-                        Label("Settings", systemImage: "slider.horizontal.3")
-                    }
-                    .tag(Tab.settings)
+                    .tag(Tab.tasks)
             }
             .accentColor(HackerTheme.accentColor)
         }
     }
 
-    // MARK: - Tab Enum
-
     enum Tab: String, CaseIterable {
-        case dashboard = "Dashboard"
-        case command = "Command"
+        case terminal = "Terminal"
         case chat = "Chat"
-        case history = "History"
-        case settings = "Settings"
+        case tasks = "Tasks"
     }
 }
 

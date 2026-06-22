@@ -1,6 +1,5 @@
 schemaVersion: 1
 sessionDefaults:
-  workspacePath: /Users/dev/Documents/GitHub/claw-code/ClawController/ClawController.xcworkspace
   scheme: ClawController
   configuration: Debug
   simulatorName: iPhone 16 Pro Max
@@ -9,3 +8,4 @@ sessionDefaults:
   useLatestOS: true
   platform: iOS Simulator
   bundleId: io.sentry.clawcontroller
+  workspacePath: /Users/dev/Documents/GitHub/claw-code/ClawController/ClawController.xcworkspace

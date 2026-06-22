@@ -57,7 +57,7 @@ public struct ConnectionConfig: Codable, Sendable {
         host: String = "localhost",
         port: UInt16 = 8080,
         username: String? = nil,
-        password: String? = nil,
+        _ password: String? = nil,
         timeout: TimeInterval = 30.0,
         autoConnect: Bool = false
     ) {
