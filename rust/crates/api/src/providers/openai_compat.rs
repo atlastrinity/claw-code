@@ -1396,7 +1396,11 @@ pub fn translate_message(message: &InputMessage, model: &str) -> Vec<Value> {
                             }
                         });
                         if let Some(sig) = signature {
-                            call.as_object_mut().unwrap().get_mut("function").unwrap().as_object_mut().unwrap().insert("thought_signature".to_string(), json!(sig));
+                            let func_obj = call.as_object_mut().unwrap().get_mut("function").unwrap().as_object_mut().unwrap();
+                            func_obj.insert("thought_signature".to_string(), json!(sig));
+                            func_obj.insert("thoughtSignature".to_string(), json!(sig));
+                            call.as_object_mut().unwrap().insert("thought_signature".to_string(), json!(sig));
+                            call.as_object_mut().unwrap().insert("thoughtSignature".to_string(), json!(sig));
                         }
                         tool_calls.push(call);
                     }

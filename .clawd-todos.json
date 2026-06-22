@@ -1,86 +1,14 @@
 [
   {
-    "content": "Phase 1: Simulator Testing Setup & Execution",
-    "activeForm": "Running simulator testing setup & execution",
-    "status": "pending",
-    "depth": 0
-  },
-  {
-    "content": "1.2.2 Ensure successful build output",
-    "activeForm": "Ensuring successful build output",
-    "status": "pending",
-    "depth": 1
-  },
-  {
-    "content": "1.2.2.1 Check build logs for warnings",
-    "activeForm": "Checking build logs for warnings",
-    "status": "completed",
-    "depth": 2
-  },
-  {
-    "content": "1.2.2.2 Verify .app bundle generated",
-    "activeForm": "Verifying .app bundle generated",
-    "status": "pending",
-    "depth": 2
-  },
-  {
-    "content": "1.2.2.2.1 Show session defaults",
-    "activeForm": "Showing session defaults",
-    "status": "completed",
-    "depth": 3
-  },
-  {
-    "content": "1.2.2.2.2 Locate build path and verify .app existence",
-    "activeForm": "Locating build path and verifying .app existence",
-    "status": "pending",
-    "depth": 3
-  },
-  {
-    "content": "1.3.1 Launch built app in simulator",
-    "activeForm": "Launching built app in simulator",
-    "status": "pending",
-    "depth": 1
-  },
-  {
-    "content": "1.3.2 Run automated UI tests",
-    "activeForm": "Running automated UI tests",
-    "status": "pending",
-    "depth": 1
-  },
-  {
-    "content": "1.3.3 Collect logs and verify functionality",
-    "activeForm": "Collecting logs and verifying functionality",
-    "status": "pending",
-    "depth": 1
-  },
-  {
-    "content": "Phase 2: User Test Request & Joke Telling",
-    "activeForm": "Running Phase 2: User Test Request & Joke Telling",
-    "status": "in_progress",
-    "depth": 0
-  },
-  {
-    "content": "2.1 Greet the user in Ukrainian",
-    "activeForm": "Greeting the user in Ukrainian",
+    "content": "2.1 Привітатися з користувачем українською мовою",
+    "activeForm": "Вітаю користувача у відповідь українською мовою",
     "status": "completed",
     "depth": 1
   },
   {
-    "content": "2.2 Formulate and tell a joke in Ukrainian",
-    "activeForm": "Formulating and telling a joke in Ukrainian",
+    "content": "2.2.1 Сформулювати смішний жарт на IT-тематику українською мовою",
+    "activeForm": "Формулювання жарту на IT-тематику українською мовою",
     "status": "in_progress",
-    "depth": 1
-  },
-  {
-    "content": "2.2.1 Formulate a funny IT joke in Ukrainian",
-    "activeForm": "Formulating a funny Ukrainian programming/IT joke",
-    "status": "in_progress",
-    "depth": 2
-  },
-  {
-    "content": "2.2.2 Deliver the joke to the user",
-    "activeForm": "Delivering the joke to the user",
-    "status": "pending",
     "depth": 2
   }
 ]
