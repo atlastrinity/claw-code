@@ -658,6 +658,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             allow_broad_cwd,
             preset,
         } => {
+            cleanup_orphaned_processes();
             tracing::info!(model = %model, permission_mode = %permission_mode.as_str(), "running prompt mode");
             enforce_broad_cwd_policy(allow_broad_cwd, output_format)?;
             run_stale_base_preflight(base_commit.as_deref());
@@ -736,6 +737,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             allow_broad_cwd,
             preset,
         } => {
+            cleanup_orphaned_processes();
             tracing::info!(model = %model, permission_mode = %permission_mode.as_str(), "entering REPL mode");
             run_repl(
                 model,
@@ -758,6 +760,30 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 static OUTPUT_FORMAT_SELECTION: OnceLock<Mutex<OutputFormatSelection>> = OnceLock::new();
 // #468: duplicate global flag occurrences for provenance reporting
 static DUPLICATE_FLAGS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+
+fn cleanup_orphaned_processes() {
+    tracing::info!("Cleaning up orphaned zombie processes and microservices before startup...");
+    let mut sys = sysinfo::System::new_all();
+    sys.refresh_all();
+    let current_pid = std::process::id();
+    
+    let targets = ["claw", "xcodebuildmcp", "mcp-server-macos-use", "claw-analog", "claw-rag-service"];
+    
+    for (pid, process) in sys.processes() {
+        if pid.as_u32() == current_pid {
+            continue;
+        }
+        let name_str = process.name().to_string_lossy().to_lowercase();
+        let is_target = targets.iter().any(|&t| {
+            name_str == t || name_str.ends_with(&format!("/{}", t))
+        });
+        
+        if is_target {
+            tracing::info!("Killing zombie process: {} (PID: {})", name_str, pid);
+            process.kill();
+        }
+    }
+}
 
 fn is_help_flag(value: &str) -> bool {
     matches!(value, "--help" | "-h")
