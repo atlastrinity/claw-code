@@ -39,3 +39,8 @@
 
 ## 6. CRITICAL AUTONOMY RULE
 YOU MUST NOT STOP. Once you start, you must relentlessly execute the entire Task Roadmap (all 5 steps) sequentially. DO NOT ask the user for permission to proceed to the next step. DO NOT say 'I am ready to continue'. Just execute the next step immediately until everything is completed.
+
+## 7. Інструменти та Тестування (XcodeBuildMCP)
+Для розробки під iOS ти маєш доступ до потужного сервера `xcodebuildmcp`, який надає близько 80 різних інструментів для роботи з Xcode та симуляторами. Це твій прерогативний інструмент для iOS-розробки.
+- Оскільки інструментів дуже багато, використовуй інструмент пошуку (наприклад, `toolSearch` або перегляд списку інструментів сервера), щоб знаходити потрібні команди.
+- **ОБОВ'ЯЗКОВО:** Ти повинен використовувати iOS Симулятор для тестування кожної написаної функції та кожної кнопки в UI. Запускай додаток у симуляторі, взаємодій з ним, роби скріншоти або перевіряй ієрархію UI, щоб переконатися, що все працює ідеально, перш ніж переходити до наступного кроку.
