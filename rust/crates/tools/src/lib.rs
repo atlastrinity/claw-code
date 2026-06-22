@@ -3199,10 +3199,18 @@ where
     }
 }
 
+
+
+fn generate_id() -> String {
+    format!("auto_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis())
+}
+
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 struct TaskNode {
-    #[serde(deserialize_with = "deserialize_string_or_number")]
+    #[serde(default = "generate_id", deserialize_with = "deserialize_string_or_number")]
     id: String,
+
+
     #[serde(default, skip_serializing_if = "Option::is_none", deserialize_with = "deserialize_optional_string_or_number")]
     parent_id: Option<String>,
 
