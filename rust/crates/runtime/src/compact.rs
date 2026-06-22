@@ -187,7 +187,7 @@ pub fn compact_session(session: &Session, config: CompactionConfig) -> Compactio
     // whereas `.claw/summaries/` is not ignored and will be automatically indexed by claw-rag-service.
     // We enrich the file with the Session ID and the current active task list (from task.md)
     // so that RAG queries matching the session or task keywords will match this summary with high relevance.
-    if let Ok(workspace) = std::env::current_dir() {
+    if let Some(workspace) = &session.workspace_root {
         let rag_dir = workspace.join(".claw").join("summaries");
         if std::fs::create_dir_all(&rag_dir).is_ok() {
             let timestamp = std::time::SystemTime::now()
