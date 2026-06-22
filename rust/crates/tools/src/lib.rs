@@ -721,41 +721,28 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
             required_permission: PermissionMode::DangerFullAccess,
         },
         ToolSpec {
-            name: "TodoWrite",
-            description: "Update the structured task list for the current session. You MUST break down complex tasks recursively into subtasks using the 'depth' parameter to maintain sequential focus.",
+            name: "TaskGraph",
+            description: "Manage the structured task map. Add nodes to form a hierarchy, or update their status. The roadmap is stored globally and NEVER deleted. Use 'failed' status to abandon a branch of execution.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "todos": {
+                    "operation": { "type": "string", "enum": ["add", "update_status"] },
+                    "nodes": {
                         "type": "array",
                         "items": {
                             "type": "object",
                             "properties": {
-                                "content": {
-                                    "type": "string",
-                                    "description": "The title/content of the task (e.g. 'Compile ClawController'). Must not be empty."
-                                },
-                                "activeForm": {
-                                    "type": "string",
-                                    "description": "The active verbal form of the task (e.g. 'Compiling ClawController'). Must not be empty."
-                                },
-                                "status": {
-                                    "type": "string",
-                                    "enum": ["pending", "in_progress", "completed"],
-                                    "description": "The current status of the task."
-                                },
-                                "depth": {
-                                    "type": "integer",
-                                    "minimum": 0,
-                                    "description": "The indentation/hierarchy depth of the subtask (0 for root tasks)."
-                                }
+                                "id": { "type": "string", "description": "Unique identifier for this task node." },
+                                "parent_id": { "type": "string", "description": "ID of the parent node, if this is a subtask." },
+                                "content": { "type": "string", "description": "The text content of the task (required for 'add')." },
+                                "status": { "type": "string", "enum": ["pending", "in_progress", "completed", "failed"], "description": "Status of the task." }
                             },
-                            "required": ["content", "activeForm", "status"],
+                            "required": ["id"],
                             "additionalProperties": false
                         }
                     }
                 },
-                "required": ["todos"],
+                "required": ["operation", "nodes"],
                 "additionalProperties": false
             }),
             required_permission: PermissionMode::WorkspaceWrite,
@@ -1570,7 +1557,7 @@ fn execute_tool_with_enforcer(
             )?;
             run_web_search(web_input)
         }
-        "TodoWrite" => from_value::<TodoWriteInput>(input).and_then(run_todo_write),
+        "TaskGraph" => from_value::<TaskGraphInput>(input).and_then(run_task_graph),
         "Skill" => from_value::<SkillInput>(input).and_then(run_skill),
         "Agent" => from_value::<AgentInput>(input).and_then(run_agent),
         "ToolSearch" => from_value::<ToolSearchInput>(input).and_then(run_tool_search),
@@ -2840,8 +2827,8 @@ fn run_web_search(input: WebSearchInput) -> Result<String, String> {
     to_pretty_json(execute_web_search(&input)?)
 }
 
-fn run_todo_write(input: TodoWriteInput) -> Result<String, String> {
-    to_pretty_json(execute_todo_write(input)?)
+fn run_task_graph(input: TaskGraphInput) -> Result<String, String> {
+    to_pretty_json(execute_task_graph(input)?)
 }
 
 fn run_skill(input: SkillInput) -> Result<String, String> {
@@ -3159,27 +3146,42 @@ struct WebSearchInput {
     blocked_domains: Option<Vec<String>>,
 }
 
-#[derive(Debug, Deserialize)]
-struct TodoWriteInput {
-    todos: Vec<TodoItem>,
-}
-
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
-struct TodoItem {
-    content: String,
-    #[serde(rename = "activeForm")]
-    active_form: String,
-    status: TodoStatus,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    depth: Option<u8>,
+#[serde(rename_all = "snake_case")]
+enum TaskGraphOperation {
+    Add,
+    UpdateStatus,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-enum TodoStatus {
+enum TaskStatus {
     Pending,
     InProgress,
     Completed,
+    Failed,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
+struct TaskNode {
+    id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    parent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    content: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    status: Option<TaskStatus>,
+}
+
+#[derive(Debug, Deserialize)]
+struct TaskGraphInput {
+    operation: TaskGraphOperation,
+    nodes: Vec<TaskNode>,
+}
+
+#[derive(Debug, Serialize)]
+struct TaskGraphOutput {
+    nodes_updated: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3528,15 +3530,7 @@ struct WebSearchOutput {
     duration_seconds: f64,
 }
 
-#[derive(Debug, Serialize)]
-struct TodoWriteOutput {
-    #[serde(rename = "oldTodos")]
-    old_todos: Vec<TodoItem>,
-    #[serde(rename = "newTodos")]
-    new_todos: Vec<TodoItem>,
-    #[serde(rename = "verificationNudgeNeeded")]
-    verification_nudge_needed: Option<bool>,
-}
+
 
 #[derive(Debug, Serialize)]
 struct SkillOutput {
@@ -4172,11 +4166,10 @@ fn dedupe_hits(hits: &mut Vec<SearchHit>) {
     hits.retain(|hit| seen.insert(hit.url.clone()));
 }
 
-fn execute_todo_write(input: TodoWriteInput) -> Result<TodoWriteOutput, String> {
-    validate_todos(&input.todos)?;
+fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> {
     let store_path = todo_store_path()?;
-    let old_todos = if store_path.exists() {
-        serde_json::from_str::<Vec<TodoItem>>(
+    let mut current_nodes = if store_path.exists() {
+        serde_json::from_str::<Vec<TaskNode>>(
             &std::fs::read_to_string(&store_path).map_err(|error| error.to_string())?,
         )
         .map_err(|error| error.to_string())?
@@ -4184,26 +4177,38 @@ fn execute_todo_write(input: TodoWriteInput) -> Result<TodoWriteOutput, String> 
         Vec::new()
     };
 
-    let all_done = input
-        .todos
-        .iter()
-        .all(|todo| matches!(todo.status, TodoStatus::Completed));
-    let persisted = if all_done {
-        Vec::new()
-    } else {
-        input.todos.clone()
-    };
+    let mut updated_count = 0;
 
-    let verification_nudge_needed = (all_done
-        && input.todos.len() >= 3
-        && !input
-            .todos
-            .iter()
-            .any(|todo| todo.content.to_lowercase().contains("verif")))
-    .then_some(true);
-
-    if verification_nudge_needed.unwrap_or(false) {
-        return Err(String::from("VERIFICATION_REQUIRED: You cannot mark all tasks as completed without verifying your work. Depending on the task, please run a testing command, check the generated output, or validate your findings. Then add a 'verification' item to your todo list, and try again."));
+    match input.operation {
+        TaskGraphOperation::Add => {
+            for node in input.nodes {
+                if current_nodes.iter().any(|n| n.id == node.id) {
+                    return Err(format!("Node with id '{}' already exists.", node.id));
+                }
+                if node.content.is_none() || node.content.as_ref().unwrap().trim().is_empty() {
+                    return Err(String::from("Node content must not be empty on add."));
+                }
+                current_nodes.push(TaskNode {
+                    id: node.id,
+                    parent_id: node.parent_id,
+                    content: node.content,
+                    status: node.status.or(Some(TaskStatus::Pending)),
+                });
+                updated_count += 1;
+            }
+        }
+        TaskGraphOperation::UpdateStatus => {
+            for node in input.nodes {
+                if let Some(existing) = current_nodes.iter_mut().find(|n| n.id == node.id) {
+                    if let Some(new_status) = node.status {
+                        existing.status = Some(new_status);
+                        updated_count += 1;
+                    }
+                } else {
+                    return Err(format!("Node with id '{}' not found.", node.id));
+                }
+            }
+        }
     }
 
     if let Some(parent) = store_path.parent() {
@@ -4211,29 +4216,47 @@ fn execute_todo_write(input: TodoWriteInput) -> Result<TodoWriteOutput, String> 
         
         let task_md_path = parent.join("task.md");
         let mut markdown = String::from("# Task List\n\n");
-        for todo in &input.todos {
-            let checkbox = match todo.status {
-                TodoStatus::Completed => "[x]",
-                TodoStatus::InProgress => "[/]",
-                TodoStatus::Pending => "[ ]",
-            };
-            let indent = " ".repeat((todo.depth.unwrap_or(0) as usize) * 2);
-            markdown.push_str(&format!("{}- {} {}\n", indent, checkbox, todo.content));
+        
+        // Helper to recursively write nodes
+        fn write_node(
+            id: &str,
+            nodes: &[TaskNode],
+            markdown: &mut String,
+            depth: usize
+        ) {
+            if let Some(node) = nodes.iter().find(|n| n.id == id) {
+                let checkbox = match node.status {
+                    Some(TaskStatus::Completed) => "[x]",
+                    Some(TaskStatus::InProgress) => "[/]",
+                    Some(TaskStatus::Failed) => "[-]",
+                    _ => "[ ]",
+                };
+                let indent = "  ".repeat(depth);
+                markdown.push_str(&format!("{}- {} {}\n", indent, checkbox, node.content.as_deref().unwrap_or("")));
+                
+                // Find children
+                for child in nodes.iter().filter(|n| n.parent_id.as_deref() == Some(id)) {
+                    write_node(&child.id, nodes, markdown, depth + 1);
+                }
+            }
         }
-        // We ignore errors when writing task.md to ensure the core JSON store still works if this fails
+
+        // Roots
+        for root in current_nodes.iter().filter(|n| n.parent_id.is_none()) {
+            write_node(&root.id, &current_nodes, &mut markdown, 0);
+        }
+
         let _ = std::fs::write(&task_md_path, markdown);
     }
     
     std::fs::write(
         &store_path,
-        serde_json::to_string_pretty(&persisted).map_err(|error| error.to_string())?,
+        serde_json::to_string_pretty(&current_nodes).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
 
-    Ok(TodoWriteOutput {
-        old_todos,
-        new_todos: input.todos,
-        verification_nudge_needed: None,
+    Ok(TaskGraphOutput {
+        nodes_updated: updated_count,
     })
 }
 
@@ -4251,19 +4274,7 @@ fn execute_skill(input: SkillInput) -> Result<SkillOutput, String> {
     })
 }
 
-fn validate_todos(todos: &[TodoItem]) -> Result<(), String> {
-    if todos.is_empty() {
-        return Err(String::from("todos must not be empty"));
-    }
-    // Allow multiple in_progress items for parallel workflows
-    if todos.iter().any(|todo| todo.content.trim().is_empty()) {
-        return Err(String::from("todo content must not be empty"));
-    }
-    if todos.iter().any(|todo| todo.active_form.trim().is_empty()) {
-        return Err(String::from("todo activeForm must not be empty"));
-    }
-    Ok(())
-}
+
 
 fn todo_store_path() -> Result<std::path::PathBuf, String> {
     if let Ok(path) = std::env::var("CLAWD_TODO_STORE") {
@@ -4729,7 +4740,7 @@ fn tools_for_subagent(subagent_type: &str) -> BTreeSet<String> {
             "WebSearch",
             "ToolSearch",
             "Skill",
-            "TodoWrite",
+            "TaskGraph",
             "StructuredOutput",
             "SendUserMessage",
         ],
@@ -4741,7 +4752,7 @@ fn tools_for_subagent(subagent_type: &str) -> BTreeSet<String> {
             "WebFetch",
             "WebSearch",
             "ToolSearch",
-            "TodoWrite",
+            "TaskGraph",
             "StructuredOutput",
             "SendUserMessage",
             "PowerShell",
@@ -4775,7 +4786,7 @@ fn tools_for_subagent(subagent_type: &str) -> BTreeSet<String> {
             "grep_search",
             "WebFetch",
             "WebSearch",
-            "TodoWrite",
+            "TaskGraph",
             "Skill",
             "ToolSearch",
             "NotebookEdit",
@@ -7344,7 +7355,7 @@ mod tests {
         assert!(names.contains(&"read_file"));
         assert!(names.contains(&"WebFetch"));
         assert!(names.contains(&"WebSearch"));
-        assert!(names.contains(&"TodoWrite"));
+        assert!(names.contains(&"TaskGraph"));
         assert!(names.contains(&"Skill"));
         assert!(names.contains(&"Agent"));
         assert!(names.contains(&"ToolSearch"));
@@ -8157,7 +8168,7 @@ mod tests {
 
         let canonical = registry.canonical_allowed_tool_names();
         assert!(canonical.contains(&"web_fetch".to_string()));
-        assert!(canonical.contains(&"todo_write".to_string()));
+        assert!(canonical.contains(&"task_graph".to_string()));
         assert!(!canonical.contains(&"WebFetch".to_string()));
         assert_eq!(
             registry.allowed_tool_aliases().get("WebFetch"),
@@ -8565,103 +8576,44 @@ mod tests {
         );
     }
 
-    #[test]
-    fn todo_write_persists_and_returns_previous_state() {
+        #[test]
+    fn task_graph_operations() {
         let _guard = env_lock()
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let path = temp_path("todos.json");
+        let path = temp_path("tasks.json");
         std::env::set_var("CLAWD_TODO_STORE", &path);
 
         let first = execute_tool(
-            "TodoWrite",
+            "TaskGraph",
             &json!({
-                "todos": [
-                    {"content": "Add tool", "activeForm": "Adding tool", "status": "in_progress"},
-                    {"content": "Run tests", "activeForm": "Running tests", "status": "pending"}
+                "operation": "add",
+                "nodes": [
+                    {"id": "t1", "content": "Root task"},
+                    {"id": "t2", "parent_id": "t1", "content": "Sub task"}
                 ]
             }),
         )
-        .expect("TodoWrite should succeed");
+        .expect("TaskGraph add should succeed");
         let first_output: serde_json::Value = serde_json::from_str(&first).expect("valid json");
-        assert_eq!(first_output["oldTodos"].as_array().expect("array").len(), 0);
+        assert_eq!(first_output["nodes_updated"].as_i64().expect("int"), 2);
 
         let second = execute_tool(
-            "TodoWrite",
+            "TaskGraph",
             &json!({
-                "todos": [
-                    {"content": "Add tool", "activeForm": "Adding tool", "status": "completed"},
-                    {"content": "Run tests", "activeForm": "Running tests", "status": "completed"},
-                    {"content": "Verify", "activeForm": "Verifying", "status": "completed"}
+                "operation": "update_status",
+                "nodes": [
+                    {"id": "t2", "status": "completed"}
                 ]
             }),
         )
-        .expect("TodoWrite should succeed");
+        .expect("TaskGraph update should succeed");
+        
+        let second_output: serde_json::Value = serde_json::from_str(&second).expect("valid json");
+        assert_eq!(second_output["nodes_updated"].as_i64().expect("int"), 1);
+        
         std::env::remove_var("CLAWD_TODO_STORE");
         let _ = std::fs::remove_file(path);
-
-        let second_output: serde_json::Value = serde_json::from_str(&second).expect("valid json");
-        assert_eq!(
-            second_output["oldTodos"].as_array().expect("array").len(),
-            2
-        );
-        assert_eq!(
-            second_output["newTodos"].as_array().expect("array").len(),
-            3
-        );
-        assert!(second_output["verificationNudgeNeeded"].is_null());
-    }
-
-    #[test]
-    fn todo_write_rejects_invalid_payloads_and_sets_verification_nudge() {
-        let _guard = env_lock()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let path = temp_path("todos-errors.json");
-        std::env::set_var("CLAWD_TODO_STORE", &path);
-
-        let empty = execute_tool("TodoWrite", &json!({ "todos": [] }))
-            .expect_err("empty todos should fail");
-        assert!(empty.contains("todos must not be empty"));
-
-        // Multiple in_progress items are now allowed for parallel workflows
-        let _multi_active = execute_tool(
-            "TodoWrite",
-            &json!({
-                "todos": [
-                    {"content": "One", "activeForm": "Doing one", "status": "in_progress"},
-                    {"content": "Two", "activeForm": "Doing two", "status": "in_progress"}
-                ]
-            }),
-        )
-        .expect("multiple in-progress todos should succeed");
-
-        let blank_content = execute_tool(
-            "TodoWrite",
-            &json!({
-                "todos": [
-                    {"content": "   ", "activeForm": "Doing it", "status": "pending"}
-                ]
-            }),
-        )
-        .expect_err("blank content should fail");
-        assert!(blank_content.contains("todo content must not be empty"));
-
-        let nudge = execute_tool(
-            "TodoWrite",
-            &json!({
-                "todos": [
-                    {"content": "Write tests", "activeForm": "Writing tests", "status": "completed"},
-                    {"content": "Fix errors", "activeForm": "Fixing errors", "status": "completed"},
-                    {"content": "Ship branch", "activeForm": "Shipping branch", "status": "completed"}
-                ]
-            }),
-        )
-        .expect_err("completed todos without verification should fail with VERIFICATION_REQUIRED");
-        std::env::remove_var("CLAWD_TODO_STORE");
-        let _ = fs::remove_file(path);
-
-        assert!(nudge.contains("VERIFICATION_REQUIRED"));
     }
 
     #[test]
@@ -9760,7 +9712,7 @@ mod tests {
         assert!(!explore.contains("bash"));
 
         let plan = tools_for_subagent("Plan");
-        assert!(plan.contains("todo_write"));
+        assert!(plan.contains("task_graph"));
         assert!(plan.contains("structured_output"));
         assert!(!plan.contains("agent"));
 
