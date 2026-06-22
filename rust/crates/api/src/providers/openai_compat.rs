@@ -1387,6 +1387,11 @@ pub fn translate_message(message: &InputMessage, model: &str) -> Vec<Value> {
                         thinking: value, ..
                     } => reasoning.push_str(value),
                     InputContentBlock::ToolUse { id, name, input, signature } => {
+                        if model.to_ascii_lowercase().contains("gemini") && signature.is_none() {
+                            text.push_str(&format!("\n[Assistant called tool '{}' with arguments: {}]", name, input));
+                            continue;
+                        }
+
                         let mut call = json!({
                             "id": id,
                             "type": "function",
@@ -1405,18 +1410,6 @@ pub fn translate_message(message: &InputMessage, model: &str) -> Vec<Value> {
                                 "google": {
                                     "thought_signature": sig,
                                     "thoughtSignature": sig
-                                }
-                            }));
-                        } else if model.to_ascii_lowercase().contains("gemini") {
-                            let func_obj = call.as_object_mut().unwrap().get_mut("function").unwrap().as_object_mut().unwrap();
-                            func_obj.insert("thought_signature".to_string(), json!(""));
-                            func_obj.insert("thoughtSignature".to_string(), json!(""));
-                            call.as_object_mut().unwrap().insert("thought_signature".to_string(), json!(""));
-                            call.as_object_mut().unwrap().insert("thoughtSignature".to_string(), json!(""));
-                            call.as_object_mut().unwrap().insert("extra_content".to_string(), json!({
-                                "google": {
-                                    "thought_signature": "",
-                                    "thoughtSignature": ""
                                 }
                             }));
                         }
@@ -1539,14 +1532,19 @@ pub fn sanitize_tool_message_pairing(messages: Vec<Value>) -> Vec<Value> {
             drop_indices.insert(i);
         }
     }
-    if drop_indices.is_empty() {
-        return messages;
-    }
     messages
         .into_iter()
         .enumerate()
-        .filter(|(i, _)| !drop_indices.contains(i))
-        .map(|(_, m)| m)
+        .map(|(i, mut msg)| {
+            if drop_indices.contains(&i) {
+                let content = msg.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                msg = json!({
+                    "role": "user",
+                    "content": format!("[Tool result for orphaned call]: {}", content)
+                });
+            }
+            msg
+        })
         .collect()
 }
 
@@ -2826,8 +2824,10 @@ mod tests {
             json!({"role": "tool", "tool_call_id": "call_2", "content": "orphaned"}),
         ];
         let out = sanitize_tool_message_pairing(orphaned);
-        assert_eq!(out.len(), 1, "orphaned tool message must be dropped");
+        assert_eq!(out.len(), 2, "orphaned tool message must be converted");
         assert_eq!(out[0]["role"], json!("assistant"));
+        assert_eq!(out[1]["role"], json!("user"));
+        assert_eq!(out[1]["content"], json!("[Tool result for orphaned call]: orphaned"));
 
         // Mismatched tool_call_id
         let mismatched = vec![
@@ -2835,7 +2835,9 @@ mod tests {
             json!({"role": "tool", "tool_call_id": "call_WRONG", "content": "bad"}),
         ];
         let out = sanitize_tool_message_pairing(mismatched);
-        assert_eq!(out.len(), 1, "tool message with wrong id must be dropped");
+        assert_eq!(out.len(), 2, "tool message with wrong id must be converted");
+        assert_eq!(out[0]["role"], json!("assistant"));
+        assert_eq!(out[1]["role"], json!("user"));
 
         // Two tool results both valid (same preceding assistant)
         let two_results = vec![
