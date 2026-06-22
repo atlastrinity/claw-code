@@ -24,7 +24,7 @@ fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
                 return (false, String::new());
             }
             
-            let prompt = "<system-reminder>You stopped generating tool calls, but `task.md` still contains uncompleted tasks. Please analyze your current stage, verify what has been executed, and continue working. If you have finished the work, you MUST call the appropriate tools to mark the items as [x] in `task.md`. If you are blocked and need user input, explain the issue clearly.</system-reminder>".to_string();
+            let prompt = "<system-reminder>You stopped generating tool calls, but the TaskGraph still contains uncompleted tasks. Please analyze your current stage, verify what has been executed, and continue working. If you have finished the work, you MUST call the TaskGraph tool to update task statuses to 'completed'. Do NOT manually edit task.md. If you are blocked and need user input, explain the issue clearly.</system-reminder>".to_string();
             return (true, prompt);
         }
     }
