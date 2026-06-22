@@ -218,6 +218,51 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
             default_base_url: openai_compat::DEFAULT_GEMINI_BASE_URL,
         },
     ),
+    (
+        "gemini-flash",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "GEMINI_API_KEY",
+            base_url_env: "GEMINI_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_GEMINI_BASE_URL,
+        },
+    ),
+    (
+        "gemini-pro",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "GEMINI_API_KEY",
+            base_url_env: "GEMINI_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_GEMINI_BASE_URL,
+        },
+    ),
+    (
+        "gemini-lite",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "GEMINI_API_KEY",
+            base_url_env: "GEMINI_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_GEMINI_BASE_URL,
+        },
+    ),
+    (
+        "gemini-live",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "GEMINI_API_KEY",
+            base_url_env: "GEMINI_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_GEMINI_BASE_URL,
+        },
+    ),
+    (
+        "gemini-preview",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "GEMINI_API_KEY",
+            base_url_env: "GEMINI_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_GEMINI_BASE_URL,
+        },
+    ),
 ];
 
 #[must_use]
@@ -242,8 +287,11 @@ pub fn resolve_model_alias(model: &str) -> String {
                 },
                 ProviderKind::OpenAi => match *alias {
                     "kimi" => "kimi-k2.5",
-                    "gemini" => "gemini-flash-latest",
-                    "gemini-pro" => "gemini-pro-latest",
+                    "gemini" | "gemini-flash" => "gemini-3.5-flash",
+                    "gemini-pro" => "gemini-2.5-pro",
+                    "gemini-lite" => "gemini-3.1-flash-lite",
+                    "gemini-live" => "gemini-3.1-flash-live-preview",
+                    "gemini-preview" => "gemini-3-flash-preview",
                     _ => trimmed,
                 },
             })
@@ -737,6 +785,18 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
         "glm-5.2" | "glm-5.2-flash" => Some(ModelTokenLimit {
             max_output_tokens: 8_192,
             context_window_tokens: 1_000_000,
+        }),
+        // Gemini models
+        "gemini-3.5-flash"
+        | "gemini-3-flash-preview"
+        | "gemini-3.1-flash-lite"
+        | "gemini-3.1-flash-live-preview" => Some(ModelTokenLimit {
+            max_output_tokens: 65_536,
+            context_window_tokens: 1_048_576,
+        }),
+        "gemini-2.5-pro" => Some(ModelTokenLimit {
+            max_output_tokens: 8_192,
+            context_window_tokens: 2_097_152,
         }),
         _ => None,
     }
