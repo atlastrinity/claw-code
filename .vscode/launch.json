@@ -17,6 +17,24 @@
             "name": "Release mcp-server-macos-use (vendor/mcp-server-macos-use)",
             "program": "${workspaceFolder:claw-code}/vendor/mcp-server-macos-use/.build/release/mcp-server-macos-use",
             "preLaunchTask": "swift: Build Release mcp-server-macos-use (vendor/mcp-server-macos-use)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:claw-code}/.claw/skills/xcode_project_setup/scripts/xcode_spm_setup",
+            "name": "Debug xcode_spm_setup (.claw/skills/xcode_project_setup/scripts/xcode_spm_setup)",
+            "program": "${workspaceFolder:claw-code}/.claw/skills/xcode_project_setup/scripts/xcode_spm_setup/.build/debug/xcode_spm_setup",
+            "preLaunchTask": "swift: Build Debug xcode_spm_setup (.claw/skills/xcode_project_setup/scripts/xcode_spm_setup)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:claw-code}/.claw/skills/xcode_project_setup/scripts/xcode_spm_setup",
+            "name": "Release xcode_spm_setup (.claw/skills/xcode_project_setup/scripts/xcode_spm_setup)",
+            "program": "${workspaceFolder:claw-code}/.claw/skills/xcode_project_setup/scripts/xcode_spm_setup/.build/release/xcode_spm_setup",
+            "preLaunchTask": "swift: Build Release xcode_spm_setup (.claw/skills/xcode_project_setup/scripts/xcode_spm_setup)"
         }
     ]
 }
