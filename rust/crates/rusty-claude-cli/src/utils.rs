@@ -2031,7 +2031,11 @@ pub fn short_tool_id(id: &str) -> String {
     format!("{prefix}…")
 }
 
-pub fn build_system_prompt(model: &str, session_id: Option<&str>) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+pub fn build_system_prompt(
+    model: &str,
+    session_id: Option<&str>,
+    extra_sections: Vec<String>,
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     Ok(load_system_prompt_with_session(
         std::env::current_dir()?,
         DEFAULT_DATE,
@@ -2039,6 +2043,7 @@ pub fn build_system_prompt(model: &str, session_id: Option<&str>) -> Result<Vec<
         "unknown",
         model_family_identity_for(model),
         session_id.map(String::from),
+        extra_sections,
     )?)
 }
 

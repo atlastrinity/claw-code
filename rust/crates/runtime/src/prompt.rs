@@ -676,10 +676,11 @@ pub fn load_system_prompt_with_session(
     os_version: impl Into<String>,
     model_family: ModelFamilyIdentity,
     session_id: Option<String>,
+    extra_sections: Vec<String>,
 ) -> Result<Vec<String>, PromptBuildError> {
     let cwd = cwd.into();
     let (sections, _) =
-        load_system_prompt_with_session_and_context(cwd, current_date, os_name, os_version, model_family, session_id)?;
+        load_system_prompt_with_session_and_context(cwd, current_date, os_name, os_version, model_family, session_id, extra_sections)?;
     Ok(sections)
 }
 
@@ -691,6 +692,7 @@ pub fn load_system_prompt_with_session_and_context(
     os_version: impl Into<String>,
     model_family: ModelFamilyIdentity,
     session_id: Option<String>,
+    extra_sections: Vec<String>,
 ) -> Result<(Vec<String>, ProjectContext), PromptBuildError> {
     let cwd = cwd.into();
     let config = ConfigLoader::default_for(&cwd).load()?;
@@ -703,6 +705,9 @@ pub fn load_system_prompt_with_session_and_context(
         .with_runtime_config(config);
     if let Some(sid) = session_id {
         builder = builder.with_session_id(sid);
+    }
+    for section in extra_sections {
+        builder = builder.append_section(section);
     }
     let sections = builder.build();
     Ok((sections, project_context))
