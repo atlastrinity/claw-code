@@ -789,7 +789,7 @@ fn cleanup_orphaned_processes() {
     sys.refresh_all();
     let current_pid = std::process::id();
     
-    let targets = ["claw", "xcodebuildmcp", "mcp-server-macos-use", "claw-analog", "claw-rag-service"];
+    let targets = ["claw", "xcodebuildmcp", "mcp-server-macos-use", "claw-analog"];
     
     for (pid, process) in sys.processes() {
         if pid.as_u32() == current_pid {
