@@ -82,7 +82,6 @@ public struct ChatView: View {
 
             TextField("Type a message...", text: $newMessage)
                 .textFieldStyle(.plain)
-                .autocapitalization(.sentences)
                 .font(.system(.body, design: .monospaced))
                 .padding(8)
                 .background(HackerTheme.backgroundColor)

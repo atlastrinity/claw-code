@@ -111,15 +111,15 @@ private struct TerminalCommandRow: View {
                         .font(.system(.caption, design: .monospaced))
                         .foregroundColor(HackerTheme.secondaryTextColor)
 
-                    if !result.data.isEmpty {
+                    if let data = result.data, !data.isEmpty {
                         VStack(alignment: .leading, spacing: 2) {
-                            ForEach(Array(result.data.keys), id: \.self) { key in
+                            ForEach(Array(data.keys), id: \.self) { key in
                                 HStack {
                                     Text(key)
                                         .font(.system(.caption2, design: .monospaced))
                                         .foregroundColor(HackerTheme.accentColor)
 
-                                    Text(": \(result.data[key] ?? "")")
+                                    Text(": \(data[key] ?? "")")
                                         .font(.system(.caption2, design: .monospaced))
                                         .foregroundColor(HackerTheme.textColor)
                                 }

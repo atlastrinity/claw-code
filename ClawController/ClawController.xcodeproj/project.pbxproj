@@ -186,6 +186,9 @@
 			);
 			mainGroup = 8B41F63C2DEDD0D5001A66F9;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				8B41F6882DEDD280001A66F9 /* XCWorkspace */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8B41F6462DEDD0D5001A66F9 /* Products */;
 			projectDirPath = "";
@@ -466,6 +469,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		8B41F6862DEDD260001A66F9 /* ClawControllerPackage */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "../ClawControllerPackage";
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageLocalDependency section */
+		8B41F6872DEDD270001A66F9 /* ClawControllerPackage */ = {
+			isa = XCSwiftPackageLocalDependency;
+			path = ClawControllerPackage;
+		};
+/* End XCSwiftPackageLocalDependency section */
 
 /* Begin XCSwiftPackageProductDependency section */
 		8B41F6822DEDD23B001A66F9 /* ClawControllerFeature */ = {
