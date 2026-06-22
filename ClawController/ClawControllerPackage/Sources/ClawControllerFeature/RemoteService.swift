@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 /// Main service for remote control functionality
 @available(iOS 17, *)
@@ -23,6 +24,7 @@ public final class RemoteService {
     private let settings: RemoteSettings
 
     public var systemInfo: SystemInfo
+    public let connectionState: ConnectionState
 
     private var _isConnected: Bool = false
 
@@ -34,7 +36,8 @@ public final class RemoteService {
 
     public init(settings: RemoteSettings = RemoteSettings()) {
         self.settings = settings
-        self.systemInfo = SystemInfo(status: .disconnected)
+        self.systemInfo = SystemInfo()
+        self.connectionState = ConnectionState()
     }
 
     // MARK: - Connection Management
@@ -46,23 +49,21 @@ public final class RemoteService {
             return
         }
 
-        systemInfo.status = .connecting
+        connectionState.updateStatus(.connecting)
 
         // Simulate connection delay
         try await Task.sleep(for: .seconds(1))
 
         // Simulate connection success (replace with actual WebSocket connection)
-        systemInfo.status = .connected
+        connectionState.updateStatus(.connected)
         systemInfo.lastUpdated = Date()
 
         // Simulate initial system info
         systemInfo = SystemInfo(
-            status: .connected,
             version: "1.0.0",
             uptime: "2h 15m",
             cpuUsage: 45.2,
-            memoryUsage: 62.8,
-            lastUpdated: Date()
+            memoryUsage: 62.8
         )
 
         _isConnected = true
@@ -71,7 +72,7 @@ public final class RemoteService {
 
     /// Disconnect from the remote system
     public func disconnect() {
-        systemInfo.status = .disconnected
+        connectionState.updateStatus(.disconnected)
         systemInfo.uptime = "0s"
         systemInfo.cpuUsage = 0.0
         systemInfo.memoryUsage = 0.0

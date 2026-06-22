@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import SwiftUI
 
 /// Status of command execution
 public enum CommandStatus: String, Sendable {

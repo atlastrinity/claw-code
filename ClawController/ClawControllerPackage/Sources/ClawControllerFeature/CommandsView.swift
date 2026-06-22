@@ -1,4 +1,4 @@
-//
+////
 //  CommandsView.swift
 //  ClawControllerFeature
 //
@@ -13,7 +13,7 @@ struct CommandsView: View {
     @State private var commandHistory: [CommandHistoryEntry] = []
     @State private var showResult: Bool = false
     @State private var resultText: String = ""
-
+    
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -21,12 +21,12 @@ struct CommandsView: View {
                 VStack(spacing: 12) {
                     Text("Execute Command")
                         .font(.headline)
-
+                    
                     HStack(spacing: 12) {
                         TextField("Enter command...", text: $commandInput)
                             .textFieldStyle(.roundedBorder)
                             .disabled(isExecuting)
-
+                        
                         Button(action: executeCommand) {
                             Label(isExecuting ? "Executing..." : "Send", systemImage: "arrow.up.circle.fill")
                                 .frame(width: 44, height: 44)
@@ -38,29 +38,29 @@ struct CommandsView: View {
                     }
                 }
                 .padding(.horizontal)
-
+                
                 // Command History
                 if !commandHistory.isEmpty {
                     VStack(spacing: 12) {
                         HStack {
                             Text("Recent Commands")
                                 .font(.headline)
-
+                            
                             Spacer()
-
+                            
                             Button(action: clearHistory) {
                                 Label("Clear", systemImage: "trash")
                                     .font(.caption)
                             }
                         }
-
+                        
                         ForEach(commandHistory.prefix(10)) { entry in
                             CommandRow(entry: entry)
                         }
                     }
                     .padding(.horizontal)
                 }
-
+                
                 Spacer()
             }
             .padding(.vertical, 20)
@@ -69,22 +69,22 @@ struct CommandsView: View {
             CommandResultView(resultText: $resultText)
         }
     }
-
+    
     private func executeCommand() {
         guard !commandInput.isEmpty && !isExecuting else { return }
-
+        
         isExecuting = true
-
+        
         // Simulate command execution
         Task {
             // In real app, call RemoteService.executeCommand()
             try? await Task.sleep(for: .milliseconds(800))
-
+            
             resultText = "Command '\(commandInput)' executed successfully!\n\nResponse: Command processed with status: completed"
-
+            
             isExecuting = false
             commandInput = ""
-
+            
             // Add to history
             let newEntry = CommandHistoryEntry(
                 command: commandInput,
@@ -92,11 +92,11 @@ struct CommandsView: View {
                 startTime: Date()
             )
             commandHistory.insert(newEntry, at: 0)
-
+            
             showResult = true
         }
     }
-
+    
     private func clearHistory() {
         commandHistory.removeAll()
     }
@@ -106,26 +106,26 @@ struct CommandsView: View {
 
 struct CommandRow: View {
     let entry: CommandHistoryEntry
-
+    
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: statusIcon)
                 .foregroundStyle(statusColor)
                 .frame(width: 24)
-
+            
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.command)
                     .font(.subheadline)
                     .foregroundStyle(.primary)
                     .lineLimit(1)
-
+                
                 Text(entry.timestamp, style: .relative)
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
-
+            
             Spacer()
-
+            
             Text(statusText)
                 .font(.caption)
                 .fontWeight(.medium)
@@ -139,7 +139,7 @@ struct CommandRow: View {
         .background(Color(.secondarySystemBackground))
         .cornerRadius(10)
     }
-
+    
     private var statusIcon: String {
         switch entry.status {
         case .executing:
@@ -154,7 +154,7 @@ struct CommandRow: View {
             return "clock"
         }
     }
-
+    
     private var statusColor: Color {
         switch entry.status {
         case .executing:
@@ -169,7 +169,7 @@ struct CommandRow: View {
             return .orange
         }
     }
-
+    
     private var statusText: String {
         entry.status.rawValue.capitalized
     }
@@ -179,7 +179,7 @@ struct CommandRow: View {
 
 struct CommandResultView: View {
     @Binding var resultText: String
-
+    
     var body: some View {
         NavigationStack {
             ScrollView {

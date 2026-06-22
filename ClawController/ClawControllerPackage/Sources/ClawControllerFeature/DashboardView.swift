@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct DashboardView: View {
-    @Binding var connectionStatus: ConnectionStatus
+    @Binding var connectionStatus: ConnectionState.ConnectionStatus
     @State private var systemInfo: SystemInfo = SystemInfo()
     @State private var isLoading: Bool = true
     @State private var showConnectionAlert: Bool = false
@@ -19,12 +19,12 @@ struct DashboardView: View {
                 // Connection Card
                 ConnectionCard(
                     status: connectionStatus,
-                    isConnected: connectionStatus == .connected
+                    isConnected: connectionStatus == RemoteSystemModel.ConnectionState.ConnectionStatus.connected
                 )
                 .padding(.horizontal)
 
                 // System Stats
-                if connectionStatus == .connected {
+                if connectionStatus == RemoteSystemModel.ConnectionState.ConnectionStatus.connected {
                     SystemStatsView(systemInfo: systemInfo)
                         .padding(.horizontal)
                 }
@@ -68,7 +68,7 @@ struct DashboardView: View {
 // MARK: - Connection Card
 
 struct ConnectionCard: View {
-    let status: ConnectionStatus
+    let status: RemoteSystemModel.ConnectionState.ConnectionStatus
     let isConnected: Bool
 
     var body: some View {

@@ -1,9 +1,9 @@
-//
+////
 //  SystemStatus.swift
 //  ClawControllerFeature
-//
+////
 //  Model representing system status and health information
-//
+////
 
 import Foundation
 
@@ -40,102 +40,6 @@ public enum ConnectionStatus: String, Codable, Sendable {
             return "red"
         case .unknown:
             return "gray"
-        }
-    }
-}
-
-/// Model representing system information
-public struct SystemInfo: Codable, Sendable {
-    public let version: String
-    public let platform: String
-    public let uptime: TimeInterval
-    public let cpuUsage: Double
-    public let memoryUsage: Double
-    public let activeConnections: Int
-    public let lastUpdated: Date
-
-    public init(
-        version: String = "1.0.0",
-        platform: String = "Unknown",
-        uptime: TimeInterval = 0,
-        cpuUsage: Double = 0,
-        memoryUsage: Double = 0,
-        activeConnections: Int = 0,
-        lastUpdated: Date = Date()
-    ) {
-        self.version = version
-        self.platform = platform
-        self.uptime = uptime
-        self.cpuUsage = cpuUsage
-        self.memoryUsage = memoryUsage
-        self.activeConnections = activeConnections
-        self.lastUpdated = lastUpdated
-    }
-}
-
-/// Model representing command execution result
-public struct CommandResult: Codable, Sendable {
-    public let command: String
-    public let success: Bool
-    public let message: String
-    public let executionTime: TimeInterval
-    public let timestamp: Date
-
-    public init(
-        command: String,
-        success: Bool,
-        message: String,
-        executionTime: TimeInterval,
-        timestamp: Date = Date()
-    ) {
-        self.command = command
-        self.success = success
-        self.message = message
-        self.executionTime = executionTime
-        self.timestamp = timestamp
-    }
-}
-
-/// Model representing command history entry
-public struct CommandHistoryEntry: Identifiable, Codable, Sendable {
-    public let id: UUID
-    public let command: String
-    public let status: CommandStatus
-    public let timestamp: Date
-    public let result: CommandResult?
-
-    public init(
-        id: UUID = UUID(),
-        command: String,
-        status: CommandStatus,
-        timestamp: Date = Date(),
-        result: CommandResult? = nil
-    ) {
-        self.id = id
-        self.command = command
-        self.status = status
-        self.timestamp = timestamp
-        self.result = result
-    }
-}
-
-/// Enum representing command status
-public enum CommandStatus: String, Codable, Sendable {
-    case pending = "pending"
-    case executing = "executing"
-    case success = "success"
-    case failed = "failed"
-
-    public var localizedDescription: String {
-        switch self {
-        case .pending:
-            return "Очікує"
-        case .executing:
-            return "Виконується"
-        case .success:
-            return "Успішно"
-        case .failed:
-            return "Помилка"
         }
     }
 }

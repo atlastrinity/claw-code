@@ -70,21 +70,21 @@ public struct RemoteCommand: Identifiable, Sendable {
 
 /// Represents the system information from the remote system
 public struct SystemInfo: Identifiable, Codable, Sendable {
-    public let id: UUID
-    public let name: String
-    public let operatingSystem: String
-    public let version: String
-    public let uptime: TimeInterval
-    public let cpuUsage: Double
-    public let memoryUsage: Double
-    public let diskUsage: Double
-    public let lastUpdated: Date
+    public var id: UUID
+    public var name: String
+    public var operatingSystem: String
+    public var version: String
+    public var uptime: String
+    public var cpuUsage: Double
+    public var memoryUsage: Double
+    public var diskUsage: Double
+    public var lastUpdated: Date
 
     public init(
         name: String = "Remote System",
         operatingSystem: String = "Unknown",
         version: String = "1.0.0",
-        uptime: TimeInterval = 0,
+        uptime: String = "0s",
         cpuUsage: Double = 0,
         memoryUsage: Double = 0,
         diskUsage: Double = 0

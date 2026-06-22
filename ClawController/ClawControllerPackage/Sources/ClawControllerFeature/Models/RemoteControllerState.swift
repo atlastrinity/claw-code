@@ -10,7 +10,7 @@ import Observation
 
 /// Main state manager for the remote controller
 @Observable
-public final class RemoteControllerState: Sendable {
+public final class RemoteControllerState {
     // MARK: - Connection State
 
     public var connectionStatus: ConnectionStatus
@@ -103,10 +103,8 @@ public final class RemoteControllerState: Sendable {
         guard let command = currentCommand else { return }
 
         let result = CommandResult(
-            command: command,
             success: success,
-            message: message,
-            executionTime: executionTime
+            message: message
         )
 
         let entry = CommandHistoryEntry(
@@ -124,10 +122,8 @@ public final class RemoteControllerState: Sendable {
         guard let command = currentCommand else { return }
 
         let result = CommandResult(
-            command: command,
             success: false,
-            message: message,
-            executionTime: 0
+            message: message
         )
 
         let entry = CommandHistoryEntry(
@@ -193,23 +189,20 @@ extension RemoteControllerState {
             connectionStatus: .connected,
             connectionConfig: ConnectionConfig(host: "192.168.1.100", port: 8080),
             systemInfo: SystemInfo(
+                operatingSystem: "Linux",
                 version: "1.0.0",
-                platform: "Linux",
-                uptime: 86400,
+                uptime: "86400",
                 cpuUsage: 45.5,
-                memoryUsage: 62.3,
-                activeConnections: 3
+                memoryUsage: 62.3
             ),
             commandHistory: [
                 CommandHistoryEntry(
                     command: "system info",
                     status: .success,
-                    timestamp: Date(),
+                    startTime: Date(),
                     result: CommandResult(
-                        command: "system info",
                         success: true,
-                        message: "System info retrieved successfully",
-                        executionTime: 0.15
+                        message: "System info retrieved successfully"
                     )
                 )
             ]
