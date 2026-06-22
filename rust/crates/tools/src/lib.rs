@@ -5829,6 +5829,7 @@ fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
                         name: name.clone(),
                         input: serde_json::from_str(input)
                             .unwrap_or_else(|_| serde_json::json!({ "raw": input })),
+                        signature: None,
                     },
                     ContentBlock::ToolResult {
                         tool_use_id,
@@ -8507,6 +8508,7 @@ mod tests {
                 id: "tool-1".to_string(),
                 name: "read_file".to_string(),
                 input: json!({}),
+                signature: None,
             },
             1,
             &mut events,
@@ -8519,6 +8521,7 @@ mod tests {
                 id: "tool-2".to_string(),
                 name: "grep_search".to_string(),
                 input: json!({}),
+                signature: None,
             },
             2,
             &mut events,

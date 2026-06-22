@@ -1523,7 +1523,7 @@ async fn stream_to_message_response(
                     Some(BlockKind::Tool { id, name, json }) => {
                         let input = serde_json::from_str::<Value>(&json)
                             .unwrap_or_else(|_| json!({ "raw": json }));
-                        finished.insert(idx, OutputContentBlock::ToolUse { id, name, input, .. });
+                        finished.insert(idx, OutputContentBlock::ToolUse { id, name, input, signature: None });
                     }
                     None => {}
                 }
@@ -1601,10 +1601,11 @@ fn output_to_input_blocks(blocks: &[OutputContentBlock]) -> Vec<InputContentBloc
             OutputContentBlock::Text { text } => {
                 Some(InputContentBlock::Text { text: text.clone() })
             }
-            OutputContentBlock::ToolUse { id, name, input, .. } => Some(InputContentBlock::ToolUse {
+            OutputContentBlock::ToolUse { id, name, input, signature } => Some(InputContentBlock::ToolUse {
                 id: id.clone(),
                 name: name.clone(),
                 input: input.clone(),
+                signature: signature.clone(),
             }),
             OutputContentBlock::Thinking { .. } | OutputContentBlock::RedactedThinking { .. } => {
                 None

@@ -2952,6 +2952,7 @@ pub fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
                         name: name.clone(),
                         input: serde_json::from_str(input)
                             .unwrap_or_else(|_| serde_json::json!({ "raw": input })),
+                        signature: None,
                     },
                     ContentBlock::ToolResult {
                         tool_use_id,
