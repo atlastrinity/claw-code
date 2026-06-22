@@ -827,6 +827,13 @@ impl ToolCallState {
         if let Some(sig) = tool_call.function.thought_signature {
             self.signature = Some(sig);
         }
+        if let Some(extra) = tool_call.extra_content {
+            if let Some(google) = extra.google {
+                if let Some(sig) = google.thought_signature {
+                    self.signature = Some(sig);
+                }
+            }
+        }
     }
 
     const fn block_index(&self, offset: u32) -> u32 {
@@ -992,6 +999,20 @@ struct DeltaToolCall {
     id: Option<String>,
     #[serde(default)]
     function: DeltaFunction,
+    #[serde(default)]
+    extra_content: Option<DeltaExtraContent>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct DeltaExtraContent {
+    #[serde(default)]
+    google: Option<DeltaGoogleExtra>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct DeltaGoogleExtra {
+    #[serde(default)]
+    thought_signature: Option<String>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -1774,6 +1795,7 @@ fn parse_sse_frame(
             retry_after: None,
         })));
     }
+    tracing::trace!("Raw chunk payload: {}", payload);
     serde_json::from_str::<ChatCompletionChunk>(&payload)
         .map(Some)
         .map_err(|error| ApiError::json_deserialize(provider, model, &payload, error))
