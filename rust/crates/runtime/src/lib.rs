@@ -150,7 +150,8 @@ pub use policy_engine::{
     PolicyEvaluation, PolicyRule, ReconcileReason, ReviewStatus,
 };
 pub use prompt::{
-    load_system_prompt, load_system_prompt_with_context, prepend_bullets, ContextFile,
+    load_system_prompt, load_system_prompt_with_context, load_system_prompt_with_session,
+    load_system_prompt_with_session_and_context, prepend_bullets, ContextFile,
     ModelFamilyIdentity, ProjectContext, PromptBuildError, SystemPromptBuilder,
     FRONTIER_MODEL_NAME, SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
 };

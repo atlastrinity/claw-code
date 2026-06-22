@@ -161,6 +161,7 @@ pub struct SystemPromptBuilder {
     append_sections: Vec<String>,
     project_context: Option<ProjectContext>,
     config: Option<RuntimeConfig>,
+    session_id: Option<String>,
 }
 
 impl SystemPromptBuilder {
@@ -198,6 +199,12 @@ impl SystemPromptBuilder {
     #[must_use]
     pub fn with_runtime_config(mut self, config: RuntimeConfig) -> Self {
         self.config = Some(config);
+        self
+    }
+
+    #[must_use]
+    pub fn with_session_id(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
         self
     }
 
@@ -273,7 +280,7 @@ impl SystemPromptBuilder {
         );
         let identity = self.model_family.unwrap_or_default();
         let mut lines = vec!["# Environment context".to_string()];
-        lines.extend(prepend_bullets(vec![
+        let mut bullets = vec![
             format!("Model family: {}", identity.family_label()),
             format!("Working directory: {cwd}"),
             format!("Date: {date}"),
@@ -282,7 +289,11 @@ impl SystemPromptBuilder {
                 self.os_name.as_deref().unwrap_or("unknown"),
                 self.os_version.as_deref().unwrap_or("unknown")
             ),
-        ]));
+        ];
+        if let Some(session_id) = &self.session_id {
+            bullets.push(format!("Active Session ID: {session_id}"));
+        }
+        lines.extend(prepend_bullets(bullets));
         lines.join("\n")
     }
 }
@@ -657,6 +668,46 @@ pub fn load_system_prompt(
     Ok(sections)
 }
 
+/// Loads config and project context, then renders the system prompt text with a session ID.
+pub fn load_system_prompt_with_session(
+    cwd: impl Into<PathBuf>,
+    current_date: impl Into<String>,
+    os_name: impl Into<String>,
+    os_version: impl Into<String>,
+    model_family: ModelFamilyIdentity,
+    session_id: Option<String>,
+) -> Result<Vec<String>, PromptBuildError> {
+    let cwd = cwd.into();
+    let (sections, _) =
+        load_system_prompt_with_session_and_context(cwd, current_date, os_name, os_version, model_family, session_id)?;
+    Ok(sections)
+}
+
+/// Loads config and project context, then renders the system prompt text plus metadata with a session ID.
+pub fn load_system_prompt_with_session_and_context(
+    cwd: impl Into<PathBuf>,
+    current_date: impl Into<String>,
+    os_name: impl Into<String>,
+    os_version: impl Into<String>,
+    model_family: ModelFamilyIdentity,
+    session_id: Option<String>,
+) -> Result<(Vec<String>, ProjectContext), PromptBuildError> {
+    let cwd = cwd.into();
+    let config = ConfigLoader::default_for(&cwd).load()?;
+    let project_context =
+        discover_with_git_and_rules_import(&cwd, current_date.into(), config.rules_import())?;
+    let mut builder = SystemPromptBuilder::new()
+        .with_os(os_name, os_version)
+        .with_model_family(model_family)
+        .with_project_context(project_context.clone())
+        .with_runtime_config(config);
+    if let Some(sid) = session_id {
+        builder = builder.with_session_id(sid);
+    }
+    let sections = builder.build();
+    Ok((sections, project_context))
+}
+
 /// Loads config and project context, then renders the system prompt text plus metadata.
 pub fn load_system_prompt_with_context(
     cwd: impl Into<PathBuf>,
@@ -740,7 +791,7 @@ fn get_simple_doing_tasks_section() -> String {
         " - For INVESTIGATION/ANALYSIS: You MUST verify your findings by checking the source data, logs, or running diagnostic commands.".to_string(),
         " - For GENERAL TASKS: Ensure you have performed a reasonable check (e.g., verifying a file was created, a command executed successfully, or an API returned the expected result).".to_string(),
         "Report outcomes faithfully: if verification fails or was not run, say so explicitly. Do not hallucinate successful outcomes without proof.".to_string(),
-        "RAG CONTEXT RESCUE RULE: The system automatically saves conversation summaries to `.claw/summaries/` whenever context compaction occurs. If you notice a context compaction event, or if you feel you have lost track of the detailed conversation history, you MUST immediately call `retrieve_context` with queries like 'summary', 'compaction', or keywords of the current task. Use these indexed compaction summaries to reconstruct your exact timeline, past decisions, and detailed chain-of-thought. Never hesitate to query the RAG index to restore your context.".to_string(),
+        "RAG CONTEXT RESCUE RULE: The system automatically saves conversation summaries to `.claw/summaries/` whenever context compaction occurs. If you notice a context compaction event, or if you feel you have lost track of the detailed conversation history, you MUST immediately call `retrieve_context` with queries matching your Active Session ID (which is provided in your Environment context) or keywords of the current task. Since RAG search results only return snippets of chunks, the search will return a path (e.g. `.claw/summaries/summary-{timestamp}.md`). You MUST then use the `view_file` tool to read the entire summary file at that path. This will restore the exact task list, timestamp, and detailed discussion timeline, fully reconstructing your chain-of-thought without missing any details. Never hesitate to query the RAG index or read the summary files to restore your context.".to_string(),
     ]);
 
     std::iter::once("# Doing tasks & Planning Mode".to_string())

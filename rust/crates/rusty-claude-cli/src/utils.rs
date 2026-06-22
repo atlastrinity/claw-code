@@ -95,7 +95,8 @@ use commands::{
 use plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
 use runtime::{
     check_base_commit, format_stale_base_warning, format_usd, load_oauth_credentials,
-    load_system_prompt, load_system_prompt_with_context, pricing_for_model, resolve_expected_base,
+    load_system_prompt, load_system_prompt_with_context, load_system_prompt_with_session,
+    pricing_for_model, resolve_expected_base,
     resolve_sandbox_status, ApiClient, ApiRequest, AssistantEvent, BaseCommitState,
     CompactionConfig, ConfigFileReport, ConfigLoader, ConfigSource, ContentBlock, ContextFile,
     ConversationMessage, ConversationRuntime, McpConfigCollection, McpInvalidServerConfig,
@@ -2030,13 +2031,14 @@ pub fn short_tool_id(id: &str) -> String {
     format!("{prefix}…")
 }
 
-pub fn build_system_prompt(model: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    Ok(load_system_prompt(
+pub fn build_system_prompt(model: &str, session_id: Option<&str>) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    Ok(load_system_prompt_with_session(
         std::env::current_dir()?,
         DEFAULT_DATE,
         std::env::consts::OS,
         "unknown",
         model_family_identity_for(model),
+        session_id.map(String::from),
     )?)
 }
 
