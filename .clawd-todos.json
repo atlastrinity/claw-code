@@ -1,25 +1,97 @@
 [
   {
-    "content": "Create HackerTheme.swift",
-    "activeForm": "Creating HackerTheme.swift",
+    "content": "Analyze current project structure and dependencies",
+    "activeForm": "Analyzing current project structure and dependencies",
+    "status": "completed",
+    "depth": 0
+  },
+  {
+    "content": "Create comprehensive development plan document",
+    "activeForm": "Creating comprehensive development plan document",
+    "status": "completed",
+    "depth": 0
+  },
+  {
+    "content": "Update ChatView for HackerTheme integration",
+    "activeForm": "Updating ChatView for HackerTheme integration",
     "status": "completed",
     "depth": 1
   },
   {
-    "content": "Update ContentView.swift",
-    "activeForm": "Updating ContentView.swift",
+    "content": "Update RemoteControllerState with chat properties",
+    "activeForm": "Updating RemoteControllerState with chat properties",
     "status": "completed",
     "depth": 1
   },
   {
-    "content": "Update remaining views (Dashboard, Chat, History, Commands, Settings)",
-    "activeForm": "Updating remaining views to use HackerTheme",
+    "content": "Integrate ChatView into TabView navigation",
+    "activeForm": "Integrating ChatView into TabView navigation",
+    "status": "completed",
+    "depth": 1
+  },
+  {
+    "content": "Build and test on iOS Simulator",
+    "activeForm": "Building and testing on iOS Simulator",
     "status": "in_progress",
     "depth": 1
   },
   {
-    "content": "Verify UI in simulator",
-    "activeForm": "Verifying UI in simulator",
+    "content": "Verify chat functionality",
+    "activeForm": "Verifying chat functionality",
+    "status": "pending",
+    "depth": 1
+  },
+  {
+    "content": "Implement WebSocket server connection",
+    "activeForm": "Implementing WebSocket server connection",
+    "status": "pending",
+    "depth": 1
+  },
+  {
+    "content": "Add MCP tool integration for chat",
+    "activeForm": "Adding MCP tool integration for chat",
+    "status": "pending",
+    "depth": 1
+  },
+  {
+    "content": "Create TerminalView for command output",
+    "activeForm": "Creating TerminalView for command output",
+    "status": "pending",
+    "depth": 1
+  },
+  {
+    "content": "Enhance HackerTheme with additional styles",
+    "activeForm": "Enhancing HackerTheme with additional styles",
+    "status": "pending",
+    "depth": 1
+  },
+  {
+    "content": "Implement real-time system monitoring",
+    "activeForm": "Implementing real-time system monitoring",
+    "status": "pending",
+    "depth": 1
+  },
+  {
+    "content": "Add error handling and retry logic",
+    "activeForm": "Adding error handling and retry logic",
+    "status": "pending",
+    "depth": 1
+  },
+  {
+    "content": "Update SettingsView with server configuration",
+    "activeForm": "Updating SettingsView with server configuration",
+    "status": "pending",
+    "depth": 1
+  },
+  {
+    "content": "Add keyboard shortcuts and accessibility",
+    "activeForm": "Adding keyboard shortcuts and accessibility",
+    "status": "pending",
+    "depth": 1
+  },
+  {
+    "content": "Verify all features work end-to-end",
+    "activeForm": "Verifying all features work end-to-end",
     "status": "pending",
     "depth": 0
   }
