@@ -1185,6 +1185,7 @@ impl McpStdioProcess {
         let mut command = Command::new(&transport.command);
         command
             .args(&transport.args)
+            .current_dir(crate::workspace::workspace_root())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -1196,6 +1197,7 @@ impl McpStdioProcess {
         }
             
         apply_env(&mut command, &transport.env);
+        command.env("CLAW_WORKSPACE_ROOT", crate::workspace::workspace_root());
 
         let mut child = command.spawn()?;
         let stdin = child

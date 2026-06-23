@@ -216,3 +216,4 @@ pub(crate) fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
+pub mod workspace;

@@ -416,6 +416,7 @@ fn prepare_command(
         prepared.args(launcher.args);
         prepared.current_dir(cwd);
         prepared.envs(launcher.env);
+        prepared.env("CLAW_WORKSPACE_ROOT", crate::workspace::workspace_root());
         return prepared;
     }
 
@@ -423,6 +424,7 @@ fn prepare_command(
         rewrite_sudo_command(command, cwd).unwrap_or_else(|| command.to_string());
     let mut prepared = Command::new("sh");
     prepared.arg("-lc").arg(&effective_command).current_dir(cwd);
+    prepared.env("CLAW_WORKSPACE_ROOT", crate::workspace::workspace_root());
     if sandbox_status.filesystem_active {
         prepared.env("HOME", cwd.join(".sandbox-home"));
         prepared.env("TMPDIR", cwd.join(".sandbox-tmp"));
@@ -445,6 +447,7 @@ fn prepare_tokio_command(
             let mut cmd = TokioCommand::new(launcher.program);
             cmd.args(launcher.args);
             cmd.envs(launcher.env);
+            cmd.env("CLAW_WORKSPACE_ROOT", crate::workspace::workspace_root());
             cmd
         } else {
             let effective_command =
@@ -460,6 +463,7 @@ fn prepare_tokio_command(
 
     prepared.current_dir(cwd);
     prepared.stdin(Stdio::null());
+    prepared.env("CLAW_WORKSPACE_ROOT", crate::workspace::workspace_root());
     prepared
 }
 
