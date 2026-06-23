@@ -40,6 +40,8 @@ pub use provider_pipeline::*;
 mod pipeline_error;
 pub use pipeline_error::*;
 
+pub mod workspace;
+
 /// Global task registry shared across tool invocations within a session.
 fn global_lsp_registry() -> &'static LspRegistry {
     use std::sync::OnceLock;
@@ -2537,9 +2539,10 @@ fn classify_bash_permission(command: &str) -> PermissionMode {
 fn has_dangerous_paths(command: &str) -> bool {
     // Look for absolute paths
     let tokens: Vec<&str> = command.split_whitespace().collect();
-    let cwd = std::env::current_dir()
-        .ok()
-        .map(|cwd| cwd.canonicalize().unwrap_or(cwd));
+    let cwd = {
+        let root = workspace::workspace_root();
+        Some(root.canonicalize().unwrap_or(root))
+    };
 
     for token in tokens {
         let token = token.trim_matches(|ch: char| {
@@ -2766,7 +2769,7 @@ fn branch_divergence_output(
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_read_file(input: ReadFileInput, budget: ContextBudget) -> Result<String, String> {
-    let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
+    let workspace = workspace::workspace_root();
     match read_file_in_workspace(&input.path, input.offset, input.limit, &workspace, budget.max_read_file_lines) {
         Ok(output) => to_pretty_json(output),
         Err(e) => {
@@ -2787,7 +2790,7 @@ fn run_write_file(input: WriteFileInput) -> Result<String, String> {
     if input.path.ends_with("task.md") {
         return Err("Error: Direct modification of task.md is forbidden. You MUST use the TaskGraph tool to maintain your task tree.".to_string());
     }
-    let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
+    let workspace = workspace::workspace_root();
     to_pretty_json(
         write_file_in_workspace(&input.path, &input.content, &workspace).map_err(io_to_string)?,
     )
@@ -2798,7 +2801,7 @@ fn run_edit_file(input: EditFileInput) -> Result<String, String> {
     if input.path.ends_with("task.md") {
         return Err("Error: Direct modification of task.md is forbidden. You MUST use the TaskGraph tool to maintain your task tree.".to_string());
     }
-    let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
+    let workspace = workspace::workspace_root();
     to_pretty_json(
         edit_file_in_workspace(
             &input.path,
@@ -2813,7 +2816,7 @@ fn run_edit_file(input: EditFileInput) -> Result<String, String> {
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_glob_search(input: GlobSearchInputValue, budget: ContextBudget) -> Result<String, String> {
-    let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
+    let workspace = workspace::workspace_root();
     to_pretty_json(
         glob_search_in_workspace(&input.pattern, input.path.as_deref(), &workspace, budget.max_glob_files)
             .map_err(io_to_string)?,
@@ -2822,7 +2825,7 @@ fn run_glob_search(input: GlobSearchInputValue, budget: ContextBudget) -> Result
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_grep_search(input: GrepSearchInput, budget: ContextBudget) -> Result<String, String> {
-    let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
+    let workspace = workspace::workspace_root();
     to_pretty_json(grep_search_in_workspace(&input, &workspace, budget.max_read_file_lines).map_err(io_to_string)?)
 }
 
@@ -4355,8 +4358,7 @@ fn task_graph_store_path() -> Result<std::path::PathBuf, String> {
     if let Ok(path) = std::env::var("CLAWD_TASK_GRAPH_STORE") {
         return Ok(std::path::PathBuf::from(path));
     }
-    let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
-    Ok(cwd.join(".clawd-task-graph.json"))
+    Ok(workspace::workspace_root().join(".clawd-task-graph.json"))
 }
 
 fn resolve_skill_path(skill: &str) -> Result<std::path::PathBuf, String> {
@@ -4375,7 +4377,7 @@ fn resolve_skill_path(skill: &str) -> Result<std::path::PathBuf, String> {
         }
     }
 
-    let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
+    let cwd = workspace::workspace_root();
     match commands::resolve_skill_path(&cwd, skill_name) {
         Ok(path) => Ok(path),
         Err(_) => resolve_skill_path_from_compat_roots(skill_name).map_err(|_| format!("unknown skill: {skill}")),
@@ -4787,7 +4789,7 @@ fn build_agent_runtime(
 }
 
 fn build_agent_system_prompt(subagent_type: &str, model: &str) -> Result<Vec<String>, String> {
-    let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
+    let cwd = workspace::workspace_root();
     let mut prompt = load_system_prompt(
         cwd,
         DEFAULT_AGENT_SYSTEM_DATE.to_string(),
@@ -6183,7 +6185,7 @@ fn agent_store_dir() -> Result<std::path::PathBuf, String> {
     if let Ok(path) = std::env::var("CLAWD_AGENT_STORE") {
         return Ok(std::path::PathBuf::from(path));
     }
-    let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
+    let cwd = workspace::workspace_root();
     if let Some(workspace_root) = cwd.ancestors().nth(2) {
         return Ok(workspace_root.join(".clawd-agents"));
     }
@@ -6918,7 +6920,7 @@ fn normalize_config_value(spec: ConfigSettingSpec, value: ConfigValue) -> Result
 }
 
 fn config_file_for_scope(scope: ConfigScope) -> Result<PathBuf, String> {
-    let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
+    let cwd = workspace::workspace_root();
     Ok(match scope {
         ConfigScope::Global => config_home_dir()?.join("settings.json"),
         ConfigScope::Settings => cwd.join(".claw").join("settings.local.json"),

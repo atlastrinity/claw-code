@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# Anchor all child processes to the project root, regardless of where this script is invoked from.
+export CLAW_WORKSPACE_ROOT="$(cd "$(dirname "$0")" && pwd)"
+
 # 0. Прибираємо зомбі-процеси RAG-сервісу, якщо минулого разу термінал впав
 echo "🧹 Перевірка та очищення завислих процесів..."
 pkill -f "claw-rag-service" 2>/dev/null

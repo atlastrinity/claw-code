@@ -33,7 +33,7 @@ export function resolvePathFromCwd(pathValue: string, cwd?: string): string;
 export function resolvePathFromCwd(pathValue: string | undefined, cwd?: string): string | undefined;
 export function resolvePathFromCwd(
   pathValue: string | undefined,
-  cwd: string = process.cwd(),
+  cwd: string = process.env.CLAW_WORKSPACE_ROOT || process.cwd(),
 ): string | undefined {
   if (pathValue === undefined) {
     return undefined;
