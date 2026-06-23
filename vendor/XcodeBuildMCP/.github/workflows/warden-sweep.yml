@@ -1,0 +1,91 @@
+name: Warden Sweep
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 06:00 UTC every Monday
+    - cron: '0 6 * * 1'
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+# contents: write required for sweep to open draft fix PRs
+# issues: write required for the sweep tracking issue
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  checks: write
+
+jobs:
+  sweep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      WARDEN_MODEL: ${{ secrets.WARDEN_MODEL }}
+      WARDEN_SENTRY_DSN: ${{ secrets.WARDEN_SENTRY_DSN }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - uses: getsentry/warden@2130c979dec0163048d954d9599504e2d9fa2b07
+        with:
+          anthropic-api-key: ${{ secrets.WARDEN_ANTHROPIC_API_KEY }}
+
+      - name: Summarize Warden results
+        if: always()
+        env:
+          FINDINGS_PATH: ${{ runner.temp }}/warden-findings.json
+        run: |
+          {
+            echo "## Warden Sweep"
+            echo
+            echo "- Run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+
+            if [[ ! -f "${FINDINGS_PATH}" ]]; then
+              echo "- Findings file: not found"
+              exit 0
+            fi
+
+            echo "- Findings artifact: \`warden-findings\`"
+            node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+
+          const findingsPath = process.env.FINDINGS_PATH;
+          const raw = fs.readFileSync(findingsPath, 'utf8');
+          const payload = JSON.parse(raw);
+          const findings = Array.isArray(payload)
+            ? payload
+            : Array.isArray(payload.findings)
+              ? payload.findings
+              : [];
+          const total = typeof payload.totalFindings === 'number' ? payload.totalFindings : findings.length;
+
+          console.log(`- Total findings: ${total}`);
+
+          if (findings.length > 0) {
+            console.log('');
+            console.log('| Severity | Skill | File | Title |');
+            console.log('|---|---|---|---|');
+            for (const finding of findings.slice(0, 20)) {
+              const severity = finding.severity ?? '';
+              const skill = finding.skill ?? '';
+              const file = finding.filePath ?? finding.file ?? '';
+              const title = String(finding.title ?? finding.message ?? '').replaceAll('|', '\\|');
+              console.log(`| ${severity} | ${skill} | \`${file}\` | ${title} |`);
+            }
+            if (findings.length > 20) {
+              console.log(`\nShowing first 20 of ${findings.length} findings. Download the artifact for the full JSON.`);
+            }
+          } else {
+            console.log('- Result: no findings');
+          }
+          NODE
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload Warden findings
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: warden-findings
+          path: ${{ runner.temp }}/warden-findings.json
+          if-no-files-found: warn

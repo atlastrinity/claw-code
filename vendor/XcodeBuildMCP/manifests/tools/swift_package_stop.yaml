@@ -1,0 +1,16 @@
+id: swift_package_stop
+module: mcp/tools/swift-package/swift_package_stop
+names:
+  mcp: swift_package_stop
+  cli: stop
+description: Stop SwiftPM run.
+outputSchema:
+  schema: xcodebuildmcp.output.stop-result
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Swift Package Stop
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false

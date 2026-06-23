@@ -1,0 +1,31 @@
+id: get_sim_app_path
+module: mcp/tools/simulator/get_sim_app_path
+names:
+  mcp: get_sim_app_path
+  cli: get-app-path
+description: Get sim built app path.
+outputSchema:
+  schema: xcodebuildmcp.output.app-path
+  version: "2"
+annotations:
+  title: Get Simulator App Path
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Get bundle ID
+    toolId: get_app_bundle_id
+    priority: 1
+    when: success
+  - label: Boot simulator
+    toolId: boot_sim
+    priority: 2
+    when: success
+  - label: Install app
+    toolId: install_app_sim
+    priority: 3
+    when: success
+  - label: Launch app
+    toolId: launch_app_sim
+    priority: 4
+    when: success

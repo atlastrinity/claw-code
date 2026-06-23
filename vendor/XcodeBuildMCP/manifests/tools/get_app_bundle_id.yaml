@@ -1,0 +1,31 @@
+id: get_app_bundle_id
+module: mcp/tools/project-discovery/get_app_bundle_id
+names:
+  mcp: get_app_bundle_id
+  cli: get-app-bundle-id
+description: Extract bundle id from .app.
+outputSchema:
+  schema: xcodebuildmcp.output.bundle-id
+  version: "2"
+annotations:
+  title: Get App Bundle ID
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Install on simulator
+    toolId: install_app_sim
+    priority: 1
+    when: success
+  - label: Launch on simulator
+    toolId: launch_app_sim
+    priority: 2
+    when: success
+  - label: Install on device
+    toolId: install_app_device
+    priority: 3
+    when: success
+  - label: Launch on device
+    toolId: launch_app_device
+    priority: 4
+    when: success

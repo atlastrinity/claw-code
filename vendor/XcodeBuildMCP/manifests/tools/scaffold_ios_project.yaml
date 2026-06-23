@@ -1,0 +1,27 @@
+id: scaffold_ios_project
+module: mcp/tools/project-scaffolding/scaffold_ios_project
+names:
+  mcp: scaffold_ios_project
+  cli: scaffold-ios
+description: Scaffold iOS project.
+outputSchema:
+  schema: xcodebuildmcp.output.scaffold-result
+  version: "2"
+predicates:
+  - hideWhenXcodeAgentMode
+annotations:
+  title: Scaffold iOS Project
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: "Important: Before working on the project make sure to read the README.md file in the workspace root directory."
+    when: success
+  - label: Build for simulator
+    toolId: build_sim
+    priority: 1
+    when: success
+  - label: Build and run on simulator
+    toolId: build_run_sim
+    priority: 2
+    when: success

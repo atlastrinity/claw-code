@@ -1,0 +1,16 @@
+id: debug_lldb_command
+module: mcp/tools/debugging/debug_lldb_command
+names:
+  mcp: debug_lldb_command
+  cli: lldb-command
+description: Run LLDB command.
+outputSchema:
+  schema: xcodebuildmcp.output.debug-command-result
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Debug LLDB Command
+  readOnlyHint: false
+  destructiveHint: true
+  openWorldHint: false

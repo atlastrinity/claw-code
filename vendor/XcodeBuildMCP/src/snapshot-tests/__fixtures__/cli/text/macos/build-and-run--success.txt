@@ -1,0 +1,24 @@
+
+🚀 Build & Run
+
+   Scheme: MCPTest
+   Project: example_projects/macOS/MCPTest.xcodeproj
+   Configuration: Debug
+   Platform: macOS
+   Derived Data: ~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/DerivedData/MCPTest-<HASH>
+
+ℹ️ Resolving app path
+✅ Resolving app path
+ℹ️ Launching app
+✅ Launching app
+
+✅ Build succeeded. (⏱️ <DURATION>)
+✅ Build & Run complete
+  ├ Bundle ID: io.sentry.MCPTest.macOS
+  ├ Process ID: <PID>
+  └ Files:
+     ├ App Path: ~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/DerivedData/MCPTest-<HASH>/Build/Products/Debug/MCPTest.app
+     └ Build Logs: ~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/logs/build_run_macos_<TIMESTAMP>_pid<PID>.log
+
+Next steps:
+1. Interact with the launched app in the foreground

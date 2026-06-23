@@ -1,0 +1,16 @@
+id: test_macos
+module: mcp/tools/macos/test_macos
+names:
+  mcp: test_macos
+  cli: test
+description: Test macOS target.
+outputSchema:
+  schema: xcodebuildmcp.output.test-result
+  version: "2"
+predicates:
+  - hideWhenXcodeAgentMode
+annotations:
+  title: Test macOS
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false

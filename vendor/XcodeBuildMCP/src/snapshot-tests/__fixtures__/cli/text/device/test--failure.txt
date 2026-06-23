@@ -1,0 +1,56 @@
+
+🧪 Test
+
+   Scheme: CalculatorApp
+   Workspace: example_projects/iOS_Calculator/CalculatorApp.xcworkspace
+   Configuration: Debug
+   Platform: iOS
+   Device: <DEVICE> (<UUID>)
+   Derived Data: ~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/DerivedData/CalculatorApp-<HASH>
+
+Discovered 57 test(s):
+   CalculatorAppFeatureTests/CalculatorBasicTests/testClear
+   CalculatorAppFeatureTests/CalculatorBasicTests/testInitialState
+   CalculatorAppFeatureTests/CalculatorBasicTests/testIntentionalFailure
+   CalculatorAppFeatureTests/CalculatorIntegrationTests/testChainCalculations
+   CalculatorAppFeatureTests/CalculatorIntegrationTests/testComplexCalculation
+   CalculatorAppFeatureTests/CalculatorIntegrationTests/testExpressionDisplay
+   (...and 51 more)
+Running tests (1 completed, 0 failures, 0 skipped)
+Running tests (2 completed, 0 failures, 0 skipped)
+Running tests (3 completed, 0 failures, 0 skipped)
+Running tests (4 completed, 0 failures, 0 skipped)
+Running tests (5 completed, 0 failures, 0 skipped)
+Running tests (6 completed, 0 failures, 0 skipped)
+Running tests (7 completed, 0 failures, 0 skipped)
+Running tests (8 completed, 0 failures, 0 skipped)
+Running tests (9 completed, 1 failure, 0 skipped)
+Running tests (10 completed, 1 failure, 0 skipped)
+Running tests (11 completed, 1 failure, 0 skipped)
+Running tests (12 completed, 1 failure, 0 skipped)
+Running tests (13 completed, 1 failure, 0 skipped)
+Running tests (14 completed, 1 failure, 0 skipped)
+Running tests (15 completed, 1 failure, 0 skipped)
+Running tests (16 completed, 1 failure, 0 skipped)
+Running tests (17 completed, 1 failure, 0 skipped)
+Running tests (18 completed, 1 failure, 0 skipped)
+Running tests (19 completed, 1 failure, 0 skipped)
+Running tests (20 completed, 1 failure, 0 skipped)
+Running tests (21 completed, 1 failure, 0 skipped)
+Running tests (22 completed, 1 failure, 0 skipped)
+Running tests (23 completed, 2 failures, 0 skipped)
+
+CalculatorAppTests
+  ✗ testCalculatorServiceFailure:
+      - XCTAssertEqual failed: ("0") is not equal to ("999") - This test should fail - display should be 0, not 999
+        example_projects/iOS_Calculator/CalculatorAppTests/CalculatorAppTests.swift:52
+
+IntentionalFailureTests
+  ✗ test:
+      - XCTAssertTrue failed - This test should fail to verify error reporting
+        example_projects/iOS_Calculator/CalculatorAppTests/CalculatorAppTests.swift:286
+
+❌ <FAIL_COUNT> tests failed, <PASS_COUNT> passed, <SKIP_COUNT> skipped (⏱️ <DURATION>)
+  └ Files:
+     ├ Result Bundle: ~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/result-bundles/test_device_<TIMESTAMP>_pid<PID>.xcresult
+     └ Build Logs: ~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/logs/test_device_<TIMESTAMP>_pid<PID>.log

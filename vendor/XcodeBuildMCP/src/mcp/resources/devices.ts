@@ -1,0 +1,63 @@
+/**
+ * Devices Resource Plugin
+ *
+ * Provides access to connected Apple devices through MCP resource system.
+ * This resource reuses the existing list_devices tool logic to maintain consistency.
+ */
+
+import { log } from '../../utils/logging/index.ts';
+import type { CommandExecutor } from '../../utils/execution/index.ts';
+import { getDefaultCommandExecutor } from '../../utils/execution/index.ts';
+import { list_devicesLogic } from '../tools/device/list_devices.ts';
+import { handlerContextStorage } from '../../utils/typed-tool-factory.ts';
+import type { ToolHandlerContext } from '../../rendering/types.ts';
+import { renderTranscript } from '../../rendering/render.ts';
+
+export async function devicesResourceLogic(
+  executor: CommandExecutor = getDefaultCommandExecutor(),
+): Promise<{ contents: Array<{ text: string }> }> {
+  const ctx: ToolHandlerContext = {
+    emit: () => {},
+    attach: () => {},
+  };
+
+  try {
+    log('info', 'Processing devices resource request');
+    await handlerContextStorage.run(ctx, () => list_devicesLogic({}, executor));
+    const text = renderTranscript(
+      {
+        structuredOutput: ctx.structuredOutput,
+        nextSteps: ctx.nextSteps,
+        nextStepsRuntime: 'mcp',
+      },
+      'text',
+      { runtime: 'mcp' },
+    );
+    const isError = ctx.structuredOutput?.result.didError === true;
+    if (isError) {
+      throw new Error(text || 'Failed to retrieve device data');
+    }
+    return {
+      contents: [
+        {
+          text: text || 'No device data available',
+        },
+      ],
+    };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log('error', `Error in devices resource handler: ${errorMessage}`);
+
+    return {
+      contents: [
+        {
+          text: `Error retrieving device data: ${errorMessage}`,
+        },
+      ],
+    };
+  }
+}
+
+export async function handler(_uri: URL): Promise<{ contents: Array<{ text: string }> }> {
+  return devicesResourceLogic();
+}

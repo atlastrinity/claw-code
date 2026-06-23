@@ -1,0 +1,21 @@
+id: open_sim
+module: mcp/tools/simulator/open_sim
+names:
+  mcp: open_sim
+  cli: open
+description: Open Simulator.app for visibility/manual workflows. Not required before simulator build-and-run (build_run_sim).
+outputSchema:
+  schema: xcodebuildmcp.output.simulator-action-result
+  version: "2"
+annotations:
+  title: Open Simulator
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Boot a simulator for manual workflows
+    toolId: boot_sim
+    params:
+      simulatorId: UUID_FROM_LIST_SIMS
+    priority: 1
+    when: success

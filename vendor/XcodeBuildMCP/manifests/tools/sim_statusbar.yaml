@@ -1,0 +1,14 @@
+id: sim_statusbar
+module: mcp/tools/simulator-management/sim_statusbar
+names:
+  mcp: sim_statusbar
+  cli: statusbar
+description: Set sim status bar network.
+outputSchema:
+  schema: xcodebuildmcp.output.simulator-action-result
+  version: "2"
+annotations:
+  title: Simulator Statusbar
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false

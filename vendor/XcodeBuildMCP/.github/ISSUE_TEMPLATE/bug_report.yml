@@ -1,0 +1,119 @@
+name: Bug Report
+description: Report a bug or issue with XcodeBuildMCP
+title: '[Bug]: '
+labels: ['bug']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report an issue with XcodeBuildMCP!
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A description of the bug or issue you're experiencing.
+      placeholder: When trying to build my iOS app using the AI assistant...
+    validations:
+      required: true
+
+  - type: textarea
+    id: debug
+    attributes:
+      label: Debug Output
+      description: Ask your agent "Run the XcodeBuildMCP `doctor` tool and return the output as markdown verbatim" and then copy paste it here.
+      placeholder: |
+        ```
+        XcodeBuildMCP Doctor
+
+        Generated: 2025-08-11T17:42:29.812Z
+        Server Version: 1.11.2
+
+        ## System Information
+        - platform: darwin
+        - release: 25.0.0
+        - arch: arm64
+        ...
+        ```
+    validations:
+      required: true
+
+  - type: input
+    id: editor-client
+    attributes:
+      label: Editor/Client
+      description: The editor or MCP client you're using
+      placeholder: Cursor 0.49.1
+    validations:
+      required: true
+
+  - type: input
+    id: mcp-server-version
+    attributes:
+      label: MCP Server Version
+      description: The version of XcodeBuildMCP you're using
+      placeholder: 1.2.2
+    validations:
+      required: true
+
+  - type: input
+    id: llm
+    attributes:
+      label: LLM
+      description: The AI model you're using
+      placeholder: Claude 3.5 Sonnet
+    validations:
+      required: true
+
+  - type: textarea
+    id: mcp-config
+    attributes:
+      label: MCP Configuration
+      description: Your MCP configuration file (if applicable)
+      placeholder: |
+        ```json
+        {
+          "mcpServers": {
+            "XcodeBuildMCP": {...}
+          }
+        }
+        ```
+      render: json
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the behavior
+      placeholder: |
+        1. What you asked the AI agent to do
+        2. What the AI agent attempted to do
+        3. What failed or didn't work as expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What you expected to happen
+      placeholder: The AI should have been able to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened
+      placeholder: Instead, the AI...
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error Messages
+      description: Any error messages or unexpected output
+      placeholder: Error message or output from the AI
+      render: shell

@@ -1,0 +1,10 @@
+
+📷 Screenshot
+
+   Simulator: <UUID>
+
+Errors (1):
+
+  ✗ Simulator <UUID> was not found.
+
+❌ Failed to capture screenshot.

@@ -1,0 +1,21 @@
+id: build_run_device
+module: mcp/tools/device/build_run_device
+names:
+  mcp: build_run_device
+  cli: build-and-run
+description: Build, install, and launch on physical device. Preferred single-step run tool when defaults are set.
+outputSchema:
+  schema: xcodebuildmcp.output.build-run-result
+  version: "2"
+predicates:
+  - hideWhenXcodeAgentMode
+annotations:
+  title: Build Run Device
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Stop app on device
+    toolId: stop_app_device
+    priority: 1
+    when: success

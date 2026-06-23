@@ -1,0 +1,14 @@
+id: erase_sims
+module: mcp/tools/simulator-management/erase_sims
+names:
+  mcp: erase_sims
+  cli: erase
+description: Erase simulator.
+outputSchema:
+  schema: xcodebuildmcp.output.simulator-action-result
+  version: "2"
+annotations:
+  title: Erase Simulators
+  readOnlyHint: false
+  destructiveHint: true
+  openWorldHint: false

@@ -1,0 +1,16 @@
+id: button
+module: mcp/tools/ui-automation/button
+names:
+  mcp: button
+  cli: button
+description: Press simulator hardware button.
+outputSchema:
+  schema: xcodebuildmcp.output.ui-action-result
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Hardware Button
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false

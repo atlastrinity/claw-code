@@ -1,0 +1,8 @@
+
+👆 Gesture
+
+✅ Gesture 'scroll-down' executed successfully.
+
+Next steps:
+1. Batch same-screen taps: batch({ simulatorId: "<UUID>", steps: [{"action":"tap","elementRef":"<REF>"},{"action":"tap","elementRef":"<REF>"}] })
+2. Tap an elementRef: tap({ simulatorId: "<UUID>", elementRef: "<REF>" })

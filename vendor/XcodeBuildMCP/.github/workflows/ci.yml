@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [24.x]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Bundle AXe artifacts
+        run: npm run bundle:axe
+
+      - name: Build
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Run tests
+        run: npm test
+
+      - name: Validate structured JSON fixtures against schemas
+        run: npm run test:schema-fixtures
+
+      - name: Publish preview package for pull requests
+        if: github.event_name == 'pull_request'
+        run: npx pkg-pr-new publish --comment=update
+
+      - name: Publish preview package for main
+        id: pkg_pr_new_main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: |
+          set -euo pipefail
+          npx pkg-pr-new publish --comment=off --json=pkg-pr-new-main.json
+
+      - name: Summarize pkg.new output for main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && always()
+        run: |
+          {
+            echo "## pkg.new preview for main"
+            echo
+            if [ -f pkg-pr-new-main.json ]; then
+              echo "Install commands and preview links:"
+              echo '```text'
+              jq -r '.. | strings | select(test("pkg\\.pr\\.new|pkg\\.new|npm (i|install) "))' pkg-pr-new-main.json | sort -u
+              echo '```'
+            else
+              echo "No pkg.new JSON output file was produced."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload pkg.new metadata for main
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkg-pr-new-main-${{ github.sha }}
+          path: pkg-pr-new-main.json
+          if-no-files-found: warn

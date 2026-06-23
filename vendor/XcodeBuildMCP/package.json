@@ -1,0 +1,135 @@
+{
+  "name": "xcodebuildmcp",
+  "version": "2.6.2",
+  "mcpName": "com.xcodebuildmcp/XcodeBuildMCP",
+  "iOSTemplateVersion": "v1.0.8",
+  "macOSTemplateVersion": "v1.0.5",
+  "type": "module",
+  "exports": {
+    ".": "./build/cli.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "xcodebuildmcp": "build/cli.js",
+    "xcodebuildmcp-doctor": "build/doctor-cli.js"
+  },
+  "scripts": {
+    "build": "wireit",
+    "dev": "npm run build:tsup && node build/cli.js mcp",
+    "build:tsup": "npm run generate:version && tsup",
+    "dev:tsup": "npm run build:tsup && tsup --watch",
+    "run": "npm run build -s >/dev/null 2>&1 && node build/cli.js",
+    "prepare": "node scripts/install-git-hooks.js",
+    "hooks:install": "node scripts/install-git-hooks.js",
+    "generate:version": "npx tsx scripts/generate-version.ts",
+    "repro:mcp-lifecycle-leak": "npm run build && npx tsx scripts/repro-mcp-lifecycle-leak.ts",
+    "repro:sentry-mcp-teardown": "cd repros/sentry-mcp-teardown && npm run harness",
+    "bundle:axe": "scripts/bundle-axe.sh",
+    "build:website-manifest": "node scripts/build-website-manifest.mjs",
+    "package:macos": "scripts/package-macos-portable.sh",
+    "package:macos:universal": "scripts/package-macos-portable.sh --universal",
+    "verify:portable": "scripts/verify-portable-install.sh",
+    "homebrew:formula": "scripts/create-homebrew-formula.sh",
+    "lint": "eslint 'src/**/*.{js,ts}' 'benchmarks/claude-ui/**/*.ts'",
+    "lint:fix": "eslint 'src/**/*.{js,ts}' 'benchmarks/claude-ui/**/*.ts' --fix",
+    "format": "prettier --write 'src/**/*.{js,ts}' 'benchmarks/claude-ui/**/*.{ts,md,yml}'",
+    "format:check": "prettier --check 'src/**/*.{js,ts}' 'benchmarks/claude-ui/**/*.{ts,md,yml}'",
+    "typecheck": "npx tsc --noEmit && npx tsc -p tsconfig.test.json && npx tsc -p tsconfig.benchmarks.json",
+    "typecheck:tests": "npx tsc -p tsconfig.test.json",
+    "inspect": "npx @modelcontextprotocol/inspector@latest node build/cli.js mcp",
+    "doctor": "node build/doctor-cli.js",
+    "bench:claude-ui": "npm run build && npx tsx benchmarks/claude-ui/run.ts",
+    "bench:claude-ui:xcodebuildmcp": "npm run build && npx tsx benchmarks/claude-ui/run-directory.ts benchmarks/claude-ui/suites XcodeBuildMCP",
+    "bench:claude-ui:private": "npm run build && npx tsx benchmarks/claude-ui/run-directory.ts benchmarks/claude-ui/local/suites private",
+    "bench:test-sim": "npx tsx scripts/benchmark-simulator-test.ts",
+    "capture:xcodebuild": "npx tsx scripts/capture-xcodebuild-wrapper.ts",
+    "license:report": "node scripts/generate-third-party-package-licenses.mjs",
+    "license:check": "npx -y license-checker --production --onlyAllow 'MIT;ISC;BSD-2-Clause;BSD-3-Clause;Apache-2.0;Unlicense;FSL-1.1-MIT;BlueOak-1.0.0'",
+    "knip": "knip",
+    "test": "vitest run",
+    "test:schema-fixtures": "vitest run src/snapshot-tests/__tests__/json-fixture-schema.test.ts",
+    "test:snapshot": "npm run build && node build/cli.js daemon stop 2>/dev/null; vitest run --config vitest.snapshot.config.ts",
+    "test:snapshots": "npm run test:snapshot",
+    "test:snapshot:device": "npm run build && node build/cli.js daemon stop 2>/dev/null; vitest run --config vitest.snapshot.config.ts src/snapshot-tests/__tests__/device.snapshot.test.ts && vitest run --config vitest.snapshot.config.ts src/snapshot-tests/__tests__/cli-json-fixture-parity.snapshot.test.ts src/snapshot-tests/__tests__/mcp-json-fixture-parity.snapshot.test.ts -t 'device workflow'",
+    "test:snapshot:update": "npm run build && node build/cli.js daemon stop 2>/dev/null; UPDATE_SNAPSHOTS=1 vitest run --config vitest.snapshot.config.ts",
+    "test:snapshots:update": "npm run test:snapshot:update",
+    "test:smoke": "npm run build && vitest run --config vitest.smoke.config.ts",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage"
+  },
+  "files": [
+    "build",
+    "bundled",
+    "plugins",
+    "manifests",
+    "schemas",
+    "skills"
+  ],
+  "keywords": [
+    "xcodebuild",
+    "mcp",
+    "modelcontextprotocol",
+    "xcode",
+    "ios",
+    "macos",
+    "simulator"
+  ],
+  "license": "MIT",
+  "description": "XcodeBuildMCP is a Model Context Protocol server that provides tools for Xcode project management, simulator management, and app utilities.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/getsentry/XcodeBuildMCP.git"
+  },
+  "homepage": "https://www.xcodebuildmcp.com",
+  "bugs": {
+    "url": "https://github.com/getsentry/XcodeBuildMCP/issues"
+  },
+  "dependencies": {
+    "@clack/prompts": "^1.0.1",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@sentry/node": "^10.43.0",
+    "bplist-parser": "^0.3.2",
+    "chokidar": "^5.0.0",
+    "glob": "^13.0.6",
+    "uuid": "^14.0.0",
+    "yaml": "^2.4.5",
+    "yargs": "^17.7.2",
+    "yargs-parser": "^22.0.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.23.0",
+    "@types/chokidar": "^1.7.5",
+    "@types/node": "^22.13.6",
+    "@types/yargs": "^17.0.33",
+    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/ui": "^3.2.4",
+    "ajv": "^8.18.0",
+    "eslint": "^9.23.0",
+    "eslint-config-prettier": "^10.1.1",
+    "eslint-plugin-prettier": "^5.2.5",
+    "knip": "^5.88.0",
+    "prettier": "3.6.2",
+    "tsup": "^8.5.0",
+    "tsx": "^4.20.4",
+    "typescript": "^5.8.2",
+    "typescript-eslint": "^8.28.0",
+    "vitest": "^3.2.4",
+    "wireit": "^0.14.12"
+  },
+  "wireit": {
+    "build": {
+      "command": "npm run build:tsup",
+      "files": [
+        "src/**/*.ts",
+        "schemas/**/*.json",
+        "tsup.config.ts",
+        "package.json"
+      ],
+      "output": [
+        "build/**"
+      ]
+    }
+  }
+}

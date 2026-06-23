@@ -1,0 +1,10 @@
+
+📱 Boot Simulator
+
+   Simulator: <UUID>
+
+Errors (1):
+
+  ✗ Invalid device or device pair: <UUID>
+
+❌ Boot simulator operation failed.

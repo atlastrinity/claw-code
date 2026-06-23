@@ -1,0 +1,8 @@
+
+🎨 Set Appearance
+
+Errors (1):
+
+  ✗ Invalid device: <UUID>
+
+❌ Failed to set simulator appearance.

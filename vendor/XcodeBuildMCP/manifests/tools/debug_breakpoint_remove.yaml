@@ -1,0 +1,16 @@
+id: debug_breakpoint_remove
+module: mcp/tools/debugging/debug_breakpoint_remove
+names:
+  mcp: debug_breakpoint_remove
+  cli: remove-breakpoint
+description: Remove breakpoint.
+outputSchema:
+  schema: xcodebuildmcp.output.debug-breakpoint-result
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Debug Breakpoint Remove
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false

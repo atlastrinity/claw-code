@@ -1,0 +1,16 @@
+id: xcode_tools_bridge_disconnect
+module: mcp/tools/xcode-ide/xcode_tools_bridge_disconnect
+names:
+  mcp: xcode_tools_bridge_disconnect
+  cli: bridge-disconnect
+description: Disconnect bridge and unregister proxied `xcode_tools_*` tools.
+outputSchema:
+  schema: xcodebuildmcp.output.xcode-bridge-status
+  version: "2"
+predicates:
+  - debugEnabled
+annotations:
+  title: Disconnect Xcode Tools Bridge
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false

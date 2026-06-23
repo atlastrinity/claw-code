@@ -1,0 +1,8 @@
+
+📱 Statusbar
+
+Errors (1):
+
+  ✗ Invalid device: <UUID>
+
+❌ Failed to set status bar.

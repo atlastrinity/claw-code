@@ -1,0 +1,13 @@
+
+🚀 Launch App
+
+✅ App launched successfully
+  ├ Process ID: <PID>
+  └ Files:
+     └── ~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/logs/
+         ├── io.sentry.calculatorapp_<TIMESTAMP>_pid<PID>.log — Runtime Logs
+         └── io.sentry.calculatorapp_oslog_<TIMESTAMP>_pid<PID>.log — OSLog
+
+Next steps:
+1. Open Simulator app to see it: open_sim()
+2. Stop app in simulator: stop_app_sim({ simulatorId: "<UUID>", bundleId: "io.sentry.calculatorapp" })

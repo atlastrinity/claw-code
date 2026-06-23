@@ -1,0 +1,12 @@
+
+🔍 Discover Projects
+
+   Workspace root: /nonexistent/path/Fake.app
+   Scan path: /nonexistent/path
+   Max depth: 3
+
+Errors (1):
+
+  ✗ Failed to access scan path: /nonexistent/path. Error: ENOENT: no such file or directory, stat '/nonexistent/path'
+
+❌ Failed to discover projects.

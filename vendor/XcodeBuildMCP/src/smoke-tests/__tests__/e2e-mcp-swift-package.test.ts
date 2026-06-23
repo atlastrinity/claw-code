@@ -1,0 +1,92 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { createMcpTestHarness, type McpTestHarness } from '../mcp-test-harness.ts';
+import { expectContent } from '../test-helpers.ts';
+
+let harness: McpTestHarness;
+
+beforeAll(async () => {
+  harness = await createMcpTestHarness({
+    commandResponses: {
+      'swift build': { success: true, output: 'Build complete!' },
+      'swift package': { success: true, output: 'Package cleaned' },
+      'swift test': { success: true, output: 'Test Suite passed' },
+      'swift run': { success: true, output: 'Running...' },
+      pgrep: { success: false, output: '' },
+    },
+  });
+}, 30_000);
+
+afterAll(async () => {
+  await harness.cleanup();
+});
+
+describe('MCP Swift Package Tools (e2e)', () => {
+  it('swift_package_clean captures swift package clean command', async () => {
+    harness.resetCapturedCommands();
+    const result = await harness.client.callTool({
+      name: 'swift_package_clean',
+      arguments: {
+        packagePath: '/path/to/package',
+      },
+    });
+
+    expectContent(result);
+
+    const commandStrs = harness.capturedCommands.map((c) => c.command.join(' '));
+    expect(commandStrs.some((c) => c.includes('swift') && c.includes('clean'))).toBe(true);
+  });
+
+  it('swift_package_test captures swift test command', async () => {
+    harness.resetCapturedCommands();
+    const result = await harness.client.callTool({
+      name: 'swift_package_test',
+      arguments: {
+        packagePath: '/path/to/package',
+      },
+    });
+
+    expectContent(result);
+
+    const commandStrs = harness.capturedCommands.map((c) => c.command.join(' '));
+    expect(commandStrs.some((c) => c.includes('swift') && c.includes('test'))).toBe(true);
+  });
+
+  it('swift_package_run captures swift run command', async () => {
+    harness.resetCapturedCommands();
+    const result = await harness.client.callTool({
+      name: 'swift_package_run',
+      arguments: {
+        packagePath: '/path/to/package',
+      },
+    });
+
+    expectContent(result);
+
+    const commandStrs = harness.capturedCommands.map((c) => c.command.join(' '));
+    expect(commandStrs.some((c) => c.includes('swift') && c.includes('run'))).toBe(true);
+  });
+
+  it('swift_package_stop returns content for unknown PID', async () => {
+    harness.resetCapturedCommands();
+    const result = await harness.client.callTool({
+      name: 'swift_package_stop',
+      arguments: {
+        pid: 99999,
+      },
+    });
+
+    const content1 = expectContent(result);
+    expect(content1.some((c) => typeof c.text === 'string' && c.text.length > 0)).toBe(true);
+  });
+
+  it('swift_package_list returns content listing processes', async () => {
+    harness.resetCapturedCommands();
+    const result = await harness.client.callTool({
+      name: 'swift_package_list',
+      arguments: {},
+    });
+
+    const content2 = expectContent(result);
+    expect(content2.some((c) => typeof c.text === 'string' && c.text.length > 0)).toBe(true);
+  });
+});

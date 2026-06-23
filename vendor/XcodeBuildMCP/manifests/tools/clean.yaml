@@ -1,0 +1,16 @@
+id: clean
+module: mcp/tools/utilities/clean
+names:
+  mcp: clean
+  cli: clean
+description: Clean build products.
+outputSchema:
+  schema: xcodebuildmcp.output.build-result
+  version: "2"
+predicates:
+  - hideWhenXcodeAgentMode
+annotations:
+  title: Clean
+  readOnlyHint: false
+  destructiveHint: true
+  openWorldHint: false

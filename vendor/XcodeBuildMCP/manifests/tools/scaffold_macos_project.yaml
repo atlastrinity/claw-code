@@ -1,0 +1,27 @@
+id: scaffold_macos_project
+module: mcp/tools/project-scaffolding/scaffold_macos_project
+names:
+  mcp: scaffold_macos_project
+  cli: scaffold-macos
+description: Scaffold macOS project.
+outputSchema:
+  schema: xcodebuildmcp.output.scaffold-result
+  version: "2"
+predicates:
+  - hideWhenXcodeAgentMode
+annotations:
+  title: Scaffold macOS Project
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: "Important: Before working on the project make sure to read the README.md file in the workspace root directory."
+    when: success
+  - label: Build for macOS
+    toolId: build_macos
+    priority: 1
+    when: success
+  - label: Build & Run on macOS
+    toolId: build_run_macos
+    priority: 2
+    when: success

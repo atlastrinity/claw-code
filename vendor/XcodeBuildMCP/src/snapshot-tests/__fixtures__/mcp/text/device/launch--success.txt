@@ -1,0 +1,8 @@
+
+🚀 Launch App
+
+✅ App launched successfully.
+  └ Process ID: <PID>
+
+Next steps:
+1. Stop the app: stop_app_device({ deviceId: "<UUID>", processId: <PID> })

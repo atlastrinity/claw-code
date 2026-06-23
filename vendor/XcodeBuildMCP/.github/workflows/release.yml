@@ -1,0 +1,472 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Test version (e.g., 1.9.1-beta or 1.9.1-beta.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: macos-latest
+    environment: production
+    outputs:
+      version: ${{ steps.get_version.outputs.VERSION }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      # Ensure npm 11.5.1 or later is installed
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Clear npm cache and install dependencies
+        run: |
+          npm cache clean --force
+          rm -rf node_modules package-lock.json
+          npm install --ignore-scripts
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Bundle AXe artifacts
+        run: npm run bundle:axe
+
+      - name: Build package
+        run: npm run build
+
+      - name: Run tests
+        run: npm test
+
+      - name: Validate structured JSON fixtures against schemas
+        run: npm run test:schema-fixtures
+
+      - name: Get version from tag or input
+        id: get_version
+        env:
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_INPUT_VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [ "$GH_EVENT_NAME" = "workflow_dispatch" ]; then
+            VERSION="$GH_INPUT_VERSION"
+            IS_TEST=true
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+            IS_TEST=false
+          fi
+
+          # Validate version format before using it in later steps.
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]]; then
+            echo "Invalid version format: $VERSION" >&2
+            exit 1
+          fi
+
+          {
+            echo "VERSION<<EOF"
+            echo "$VERSION"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+          echo "IS_TEST=$IS_TEST" >> "$GITHUB_OUTPUT"
+
+          if [ "$IS_TEST" = "true" ]; then
+            echo "📝 Test version: $VERSION"
+            # Update package.json version for test releases only
+            npm version "$VERSION" --no-git-tag-version
+          else
+            echo "🚀 Release version: $VERSION"
+            # For tag-based releases, package.json was already updated by release script
+          fi
+
+      - name: Resolve npm tag from version
+        id: resolve_npm_tag
+        env:
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
+        run: |
+          if [[ "$VERSION" == *"-beta"* ]]; then
+            NPM_TAG="beta"
+          elif [[ "$VERSION" == *"-alpha"* ]]; then
+            NPM_TAG="alpha"
+          elif [[ "$VERSION" == *"-rc"* ]]; then
+            NPM_TAG="rc"
+          else
+            NPM_TAG="latest"
+          fi
+          echo "NPM_TAG=$NPM_TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved npm tag: $NPM_TAG"
+
+      - name: Generate GitHub release notes (production releases only)
+        if: github.event_name == 'push'
+        env:
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
+        run: |
+          node scripts/generate-github-release-notes.mjs \
+            --version "$VERSION" \
+            --out github-release-body.md
+
+      - name: Create package
+        run: npm pack
+
+      - name: Test publish (dry run for manual triggers)
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          NPM_TAG: ${{ steps.resolve_npm_tag.outputs.NPM_TAG }}
+        run: |
+          echo "🧪 Testing package creation (dry run)"
+          npm publish --dry-run --access public --tag "$NPM_TAG"
+
+      - name: Publish to NPM (production releases only)
+        if: github.event_name == 'push'
+        env:
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
+          NPM_TAG: ${{ steps.resolve_npm_tag.outputs.NPM_TAG }}
+        run: |
+          # Skip if this exact version is already published (idempotent reruns)
+          if npm view xcodebuildmcp@"$VERSION" version >/dev/null 2>&1; then
+            echo "✅ xcodebuildmcp@$VERSION already on NPM. Skipping publish."
+            exit 0
+          fi
+          echo "📦 Publishing to NPM with tag: $NPM_TAG"
+          npm publish --access public --tag "$NPM_TAG"
+
+      - name: Create GitHub Release (production releases only)
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v${{ steps.get_version.outputs.VERSION }}
+          name: Release v${{ steps.get_version.outputs.VERSION }}
+          body_path: github-release-body.md
+          files: |
+            xcodebuildmcp-${{ steps.get_version.outputs.VERSION }}.tgz
+          draft: false
+          prerelease: ${{ contains(steps.get_version.outputs.VERSION, '-') }}
+
+      - name: Summary
+        env:
+          IS_TEST: ${{ steps.get_version.outputs.IS_TEST }}
+          VERSION: ${{ steps.get_version.outputs.VERSION }}
+        run: |
+          if [ "$IS_TEST" = "true" ]; then
+            echo "🧪 Test completed for version: $VERSION"
+            echo "Ready for production release!"
+          else
+            echo "🎉 Production release completed!"
+            echo "Version: $VERSION"
+            echo "📦 NPM: https://www.npmjs.com/package/xcodebuildmcp/v/$VERSION"
+            echo "📚 MCP Registry: publish attempted in separate job (mcp_registry)"
+          fi
+
+  mcp_registry:
+    if: github.event_name == 'push' && !contains(needs.release.outputs.version, '-')
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      MCP_DNS_PRIVATE_KEY: ${{ secrets.MCP_DNS_PRIVATE_KEY }}
+      VERSION: ${{ needs.release.outputs.version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Release version context
+        run: |
+          echo "🚢 MCP publish for version: $VERSION"
+
+      - name: Missing secret — skip MCP publish
+        if: env.MCP_DNS_PRIVATE_KEY == ''
+        run: |
+          echo "⚠️ Skipping MCP Registry publish: secrets.MCP_DNS_PRIVATE_KEY is not set."
+          echo "This is optional and does not affect the release."
+
+      - name: Setup Go (for MCP Publisher)
+        if: env.MCP_DNS_PRIVATE_KEY != ''
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Install MCP Publisher
+        if: env.MCP_DNS_PRIVATE_KEY != ''
+        run: |
+          echo "📥 Fetching MCP Publisher"
+          git clone https://github.com/modelcontextprotocol/registry publisher-repo
+          cd publisher-repo
+          make publisher
+          cp bin/mcp-publisher ../mcp-publisher
+          cd ..
+          chmod +x mcp-publisher
+
+      - name: Login to MCP Registry (DNS)
+        if: env.MCP_DNS_PRIVATE_KEY != ''
+        run: |
+          echo "🔐 Using DNS authentication for com.xcodebuildmcp/* namespace"
+          ./mcp-publisher login dns --domain xcodebuildmcp.com --private-key "${MCP_DNS_PRIVATE_KEY}"
+
+      - name: Publish to MCP Registry (best-effort)
+        if: env.MCP_DNS_PRIVATE_KEY != ''
+        run: |
+          echo "🚢 Publishing to MCP Registry with retries..."
+          attempts=0
+          max_attempts=5
+          delay=5
+          until ./mcp-publisher publish; do
+            rc=$?
+            attempts=$((attempts+1))
+            if [ $attempts -ge $max_attempts ]; then
+              echo "⚠️ MCP Registry publish failed after $attempts attempts (exit $rc). Skipping without failing workflow."
+              exit 0
+            fi
+            echo "⚠️ Publish failed (exit $rc). Retrying in ${delay}s... (attempt ${attempts}/${max_attempts})"
+            sleep $delay
+            delay=$((delay*2))
+          done
+          echo "✅ MCP Registry publish succeeded."
+
+  build_and_package_macos:
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+          - arch: x64
+            runner: macos-14
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Package portable artifact
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          npm run package:macos -- --arch "${{ matrix.arch }}" --version "$VERSION"
+
+      - name: Verify portable artifact
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          npm run verify:portable -- --archive "dist/portable/xcodebuildmcp-${VERSION}-darwin-${{ matrix.arch }}.tar.gz"
+
+      - name: Upload arch artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-${{ matrix.arch }}
+          path: |
+            dist/portable/xcodebuildmcp-${{ needs.release.outputs.version }}-darwin-${{ matrix.arch }}
+            dist/portable/xcodebuildmcp-${{ needs.release.outputs.version }}-darwin-${{ matrix.arch }}.tar.gz
+            dist/portable/xcodebuildmcp-${{ needs.release.outputs.version }}-darwin-${{ matrix.arch }}.tar.gz.sha256
+
+  build_universal_and_verify:
+    needs: [release, build_and_package_macos]
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Download arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-arm64
+          path: dist/portable/arm64
+
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-x64
+          path: dist/portable/x64
+
+      - name: Expand per-arch archives
+        id: expand_archives
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          ARM64_TGZ="dist/portable/arm64/xcodebuildmcp-${VERSION}-darwin-arm64.tar.gz"
+          X64_TGZ="dist/portable/x64/xcodebuildmcp-${VERSION}-darwin-x64.tar.gz"
+          ARM64_ROOT="dist/portable/unpacked/arm64/xcodebuildmcp-${VERSION}-darwin-arm64"
+          X64_ROOT="dist/portable/unpacked/x64/xcodebuildmcp-${VERSION}-darwin-x64"
+          mkdir -p dist/portable/unpacked/arm64 dist/portable/unpacked/x64
+          tar -xzf "$ARM64_TGZ" -C dist/portable/unpacked/arm64
+          tar -xzf "$X64_TGZ" -C dist/portable/unpacked/x64
+          echo "ARM64_ROOT=$ARM64_ROOT" >> "$GITHUB_OUTPUT"
+          echo "X64_ROOT=$X64_ROOT" >> "$GITHUB_OUTPUT"
+
+      - name: Build universal portable artifact
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          npm run package:macos:universal -- \
+            --version "$VERSION" \
+            --arm64-root "${{ steps.expand_archives.outputs.ARM64_ROOT }}" \
+            --x64-root "${{ steps.expand_archives.outputs.X64_ROOT }}"
+
+      - name: Verify universal portable artifact
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          npm run verify:portable -- --archive "dist/portable/xcodebuildmcp-${VERSION}-darwin-universal.tar.gz"
+
+      - name: Upload universal artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: portable-universal
+          path: |
+            dist/portable/xcodebuildmcp-${{ needs.release.outputs.version }}-darwin-universal
+            dist/portable/xcodebuildmcp-${{ needs.release.outputs.version }}-darwin-universal.tar.gz
+            dist/portable/xcodebuildmcp-${{ needs.release.outputs.version }}-darwin-universal.tar.gz.sha256
+
+  publish_portable_assets:
+    if: github.event_name == 'push'
+    needs: [release, build_and_package_macos, build_universal_and_verify]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-arm64
+          path: dist/portable/arm64
+
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-x64
+          path: dist/portable/x64
+
+      - name: Download universal artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-universal
+          path: dist/portable/universal
+
+      - name: Upload portable assets to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.release.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          gh release upload "v${VERSION}" \
+            dist/portable/arm64/xcodebuildmcp-${VERSION}-darwin-arm64.tar.gz \
+            dist/portable/arm64/xcodebuildmcp-${VERSION}-darwin-arm64.tar.gz.sha256 \
+            dist/portable/x64/xcodebuildmcp-${VERSION}-darwin-x64.tar.gz \
+            dist/portable/x64/xcodebuildmcp-${VERSION}-darwin-x64.tar.gz.sha256 \
+            dist/portable/universal/xcodebuildmcp-${VERSION}-darwin-universal.tar.gz \
+            dist/portable/universal/xcodebuildmcp-${VERSION}-darwin-universal.tar.gz.sha256 \
+            --clobber \
+            --repo "$REPOSITORY"
+
+  update_homebrew_tap:
+    if: github.event_name == 'push' && !contains(needs.release.outputs.version, '-')
+    needs: [release, build_and_package_macos, publish_portable_assets]
+    runs-on: ubuntu-latest
+    env:
+      HOMEBREW_TAP_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Download arm64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-arm64
+          path: dist/portable/arm64
+
+      - name: Download x64 artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: portable-x64
+          path: dist/portable/x64
+
+      - name: Skip when deploy key is unavailable
+        if: env.HOMEBREW_TAP_DEPLOY_KEY == ''
+        run: echo "HOMEBREW_TAP_DEPLOY_KEY is not set; skipping Homebrew tap update."
+
+      - name: Generate formula
+        if: env.HOMEBREW_TAP_DEPLOY_KEY != ''
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          FORMULA_BASE_URL="https://github.com/${REPOSITORY}/releases/download/v${VERSION}"
+          ARM64_SHA="$(awk '{print $1}' dist/portable/arm64/xcodebuildmcp-${VERSION}-darwin-arm64.tar.gz.sha256)"
+          X64_SHA="$(awk '{print $1}' dist/portable/x64/xcodebuildmcp-${VERSION}-darwin-x64.tar.gz.sha256)"
+          npm run homebrew:formula -- \
+            --version "$VERSION" \
+            --arm64-sha "$ARM64_SHA" \
+            --x64-sha "$X64_SHA" \
+            --base-url "$FORMULA_BASE_URL" \
+            --out dist/homebrew/Formula/xcodebuildmcp.rb
+
+      - name: Configure SSH for tap repository
+        if: env.HOMEBREW_TAP_DEPLOY_KEY != ''
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+
+      - name: Update tap repository
+        if: env.HOMEBREW_TAP_DEPLOY_KEY != ''
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+          REPOSITORY_OWNER: ${{ github.repository_owner }}
+        run: |
+          git clone git@github.com:${REPOSITORY_OWNER}/homebrew-xcodebuildmcp.git tap-repo
+          mkdir -p tap-repo/Formula
+          cp dist/homebrew/Formula/xcodebuildmcp.rb tap-repo/Formula/xcodebuildmcp.rb
+          cd tap-repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          DEFAULT_BRANCH="$(git symbolic-ref refs/remotes/origin/HEAD | sed 's|refs/remotes/origin/||')"
+          if ! git rev-parse --verify HEAD >/dev/null 2>&1; then
+            echo "Tap repo has no commits; bootstrapping ${DEFAULT_BRANCH}."
+            git checkout -b "$DEFAULT_BRANCH"
+          else
+            git checkout "$DEFAULT_BRANCH"
+            git pull --ff-only origin "$DEFAULT_BRANCH"
+          fi
+          git add Formula/xcodebuildmcp.rb
+          if git diff --cached --quiet; then
+            echo "Formula already up to date; nothing to push."
+            exit 0
+          fi
+          git commit -m "xcodebuildmcp ${VERSION}"
+          git push origin "$DEFAULT_BRANCH"

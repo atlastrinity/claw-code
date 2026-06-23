@@ -1,0 +1,14 @@
+id: session_set_defaults
+module: mcp/tools/session-management/session_set_defaults
+names:
+  mcp: session_set_defaults
+  cli: set-defaults
+description: Set session defaults for the active profile, or for a specified profile and make it active.
+outputSchema:
+  schema: xcodebuildmcp.output.session-defaults
+  version: "2"
+annotations:
+  title: Set Session Defaults
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false

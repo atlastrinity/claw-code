@@ -1,0 +1,21 @@
+id: build_device
+module: mcp/tools/device/build_device
+names:
+  mcp: build_device
+  cli: build
+description: Build for device.
+outputSchema:
+  schema: xcodebuildmcp.output.build-result
+  version: "2"
+predicates:
+  - hideWhenXcodeAgentMode
+annotations:
+  title: Build Device
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Get built device app path
+    toolId: get_device_app_path
+    priority: 1
+    when: success

@@ -1,0 +1,16 @@
+id: debug_variables
+module: mcp/tools/debugging/debug_variables
+names:
+  mcp: debug_variables
+  cli: variables
+description: Get frame variables.
+outputSchema:
+  schema: xcodebuildmcp.output.debug-variables-result
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Debug Variables
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false

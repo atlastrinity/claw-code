@@ -1,0 +1,6 @@
+
+🔧 Xcode IDE Call Tool
+
+✅ Tool "DocumentationSearch" completed successfully. Raw response saved to artifact.
+  └ Files:
+     └── ~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/state/xcode-ide/call-tool/ownerpid<PID>_<UUID>/<TIMESTAMP>-DocumentationSearch-<HASH>.json — Raw Response JSON

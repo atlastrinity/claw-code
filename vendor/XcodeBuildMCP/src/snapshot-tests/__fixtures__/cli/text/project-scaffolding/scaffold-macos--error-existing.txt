@@ -1,0 +1,12 @@
+
+📝 Scaffold macOS Project
+
+   Name: SnapshotTestMacApp
+   Path: <TMPDIR>/macos-existing
+   Platform: macOS
+
+Errors (1):
+
+  ✗ Xcode project files already exist in <TMPDIR>/macos-existing
+
+❌ Failed to scaffold project.

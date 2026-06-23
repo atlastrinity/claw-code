@@ -1,0 +1,14 @@
+id: screenshot
+module: mcp/tools/ui-automation/screenshot
+names:
+  mcp: screenshot
+  cli: screenshot
+description: Capture screenshot.
+outputSchema:
+  schema: xcodebuildmcp.output.capture-result
+  version: "2"
+annotations:
+  title: Screenshot
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false

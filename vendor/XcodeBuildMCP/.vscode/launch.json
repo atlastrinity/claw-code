@@ -1,0 +1,54 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "node",
+      "request": "attach",
+      "name": "Wait for MCP Server to Start",
+      "port": 9999,
+      "address": "localhost",
+      "restart": true,
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "sourceMaps": true,
+      "outFiles": [
+        "${workspaceFolder}/build/**/*.js"
+      ],
+      "cwd": "${workspaceFolder}",
+      "sourceMapPathOverrides": {
+        "/*": "${workspaceFolder}/src/*"
+      },
+      "timeout": 60000,
+      "localRoot": "${workspaceFolder}",
+      "remoteRoot": "${workspaceFolder}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Launch MCP Server Dev",
+      "program": "${workspaceFolder}/build/cli.js",
+      "args": ["mcp"],
+      "cwd": "${workspaceFolder}",
+      "runtimeArgs": [
+        "--inspect=9999"
+      ],
+      "env": {
+        "XCODEBUILDMCP_DEBUG": "true",
+        "INCREMENTAL_BUILDS_ENABLED": "false",
+        "XCODEBUILDMCP_IOS_TEMPLATE_PATH": "${workspaceFolder}/../XcodeBuildMCP-iOS-Template",
+        "XCODEBUILDMCP_MACOS_TEMPLATE_PATH": "${workspaceFolder}/../XcodeBuildMCP-macOS-Template"
+      },
+      "sourceMaps": true,
+      "outFiles": [
+        "${workspaceFolder}/build/**/*.js"
+      ],
+      "skipFiles": [
+        "<node_internals>/**"
+      ],
+      "sourceMapPathOverrides": {
+        "/*": "${workspaceFolder}/src/*"
+      }
+    }
+  ]
+}

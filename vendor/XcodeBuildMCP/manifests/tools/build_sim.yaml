@@ -1,0 +1,21 @@
+id: build_sim
+module: mcp/tools/simulator/build_sim
+names:
+  mcp: build_sim
+  cli: build
+description: Build for iOS sim (compile-only, no launch).
+outputSchema:
+  schema: xcodebuildmcp.output.build-result
+  version: "2"
+predicates:
+  - hideWhenXcodeAgentMode
+annotations:
+  title: Build Simulator
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Get built app path in simulator derived data
+    toolId: get_sim_app_path
+    priority: 1
+    when: success

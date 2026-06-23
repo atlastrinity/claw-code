@@ -1,0 +1,8 @@
+
+👆 Gesture
+
+Errors (1):
+
+  ✗ CLIError(errorDescription: "Simulator with UDID <UUID> not found in set.")
+
+❌ Failed to execute gesture 'scroll-down'.

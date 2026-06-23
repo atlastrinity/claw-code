@@ -1,0 +1,14 @@
+id: launch_mac_app
+module: mcp/tools/macos/launch_mac_app
+names:
+  mcp: launch_mac_app
+  cli: launch
+description: Launch macOS app.
+outputSchema:
+  schema: xcodebuildmcp.output.launch-result
+  version: "2"
+annotations:
+  title: Launch macOS App
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false

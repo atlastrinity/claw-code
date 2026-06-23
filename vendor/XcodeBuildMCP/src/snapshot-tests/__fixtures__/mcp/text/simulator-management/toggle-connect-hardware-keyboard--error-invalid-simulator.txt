@@ -1,0 +1,8 @@
+
+⚙️ Toggle Connect Hardware Keyboard
+
+Errors (1):
+
+  ✗ Simulator <UUID> not found. Use list_sims to see available simulators.
+
+❌ Failed to toggle hardware keyboard.

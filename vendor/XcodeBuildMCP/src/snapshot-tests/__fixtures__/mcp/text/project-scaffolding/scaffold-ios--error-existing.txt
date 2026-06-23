@@ -1,0 +1,8 @@
+
+📝 Scaffold iOS Project
+
+Errors (1):
+
+  ✗ Xcode project files already exist in <TMPDIR>/ios-existing
+
+❌ Failed to scaffold project.

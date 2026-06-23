@@ -1,0 +1,8 @@
+
+🔍 Get macOS Bundle ID
+
+Errors (1):
+
+  ✗ File not found: '/nonexistent/path/Fake.app'. Please check the path and try again.
+
+❌ Failed to get macOS bundle ID.

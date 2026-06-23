@@ -1,0 +1,23 @@
+id: get_mac_bundle_id
+module: mcp/tools/project-discovery/get_mac_bundle_id
+names:
+  mcp: get_mac_bundle_id
+  cli: get-macos-bundle-id
+description: Extract bundle id from macOS .app.
+outputSchema:
+  schema: xcodebuildmcp.output.bundle-id
+  version: "2"
+annotations:
+  title: Get Mac Bundle ID
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Launch the app
+    toolId: launch_mac_app
+    priority: 1
+    when: success
+  - label: Build again
+    toolId: build_macos
+    priority: 2
+    when: success

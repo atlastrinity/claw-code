@@ -1,0 +1,41 @@
+name: Feature Request
+description: Suggest a new feature for XcodeBuildMCP
+title: '[Feature]: '
+labels: ['enhancement']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for suggesting a new feature for XcodeBuildMCP!
+
+  - type: textarea
+    id: feature-description
+    attributes:
+      label: Feature Description
+      description: Describe the new capability you'd like to add to XcodeBuildMCP
+      placeholder: I would like the AI assistant to be able to...
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-cases
+    attributes:
+      label: Use Cases
+      description: Describe specific scenarios where this feature would be useful
+      placeholder: |
+        - Building and testing iOS apps with custom schemes
+        - Managing multiple simulator configurations
+        - Automating complex Xcode workflows
+    validations:
+      required: false
+
+  - type: textarea
+    id: example-interactions
+    attributes:
+      label: Example Interactions
+      description: Provide examples of how you envision using this feature
+      placeholder: |
+        You: [Example request to the AI]
+        AI: [Desired response/action]
+    validations:
+      required: false

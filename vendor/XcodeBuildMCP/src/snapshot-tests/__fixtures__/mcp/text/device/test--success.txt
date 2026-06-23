@@ -1,0 +1,11 @@
+
+🧪 Test
+
+Discovered 1 test(s):
+   CalculatorAppTests/CalculatorAppTests/testAddition
+
+✅ 1 test passed, 0 failed, 0 skipped (⏱️ <DURATION>)
+  └ Files:
+     └── ~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/
+         ├── logs/test_device_<TIMESTAMP>_pid<PID>.log — Build Logs
+         └── result-bundles/test_device_<TIMESTAMP>_pid<PID>.xcresult — Result Bundle

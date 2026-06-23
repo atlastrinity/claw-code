@@ -1,0 +1,28 @@
+schemaVersion: 1
+enabledWorkflows: ['simulator', 'ui-automation', 'debugging']
+customWorkflows:
+  my-workflow:
+    - build_run_sim
+    - record_sim_video
+    - screenshot
+experimentalWorkflowDiscovery: false
+disableSessionDefaults: false
+incrementalBuildsEnabled: false
+debug: false
+sentryDisabled: false
+filePathRenderStyle: 'list' # text output file artifacts: list or tree
+sessionDefaults:
+  projectPath: './MyApp.xcodeproj' # xor workspacePath
+  workspacePath: './MyApp.xcworkspace' # xor projectPath
+  scheme: 'MyApp'
+  configuration: 'Debug'
+  simulatorName: 'iPhone 17' # xor simulatorId
+  simulatorId: '<UUID>' # xor simulatorName
+  deviceId: '<UUID>'
+  useLatestOS: true
+  arch: 'arm64'
+  suppressWarnings: false
+  derivedDataPath: './.derivedData'
+  preferXcodebuild: false
+  platform: 'iOS'
+  bundleId: 'io.sentry.myapp'

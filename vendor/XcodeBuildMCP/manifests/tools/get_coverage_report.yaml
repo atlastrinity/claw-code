@@ -1,0 +1,19 @@
+id: get_coverage_report
+module: mcp/tools/coverage/get_coverage_report
+names:
+  mcp: get_coverage_report
+  cli: get-coverage-report
+description: Show per-target code coverage from an xcresult bundle.
+outputSchema:
+  schema: xcodebuildmcp.output.coverage-result
+  version: "2"
+annotations:
+  title: Get Coverage Report
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: View file-level coverage
+    toolId: get_file_coverage
+    priority: 1
+    when: success

@@ -1,0 +1,23 @@
+id: install_app_sim
+module: mcp/tools/simulator/install_app_sim
+names:
+  mcp: install_app_sim
+  cli: install
+description: Install app on sim.
+outputSchema:
+  schema: xcodebuildmcp.output.install-result
+  version: "2"
+annotations:
+  title: Install App Simulator
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Open the Simulator app
+    toolId: open_sim
+    priority: 1
+    when: success
+  - label: Launch the app
+    toolId: launch_app_sim
+    priority: 2
+    when: success

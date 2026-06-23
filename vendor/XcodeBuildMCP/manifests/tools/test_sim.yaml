@@ -1,0 +1,16 @@
+id: test_sim
+module: mcp/tools/simulator/test_sim
+names:
+  mcp: test_sim
+  cli: test
+description: Test on iOS sim.
+outputSchema:
+  schema: xcodebuildmcp.output.test-result
+  version: "2"
+predicates:
+  - hideWhenXcodeAgentMode
+annotations:
+  title: Test Simulator
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false

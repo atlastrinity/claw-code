@@ -1,0 +1,16 @@
+id: debug_detach
+module: mcp/tools/debugging/debug_detach
+names:
+  mcp: debug_detach
+  cli: detach
+description: Detach debugger.
+outputSchema:
+  schema: xcodebuildmcp.output.debug-session-action
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Debug Detach
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false

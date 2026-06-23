@@ -1,0 +1,27 @@
+id: list_devices
+module: mcp/tools/device/list_devices
+names:
+  mcp: list_devices
+  cli: list
+description: List connected devices.
+outputSchema:
+  schema: xcodebuildmcp.output.device-list
+  version: "2"
+annotations:
+  title: List Devices
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Build for device
+    toolId: build_device
+    priority: 1
+    when: success
+  - label: Run tests on device
+    toolId: test_device
+    priority: 2
+    when: success
+  - label: Get app path
+    toolId: get_device_app_path
+    priority: 3
+    when: success

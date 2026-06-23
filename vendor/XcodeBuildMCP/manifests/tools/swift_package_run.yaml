@@ -1,0 +1,21 @@
+id: swift_package_run
+module: mcp/tools/swift-package/swift_package_run
+names:
+  mcp: swift_package_run
+  cli: run
+description: swift package target run.
+outputSchema:
+  schema: xcodebuildmcp.output.build-run-result
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Swift Package Run
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Stop Swift package run
+    toolId: swift_package_stop
+    priority: 1
+    when: success

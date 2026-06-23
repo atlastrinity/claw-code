@@ -1,0 +1,33 @@
+id: boot_sim
+module: mcp/tools/simulator/boot_sim
+names:
+  mcp: boot_sim
+  cli: boot
+description: Boot iOS simulator for manual/non-build flows. Not required before simulator build-and-run (build_run_sim).
+outputSchema:
+  schema: xcodebuildmcp.output.simulator-action-result
+  version: "2"
+annotations:
+  title: Boot Simulator
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Open the Simulator app (makes it visible)
+    toolId: open_sim
+    priority: 1
+    when: success
+  - label: Install an app
+    toolId: install_app_sim
+    params:
+      simulatorId: SIMULATOR_UUID
+      appPath: PATH_TO_YOUR_APP
+    priority: 2
+    when: success
+  - label: Launch an app
+    toolId: launch_app_sim
+    params:
+      simulatorId: SIMULATOR_UUID
+      bundleId: YOUR_APP_BUNDLE_ID
+    priority: 3
+    when: success

@@ -1,0 +1,16 @@
+id: debug_breakpoint_add
+module: mcp/tools/debugging/debug_breakpoint_add
+names:
+  mcp: debug_breakpoint_add
+  cli: add-breakpoint
+description: Add breakpoint.
+outputSchema:
+  schema: xcodebuildmcp.output.debug-breakpoint-result
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Debug Breakpoint Add
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false

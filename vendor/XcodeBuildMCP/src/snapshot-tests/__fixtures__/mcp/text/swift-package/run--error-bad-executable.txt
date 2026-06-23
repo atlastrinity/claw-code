@@ -1,0 +1,8 @@
+
+🚀 Swift Package Run
+
+Errors (1):
+
+  ✗ no executable product named 'nonexistent-executable'
+
+❌ Build failed. (⏱️ <DURATION>)

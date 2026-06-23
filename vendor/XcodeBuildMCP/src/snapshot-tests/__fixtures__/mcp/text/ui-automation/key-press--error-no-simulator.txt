@@ -1,0 +1,8 @@
+
+⌨️ Key Press
+
+Errors (1):
+
+  ✗ CLIError(errorDescription: "Simulator with UDID <UUID> not found in set.")
+
+❌ Failed to simulate key press (code: 4).

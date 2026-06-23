@@ -1,0 +1,24 @@
+
+🧪 Test
+
+   Scheme: CalculatorApp
+   Workspace: example_projects/iOS_Calculator/CalculatorApp.xcworkspace
+   Configuration: Debug
+   Platform: iOS
+   Device: <DEVICE> (<UUID>)
+   Derived Data: ~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/DerivedData/CalculatorApp-<HASH>
+   Selective Testing:
+     CalculatorAppTests/CalculatorAppTests/testAddition
+
+Discovered 1 test(s):
+   CalculatorAppTests/CalculatorAppTests/testAddition
+
+Compiler Errors (1):
+
+  ✗ cannot convert value of type 'String' to specified type 'Int'
+    example_projects/iOS_Calculator/CalculatorApp/CalculatorApp.swift:33:42
+
+❌ Test failed. (⏱️ <DURATION>)
+  └ Files:
+     ├ Result Bundle: ~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/result-bundles/test_device_<TIMESTAMP>_pid<PID>.xcresult
+     └ Build Logs: ~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/logs/test_device_<TIMESTAMP>_pid<PID>.log

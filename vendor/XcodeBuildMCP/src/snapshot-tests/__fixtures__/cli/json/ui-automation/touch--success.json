@@ -1,0 +1,58 @@
+{
+  "schema": "xcodebuildmcp.output.ui-action-result",
+  "schemaVersion": "2",
+  "didError": false,
+  "error": null,
+  "data": {
+    "summary": {
+      "status": "SUCCEEDED"
+    },
+    "action": {
+      "type": "touch",
+      "elementRef": "<ELEMENT_REF>",
+      "event": "touch down+up",
+      "x": 201,
+      "y": 437
+    },
+    "artifacts": {
+      "simulatorId": "<UUID>"
+    },
+    "capture": {
+      "type": "runtime-snapshot",
+      "rs": "1",
+      "screenHash": "<SCREEN_HASH>",
+      "seq": 1,
+      "count": 28,
+      "targets": [
+        "<REF>|tap|button|7||",
+        "<REF>|tap|button|8||",
+        "<REF>|tap|button|9||",
+        "<REF>|tap|button|4||",
+        "<REF>|tap|button|5||",
+        "<REF>|tap|button|6||",
+        "<REF>|tap|button|1||",
+        "<REF>|tap|button|2||",
+        "<REF>|tap|button|3||",
+        "<REF>|tap|button|0||",
+        "<REF>|tap|button|.||",
+        "<REF>|tap|button|C||",
+        "<REF>|tap|button|±||",
+        "<REF>|tap|button|%||",
+        "<REF>|tap|button|÷||",
+        "<REF>|tap|button|×||",
+        "<REF>|tap|button|-||",
+        "<REF>|tap|button|+||",
+        "<REF>|tap|button|=||"
+      ],
+      "scroll": [],
+      "text": [
+        "<REF>|text|text|0||"
+      ],
+      "udid": "<UUID>"
+    }
+  },
+  "nextSteps": [
+    "Batch same-screen taps: xcodebuildmcp ui-automation batch --json '{\"simulatorId\":\"<UUID>\",\"steps\":[{\"action\":\"tap\",\"elementRef\":\"<REF>\"},{\"action\":\"tap\",\"elementRef\":\"<REF>\"}]}'",
+    "Tap an elementRef: xcodebuildmcp ui-automation tap --simulator-id <UUID> --element-ref <REF>"
+  ]
+}

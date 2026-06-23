@@ -1,0 +1,38 @@
+
+📷 Snapshot UI
+
+   Simulator: <UUID>
+
+Targets (19) — ref|action|role|label|value|id
+  <REF>|tap|button|7||
+  <REF>|tap|button|8||
+  <REF>|tap|button|9||
+  <REF>|tap|button|4||
+  <REF>|tap|button|5||
+  <REF>|tap|button|6||
+  <REF>|tap|button|1||
+  <REF>|tap|button|2||
+  <REF>|tap|button|3||
+  <REF>|tap|button|0||
+  <REF>|tap|button|.||
+  <REF>|tap|button|C||
+  <REF>|tap|button|±||
+  <REF>|tap|button|%||
+  <REF>|tap|button|÷||
+  <REF>|tap|button|×||
+  <REF>|tap|button|-||
+  <REF>|tap|button|+||
+  <REF>|tap|button|=||
+
+Tips
+  - Use target refs with tap, type_text, long_press, and touch.
+  - Refs are snapshot-specific; after snapshot_ui or wait_for_ui, use refs from the latest output.
+  - Use wait_for_ui for text/assertions or changing UI.
+
+✅ Runtime UI snapshot captured with 28 elements, 19 likely targets, and 0 scroll areas.
+
+Next steps:
+1. Refresh after layout changes: xcodebuildmcp ui-automation snapshot-ui --simulator-id <UUID>
+2. Wait for UI to settle: xcodebuildmcp ui-automation wait-for-ui --simulator-id <UUID> --predicate settled
+3. Batch same-screen taps: xcodebuildmcp ui-automation batch --json '{"simulatorId":"<UUID>","steps":[{"action":"tap","elementRef":"<REF>"},{"action":"tap","elementRef":"<REF>"}]}'
+4. Tap an elementRef: xcodebuildmcp ui-automation tap --simulator-id <UUID> --element-ref <REF>

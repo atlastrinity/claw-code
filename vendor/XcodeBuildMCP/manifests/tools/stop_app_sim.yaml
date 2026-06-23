@@ -1,0 +1,14 @@
+id: stop_app_sim
+module: mcp/tools/simulator/stop_app_sim
+names:
+  mcp: stop_app_sim
+  cli: stop
+description: Stop sim app.
+outputSchema:
+  schema: xcodebuildmcp.output.stop-result
+  version: "2"
+annotations:
+  title: Stop App Simulator
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false

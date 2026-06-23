@@ -1,0 +1,35 @@
+{ 
+  "servers": {
+    "XcodeBuildMCP": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "xcodebuildmcp@latest",
+        "mcp"
+      ],
+      "env": {
+        "XCODEBUILDMCP_DEBUG": "true",
+        "INCREMENTAL_BUILDS_ENABLED": "false",
+        "XCODEBUILDMCP_IOS_TEMPLATE_PATH": "${workspaceFolder}/../XcodeBuildMCP-iOS-Template",
+        "XCODEBUILDMCP_MACOS_TEMPLATE_PATH": "${workspaceFolder}/../XcodeBuildMCP-macOS-Template"
+      }
+    },
+    "XcodeBuildMCP-Dev": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "--inspect=9999",
+        "--trace-warnings",
+        "${workspaceFolder}/build/cli.js",
+        "mcp"
+      ],
+      "env": {
+        "XCODEBUILDMCP_DEBUG": "true",
+        "INCREMENTAL_BUILDS_ENABLED": "false",
+        "XCODEBUILDMCP_IOS_TEMPLATE_PATH": "${workspaceFolder}/../XcodeBuildMCP-iOS-Template",
+        "XCODEBUILDMCP_MACOS_TEMPLATE_PATH": "${workspaceFolder}/../XcodeBuildMCP-macOS-Template"
+      }
+    }
+  }
+}

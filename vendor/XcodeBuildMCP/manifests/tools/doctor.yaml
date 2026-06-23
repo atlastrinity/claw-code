@@ -1,0 +1,14 @@
+id: doctor
+module: mcp/tools/doctor/doctor
+names:
+  mcp: doctor
+  cli: doctor
+description: MCP environment info.
+outputSchema:
+  schema: xcodebuildmcp.output.doctor-report
+  version: "2"
+annotations:
+  title: Doctor
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false

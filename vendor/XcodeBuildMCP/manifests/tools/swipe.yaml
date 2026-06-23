@@ -1,0 +1,20 @@
+id: swipe
+module: mcp/tools/ui-automation/swipe
+names:
+  mcp: swipe
+  cli: swipe
+description: >-
+  Swipe within a scrollable UI element using withinElementRef from a current rs/1 runtime snapshot.
+  withinElementRef is required; do not use elementRef.
+  Optional distance is a normalized stroke fraction greater than 0 and up to 1.
+  Example input: {"withinElementRef":"e7","direction":"up","distance":0.7}.
+outputSchema:
+  schema: xcodebuildmcp.output.ui-action-result
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Swipe
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false

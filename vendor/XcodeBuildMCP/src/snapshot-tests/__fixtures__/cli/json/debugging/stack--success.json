@@ -1,0 +1,67 @@
+{
+  "schema": "xcodebuildmcp.output.debug-stack-result",
+  "schemaVersion": "2",
+  "didError": false,
+  "error": null,
+  "data": {
+    "threads": [
+      {
+        "threadId": 1,
+        "name": "Thread 1 Queue: com.apple.main-thread (serial)",
+        "truncated": false,
+        "frames": [
+          {
+            "index": 0,
+            "symbol": "<FUNC>",
+            "displayLocation": "<SIM_RUNTIME_ROOT>/System/Library/PrivateFrameworks/GraphicsServices.framework/GraphicsServices`<FUNC>:<OFFSET>"
+          },
+          {
+            "index": 1,
+            "symbol": "<FUNC>",
+            "displayLocation": "<SIM_RUNTIME_ROOT>/System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore`<FUNC>:<OFFSET>"
+          },
+          {
+            "index": 2,
+            "symbol": "<FUNC>",
+            "displayLocation": "<SIM_RUNTIME_ROOT>/System/Library/PrivateFrameworks/UIKitCore.framework/UIKitCore`<FUNC>:<OFFSET>"
+          },
+          {
+            "index": 3,
+            "symbol": "<FUNC>",
+            "displayLocation": "<SIM_RUNTIME_ROOT>/System/Library/Frameworks/SwiftUI.framework/SwiftUI`<FUNC>:<OFFSET>"
+          },
+          {
+            "index": 4,
+            "symbol": "<FUNC>",
+            "displayLocation": "<SIM_RUNTIME_ROOT>/System/Library/Frameworks/SwiftUI.framework/SwiftUI`<FUNC>:<OFFSET>"
+          },
+          {
+            "index": 5,
+            "symbol": "<FUNC>",
+            "displayLocation": "<SIM_RUNTIME_ROOT>/System/Library/Frameworks/SwiftUI.framework/SwiftUI`<FUNC>:<OFFSET>"
+          },
+          {
+            "index": 6,
+            "symbol": "static CalculatorApp.$main()",
+            "displayLocation": "<SIM_APP_BUNDLE>/CalculatorApp.app/CalculatorApp.debug.dylib`static CalculatorApp.CalculatorApp.$main() -> ():<OFFSET>"
+          },
+          {
+            "index": 7,
+            "symbol": "main",
+            "displayLocation": "<SIM_APP_BUNDLE>/CalculatorApp.app/CalculatorApp.debug.dylib`main:<OFFSET>"
+          },
+          {
+            "index": 8,
+            "symbol": "<FUNC>",
+            "displayLocation": "<SIM_RUNTIME_ROOT>/usr/lib/dyld_sim`<FUNC>:<OFFSET>"
+          },
+          {
+            "index": 9,
+            "symbol": "<FUNC>",
+            "displayLocation": "/usr/lib/dyld`<FUNC>:<OFFSET>"
+          }
+        ]
+      }
+    ]
+  }
+}

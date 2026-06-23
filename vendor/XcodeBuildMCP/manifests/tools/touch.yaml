@@ -1,0 +1,16 @@
+id: touch
+module: mcp/tools/ui-automation/touch
+names:
+  mcp: touch
+  cli: touch
+description: Send touch down/up events to a UI element by elementRef from a current rs/1 runtime snapshot.
+outputSchema:
+  schema: xcodebuildmcp.output.ui-action-result
+  version: "2"
+routing:
+  stateful: true
+annotations:
+  title: Touch
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false

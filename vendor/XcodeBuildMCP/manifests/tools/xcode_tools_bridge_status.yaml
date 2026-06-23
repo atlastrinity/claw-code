@@ -1,0 +1,16 @@
+id: xcode_tools_bridge_status
+module: mcp/tools/xcode-ide/xcode_tools_bridge_status
+names:
+  mcp: xcode_tools_bridge_status
+  cli: bridge-status
+description: Show xcrun mcpbridge availability and proxy tool sync status.
+outputSchema:
+  schema: xcodebuildmcp.output.xcode-bridge-status
+  version: "2"
+predicates:
+  - debugEnabled
+annotations:
+  title: Xcode Tools Bridge Status
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false

@@ -1,0 +1,20 @@
+id: build_run_macos
+module: mcp/tools/macos/build_run_macos
+names:
+  mcp: build_run_macos
+  cli: build-and-run
+description: Build and run macOS app.
+outputSchema:
+  schema: xcodebuildmcp.output.build-run-result
+  version: "2"
+predicates:
+  - hideWhenXcodeAgentMode
+annotations:
+  title: Build Run macOS
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Interact with the launched app in the foreground
+    priority: 1
+    when: success

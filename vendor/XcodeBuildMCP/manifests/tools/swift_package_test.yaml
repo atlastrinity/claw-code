@@ -1,0 +1,16 @@
+id: swift_package_test
+module: mcp/tools/swift-package/swift_package_test
+names:
+  mcp: swift_package_test
+  cli: test
+description: Run swift package target tests.
+outputSchema:
+  schema: xcodebuildmcp.output.test-result
+  version: "2"
+predicates:
+  - hideWhenXcodeAgentMode
+annotations:
+  title: Swift Package Test
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false

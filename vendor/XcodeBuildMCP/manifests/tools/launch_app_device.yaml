@@ -1,0 +1,19 @@
+id: launch_app_device
+module: mcp/tools/device/launch_app_device
+names:
+  mcp: launch_app_device
+  cli: launch
+description: Launch app on device.
+outputSchema:
+  schema: xcodebuildmcp.output.launch-result
+  version: "2"
+annotations:
+  title: Launch App Device
+  readOnlyHint: false
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: Stop the app
+    toolId: stop_app_device
+    priority: 1
+    when: success

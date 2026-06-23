@@ -1,0 +1,19 @@
+id: get_file_coverage
+module: mcp/tools/coverage/get_file_coverage
+names:
+  mcp: get_file_coverage
+  cli: get-file-coverage
+description: Show function-level coverage and uncovered line ranges for a specific file.
+outputSchema:
+  schema: xcodebuildmcp.output.coverage-result
+  version: "2"
+annotations:
+  title: Get File Coverage
+  readOnlyHint: true
+  destructiveHint: false
+  openWorldHint: false
+nextSteps:
+  - label: View overall coverage
+    toolId: get_coverage_report
+    priority: 1
+    when: success

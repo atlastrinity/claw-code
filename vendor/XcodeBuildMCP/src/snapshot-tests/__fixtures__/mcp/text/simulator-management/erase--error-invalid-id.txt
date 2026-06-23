@@ -1,0 +1,8 @@
+
+🗑 Erase Simulator
+
+Errors (1):
+
+  ✗ Invalid device: <UUID>
+
+❌ Failed to erase simulator.
