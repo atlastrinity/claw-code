@@ -463,7 +463,22 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for HookMiddleware<'a> {
                     merge_hook_feedback(&all_messages, output.to_string(), new_is_error);
 
                 if new_is_error {
-                    new_output.push_str("\n\n[SYSTEM DIRECTIVE]: The tool execution failed. DO NOT give up. You are a fully autonomous agent. Please analyze the error, think step-by-step about why it happened, and try an alternative approach. You must continue until the problem is solved.");
+                    let directive = "[SYSTEM DIRECTIVE]: The tool execution failed. DO NOT give up. You are a fully autonomous agent. Please analyze the error, think step-by-step about why it happened, and try an alternative approach. You must continue until the problem is solved.";
+                    
+                    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&new_output) {
+                        if let Some(obj) = json.as_object_mut() {
+                            obj.insert("system_directive".to_string(), serde_json::Value::String(directive.to_string()));
+                            if let Ok(serialized) = serde_json::to_string(&json) {
+                                new_output = serialized;
+                            } else {
+                                new_output.push_str(&format!("\n\n{}", directive));
+                            }
+                        } else {
+                            new_output.push_str(&format!("\n\n{}", directive));
+                        }
+                    } else {
+                        new_output.push_str(&format!("\n\n{}", directive));
+                    }
                 }
 
                 *output = new_output;
@@ -557,6 +572,23 @@ fn merge_hook_feedback(messages: &[String], output: String, is_error: bool) -> S
         return output;
     }
 
+    let feedback_text = messages.join("\n");
+
+    // Attempt to preserve JSON structure for tools that return JSON
+    if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&output) {
+        if let Some(obj) = json.as_object_mut() {
+            let label = if is_error {
+                "hook_feedback_error"
+            } else {
+                "hook_feedback"
+            };
+            obj.insert(label.to_string(), serde_json::Value::String(feedback_text.clone()));
+            if let Ok(serialized) = serde_json::to_string(&json) {
+                return serialized;
+            }
+        }
+    }
+
     let mut sections = Vec::new();
     if !output.trim().is_empty() {
         sections.push(output);
@@ -566,7 +598,7 @@ fn merge_hook_feedback(messages: &[String], output: String, is_error: bool) -> S
     } else {
         "Hook feedback"
     };
-    sections.push(format!("{label}:\n{}", messages.join("\n")));
+    sections.push(format!("{label}:\n{feedback_text}"));
     sections.join("\n\n")
 }
 

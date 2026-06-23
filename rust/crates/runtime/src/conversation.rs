@@ -315,7 +315,10 @@ where
                     let req = calls_to_execute.into_iter().next().unwrap();
                     let (output, is_error) = match executor.execute(&req.tool_name, &req.input) {
                         Ok(output) => (output, false),
-                        Err(error) => (error.to_string(), true),
+                        Err(error) => (
+                            serde_json::to_string(&serde_json::json!({ "error": error.to_string() })).unwrap_or_else(|_| error.to_string()),
+                            true
+                        ),
                     };
                     terminal_messages.push(ConversationMessage::tool_result(
                         req.tool_use_id,
@@ -328,7 +331,10 @@ where
                         &calls_to_execute,
                         |tool_name, input| match executor.execute(tool_name, input) {
                             Ok(output) => (output, false),
-                            Err(error) => (error.to_string(), true),
+                            Err(error) => (
+                                serde_json::to_string(&serde_json::json!({ "error": error.to_string() })).unwrap_or_else(|_| error.to_string()),
+                                true
+                            ),
                         },
                     );
 
