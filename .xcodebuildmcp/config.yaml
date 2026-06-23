@@ -22,8 +22,11 @@ sessionDefaultsProfiles:
     platform: iOS
     bundleId: io.sentry.clawcontroller
   default:
-    projectPath: /Users/dev/Documents/GitHub/claw-code/ClawController/ClawController.xcodeproj
+    workspacePath: /Users/dev/Documents/GitHub/claw-code/ClawController/ClawController.xcworkspace
     scheme: ClawController
-    bundleId: com.clawcode.controller
     configuration: Debug
+    simulatorId: 1E6B640C-CFBA-498D-B0E1-B94B360B484D
+    simulatorPlatform: iOS Simulator
+    bundleId: com.clawcode.controller
+    simulatorName: iPhone 16 Pro Max
 activeSessionDefaultsProfile: default

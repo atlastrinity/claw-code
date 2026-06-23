@@ -45,6 +45,10 @@
     - [x] **5.8.1**: Open iOS Simulator and launch ClawController app
       - [x] **5.8.1.1**: Set iPhone 16 Pro Max as default simulator
     - [/] **5.8.2**: Navigate to Tasks tab and verify Task Dashboard loads
+      - [x] **5.8.2.1**: Investigate missing ClawControllerFeature package product
+      - [/] **5.8.2.2**: Fix missing package dependency in Xcode project
+      - [ ] **5.8.2.3**: Build and run app on simulator
+      - [ ] **5.8.2.4**: Navigate to Tasks tab and verify Task Dashboard loads
     - [ ] **5.8.3**: Test TaskTreeView with expand/collapse functionality
     - [ ] **5.8.4**: Verify TaskNodeRow status icons (pending, in_progress, completed, failed, skipped)
     - [ ] **5.8.5**: Test TaskStatsHeader with circular progress rings

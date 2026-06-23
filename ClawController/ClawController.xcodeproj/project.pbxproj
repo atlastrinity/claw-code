@@ -188,6 +188,7 @@
 			mainGroup = 8B41F63C2DEDD0D5001A66F9;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
+			57b3365f-c4ea-4bf1-92e2-048697967d7b /* ClawControllerPackage */;
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 8B41F6462DEDD0D5001A66F9 /* Products */;
@@ -476,13 +477,65 @@
 		};
 /* End XCConfigurationList section */
 
+/* Begin XCLocalSwiftPackageReferenceSection */
+	/* Begin XCLocalSwiftPackageReferenceSection */
+		e47edf70-c5d1-43bb-aa02-0438a4e2ad61 /* ClawControllerPackage */ = {
+			isa = XCLocalSwiftPackageReference;
+			path = ..;
+		};
+/* End XCLocalSwiftPackageReferenceSection */
+
+/* Begin XCLocalSwiftPackageReferenceSection */
+	/* Begin XCLocalSwiftPackageReferenceSection */
+		da3aed5d-1b54-42ec-ad57-3f1b9c6685d4 /* ClawControllerPackage */ = {
+			isa = XCLocalSwiftPackageReference;
+			path = ..;
+		};
+/* End XCLocalSwiftPackageReferenceSection */
+
+/* Begin XCLocalSwiftPackageReferenceSection */
+	/* Begin XCLocalSwiftPackageReferenceSection */
+		ab360563-aee0-48ce-bfa5-27c9a71b32f8 /* ClawControllerPackage */ = {
+			isa = XCLocalSwiftPackageReference;
+			path = ..;
+		};
+/* End XCLocalSwiftPackageReferenceSection */
+
 /* Begin XCSwiftPackageProductDependency section */
+	/* Begin XCLocalSwiftPackageReferenceSection */
+		<UUID_PLACEHOLDER2> /* ClawControllerPackage */ = {
+			isa = XCLocalSwiftPackageReference;
+			path = ..;
+		};
+/* End XCLocalSwiftPackageReferenceSection */
 		8B41F6822DEDD23B001A66F9 /* ClawControllerFeature */ = {
 			isa = XCSwiftPackageProductDependency;
 			productName = ClawControllerFeature;
 		};
 		8B41F6842DEDD25C001A66F9 /* ClawControllerFeature */ = {
 			isa = XCSwiftPackageProductDependency;
+			productName = ClawControllerFeature;
+		};
+	/* Begin XCLocalSwiftPackageReferenceSection */
+	/* Begin XCLocalSwiftPackageReferenceSection */
+		da3aed5d-1b54-42ec-ad57-3f1b9c6685d4 /* ClawControllerPackage */ = {
+			isa = XCLocalSwiftPackageReference;
+			path = ..;
+		};
+/* End XCLocalSwiftPackageReferenceSection */
+
+/* Begin XCLocalSwiftPackageReferenceSection */
+	/* Begin XCLocalSwiftPackageReferenceSection */
+		ab360563-aee0-48ce-bfa5-27c9a71b32f8 /* ClawControllerPackage */ = {
+			isa = XCLocalSwiftPackageReference;
+			path = ..;
+		};
+/* End XCLocalSwiftPackageReferenceSection */
+
+/* Begin XCSwiftPackageProductDependency section */
+		<UUID_PLACEHOLDER3> /* ClawControllerFeature */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = <UUID_PLACEHOLDER2> /* ClawControllerPackage */;
 			productName = ClawControllerFeature;
 		};
 /* End XCSwiftPackageProductDependency section */
