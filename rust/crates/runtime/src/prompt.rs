@@ -324,7 +324,7 @@ fn instruction_file_source(path: &Path) -> &'static str {
 }
 fn discover_instruction_files(
     cwd: &Path,
-    rules_import: &RulesImportConfig,
+    _rules_import: &RulesImportConfig,
 ) -> std::io::Result<Vec<ContextFile>> {
     let mut directories = instruction_discovery_dirs(cwd);
     directories.reverse();
@@ -332,20 +332,11 @@ fn discover_instruction_files(
     let mut files = Vec::new();
     for dir in directories {
         for candidate in [
-            dir.join("CLAUDE.md"),
             dir.join("CLAW.md"),
-            dir.join("AGENTS.md"),
-            dir.join("CLAUDE.local.md"),
-            dir.join(".claw").join("CLAUDE.md"),
-            dir.join(".claude").join("CLAUDE.md"),
-            dir.join(".claw").join("instructions.md"),
             dir.join("task.md"),
         ] {
             push_context_file(&mut files, candidate)?;
         }
-        push_rules_dir(&mut files, dir.join(".claw").join("rules"))?;
-        push_rules_dir(&mut files, dir.join(".claw").join("rules.local"))?;
-        push_framework_imports(&mut files, &dir, rules_import)?
     }
     Ok(dedupe_instruction_files(files))
 }
@@ -389,64 +380,6 @@ fn push_context_file(files: &mut Vec<ContextFile>, path: PathBuf) -> std::io::Re
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(error),
     }
-}
-
-fn push_rules_dir(files: &mut Vec<ContextFile>, dir: PathBuf) -> std::io::Result<()> {
-    if dir.is_file() {
-        return Ok(());
-    }
-    let entries = match fs::read_dir(&dir) {
-        Ok(entries) => entries,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
-        Err(error) => return Err(error),
-    };
-    let mut paths = entries
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| path.is_file() && is_supported_rule_file(path))
-        .collect::<Vec<_>>();
-    paths.sort();
-    for path in paths {
-        push_context_file(files, path)?;
-    }
-    Ok(())
-}
-
-fn is_supported_rule_file(path: &Path) -> bool {
-    path.extension()
-        .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| {
-            matches!(
-                extension.to_ascii_lowercase().as_str(),
-                "md" | "txt" | "mdc"
-            )
-        })
-}
-
-fn push_framework_imports(
-    files: &mut Vec<ContextFile>,
-    dir: &Path,
-    rules_import: &RulesImportConfig,
-) -> std::io::Result<()> {
-    if rules_import.should_import("cursor") {
-        push_context_file(files, dir.join(".cursorrules"))?;
-        push_rules_dir(files, dir.join(".cursor").join("rules"))?;
-    }
-    if rules_import.should_import("copilot") {
-        push_context_file(files, dir.join(".github").join("copilot-instructions.md"))?;
-    }
-    if rules_import.should_import("windsurf") {
-        push_context_file(files, dir.join(".windsurfrules"))?;
-        push_rules_dir(files, dir.join(".windsurfrules"))?;
-    }
-    if rules_import.should_import("plandex") {
-        push_context_file(files, dir.join(".plandex").join("instructions.md"))?;
-    }
-    if rules_import.should_import("crush") {
-        push_context_file(files, dir.join(".crush").join("CLAUDE.md"))?;
-        push_rules_dir(files, dir.join(".crush").join("rules"))?;
-    }
-    Ok(())
 }
 
 fn read_git_status(cwd: &Path) -> Option<String> {
