@@ -2425,7 +2425,7 @@
   },
   "nextSteps": [
     "Build for macOS: build_macos({ workspacePath: \"example_projects/iOS_Calculator/CalculatorApp.xcworkspace\", scheme: \"CalculatorApp\" })",
-    "Build for iOS Simulator: build_sim({ workspacePath: \"example_projects/iOS_Calculator/CalculatorApp.xcworkspace\", scheme: \"CalculatorApp\", simulatorName: \"iPhone 17\" })",
+    "Build for iOS Simulator: build_sim({ workspacePath: \"example_projects/iOS_Calculator/CalculatorApp.xcworkspace\", scheme: \"CalculatorApp\", simulatorName: \"iPhone 16 Pro Max\" })",
     "List schemes: list_schemes({ workspacePath: \"example_projects/iOS_Calculator/CalculatorApp.xcworkspace\" })"
   ]
 }

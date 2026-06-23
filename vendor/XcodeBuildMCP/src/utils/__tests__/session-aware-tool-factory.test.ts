@@ -335,7 +335,7 @@ describe('createSessionAwareTool', () => {
       scheme: 'App',
       projectPath: '/a.xcodeproj',
       simulatorId: 'SIM-123',
-      simulatorName: 'iPhone 17',
+      simulatorName: 'iPhone 16 Pro Max',
     });
 
     const result = await invokeAndCollect(echoHandler, {});
@@ -454,7 +454,7 @@ describe('createSessionAwareTool', () => {
       simulatorId: 'SIM-123',
     });
 
-    const result = await invokeAndCollect(strictHandler, { simulatorName: 'iPhone 17' });
+    const result = await invokeAndCollect(strictHandler, { simulatorName: 'iPhone 16 Pro Max' });
     expect(result.isError).toBe(true);
     expect(result.text).toContain('Parameter validation failed');
     expect(result.text).toContain('simulatorName');

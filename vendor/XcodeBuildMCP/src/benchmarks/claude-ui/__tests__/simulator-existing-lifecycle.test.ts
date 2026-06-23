@@ -10,7 +10,7 @@ function config(overrides: Partial<BenchmarkConfig> = {}): BenchmarkConfig {
     name: 'weather',
     prompt: '../prompts/weather.md',
     sessionDefaults: {
-      simulatorName: 'iPhone 17 Pro Max',
+      simulatorName: 'iPhone 16 Pro Max',
       bundleId: 'com.example.App',
     },
     ...overrides,
@@ -41,7 +41,7 @@ describe('Claude UI existing simulator lifecycle', () => {
           stdout: JSON.stringify({
             devices: {
               'com.apple.CoreSimulator.SimRuntime.iOS-26-0': [
-                { name: 'iPhone 17 Pro Max', udid: 'EXISTING-SIM-123', isAvailable: true },
+                { name: 'iPhone 16 Pro Max', udid: 'EXISTING-SIM-123', isAvailable: true },
               ],
             },
           }),
@@ -67,7 +67,7 @@ describe('Claude UI existing simulator lifecycle', () => {
     expect(simulator).toEqual({
       createdByHarness: false,
       simulatorId: 'EXISTING-SIM-123',
-      name: 'iPhone 17 Pro Max',
+      name: 'iPhone 16 Pro Max',
       logPath,
     });
     expect(commands.map((item) => [item.command, ...item.args])).toEqual([
@@ -77,7 +77,7 @@ describe('Claude UI existing simulator lifecycle', () => {
       ['open', '-a', 'Simulator', '--args', '-CurrentDeviceUDID', 'EXISTING-SIM-123'],
     ]);
     expect(events).toEqual([
-      'resolving simulator iPhone 17 Pro Max',
+      'resolving simulator iPhone 16 Pro Max',
       'using simulator EXISTING-SIM-123',
       'booting simulator EXISTING-SIM-123',
       'waiting for simulator EXISTING-SIM-123 bootstatus',

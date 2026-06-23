@@ -8,8 +8,8 @@ import {
 import type { SnapshotRuntime, WorkflowSnapshotHarness } from '../contracts.ts';
 import { createHarnessForRuntime, createWorkflowFixtureMatcher } from './helpers.ts';
 
-const PRIMARY_SIMULATOR_NAME = 'iPhone 17 Pro';
-const THROWAWAY_SIMULATOR_NAME = 'iPhone 17';
+const PRIMARY_SIMULATOR_NAME = 'iPhone 16 Pro Max';
+const THROWAWAY_SIMULATOR_NAME = 'iPhone 16 Pro Max';
 const RUN_FOREGROUND_SIMULATOR_SNAPSHOTS = process.env.XCODEBUILDMCP_SNAPSHOT_FOREGROUND === '1';
 
 export function registerSimulatorManagementSnapshotSuite(runtime: SnapshotRuntime): void {

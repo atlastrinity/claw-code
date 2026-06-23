@@ -34,7 +34,7 @@ beforeAll(async () => {
           devices: {
             'com.apple.CoreSimulator.SimRuntime.iOS-18-0': [
               {
-                name: 'iPhone 17 Pro',
+                name: 'iPhone 16 Pro Max',
                 udid: SIM_ID,
                 state: 'Booted',
                 isAvailable: true,

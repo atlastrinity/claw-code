@@ -93,16 +93,16 @@ describe('scheduleSimulatorDefaultsRefresh', () => {
     resolveSimulatorNameToIdMock.mockResolvedValue({
       success: true,
       simulatorId: 'SIM-1',
-      simulatorName: 'iPhone 17 Pro',
+      simulatorName: 'iPhone 16 Pro Max',
     });
 
-    await runRefresh({ simulatorName: 'iPhone 17 Pro' });
+    await runRefresh({ simulatorName: 'iPhone 16 Pro Max' });
 
     expect(resolveSimulatorNameToIdMock).toHaveBeenCalledTimes(1);
     expect(resolveSimulatorIdToNameMock).not.toHaveBeenCalled();
     expect(sessionStore.getAll()).toEqual({
       simulatorId: 'SIM-1',
-      simulatorName: 'iPhone 17 Pro',
+      simulatorName: 'iPhone 16 Pro Max',
       simulatorPlatform: 'iOS Simulator',
     });
     expect(persistSessionDefaultsPatchMock).not.toHaveBeenCalled();
@@ -112,19 +112,19 @@ describe('scheduleSimulatorDefaultsRefresh', () => {
     resolveSimulatorNameToIdMock.mockResolvedValue({
       success: true,
       simulatorId: 'SIM-1',
-      simulatorName: 'iPhone 17 Pro',
+      simulatorName: 'iPhone 16 Pro Max',
     });
     inferPlatformMock.mockResolvedValue({
       platform: 'iOS Simulator',
       source: 'default',
     });
 
-    await runRefresh({ simulatorId: 'SIM-1', simulatorName: 'iPhone 17 Pro' });
+    await runRefresh({ simulatorId: 'SIM-1', simulatorName: 'iPhone 16 Pro Max' });
 
     expect(resolveSimulatorNameToIdMock).toHaveBeenCalledTimes(1);
     expect(sessionStore.getAll()).toEqual({
       simulatorId: 'SIM-1',
-      simulatorName: 'iPhone 17 Pro',
+      simulatorName: 'iPhone 16 Pro Max',
     });
     expect(persistSessionDefaultsPatchMock).not.toHaveBeenCalled();
   });
@@ -133,15 +133,15 @@ describe('scheduleSimulatorDefaultsRefresh', () => {
     resolveSimulatorNameToIdMock.mockResolvedValue({
       success: true,
       simulatorId: 'SIM-2',
-      simulatorName: 'iPhone 17 Pro',
+      simulatorName: 'iPhone 16 Pro Max',
     });
 
-    await runRefresh({ simulatorId: 'SIM-1', simulatorName: 'iPhone 17 Pro' });
+    await runRefresh({ simulatorId: 'SIM-1', simulatorName: 'iPhone 16 Pro Max' });
 
     expect(resolveSimulatorNameToIdMock).toHaveBeenCalledTimes(1);
     expect(sessionStore.getAll()).toEqual({
       simulatorId: 'SIM-2',
-      simulatorName: 'iPhone 17 Pro',
+      simulatorName: 'iPhone 16 Pro Max',
       simulatorPlatform: 'iOS Simulator',
     });
     expect(persistSessionDefaultsPatchMock).not.toHaveBeenCalled();
@@ -150,12 +150,12 @@ describe('scheduleSimulatorDefaultsRefresh', () => {
   it('keeps the existing simulatorId when name lookup fails and logs a warning', async () => {
     resolveSimulatorNameToIdMock.mockRejectedValue(new Error('simctl failed'));
 
-    await runRefresh({ simulatorId: 'SIM-1', simulatorName: 'iPhone 17 Pro' });
+    await runRefresh({ simulatorId: 'SIM-1', simulatorName: 'iPhone 16 Pro Max' });
 
     expect(resolveSimulatorNameToIdMock).toHaveBeenCalledTimes(1);
     expect(sessionStore.getAll()).toEqual({
       simulatorId: 'SIM-1',
-      simulatorName: 'iPhone 17 Pro',
+      simulatorName: 'iPhone 16 Pro Max',
     });
     expect(logMock).toHaveBeenCalledWith(
       'warn',

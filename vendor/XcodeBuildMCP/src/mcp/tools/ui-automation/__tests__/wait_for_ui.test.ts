@@ -180,7 +180,7 @@ describe('Wait for UI Plugin', () => {
         simulatorId,
         projectPath: '/tmp/App.xcodeproj',
         scheme: 'App',
-        simulatorName: 'iPhone 17 Pro',
+        simulatorName: 'iPhone 16 Pro Max',
         simulatorPlatform: 'iOS Simulator',
       });
       const { calls, executor } = createSequencedExecutor([

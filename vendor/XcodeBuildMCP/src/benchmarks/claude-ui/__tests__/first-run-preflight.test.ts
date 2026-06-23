@@ -10,7 +10,7 @@ function config(overrides: Partial<BenchmarkConfig> = {}): BenchmarkConfig {
     name: 'reminders',
     prompt: '../prompts/reminders.md',
     sessionDefaults: {
-      simulatorName: 'iPhone 17 Pro Max',
+      simulatorName: 'iPhone 16 Pro Max',
       bundleId: 'com.apple.reminders',
     },
     firstRunPromptDismissals: {
@@ -567,7 +567,7 @@ describe('Claude UI first-run prompt preflight', () => {
 
     await expect(
       dismissFirstRunPrompts({
-        config: config({ sessionDefaults: { simulatorName: 'iPhone 17 Pro Max' } }),
+        config: config({ sessionDefaults: { simulatorName: 'iPhone 16 Pro Max' } }),
         simulatorId: 'TEMP-SIM-123',
         cwd: '/repo',
         logPath,

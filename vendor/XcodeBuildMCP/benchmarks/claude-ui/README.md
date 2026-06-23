@@ -78,7 +78,7 @@ workingDirectory: example_projects/Weather
 sessionDefaults:
   projectPath: Weather.xcodeproj
   scheme: Weather
-  simulatorName: iPhone 17 Pro Max
+  simulatorName: iPhone 16 Pro Max
 temporarySimulator: true
 firstRunPromptDismissals:
   labels:

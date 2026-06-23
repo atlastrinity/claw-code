@@ -498,7 +498,7 @@ describe('Claude UI benchmark analysis', () => {
           name: 'weather',
           prompt: 'prompt.md',
           sessionDefaults: {
-            simulatorTypo: 'iPhone 17 Pro Max',
+            simulatorTypo: 'iPhone 16 Pro Max',
           },
         },
         'weather.yml',

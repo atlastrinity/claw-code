@@ -14,8 +14,8 @@
   },
   "nextSteps": [
     "Build for macOS: build_macos({ workspacePath: \"example_projects/iOS_Calculator/CalculatorApp.xcworkspace\", scheme: \"CalculatorApp\" })",
-    "Build and run on iOS Simulator (default for run intent): build_run_sim({ workspacePath: \"example_projects/iOS_Calculator/CalculatorApp.xcworkspace\", scheme: \"CalculatorApp\", simulatorName: \"iPhone 17\" })",
-    "Build for iOS Simulator (compile-only): build_sim({ workspacePath: \"example_projects/iOS_Calculator/CalculatorApp.xcworkspace\", scheme: \"CalculatorApp\", simulatorName: \"iPhone 17\" })",
+    "Build and run on iOS Simulator (default for run intent): build_run_sim({ workspacePath: \"example_projects/iOS_Calculator/CalculatorApp.xcworkspace\", scheme: \"CalculatorApp\", simulatorName: \"iPhone 16 Pro Max\" })",
+    "Build for iOS Simulator (compile-only): build_sim({ workspacePath: \"example_projects/iOS_Calculator/CalculatorApp.xcworkspace\", scheme: \"CalculatorApp\", simulatorName: \"iPhone 16 Pro Max\" })",
     "Show build settings: show_build_settings({ workspacePath: \"example_projects/iOS_Calculator/CalculatorApp.xcworkspace\", scheme: \"CalculatorApp\" })"
   ]
 }

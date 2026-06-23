@@ -30,7 +30,7 @@ function createPreflight(): TestPreflightResult {
     scheme: 'Weather',
     configuration: 'Debug',
     projectPath: 'Weather.xcodeproj',
-    destinationName: 'iPhone 17 Pro',
+    destinationName: 'iPhone 16 Pro Max',
     selectors: {
       onlyTesting: [],
       skipTesting: [],

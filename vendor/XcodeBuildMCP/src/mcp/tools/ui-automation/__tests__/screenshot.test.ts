@@ -25,7 +25,7 @@ function bootedDeviceListJson(simulatorId: string): string {
       'com.apple.CoreSimulator.SimRuntime.iOS-17-2': [
         {
           udid: simulatorId,
-          name: 'iPhone 15 Pro',
+          name: 'iPhone 16 Pro Max',
           state: 'Booted',
         },
       ],
@@ -356,7 +356,7 @@ describe('Screenshot Plugin', () => {
           'com.apple.CoreSimulator.SimRuntime.iOS-17-2': [
             {
               udid: '12345678-1234-4234-8234-123456789012',
-              name: 'iPhone 15 Pro',
+              name: 'iPhone 16 Pro Max',
               state: 'Booted',
             },
           ],
@@ -440,7 +440,7 @@ describe('Screenshot Plugin', () => {
               'com.apple.CoreSimulator.SimRuntime.iOS-17-2': [
                 {
                   udid: '12345678-1234-4234-8234-123456789012',
-                  name: 'iPhone 15 Pro',
+                  name: 'iPhone 16 Pro Max',
                   state: 'Shutdown',
                 },
               ],
@@ -541,7 +541,7 @@ describe('Screenshot Plugin', () => {
         process: mockProcess,
       });
 
-      const result = await detectLandscapeMode(mockExecutor, 'iPhone 15 Pro');
+      const result = await detectLandscapeMode(mockExecutor, 'iPhone 16 Pro Max');
 
       expect(result).toBe(true);
     });
@@ -554,7 +554,7 @@ describe('Screenshot Plugin', () => {
         process: mockProcess,
       });
 
-      const result = await detectLandscapeMode(mockExecutor, 'iPhone 15 Pro');
+      const result = await detectLandscapeMode(mockExecutor, 'iPhone 16 Pro Max');
 
       expect(result).toBe(false);
     });
@@ -567,7 +567,7 @@ describe('Screenshot Plugin', () => {
         process: mockProcess,
       });
 
-      const result = await detectLandscapeMode(mockExecutor, 'iPhone 15 Pro');
+      const result = await detectLandscapeMode(mockExecutor, 'iPhone 16 Pro Max');
 
       expect(result).toBe(false);
     });
@@ -580,7 +580,7 @@ describe('Screenshot Plugin', () => {
         process: mockProcess,
       });
 
-      const result = await detectLandscapeMode(mockExecutor, 'iPhone 15 Pro');
+      const result = await detectLandscapeMode(mockExecutor, 'iPhone 16 Pro Max');
 
       expect(result).toBe(false);
     });
@@ -590,7 +590,7 @@ describe('Screenshot Plugin', () => {
         throw new Error('Execution failed');
       };
 
-      const result = await detectLandscapeMode(mockExecutor, 'iPhone 15 Pro');
+      const result = await detectLandscapeMode(mockExecutor, 'iPhone 16 Pro Max');
 
       expect(result).toBe(false);
     });
@@ -603,7 +603,7 @@ describe('Screenshot Plugin', () => {
         process: mockProcess,
       });
 
-      const result = await detectLandscapeMode(mockExecutor, 'iPhone 15 Pro');
+      const result = await detectLandscapeMode(mockExecutor, 'iPhone 16 Pro Max');
 
       expect(result).toBe(true);
     });
@@ -702,7 +702,7 @@ describe('Screenshot Plugin', () => {
         'com.apple.CoreSimulator.SimRuntime.iOS-17-2': [
           {
             udid: '12345678-1234-4234-8234-123456789012',
-            name: 'iPhone 15 Pro',
+            name: 'iPhone 16 Pro Max',
             state: 'Booted',
           },
         ],

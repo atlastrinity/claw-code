@@ -267,7 +267,7 @@ describe('registerToolCommands', () => {
       .mockResolvedValue({
         success: true,
         simulatorId: 'SIM-RESOLVED',
-        simulatorName: 'iPhone 17 Pro',
+        simulatorName: 'iPhone 16 Pro Max',
       });
     const invokeDirect = vi
       .spyOn(DefaultToolInvoker.prototype, 'invokeDirect')
@@ -285,7 +285,7 @@ describe('registerToolCommands', () => {
     const app = createApp(createCatalog([tool]), {
       ...baseRuntimeConfig,
       sessionDefaults: {
-        simulatorName: 'iPhone 17 Pro',
+        simulatorName: 'iPhone 16 Pro Max',
       },
       sessionDefaultsProfiles: undefined,
       activeSessionDefaultsProfile: undefined,
@@ -293,7 +293,7 @@ describe('registerToolCommands', () => {
 
     await expect(app.parseAsync(['simulator', 'run-tool'])).resolves.toBeDefined();
 
-    expect(resolveSimulatorNameToId).toHaveBeenCalledWith(expect.any(Function), 'iPhone 17 Pro');
+    expect(resolveSimulatorNameToId).toHaveBeenCalledWith(expect.any(Function), 'iPhone 16 Pro Max');
     expect(invokeDirect).toHaveBeenCalledWith(
       tool,
       {
@@ -370,7 +370,7 @@ describe('registerToolCommands', () => {
     const app = createApp(createCatalog([tool]), {
       ...baseRuntimeConfig,
       sessionDefaults: {
-        simulatorName: 'iPhone 17 Pro',
+        simulatorName: 'iPhone 16 Pro Max',
       },
       sessionDefaultsProfiles: undefined,
       activeSessionDefaultsProfile: undefined,
@@ -382,7 +382,7 @@ describe('registerToolCommands', () => {
     expect(invokeDirect).toHaveBeenCalledWith(
       tool,
       {
-        simulatorName: 'iPhone 17 Pro',
+        simulatorName: 'iPhone 16 Pro Max',
       },
       expect.any(Object),
     );
@@ -848,7 +848,7 @@ describe('registerToolCommands', () => {
               error: null,
               simulators: [
                 {
-                  name: 'iPhone 15',
+                  name: 'iPhone 16 Pro Max',
                   simulatorId: 'test-uuid-123',
                   state: 'Shutdown',
                   isAvailable: true,
@@ -886,7 +886,7 @@ describe('registerToolCommands', () => {
           data: {
             simulators: [
               {
-                name: 'iPhone 15',
+                name: 'iPhone 16 Pro Max',
                 simulatorId: 'test-uuid-123',
                 state: 'Shutdown',
                 isAvailable: true,

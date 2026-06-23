@@ -158,7 +158,7 @@ describe('ui automation non-streaming tools', () => {
           'xcrun simctl list devices -j': {
             output: JSON.stringify({
               devices: {
-                'iOS 26.0': [{ udid: simulatorId, name: 'iPhone 17', state: 'Booted' }],
+                'iOS 26.0': [{ udid: simulatorId, name: 'iPhone 16 Pro Max', state: 'Booted' }],
               },
             }),
           },

@@ -18,6 +18,6 @@
     }
   },
   "nextSteps": [
-    "Get built app path in simulator derived data: get_sim_app_path({ simulatorName: \"iPhone 17\", scheme: \"CalculatorApp\", platform: \"iOS Simulator\" })"
+    "Get built app path in simulator derived data: get_sim_app_path({ simulatorName: \"iPhone 16 Pro Max\", scheme: \"CalculatorApp\", platform: \"iOS Simulator\" })"
   ]
 }

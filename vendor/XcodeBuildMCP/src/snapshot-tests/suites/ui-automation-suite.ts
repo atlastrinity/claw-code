@@ -69,13 +69,13 @@ export function registerUiAutomationSnapshotSuite(runtime: SnapshotRuntime): voi
 
     beforeAll(async () => {
       vi.setConfig({ testTimeout: 120_000 });
-      simulatorUdid = await ensureSimulatorBooted('iPhone 17 Pro');
+      simulatorUdid = await ensureSimulatorBooted('iPhone 16 Pro Max');
       harness = await createHarnessForRuntime(runtime);
 
       await harness.invoke('simulator', 'build-and-run', {
         workspacePath: WORKSPACE,
         scheme: 'CalculatorApp',
-        simulatorName: 'iPhone 17 Pro',
+        simulatorName: 'iPhone 16 Pro Max',
       });
 
       await new Promise((resolve) => setTimeout(resolve, 3000));

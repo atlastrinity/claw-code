@@ -33,7 +33,7 @@ const baseSchemaObject = z.object({
     .string()
     .optional()
     .describe(
-      "Name of the simulator (e.g., 'iPhone 17'). Provide EITHER this OR simulatorId, not both",
+      "Name of the simulator (e.g., 'iPhone 16 Pro Max'). Provide EITHER this OR simulatorId, not both",
     ),
   bundleId: z
     .string()

@@ -12,7 +12,7 @@ describe('simulators resource', () => {
           devices: {
             'iOS 17.0': [
               {
-                name: 'iPhone 15 Pro',
+                name: 'iPhone 16 Pro Max',
                 udid: 'ABC123-DEF456-GHI789',
                 state: 'Shutdown',
                 isAvailable: true,
@@ -27,7 +27,7 @@ describe('simulators resource', () => {
       expect(result.contents).toHaveLength(1);
       const text = result.contents[0].text;
       expect(text).toContain('List Simulators');
-      expect(text).toContain('iPhone 15 Pro');
+      expect(text).toContain('iPhone 16 Pro Max');
       expect(text).toContain('iOS 17.0');
     });
 
@@ -86,7 +86,7 @@ describe('simulators resource', () => {
           devices: {
             'iOS 17.0': [
               {
-                name: 'iPhone 15 Pro',
+                name: 'iPhone 16 Pro Max',
                 udid: 'ABC123-DEF456-GHI789',
                 state: 'Booted',
                 isAvailable: true,
@@ -108,7 +108,7 @@ describe('simulators resource', () => {
           devices: {
             'iOS 17.0': [
               {
-                name: 'iPhone 15 Pro',
+                name: 'iPhone 16 Pro Max',
                 udid: 'ABC123-DEF456-GHI789',
                 state: 'Shutdown',
                 isAvailable: true,
@@ -126,7 +126,7 @@ describe('simulators resource', () => {
 
       const result = await simulatorsResourceLogic(mockExecutor);
 
-      expect(result.contents[0].text).toContain('iPhone 15 Pro');
+      expect(result.contents[0].text).toContain('iPhone 16 Pro Max');
       expect(result.contents[0].text).not.toContain('iPhone 14');
     });
 
@@ -137,7 +137,7 @@ describe('simulators resource', () => {
           devices: {
             'iOS 17.0': [
               {
-                name: 'iPhone 15 Pro',
+                name: 'iPhone 16 Pro Max',
                 udid: 'ABC123-DEF456-GHI789',
                 state: 'Shutdown',
                 isAvailable: true,
@@ -151,7 +151,7 @@ describe('simulators resource', () => {
 
       const text = result.contents[0].text;
       expect(text).toContain('List Simulators');
-      expect(text).toContain('iPhone 15 Pro');
+      expect(text).toContain('iPhone 16 Pro Max');
     });
   });
 });

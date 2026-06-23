@@ -324,7 +324,7 @@ Various other internal improvements to stability, performance, and code quality.
   sessionDefaults:
     scheme: MyApp
     projectPath: ./MyApp.xcodeproj
-    simulatorName: iPhone 17 Pro
+    simulatorName: iPhone 16 Pro Max
   ```
 
   ```bash
@@ -344,11 +344,11 @@ Various other internal improvements to stability, performance, and code quality.
     calculator:
       workspacePath: ./iOS_Calculator/CalculatorApp.xcworkspace
       scheme: CalculatorApp
-      simulatorName: iPhone 17 Pro
+      simulatorName: iPhone 16 Pro Max
     ios-test:
       projectPath: ./iOS/MCPTest.xcodeproj
       scheme: MCPTest
-      simulatorName: iPhone 17 Pro
+      simulatorName: iPhone 16 Pro Max
     spm:
       projectPath: ./spm
       scheme: spm
@@ -362,7 +362,7 @@ Various other internal improvements to stability, performance, and code quality.
   # Build a different sub-project without switching the active profile
   xcodebuildmcp simulator build-and-run --profile ios-test
   ```
-- Default simulator updated from iPhone 16 to iPhone 17.
+- Default simulator updated from iPhone 16 to iPhone 16 Pro Max.
 - Tool annotations now more accurately classify operations, reducing unnecessary confirmation prompts in MCP clients that respect annotations ([#253](https://github.com/getsentry/XcodeBuildMCP/pull/253) by [@saschagordner](https://github.com/saschagordner)).
 - Improved agent workflow guidance with more prescriptive instructions for common tasks.
 - Bundled AXe updated to 1.5.2.
@@ -452,7 +452,7 @@ enabledWorkflows:
 sessionDefaults:
   scheme: MyApp
   projectPath: ./MyApp.xcodeproj
-  simulatorName: iPhone 17
+  simulatorName: iPhone 16 Pro Max
 ```
 
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full reference.
@@ -483,7 +483,7 @@ XcodeBuildMCP can now proxy tools from Xcode 26.3's built-in MCP bridge, giving 
 - Fixed incremental builds corrupting arguments when strings contained substrings matching build flags.
 - Fixed build path handling so relative project, workspace, and derived data paths resolve correctly even when commands run from different working directories.
 - Fixed working-directory leakage in incremental build setup that could affect concurrent requests.
-- Fixed simulator screenshot matching for similarly named devices (for example, `iPhone 15` and `iPhone 15 Pro`).
+- Fixed simulator screenshot matching for similarly named devices (for example, `iPhone 16 Pro Max` and `iPhone 16 Pro Max`).
 
 ## [1.15.1] - 2025-12-20
 

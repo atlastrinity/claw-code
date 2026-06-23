@@ -63,7 +63,7 @@ describe('list_sims tool', () => {
           devices: {
             'iOS 17.0': [
               {
-                name: 'iPhone 15',
+                name: 'iPhone 16 Pro Max',
                 udid: 'test-uuid-123',
                 isAvailable: true,
                 state: 'Shutdown',
@@ -78,7 +78,7 @@ describe('list_sims tool', () => {
       expect(simulators).toEqual([
         {
           runtime: 'iOS 17.0',
-          name: 'iPhone 15',
+          name: 'iPhone 16 Pro Max',
           udid: 'test-uuid-123',
           state: 'Shutdown',
           isAvailable: true,
@@ -91,7 +91,7 @@ describe('list_sims tool', () => {
         devices: {
           'iOS 17.0': [
             {
-              name: 'iPhone 15',
+              name: 'iPhone 16 Pro Max',
               udid: 'test-uuid-123',
               isAvailable: true,
               state: 'Shutdown',
@@ -130,7 +130,7 @@ describe('list_sims tool', () => {
       const text = result.content.map((c) => c.text).join('\n');
       expect(text).toContain('List Simulators');
       expect(text).toContain('iOS 17.0');
-      expect(text).toContain('iPhone 15');
+      expect(text).toContain('iPhone 16 Pro Max');
       expect(text).toContain('Shutdown');
       expect(result.structuredOutput).toEqual({
         schema: 'xcodebuildmcp.output.simulator-list',
@@ -141,7 +141,7 @@ describe('list_sims tool', () => {
           error: null,
           simulators: [
             {
-              name: 'iPhone 15',
+              name: 'iPhone 16 Pro Max',
               simulatorId: 'test-uuid-123',
               state: 'Shutdown',
               isAvailable: true,
@@ -169,7 +169,7 @@ describe('list_sims tool', () => {
           devices: {
             'iOS 17.0': [
               {
-                name: 'iPhone 15',
+                name: 'iPhone 16 Pro Max',
                 udid: 'test-uuid-123',
                 isAvailable: true,
                 state: 'Booted',
@@ -185,7 +185,7 @@ describe('list_sims tool', () => {
       const text = result.content.map((c) => c.text).join('\n');
       expect(text).toContain('List Simulators');
       expect(text).toContain('iOS 17.0');
-      expect(text).toContain('iPhone 15');
+      expect(text).toContain('iPhone 16 Pro Max');
       expect(text).toContain('Booted');
       expect(result.nextStepParams).toEqual({
         boot_sim: { simulatorId: 'UUID_FROM_ABOVE' },
@@ -265,7 +265,7 @@ describe('list_sims tool', () => {
           devices: {
             'com.apple.CoreSimulator.SimRuntime.iOS-17-0': [
               {
-                name: 'iPhone 15',
+                name: 'iPhone 16 Pro Max',
                 udid: 'test-uuid-123',
                 isAvailable: true,
                 state: 'Shutdown',
@@ -284,7 +284,7 @@ describe('list_sims tool', () => {
         error: null,
         simulators: [
           {
-            name: 'iPhone 15',
+            name: 'iPhone 16 Pro Max',
             simulatorId: 'test-uuid-123',
             state: 'Shutdown',
             isAvailable: true,

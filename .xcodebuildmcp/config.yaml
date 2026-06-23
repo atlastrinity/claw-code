@@ -20,5 +20,5 @@ sessionDefaultsProfiles:
     deviceId: 00008140-0000790E3A08801C
     platform: iOS
     bundleId: io.sentry.clawcontroller
-    simulatorName: iPhone 17 Pro Max
+    simulatorName: iPhone 16 Pro Max
 activeSessionDefaultsProfile: physical-device

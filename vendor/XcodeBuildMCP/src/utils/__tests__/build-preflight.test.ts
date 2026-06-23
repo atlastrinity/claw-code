@@ -17,7 +17,7 @@ describe('formatToolPreflight', () => {
       workspacePath: '/path/to/MyApp.xcworkspace',
       configuration: 'Debug',
       platform: 'iOS Simulator',
-      simulatorName: 'iPhone 17',
+      simulatorName: 'iPhone 16 Pro Max',
     });
 
     expect(result).toBe(
@@ -28,7 +28,7 @@ describe('formatToolPreflight', () => {
         '   Workspace: /path/to/MyApp.xcworkspace',
         '   Configuration: Debug',
         '   Platform: iOS Simulator',
-        '   Simulator: iPhone 17',
+        '   Simulator: iPhone 16 Pro Max',
         `   Derived Data: ${displayScopedDerivedData('/path/to/MyApp.xcworkspace')}`,
         '',
       ].join('\n'),
@@ -210,7 +210,7 @@ describe('formatToolPreflight', () => {
       workspacePath: '/path/to/MyApp.xcworkspace',
       configuration: 'Debug',
       platform: 'iOS Simulator',
-      simulatorName: 'iPhone 17',
+      simulatorName: 'iPhone 16 Pro Max',
     });
 
     expect(result).toBe(
@@ -221,7 +221,7 @@ describe('formatToolPreflight', () => {
         '   Workspace: /path/to/MyApp.xcworkspace',
         '   Configuration: Debug',
         '   Platform: iOS Simulator',
-        '   Simulator: iPhone 17',
+        '   Simulator: iPhone 16 Pro Max',
         `   Derived Data: ${displayScopedDerivedData('/path/to/MyApp.xcworkspace')}`,
         '',
       ].join('\n'),
@@ -260,11 +260,11 @@ describe('formatToolPreflight', () => {
       scheme: 'MyApp',
       configuration: 'Debug',
       platform: 'iOS Simulator',
-      simulatorName: 'iPhone 17',
+      simulatorName: 'iPhone 16 Pro Max',
       simulatorId: 'ABC-123',
     });
 
-    expect(result).toContain('Simulator: iPhone 17');
+    expect(result).toContain('Simulator: iPhone 16 Pro Max');
     expect(result).not.toContain('ABC-123');
   });
 });

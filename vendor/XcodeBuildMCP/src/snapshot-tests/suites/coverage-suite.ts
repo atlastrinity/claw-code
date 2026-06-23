@@ -19,7 +19,7 @@ export function registerCoverageSnapshotSuite(runtime: SnapshotRuntime): void {
     beforeAll(async () => {
       vi.setConfig({ testTimeout: 120_000 });
       harness = await createHarnessForRuntime(runtime);
-      await ensureSimulatorBooted('iPhone 17 Pro');
+      await ensureSimulatorBooted('iPhone 16 Pro Max');
 
       const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'coverage-snapshot-'));
       xcresultPath = path.join(tmpDir, 'TestResults.xcresult');
@@ -33,7 +33,7 @@ export function registerCoverageSnapshotSuite(runtime: SnapshotRuntime): void {
       await harness.invoke('simulator', 'test', {
         workspacePath: WORKSPACE,
         scheme: 'CalculatorApp',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
         derivedDataPath,
         extraArgs: ['-enableCodeCoverage', 'YES', '-resultBundlePath', xcresultPath],
       });

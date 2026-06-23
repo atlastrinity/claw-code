@@ -47,7 +47,7 @@ describe('toCliJsonlEvent', () => {
         workspacePath: 'example_projects/iOS_Calculator/CalculatorApp.xcworkspace',
         configuration: 'Debug',
         platform: 'iOS Simulator',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       },
     };
 
@@ -59,7 +59,7 @@ describe('toCliJsonlEvent', () => {
         workspacePath: 'example_projects/iOS_Calculator/CalculatorApp.xcworkspace',
         configuration: 'Debug',
         platform: 'iOS Simulator',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       },
     });
   });

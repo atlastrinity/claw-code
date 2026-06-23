@@ -82,7 +82,7 @@ export function registerDebuggingSnapshotSuite(runtime: SnapshotRuntime): void {
 
       beforeAll(async () => {
         vi.setConfig({ testTimeout: 120_000 });
-        simulatorUdid = await ensureSimulatorBooted('iPhone 17 Pro');
+        simulatorUdid = await ensureSimulatorBooted('iPhone 16 Pro Max');
 
         try {
           execSync('pkill -f lldb-dap', { stdio: 'pipe' });

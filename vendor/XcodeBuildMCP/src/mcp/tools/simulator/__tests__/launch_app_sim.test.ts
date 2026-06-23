@@ -8,7 +8,7 @@ import { runLogic, callHandler } from '../../../../test-utils/test-helpers.ts';
 
 const availableSimulatorsJson = JSON.stringify({
   devices: {
-    'iOS 26.0': [{ name: 'iPhone 17', udid: 'resolved-uuid', isAvailable: true }],
+    'iOS 26.0': [{ name: 'iPhone 16 Pro Max', udid: 'resolved-uuid', isAvailable: true }],
   },
 });
 
@@ -46,7 +46,7 @@ describe('launch_app_sim tool', () => {
 
       const withSimDefaults = schemaObj.safeParse({
         simulatorId: 'sim-default',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       });
       expect(withSimDefaults.success).toBe(false);
     });
@@ -75,7 +75,7 @@ describe('launch_app_sim tool', () => {
     it('should reject when both simulatorId and simulatorName provided explicitly', async () => {
       const result = await callHandler(handler, {
         simulatorId: 'SIM-UUID',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
         bundleId: 'io.sentry.testapp',
       });
 
@@ -167,7 +167,7 @@ describe('launch_app_sim tool', () => {
       const result = await runLogic(() =>
         launch_app_simLogic(
           {
-            simulatorName: 'iPhone 17',
+            simulatorName: 'iPhone 16 Pro Max',
             bundleId: 'io.sentry.testapp',
           },
           installCheckExecutor,
@@ -230,7 +230,7 @@ describe('launch_app_sim tool', () => {
         launch_app_simLogic(
           {
             simulatorId: 'resolved-uuid',
-            simulatorName: 'iPhone 17',
+            simulatorName: 'iPhone 16 Pro Max',
             bundleId: 'io.sentry.testapp',
           },
           installCheckExecutor,

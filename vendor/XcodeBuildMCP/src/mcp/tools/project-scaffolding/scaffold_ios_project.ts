@@ -401,14 +401,14 @@ export async function scaffold_ios_projectLogic(
         result.artifacts.workspacePath ??
         `${result.artifacts.outputPath}/${generatedProjectName}.xcworkspace`,
       scheme: generatedProjectName,
-      simulatorName: 'iPhone 17',
+      simulatorName: 'iPhone 16 Pro Max',
     },
     build_run_sim: {
       workspacePath:
         result.artifacts.workspacePath ??
         `${result.artifacts.outputPath}/${generatedProjectName}.xcworkspace`,
       scheme: generatedProjectName,
-      simulatorName: 'iPhone 17',
+      simulatorName: 'iPhone 16 Pro Max',
     },
   };
 }

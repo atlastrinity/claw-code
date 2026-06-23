@@ -1,0 +1,21 @@
+schemaVersion: 1
+enabledWorkflows:
+  - debugging
+  - simulator
+  - ui-automation
+  - xcode-ide
+  - device
+debug: false
+sentryDisabled: false
+sessionDefaults:
+  workspacePath: CalculatorApp.xcworkspace
+  scheme: CalculatorApp
+  configuration: Debug
+  simulatorPlatform: iOS Simulator
+  useLatestOS: true
+  arch: arm64
+  suppressWarnings: false
+  derivedDataPath: ./.build/DerivedData
+  preferXcodebuild: true
+  bundleId: io.sentry.calculatorapp
+  simulatorName: iPhone 16 Pro Max

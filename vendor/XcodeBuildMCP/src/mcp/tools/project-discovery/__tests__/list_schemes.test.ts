@@ -81,12 +81,12 @@ describe('list_schemes plugin', () => {
         build_run_sim: {
           projectPath: '/path/to/MyProject.xcodeproj',
           scheme: 'MyProject',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         build_sim: {
           projectPath: '/path/to/MyProject.xcodeproj',
           scheme: 'MyProject',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         show_build_settings: { projectPath: '/path/to/MyProject.xcodeproj', scheme: 'MyProject' },
       });
@@ -310,12 +310,12 @@ describe('list_schemes plugin', () => {
         build_run_sim: {
           workspacePath: '/path/to/MyProject.xcworkspace',
           scheme: 'MyApp',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         build_sim: {
           workspacePath: '/path/to/MyProject.xcworkspace',
           scheme: 'MyApp',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         show_build_settings: { workspacePath: '/path/to/MyProject.xcworkspace', scheme: 'MyApp' },
       });

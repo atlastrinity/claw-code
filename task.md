@@ -35,7 +35,7 @@
   - [x] **5.7**: Implement TaskDetailSheet for task details
   - [/] **5.8**: Test Task Dashboard on iOS Simulator
     - [/] **5.8.1**: Open iOS Simulator and launch ClawController app
-      - [/] **5.8.1.1**: Set iPhone 17 Pro Max as default simulator
+      - [/] **5.8.1.1**: Set iPhone 16 Pro Max as default simulator
     - [ ] **5.8.2**: Navigate to Tasks tab and verify Task Dashboard loads
     - [ ] **5.8.3**: Test TaskTreeView with expand/collapse functionality
     - [ ] **5.8.4**: Verify TaskNodeRow status icons (pending, in_progress, completed, failed, skipped)

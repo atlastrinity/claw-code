@@ -10,7 +10,7 @@ import { runLogic } from '../../../../test-utils/test-helpers.ts';
 const BOOTED_JSON = JSON.stringify({
   devices: {
     'com.apple.CoreSimulator.SimRuntime.iOS-17-0': [
-      { udid: 'test-uuid-123', name: 'iPhone 15 Pro', state: 'Booted' },
+      { udid: 'test-uuid-123', name: 'iPhone 16 Pro Max', state: 'Booted' },
     ],
   },
 });
@@ -68,7 +68,7 @@ describe('toggle_software_keyboard tool', () => {
           output: JSON.stringify({
             devices: {
               'com.apple.CoreSimulator.SimRuntime.iOS-17-0': [
-                { udid: 'test-uuid-123', name: 'iPhone 15 Pro', state: 'Shutdown' },
+                { udid: 'test-uuid-123', name: 'iPhone 16 Pro Max', state: 'Shutdown' },
               ],
             },
           }),

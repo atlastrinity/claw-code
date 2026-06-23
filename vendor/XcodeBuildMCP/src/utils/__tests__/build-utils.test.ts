@@ -320,7 +320,7 @@ describe('build-utils Sentry Classification', () => {
         {
           platform: XcodePlatform.iOSSimulator,
           simulatorId: 'SIM-UUID',
-          simulatorName: 'iPhone 17 Pro',
+          simulatorName: 'iPhone 16 Pro Max',
           logPrefix: 'Simulator Test',
         },
         false,
@@ -460,7 +460,7 @@ describe('build-utils Sentry Classification', () => {
         },
         {
           platform: XcodePlatform.iOSSimulator,
-          simulatorName: 'iPhone 17 Pro',
+          simulatorName: 'iPhone 16 Pro Max',
           useLatestOS: true,
           logPrefix: 'iOS Simulator Build',
         },
@@ -504,7 +504,7 @@ describe('build-utils Sentry Classification', () => {
         },
         {
           platform: XcodePlatform.iOSSimulator,
-          simulatorName: 'iPhone 17 Pro',
+          simulatorName: 'iPhone 16 Pro Max',
           useLatestOS: true,
           logPrefix: 'iOS Simulator Build',
         },

@@ -13,7 +13,7 @@ import { allText, runLogic, callHandler } from '../../../../test-utils/test-help
 
 const availableSimulatorsJson = JSON.stringify({
   devices: {
-    'iOS 26.0': [{ name: 'iPhone 17', udid: 'resolved-uuid', isAvailable: true }],
+    'iOS 26.0': [{ name: 'iPhone 16 Pro Max', udid: 'resolved-uuid', isAvailable: true }],
   },
 });
 
@@ -133,7 +133,7 @@ describe('install_app_sim tool', () => {
       const result = await runLogic(() =>
         install_app_simLogic(
           {
-            simulatorName: 'iPhone 17',
+            simulatorName: 'iPhone 16 Pro Max',
             appPath: '/path/to/app.app',
           },
           mockExecutor,

@@ -42,7 +42,7 @@ function config(overrides: Partial<BenchmarkConfig> = {}): BenchmarkConfig {
     name: 'weather',
     prompt: '../prompts/weather.md',
     sessionDefaults: {
-      simulatorName: 'iPhone 17 Pro Max',
+      simulatorName: 'iPhone 16 Pro Max',
       bundleId: 'com.example.App',
     },
     ...overrides,
@@ -63,13 +63,13 @@ describe('Claude UI temporary simulator lifecycle', () => {
   it('enables temporary simulators by default when no simulatorId is configured', () => {
     const plan = resolveTemporarySimulatorPlan(config());
 
-    expect(plan).toEqual({ enabled: true, deviceTypeName: 'iPhone 17 Pro Max' });
+    expect(plan).toEqual({ enabled: true, deviceTypeName: 'iPhone 16 Pro Max' });
   });
 
   it('does not manage or delete a suite-provided simulatorId', () => {
     const plan = resolveTemporarySimulatorPlan(
       config({
-        sessionDefaults: { simulatorId: 'USER-SIM-1', simulatorName: 'iPhone 17 Pro Max' },
+        sessionDefaults: { simulatorId: 'USER-SIM-1', simulatorName: 'iPhone 16 Pro Max' },
       }),
     );
 
@@ -109,7 +109,7 @@ describe('Claude UI temporary simulator lifecycle', () => {
       resolveTemporarySimulatorPlan(
         config({
           temporarySimulator: true,
-          sessionDefaults: { simulatorId: 'USER-SIM-1', simulatorName: 'iPhone 17 Pro Max' },
+          sessionDefaults: { simulatorId: 'USER-SIM-1', simulatorName: 'iPhone 16 Pro Max' },
         }),
       ),
     ).toThrow('temporarySimulator cannot be true when sessionDefaults.simulatorId is set');
@@ -181,7 +181,7 @@ describe('Claude UI temporary simulator lifecycle', () => {
     });
     expect(simulator?.simulatorId).toBe('TEMP-SIM-123');
     expect(commands.map((item) => [item.command, ...item.args])).toEqual([
-      ['xcrun', 'simctl', 'create', 'Claude UI weather 20260522T120000Z', 'iPhone 17 Pro Max'],
+      ['xcrun', 'simctl', 'create', 'Claude UI weather 20260522T120000Z', 'iPhone 16 Pro Max'],
       ['xcrun', 'simctl', 'boot', 'TEMP-SIM-123'],
       ['xcrun', 'simctl', 'bootstatus', 'TEMP-SIM-123', '-b'],
       ['open', '-a', 'Simulator', '--args', '-CurrentDeviceUDID', 'TEMP-SIM-123'],
@@ -238,7 +238,7 @@ describe('Claude UI temporary simulator lifecycle', () => {
 
       expect(simulator?.simulatorId).toBe('TEMP-SIM-123');
       expect(commands.map((item) => [item.command, ...item.args])).toEqual([
-        ['xcrun', 'simctl', 'create', 'Claude UI weather 20260522T120000Z', 'iPhone 17 Pro Max'],
+        ['xcrun', 'simctl', 'create', 'Claude UI weather 20260522T120000Z', 'iPhone 16 Pro Max'],
         ['xcrun', 'simctl', 'boot', 'TEMP-SIM-123'],
         ['xcrun', 'simctl', 'bootstatus', 'TEMP-SIM-123', '-b'],
       ]);
@@ -329,7 +329,7 @@ describe('Claude UI temporary simulator lifecycle', () => {
     ).rejects.toThrow('temporary simulator did not reach bootstatus');
 
     expect(commands.map((item) => [item.command, ...item.args])).toEqual([
-      ['xcrun', 'simctl', 'create', 'Claude UI weather 20260522T120000Z', 'iPhone 17 Pro Max'],
+      ['xcrun', 'simctl', 'create', 'Claude UI weather 20260522T120000Z', 'iPhone 16 Pro Max'],
       ['xcrun', 'simctl', 'boot', 'TEMP-SIM-SETUP-FAIL'],
       ['xcrun', 'simctl', 'bootstatus', 'TEMP-SIM-SETUP-FAIL', '-b'],
       ['xcrun', 'simctl', 'delete', 'TEMP-SIM-SETUP-FAIL'],
@@ -346,7 +346,7 @@ describe('Claude UI temporary simulator lifecycle', () => {
       createdByHarness: true,
       simulatorId: 'TEMP-SIM-DELETE-FAIL',
       name: 'Claude UI weather 20260522T120000Z',
-      deviceTypeName: 'iPhone 17 Pro Max',
+      deviceTypeName: 'iPhone 16 Pro Max',
       logPath,
     };
     const executor: LifecycleCommandExecutor = async () => {
@@ -378,7 +378,7 @@ describe('Claude UI temporary simulator lifecycle', () => {
       createdByHarness: true,
       simulatorId: 'TEMP-SIM-LOG-FAIL',
       name: 'Claude UI weather 20260522T120000Z',
-      deviceTypeName: 'iPhone 17 Pro Max',
+      deviceTypeName: 'iPhone 16 Pro Max',
       logPath,
     };
     const executor: LifecycleCommandExecutor = async (opts) => {
@@ -420,7 +420,7 @@ describe('Claude UI temporary simulator lifecycle', () => {
         createdByHarness: true,
         simulatorId: 'TEMP-SIM-123',
         name: 'Claude UI weather 20260522T120000Z',
-        deviceTypeName: 'iPhone 17 Pro Max',
+        deviceTypeName: 'iPhone 16 Pro Max',
         logPath: path.join(directory, 'simulator-lifecycle.log'),
       },
     });
@@ -486,7 +486,7 @@ describe('Claude UI temporary simulator lifecycle', () => {
         sessionDefaults: {
           projectPath: 'Weather.xcodeproj',
           scheme: 'Weather',
-          simulatorName: 'iPhone 17 Pro Max',
+          simulatorName: 'iPhone 16 Pro Max',
         },
       }),
       mcpConfigPath: path.join(directory, 'mcp-config.json'),
@@ -497,7 +497,7 @@ describe('Claude UI temporary simulator lifecycle', () => {
         createdByHarness: true,
         simulatorId: 'TEMP-SIM-123',
         name: 'Claude UI weather 20260522T120000Z',
-        deviceTypeName: 'iPhone 17 Pro Max',
+        deviceTypeName: 'iPhone 16 Pro Max',
         logPath: path.join(directory, 'simulator-lifecycle.log'),
       },
     });

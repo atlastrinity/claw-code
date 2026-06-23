@@ -60,7 +60,7 @@ describe('inferPlatform', () => {
             'com.apple.CoreSimulator.SimRuntime.iOS-18-0': [
               {
                 udid: 'SIM-UUID',
-                name: 'iPhone 17 Pro',
+                name: 'iPhone 16 Pro Max',
                 isAvailable: true,
               },
             ],
@@ -68,7 +68,7 @@ describe('inferPlatform', () => {
         }),
       });
 
-    const result = await inferPlatform({ simulatorName: 'iPhone 17 Pro' }, mockExecutor);
+    const result = await inferPlatform({ simulatorName: 'iPhone 16 Pro Max' }, mockExecutor);
 
     expect(result.platform).toBe(XcodePlatform.iOSSimulator);
     expect(result.source).toBe('simulator-runtime');

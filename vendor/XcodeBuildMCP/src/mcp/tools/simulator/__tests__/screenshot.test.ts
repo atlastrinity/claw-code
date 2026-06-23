@@ -16,8 +16,8 @@ describe('screenshot plugin', () => {
   const bootedDeviceListJson = JSON.stringify({
     devices: {
       'com.apple.CoreSimulator.SimRuntime.iOS-17-2': [
-        { udid: 'test-uuid', name: 'iPhone 15 Pro', state: 'Booted' },
-        { udid: 'another-uuid', name: 'iPhone 15', state: 'Booted' },
+        { udid: 'test-uuid', name: 'iPhone 16 Pro Max', state: 'Booted' },
+        { udid: 'another-uuid', name: 'iPhone 16 Pro Max', state: 'Booted' },
       ],
     },
   });
@@ -48,8 +48,8 @@ describe('screenshot plugin', () => {
     const mockDeviceListJson = JSON.stringify({
       devices: {
         'com.apple.CoreSimulator.SimRuntime.iOS-17-2': [
-          { udid: 'test-uuid', name: 'iPhone 15 Pro', state: 'Booted' },
-          { udid: 'another-uuid', name: 'iPhone 15', state: 'Booted' },
+          { udid: 'test-uuid', name: 'iPhone 16 Pro Max', state: 'Booted' },
+          { udid: 'another-uuid', name: 'iPhone 16 Pro Max', state: 'Booted' },
         ],
       },
     });
@@ -421,7 +421,7 @@ describe('screenshot plugin', () => {
       const mockDeviceListJson = JSON.stringify({
         devices: {
           'com.apple.CoreSimulator.SimRuntime.iOS-17-2': [
-            { udid: 'test-uuid', name: 'iPhone 15 Pro', state: 'Booted' },
+            { udid: 'test-uuid', name: 'iPhone 16 Pro Max', state: 'Booted' },
           ],
         },
       });

@@ -97,7 +97,7 @@ final class AppTests: XCTestCase {
         workspacePath: '/repo/App.xcworkspace',
         scheme: 'App',
         configuration: 'Debug',
-        destinationName: 'iPhone 17 Pro',
+        destinationName: 'iPhone 16 Pro Max',
       },
       fileSystem,
     );
@@ -177,7 +177,7 @@ final class AppTests: XCTestCase {
         projectPath: '/repo/App.xcodeproj',
         scheme: 'App',
         configuration: 'Debug',
-        destinationName: 'iPhone 17 Pro',
+        destinationName: 'iPhone 16 Pro Max',
         extraArgs: ['-only-testing:AppTests'],
       },
       fileSystem,
@@ -271,7 +271,7 @@ final class CalculatorAppTests: XCTestCase {
         projectPath: '/repo/CalculatorApp.xcodeproj',
         scheme: 'CalculatorApp',
         configuration: 'Debug',
-        destinationName: 'iPhone 17',
+        destinationName: 'iPhone 16 Pro Max',
         extraArgs: ['-only-testing:CalculatorAppTests/CalculatorAppTests/testAddition'],
       },
       fileSystem,
@@ -289,7 +289,7 @@ final class CalculatorAppTests: XCTestCase {
       formatTestSelectionSummary({
         scheme: 'App',
         configuration: 'Debug',
-        destinationName: 'iPhone 17 Pro',
+        destinationName: 'iPhone 16 Pro Max',
         selectors: {
           onlyTesting: [{ raw: 'AppTests/AppTests/testLaunch', target: 'AppTests' }],
           skipTesting: [{ raw: 'FeatureTests/FeatureTests/testThing', target: 'FeatureTests' }],

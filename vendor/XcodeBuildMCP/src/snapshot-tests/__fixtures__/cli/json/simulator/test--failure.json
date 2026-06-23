@@ -10,7 +10,7 @@
       "derivedDataPath": "~/Library/Developer/XcodeBuildMCP/workspaces/XcodeBuildMCP-<HASH>/DerivedData/CalculatorApp-<HASH>",
       "configuration": "Debug",
       "platform": "iOS Simulator",
-      "simulatorName": "iPhone 17",
+      "simulatorName": "iPhone 16 Pro Max",
       "onlyTesting": [],
       "skipTesting": []
     },

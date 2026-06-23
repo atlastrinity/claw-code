@@ -60,7 +60,7 @@ My Device (11111-22222-33333-44444) (15.0)`,
     it('should handle device data with next steps guidance', async () => {
       const mockExecutor = createMockExecutor({
         success: true,
-        output: `iPhone 15 Pro (12345-ABCDE-FGHIJ-67890) (17.0)`,
+        output: `iPhone 16 Pro Max (12345-ABCDE-FGHIJ-67890) (17.0)`,
       });
 
       const result = await devicesResourceLogic(mockExecutor);

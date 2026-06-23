@@ -9,7 +9,7 @@
       "workspacePath": "example_projects/iOS_Calculator/CalculatorApp.xcworkspace",
       "configuration": "Debug",
       "platform": "iOS Simulator",
-      "simulator": "iPhone 17"
+      "simulator": "iPhone 16 Pro Max"
     },
     "summary": {
       "status": "SUCCEEDED",

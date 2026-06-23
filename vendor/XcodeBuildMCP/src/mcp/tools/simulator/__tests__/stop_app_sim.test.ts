@@ -24,7 +24,7 @@ import { setRuntimeInstanceForTests } from '../../../../utils/runtime-instance.t
 
 const availableSimulatorsJson = JSON.stringify({
   devices: {
-    'iOS 26.0': [{ name: 'iPhone 17', udid: 'resolved-uuid', isAvailable: true }],
+    'iOS 26.0': [{ name: 'iPhone 16 Pro Max', udid: 'resolved-uuid', isAvailable: true }],
   },
 });
 
@@ -107,7 +107,7 @@ describe('stop_app_sim tool', () => {
 
       const withSessionDefaults = schemaObj.safeParse({
         simulatorId: 'SIM-UUID',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       });
       expect(withSessionDefaults.success).toBe(true);
       const parsed = withSessionDefaults.data as Record<string, unknown>;
@@ -139,7 +139,7 @@ describe('stop_app_sim tool', () => {
     it('should reject mutually exclusive simulator parameters', async () => {
       const result = await callHandler(handler, {
         simulatorId: 'SIM-UUID',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
         bundleId: 'io.sentry.app',
       });
 
@@ -210,7 +210,7 @@ describe('stop_app_sim tool', () => {
       const result = await runLogic(() =>
         stop_app_simLogic(
           {
-            simulatorName: 'iPhone 17',
+            simulatorName: 'iPhone 16 Pro Max',
             bundleId: 'io.sentry.App',
           },
           mockExecutor,
@@ -231,7 +231,7 @@ describe('stop_app_sim tool', () => {
         stop_app_simLogic(
           {
             simulatorId: 'resolved-uuid',
-            simulatorName: 'iPhone 17',
+            simulatorName: 'iPhone 16 Pro Max',
             bundleId: 'io.sentry.App',
           },
           mockExecutor,

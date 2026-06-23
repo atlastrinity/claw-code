@@ -231,12 +231,12 @@ describe('scaffold_ios_project plugin', () => {
         build_sim: {
           workspacePath: '/tmp/test-projects/TestIOSApp.xcworkspace',
           scheme: 'TestIOSApp',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         build_run_sim: {
           workspacePath: '/tmp/test-projects/TestIOSApp.xcworkspace',
           scheme: 'TestIOSApp',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
       });
     });
@@ -269,12 +269,12 @@ describe('scaffold_ios_project plugin', () => {
         build_sim: {
           workspacePath: '/tmp/test-projects/TestIOSApp.xcworkspace',
           scheme: 'TestIOSApp',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         build_run_sim: {
           workspacePath: '/tmp/test-projects/TestIOSApp.xcworkspace',
           scheme: 'TestIOSApp',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
       });
     });
@@ -299,12 +299,12 @@ describe('scaffold_ios_project plugin', () => {
         build_sim: {
           workspacePath: '/tmp/test-projects/MyProject.xcworkspace',
           scheme: 'MyProject',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         build_run_sim: {
           workspacePath: '/tmp/test-projects/MyProject.xcworkspace',
           scheme: 'MyProject',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
       });
     });

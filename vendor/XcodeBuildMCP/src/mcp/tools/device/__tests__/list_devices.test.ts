@@ -141,7 +141,7 @@ describe('list_devices plugin (device-shared)', () => {
         } else {
           return createMockCommandResponse({
             success: true,
-            output: 'iPhone 15 (12345678-1234-1234-1234-123456789012)',
+            output: 'iPhone 16 Pro Max (12345678-1234-1234-1234-123456789012)',
             error: undefined,
           });
         }
@@ -241,7 +241,7 @@ describe('list_devices plugin (device-shared)', () => {
         } else {
           return createMockCommandResponse({
             success: true,
-            output: 'iPhone 15 (12345678-1234-1234-1234-123456789012)',
+            output: 'iPhone 16 Pro Max (12345678-1234-1234-1234-123456789012)',
             error: undefined,
           });
         }

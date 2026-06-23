@@ -168,7 +168,7 @@ describe('setup command', () => {
             devices: {
               'iOS 17.0': [
                 {
-                  name: 'iPhone 15',
+                  name: 'iPhone 16 Pro Max',
                   udid: 'SIM-1',
                   state: 'Shutdown',
                   isAvailable: true,
@@ -182,7 +182,7 @@ describe('setup command', () => {
       if (command[0] === 'xcrun') {
         return createMockCommandResponse({
           success: true,
-          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 15 (SIM-1) (Shutdown)`,
+          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 16 Pro Max (SIM-1) (Shutdown)`,
         });
       }
 
@@ -240,7 +240,7 @@ describe('setup command', () => {
             devices: {
               'iOS 17.0': [
                 {
-                  name: 'iPhone 15',
+                  name: 'iPhone 16 Pro Max',
                   udid: 'SIM-1',
                   state: 'Shutdown',
                   isAvailable: true,
@@ -254,7 +254,7 @@ describe('setup command', () => {
       if (command[0] === 'xcrun') {
         return createMockCommandResponse({
           success: true,
-          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 15 (SIM-1) (Shutdown)`,
+          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 16 Pro Max (SIM-1) (Shutdown)`,
         });
       }
 
@@ -317,7 +317,7 @@ describe('setup command', () => {
             devices: {
               'iOS 17.0': [
                 {
-                  name: 'iPhone 15',
+                  name: 'iPhone 16 Pro Max',
                   udid: 'SIM-1',
                   state: 'Shutdown',
                   isAvailable: true,
@@ -331,7 +331,7 @@ describe('setup command', () => {
       if (command[0] === 'xcrun') {
         return createMockCommandResponse({
           success: true,
-          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 15 (SIM-1) (Shutdown)`,
+          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 16 Pro Max (SIM-1) (Shutdown)`,
         });
       }
 
@@ -554,7 +554,7 @@ describe('setup command', () => {
             devices: {
               'iOS 17.0': [
                 {
-                  name: 'iPhone 15',
+                  name: 'iPhone 16 Pro Max',
                   udid: 'SIM-1',
                   state: 'Shutdown',
                   isAvailable: true,
@@ -568,7 +568,7 @@ describe('setup command', () => {
       if (command[0] === 'xcrun') {
         return createMockCommandResponse({
           success: true,
-          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 15 (SIM-1) (Shutdown)`,
+          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 16 Pro Max (SIM-1) (Shutdown)`,
         });
       }
 
@@ -608,7 +608,7 @@ describe('setup command', () => {
     expect(serverConfig.env.XCODEBUILDMCP_SCHEME).toBe('App');
     expect(serverConfig.env.XCODEBUILDMCP_DEVICE_ID).toBe('DEVICE-1');
     expect(serverConfig.env.XCODEBUILDMCP_SIMULATOR_ID).toBe('SIM-1');
-    expect(serverConfig.env.XCODEBUILDMCP_SIMULATOR_NAME).toBe('iPhone 15');
+    expect(serverConfig.env.XCODEBUILDMCP_SIMULATOR_NAME).toBe('iPhone 16 Pro Max');
   });
 
   it('does not require simulator or device defaults when selected workflows do not depend on them', async () => {
@@ -733,7 +733,7 @@ sessionDefaults:
   workspacePath: App.xcworkspace
   scheme: App
   simulatorId: SIM-1
-  simulatorName: iPhone 15
+  simulatorName: iPhone 16 Pro Max
 `,
     });
 
@@ -745,7 +745,7 @@ sessionDefaults:
             devices: {
               'iOS 17.0': [
                 {
-                  name: 'iPhone 15',
+                  name: 'iPhone 16 Pro Max',
                   udid: 'SIM-1',
                   state: 'Shutdown',
                   isAvailable: true,
@@ -759,7 +759,7 @@ sessionDefaults:
       if (command[0] === 'xcrun') {
         return createMockCommandResponse({
           success: true,
-          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 15 (SIM-1) (Shutdown)`,
+          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 16 Pro Max (SIM-1) (Shutdown)`,
         });
       }
 
@@ -823,7 +823,7 @@ sessionDefaults:
             devices: {
               'iOS 17.0': [
                 {
-                  name: 'iPhone 15',
+                  name: 'iPhone 16 Pro Max',
                   udid: 'SIM-1',
                   state: 'Shutdown',
                   isAvailable: true,
@@ -936,7 +936,7 @@ sessionDefaults:
             devices: {
               'iOS 17.0': [
                 {
-                  name: 'iPhone 15',
+                  name: 'iPhone 16 Pro Max',
                   udid: 'SIM-1',
                   state: 'Shutdown',
                   isAvailable: true,
@@ -998,7 +998,7 @@ sessionDefaults:
             devices: {
               'iOS 17.0': [
                 {
-                  name: 'iPhone 15',
+                  name: 'iPhone 16 Pro Max',
                   udid: 'SIM-1',
                   state: 'Shutdown',
                   isAvailable: true,
@@ -1145,7 +1145,7 @@ sessionDefaults:
             devices: {
               'iOS 17.0': [
                 {
-                  name: 'iPhone 15',
+                  name: 'iPhone 16 Pro Max',
                   udid: 'SIM-1',
                   state: 'Shutdown',
                   isAvailable: true,
@@ -1419,7 +1419,7 @@ sessionDefaults:
           output: JSON.stringify({
             devices: {
               'iOS 17.0': [
-                { name: 'iPhone 15', udid: 'SIM-1', state: 'Shutdown', isAvailable: true },
+                { name: 'iPhone 16 Pro Max', udid: 'SIM-1', state: 'Shutdown', isAvailable: true },
               ],
             },
           }),
@@ -1428,7 +1428,7 @@ sessionDefaults:
       if (command[0] === 'xcrun') {
         return createMockCommandResponse({
           success: true,
-          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 15 (SIM-1) (Shutdown)`,
+          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 16 Pro Max (SIM-1) (Shutdown)`,
         });
       }
       return createMockCommandResponse({
@@ -1454,7 +1454,7 @@ sessionDefaults:
 
     expect(env.XCODEBUILDMCP_PLATFORM).toBe('iOS Simulator');
     expect(env.XCODEBUILDMCP_SIMULATOR_ID).toBe('SIM-1');
-    expect(env.XCODEBUILDMCP_SIMULATOR_NAME).toBe('iPhone 15');
+    expect(env.XCODEBUILDMCP_SIMULATOR_NAME).toBe('iPhone 16 Pro Max');
   });
 
   it('omits XCODEBUILDMCP_PLATFORM for multi-platform mcp-json', async () => {
@@ -1484,7 +1484,7 @@ sessionDefaults:
           output: JSON.stringify({
             devices: {
               'iOS 17.0': [
-                { name: 'iPhone 15', udid: 'SIM-1', state: 'Shutdown', isAvailable: true },
+                { name: 'iPhone 16 Pro Max', udid: 'SIM-1', state: 'Shutdown', isAvailable: true },
               ],
             },
           }),
@@ -1493,7 +1493,7 @@ sessionDefaults:
       if (command[0] === 'xcrun') {
         return createMockCommandResponse({
           success: true,
-          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 15 (SIM-1) (Shutdown)`,
+          output: `== Devices ==\n-- iOS 17.0 --\n    iPhone 16 Pro Max (SIM-1) (Shutdown)`,
         });
       }
       return createMockCommandResponse({
@@ -1625,7 +1625,7 @@ sessionDefaults:
           output: JSON.stringify({
             devices: {
               'iOS 17.0': [
-                { name: 'iPhone 15', udid: 'IOS-1', state: 'Shutdown', isAvailable: true },
+                { name: 'iPhone 16 Pro Max', udid: 'IOS-1', state: 'Shutdown', isAvailable: true },
               ],
               'tvOS 17.0': [
                 { name: 'Apple TV 4K', udid: 'TVOS-1', state: 'Shutdown', isAvailable: true },
@@ -1698,7 +1698,7 @@ sessionDefaults:
           output: JSON.stringify({
             devices: {
               'iOS 17.0': [
-                { name: 'iPhone 15', udid: 'IOS-1', state: 'Shutdown', isAvailable: true },
+                { name: 'iPhone 16 Pro Max', udid: 'IOS-1', state: 'Shutdown', isAvailable: true },
               ],
               'watchOS 10.0': [
                 {
@@ -1776,7 +1776,7 @@ sessionDefaults:
           output: JSON.stringify({
             devices: {
               'iOS 17.0': [
-                { name: 'iPhone 15', udid: 'IOS-1', state: 'Shutdown', isAvailable: true },
+                { name: 'iPhone 16 Pro Max', udid: 'IOS-1', state: 'Shutdown', isAvailable: true },
               ],
               'xrOS 1.0': [
                 { name: 'Apple Vision Pro', udid: 'XROS-1', state: 'Shutdown', isAvailable: true },
@@ -1849,7 +1849,7 @@ sessionDefaults:
           output: JSON.stringify({
             devices: {
               'com.apple.CoreSimulator.SimRuntime.iOS-17-0': [
-                { name: 'iPhone 15', udid: 'IOS-1', state: 'Shutdown', isAvailable: true },
+                { name: 'iPhone 16 Pro Max', udid: 'IOS-1', state: 'Shutdown', isAvailable: true },
               ],
               'com.apple.CoreSimulator.SimRuntime.xrOS-1-0': [
                 { name: 'Apple Vision Pro', udid: 'XROS-1', state: 'Shutdown', isAvailable: true },

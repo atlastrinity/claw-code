@@ -6,21 +6,21 @@
   "data": {
     "simulators": [
       {
-        "name": "iPhone 17 Pro",
+        "name": "iPhone 16 Pro Max",
         "simulatorId": "<UUID>",
         "state": "<SIM_STATE>",
         "isAvailable": true,
         "runtime": "iOS <VERSION>"
       },
       {
-        "name": "iPhone 17 Pro Max",
+        "name": "iPhone 16 Pro Max",
         "simulatorId": "<UUID>",
         "state": "<SIM_STATE>",
         "isAvailable": true,
         "runtime": "iOS <VERSION>"
       },
       {
-        "name": "iPhone 17e",
+        "name": "iPhone 16 Pro Maxe",
         "simulatorId": "<UUID>",
         "state": "<SIM_STATE>",
         "isAvailable": true,
@@ -34,7 +34,7 @@
         "runtime": "iOS <VERSION>"
       },
       {
-        "name": "iPhone 17",
+        "name": "iPhone 16 Pro Max",
         "simulatorId": "<UUID>",
         "state": "<SIM_STATE>",
         "isAvailable": true,

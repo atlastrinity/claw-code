@@ -50,7 +50,7 @@ describe('build_sim tool', () => {
     it('should handle missing both projectPath and workspacePath', async () => {
       const result = await callHandler(handler, {
         scheme: 'MyScheme',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       });
 
       expect(result.isError).toBe(true);
@@ -63,7 +63,7 @@ describe('build_sim tool', () => {
         projectPath: '/path/to/project.xcodeproj',
         workspacePath: '/path/to/workspace',
         scheme: 'MyScheme',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       });
 
       expect(result.isError).toBe(true);
@@ -80,7 +80,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         mockExecutor,
       );
@@ -91,7 +91,7 @@ describe('build_sim tool', () => {
     it('should handle missing scheme parameter', async () => {
       const result = await callHandler(handler, {
         workspacePath: '/path/to/workspace',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       });
 
       expect(result.isError).toBe(true);
@@ -106,7 +106,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/path/to/workspace',
           scheme: '',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         mockExecutor,
       );
@@ -132,7 +132,7 @@ describe('build_sim tool', () => {
         workspacePath: '/path/to/workspace',
         scheme: 'MyScheme',
         simulatorId: 'ABC-123',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       });
 
       expect(result.isError).toBe(true);
@@ -195,7 +195,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/path/to/MyProject.xcworkspace',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         createTrackingExecutor(callHistory),
       );
@@ -212,7 +212,7 @@ describe('build_sim tool', () => {
           'Debug',
           '-skipMacroValidation',
           '-destination',
-          'platform=iOS Simulator,name=iPhone 17,OS=latest',
+          'platform=iOS Simulator,name=iPhone 16 Pro Max,OS=latest',
           '-collect-test-diagnostics',
           'never',
           '-derivedDataPath',
@@ -230,7 +230,7 @@ describe('build_sim tool', () => {
         {
           projectPath: '/path/to/MyProject.xcodeproj',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         createTrackingExecutor(callHistory),
       );
@@ -247,7 +247,7 @@ describe('build_sim tool', () => {
           'Debug',
           '-skipMacroValidation',
           '-destination',
-          'platform=iOS Simulator,name=iPhone 17,OS=latest',
+          'platform=iOS Simulator,name=iPhone 16 Pro Max,OS=latest',
           '-collect-test-diagnostics',
           'never',
           '-derivedDataPath',
@@ -265,7 +265,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/path/to/MyProject.xcworkspace',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
           configuration: 'Release',
           derivedDataPath: '/custom/derived/path',
           extraArgs: ['--verbose'],
@@ -286,7 +286,7 @@ describe('build_sim tool', () => {
           'Release',
           '-skipMacroValidation',
           '-destination',
-          'platform=iOS Simulator,name=iPhone 17',
+          'platform=iOS Simulator,name=iPhone 16 Pro Max',
           '-collect-test-diagnostics',
           'never',
           '-derivedDataPath',
@@ -305,7 +305,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/Users/dev/My Project/MyProject.xcworkspace',
           scheme: 'My Scheme',
-          simulatorName: 'iPhone 17 Pro',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         createTrackingExecutor(callHistory),
       );
@@ -322,7 +322,7 @@ describe('build_sim tool', () => {
           'Debug',
           '-skipMacroValidation',
           '-destination',
-          'platform=iOS Simulator,name=iPhone 17 Pro,OS=latest',
+          'platform=iOS Simulator,name=iPhone 16 Pro Max,OS=latest',
           '-collect-test-diagnostics',
           'never',
           '-derivedDataPath',
@@ -340,7 +340,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/path/to/MyProject.xcworkspace',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
           useLatestOS: true,
         },
         createTrackingExecutor(callHistory),
@@ -358,7 +358,7 @@ describe('build_sim tool', () => {
           'Debug',
           '-skipMacroValidation',
           '-destination',
-          'platform=iOS Simulator,name=iPhone 17,OS=latest',
+          'platform=iOS Simulator,name=iPhone 16 Pro Max,OS=latest',
           '-collect-test-diagnostics',
           'never',
           '-derivedDataPath',
@@ -413,7 +413,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/path/to/workspace',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         mockExecutor,
       );
@@ -429,7 +429,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/path/to/workspace',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
           configuration: 'Release',
           derivedDataPath: '/path/to/derived',
           extraArgs: ['--verbose'],
@@ -457,7 +457,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/path/to/workspace',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         mockExecutor,
       );
@@ -476,7 +476,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/path/to/workspace',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         mockExecutor,
       );
@@ -495,7 +495,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/path/to/workspace',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         mockExecutor,
       );
@@ -515,7 +515,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/path/to/workspace',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         mockExecutor,
       );
@@ -531,7 +531,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/path/to/workspace',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         mockExecutor,
       );
@@ -549,7 +549,7 @@ describe('build_sim tool', () => {
         {
           workspacePath: '/path/to/workspace',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         mockExecutor,
       );

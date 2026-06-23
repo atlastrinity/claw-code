@@ -76,7 +76,7 @@ describe('test_sim tool', () => {
 
       const result = await callHandler(handler, {
         simulatorId: 'SIM-UUID',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       });
 
       expect(result.isError).toBe(true);

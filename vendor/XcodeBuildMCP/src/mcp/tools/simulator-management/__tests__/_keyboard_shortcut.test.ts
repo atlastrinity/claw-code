@@ -8,7 +8,7 @@ import { sendKeyboardShortcut } from '../_keyboard_shortcut.ts';
 const BOOTED_JSON = JSON.stringify({
   devices: {
     'com.apple.CoreSimulator.SimRuntime.iOS-17-0': [
-      { udid: 'test-uuid-123', name: 'iPhone 15 Pro', state: 'Booted' },
+      { udid: 'test-uuid-123', name: 'iPhone 16 Pro Max', state: 'Booted' },
     ],
   },
 });
@@ -16,7 +16,7 @@ const BOOTED_JSON = JSON.stringify({
 const SHUTDOWN_JSON = JSON.stringify({
   devices: {
     'com.apple.CoreSimulator.SimRuntime.iOS-17-0': [
-      { udid: 'test-uuid-123', name: 'iPhone 15 Pro', state: 'Shutdown' },
+      { udid: 'test-uuid-123', name: 'iPhone 16 Pro Max', state: 'Shutdown' },
     ],
   },
 });
@@ -32,7 +32,7 @@ const ESCAPED_NAME_JSON = JSON.stringify({
 const PREFIX_NAME_JSON = JSON.stringify({
   devices: {
     'com.apple.CoreSimulator.SimRuntime.iOS-17-0': [
-      { udid: 'prefix-uuid', name: 'iPhone 15', state: 'Booted' },
+      { udid: 'prefix-uuid', name: 'iPhone 16 Pro Max', state: 'Booted' },
     ],
   },
 });
@@ -87,7 +87,7 @@ describe('sendKeyboardShortcut', () => {
     expect(calls[0].command).toEqual(['xcrun', 'simctl', 'list', 'devices', '--json']);
     expect(calls[1].command).toEqual(['open', '-a', 'Simulator']);
     expect(calls[2].command[0]).toBe('osascript');
-    expect(calls[2].command.join(' ')).toContain('iPhone 15 Pro');
+    expect(calls[2].command.join(' ')).toContain('iPhone 16 Pro Max');
     expect(calls[3].command[0]).toBe('osascript');
     const keystrokeScript = calls[3].command.join(' ');
     expect(keystrokeScript).toContain('keystroke "k"');
@@ -141,8 +141,8 @@ describe('sendKeyboardShortcut', () => {
     const result = await sendKeyboardShortcut('prefix-uuid', 'software-keyboard', executor);
 
     expect(result.success).toBe(true);
-    expect(calls[2].command[2]).toContain('title is "iPhone 15"');
-    expect(calls[2].command[2]).toContain('title starts with "iPhone 15 –"');
+    expect(calls[2].command[2]).toContain('title is "iPhone 16 Pro Max"');
+    expect(calls[2].command[2]).toContain('title starts with "iPhone 16 Pro Max –"');
     expect(calls[2].command[2]).not.toContain('title contains');
   });
 
@@ -226,7 +226,7 @@ describe('sendKeyboardShortcut', () => {
 
     expect(result.success).toBe(false);
     if (!result.success) {
-      expect(result.error).toContain('iPhone 15 Pro');
+      expect(result.error).toContain('iPhone 16 Pro Max');
       expect(result.error).toContain('without a device window');
       expect(result.error).toContain('retry the keyboard shortcut');
     }

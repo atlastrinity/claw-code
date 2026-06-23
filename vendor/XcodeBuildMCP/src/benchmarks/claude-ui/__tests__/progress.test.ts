@@ -46,13 +46,13 @@ describe('createProgressReporter', () => {
     reporter.setSuite(1, 3, 'contacts');
     reporter.event('artifacts: out.nosync/foo');
     nowMs += 2_500;
-    reporter.event('creating temporary simulator (iPhone 17 Pro Max)');
+    reporter.event('creating temporary simulator (iPhone 16 Pro Max)');
     nowMs += 60_000;
     reporter.event('claude finished in 60.00s (exit 0)');
 
     expect(lines).toEqual([
       '[1/3 contacts] 00:00  artifacts: out.nosync/foo',
-      '[1/3 contacts] 00:02  creating temporary simulator (iPhone 17 Pro Max)',
+      '[1/3 contacts] 00:02  creating temporary simulator (iPhone 16 Pro Max)',
       '[1/3 contacts] 01:02  claude finished in 60.00s (exit 0)',
     ]);
   });

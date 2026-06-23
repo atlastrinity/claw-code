@@ -148,12 +148,12 @@ export async function listSchemesLogic(
       build_run_sim: {
         [`${projectOrWorkspace}Path`]: pathValue!,
         scheme: firstScheme,
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       },
       build_sim: {
         [`${projectOrWorkspace}Path`]: pathValue!,
         scheme: firstScheme,
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       },
       show_build_settings: { [`${projectOrWorkspace}Path`]: pathValue!, scheme: firstScheme },
     };

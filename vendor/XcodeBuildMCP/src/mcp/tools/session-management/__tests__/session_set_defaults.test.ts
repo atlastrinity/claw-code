@@ -26,8 +26,8 @@ describe('session-set-defaults tool', () => {
           output: JSON.stringify({
             devices: {
               'com.apple.CoreSimulator.SimRuntime.iOS-18-0': [
-                { udid: 'RESOLVED-SIM-UUID', name: 'iPhone 17' },
-                { udid: 'OTHER-SIM-UUID', name: 'iPhone 15' },
+                { udid: 'RESOLVED-SIM-UUID', name: 'iPhone 16 Pro Max' },
+                { udid: 'OTHER-SIM-UUID', name: 'iPhone 16 Pro Max' },
               ],
             },
           }),
@@ -60,7 +60,7 @@ describe('session-set-defaults tool', () => {
         sessionSetDefaultsLogic(
           {
             scheme: 'MyScheme',
-            simulatorName: 'iPhone 17',
+            simulatorName: 'iPhone 16 Pro Max',
             useLatestOS: true,
             arch: 'arm64',
           },
@@ -72,7 +72,7 @@ describe('session-set-defaults tool', () => {
 
       const current = sessionStore.getAll();
       expect(current.scheme).toBe('MyScheme');
-      expect(current.simulatorName).toBe('iPhone 17');
+      expect(current.simulatorName).toBe('iPhone 16 Pro Max');
       // simulatorId resolution happens in background; immediate update keeps explicit inputs only
       expect(current.simulatorId).toBeUndefined();
       expect(current.useLatestOS).toBe(true);
@@ -144,11 +144,11 @@ describe('session-set-defaults tool', () => {
     it('should clear stale simulatorId when only simulatorName is set', async () => {
       sessionStore.setDefaults({ simulatorId: 'OLD-SIM-UUID' });
       const result = await runLogic(() =>
-        sessionSetDefaultsLogic({ simulatorName: 'iPhone 17' }, createContext()),
+        sessionSetDefaultsLogic({ simulatorName: 'iPhone 16 Pro Max' }, createContext()),
       );
       const current = sessionStore.getAll();
       // simulatorId resolution happens in background; stale id is cleared immediately
-      expect(current.simulatorName).toBe('iPhone 17');
+      expect(current.simulatorName).toBe('iPhone 16 Pro Max');
       expect(current.simulatorId).toBeUndefined();
       expect(result.isError).toBeFalsy();
     });
@@ -171,7 +171,7 @@ describe('session-set-defaults tool', () => {
               output: JSON.stringify({
                 devices: {
                   'com.apple.CoreSimulator.SimRuntime.iOS-18-0': [
-                    { udid: 'OTHER-SIM-UUID', name: 'iPhone 15' },
+                    { udid: 'OTHER-SIM-UUID', name: 'iPhone 16 Pro Max' },
                   ],
                 },
               }),
@@ -212,7 +212,7 @@ describe('session-set-defaults tool', () => {
         sessionSetDefaultsLogic(
           {
             simulatorId: 'SIM-1',
-            simulatorName: 'iPhone 17',
+            simulatorName: 'iPhone 16 Pro Max',
           },
           createContext(),
         ),
@@ -220,7 +220,7 @@ describe('session-set-defaults tool', () => {
       const current = sessionStore.getAll();
       // Both are kept, simulatorId takes precedence for tools
       expect(current.simulatorId).toBe('SIM-1');
-      expect(current.simulatorName).toBe('iPhone 17');
+      expect(current.simulatorName).toBe('iPhone 16 Pro Max');
       expect(res.isError).toBeFalsy();
     });
 
@@ -282,7 +282,7 @@ describe('session-set-defaults tool', () => {
           {
             profile: 'ios',
             scheme: 'NewIOS',
-            simulatorName: 'iPhone 17',
+            simulatorName: 'iPhone 16 Pro Max',
           },
           createContext(),
         ),
@@ -291,7 +291,7 @@ describe('session-set-defaults tool', () => {
       expect(result.isError).toBeFalsy();
       expect(sessionStore.getActiveProfile()).toBe('ios');
       expect(sessionStore.getAll().scheme).toBe('NewIOS');
-      expect(sessionStore.getAll().simulatorName).toBe('iPhone 17');
+      expect(sessionStore.getAll().simulatorName).toBe('iPhone 16 Pro Max');
     });
 
     it('returns error when profile does not exist and createIfNotExists is false', async () => {
@@ -362,7 +362,7 @@ describe('session-set-defaults tool', () => {
           {
             profile: 'ios',
             scheme: 'NewIOS',
-            simulatorName: 'iPhone 17',
+            simulatorName: 'iPhone 16 Pro Max',
             persist: true,
           },
           createContext(),
@@ -375,7 +375,7 @@ describe('session-set-defaults tool', () => {
         activeSessionDefaultsProfile?: string;
       };
       expect(parsed.sessionDefaultsProfiles?.ios?.scheme).toBe('NewIOS');
-      expect(parsed.sessionDefaultsProfiles?.ios?.simulatorName).toBe('iPhone 17');
+      expect(parsed.sessionDefaultsProfiles?.ios?.simulatorName).toBe('iPhone 16 Pro Max');
       expect(parsed.activeSessionDefaultsProfile).toBe('ios');
     });
 

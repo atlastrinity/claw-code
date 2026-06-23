@@ -370,7 +370,7 @@ describe('Batch UI Automation Tool', () => {
         simulatorId,
         projectPath: '/tmp/App.xcodeproj',
         scheme: 'App',
-        simulatorName: 'iPhone 17 Pro',
+        simulatorName: 'iPhone 16 Pro Max',
         simulatorPlatform: 'iOS Simulator',
       });
       recordSnapshot([createNode()]);

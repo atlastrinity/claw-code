@@ -10,7 +10,7 @@ import { allText, runLogic, callHandler } from '../../../../test-utils/test-help
 
 const availableSimulatorsJson = JSON.stringify({
   devices: {
-    'iOS 26.0': [{ name: 'iPhone 17', udid: 'resolved-uuid', isAvailable: true }],
+    'iOS 26.0': [{ name: 'iPhone 16 Pro Max', udid: 'resolved-uuid', isAvailable: true }],
   },
 });
 
@@ -133,7 +133,7 @@ describe('boot_sim tool', () => {
       };
 
       const result = await runLogic(() =>
-        boot_simLogic({ simulatorName: 'iPhone 17' }, mockExecutor),
+        boot_simLogic({ simulatorName: 'iPhone 16 Pro Max' }, mockExecutor),
       );
 
       expect(result.isError).toBeFalsy();

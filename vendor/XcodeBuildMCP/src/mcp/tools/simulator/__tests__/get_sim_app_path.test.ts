@@ -95,7 +95,7 @@ describe('get_sim_app_path tool', () => {
       const result = await callHandler(handler, {
         platform: XcodePlatform.iOSSimulator,
         simulatorId: 'SIM-UUID',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       });
 
       expect(result.isError).toBe(true);
@@ -139,7 +139,7 @@ describe('get_sim_app_path tool', () => {
             workspacePath: '/path/to/workspace.xcworkspace',
             scheme: 'MyScheme',
             platform: XcodePlatform.iOSSimulator,
-            simulatorName: 'iPhone 17',
+            simulatorName: 'iPhone 16 Pro Max',
             useLatestOS: true,
           },
           trackingExecutor,
@@ -159,7 +159,7 @@ describe('get_sim_app_path tool', () => {
         '-configuration',
         'Debug',
         '-destination',
-        'platform=iOS Simulator,name=iPhone 17,OS=latest',
+        'platform=iOS Simulator,name=iPhone 16 Pro Max,OS=latest',
         '-derivedDataPath',
         computeScopedDerivedDataPath('/path/to/workspace.xcworkspace'),
       ]);
@@ -204,7 +204,7 @@ describe('get_sim_app_path tool', () => {
             workspacePath: '/path/to/workspace.xcworkspace',
             scheme: 'MyScheme',
             platform: XcodePlatform.iOSSimulator,
-            simulatorName: 'iPhone 17',
+            simulatorName: 'iPhone 16 Pro Max',
             derivedDataPath: '/custom/DerivedData',
           },
           trackingExecutor,
@@ -222,7 +222,7 @@ describe('get_sim_app_path tool', () => {
         '-configuration',
         'Debug',
         '-destination',
-        'platform=iOS Simulator,name=iPhone 17,OS=latest',
+        'platform=iOS Simulator,name=iPhone 16 Pro Max,OS=latest',
         '-derivedDataPath',
         '/custom/DerivedData',
       ]);

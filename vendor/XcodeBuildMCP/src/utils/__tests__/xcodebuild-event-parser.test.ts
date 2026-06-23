@@ -117,11 +117,11 @@ describe('xcodebuild-event-parser', () => {
     const events = collectEvents('TEST', [
       {
         source: 'stdout',
-        text: "Test suite 'WeatherUITests' started on 'Clone 1 of iPhone 17 Pro - WeatherUITests-Runner (12147)'\n",
+        text: "Test suite 'WeatherUITests' started on 'Clone 1 of iPhone 16 Pro Max - WeatherUITests-Runner (12147)'\n",
       },
       {
         source: 'stdout',
-        text: "Test case 'WeatherTests/emptySearchReturnsNoResults()' started on 'Clone 2 of iPhone 17 Pro - Weather (12472)'\n",
+        text: "Test case 'WeatherTests/emptySearchReturnsNoResults()' started on 'Clone 2 of iPhone 16 Pro Max - Weather (12472)'\n",
       },
       {
         source: 'stdout',

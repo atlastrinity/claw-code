@@ -86,7 +86,7 @@ Build settings for action build and target MyApp:
         build_sim: {
           projectPath: '/path/to/MyProject.xcodeproj',
           scheme: 'MyScheme',
-          simulatorName: 'iPhone 17',
+          simulatorName: 'iPhone 16 Pro Max',
         },
         list_schemes: { projectPath: '/path/to/MyProject.xcodeproj' },
       });

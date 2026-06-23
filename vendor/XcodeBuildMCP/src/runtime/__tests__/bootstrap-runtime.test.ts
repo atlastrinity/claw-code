@@ -26,7 +26,7 @@ function createFsWithSessionDefaults() {
     'sessionDefaults:',
     '  scheme: "AppScheme"',
     '  simulatorId: "SIM-UUID"',
-    '  simulatorName: "iPhone 17"',
+    '  simulatorName: "iPhone 16 Pro Max"',
     '',
   ].join('\n');
 
@@ -63,7 +63,7 @@ function createFsWithProfiles() {
     'sessionDefaultsProfiles:',
     '  ios:',
     '    scheme: "IOSScheme"',
-    '    simulatorName: "iPhone 17"',
+    '    simulatorName: "iPhone 16 Pro Max"',
     'activeSessionDefaultsProfile: "ios"',
     '',
   ].join('\n');
@@ -99,7 +99,7 @@ describe('bootstrapRuntime', () => {
     expect(sessionStore.getAll()).toMatchObject({
       scheme: 'AppScheme',
       simulatorId: 'SIM-UUID',
-      simulatorName: 'iPhone 17',
+      simulatorName: 'iPhone 16 Pro Max',
     });
     expect(result.workspaceRoot).toBe(cwd);
     expect(result.workspaceKey).toBe(workspaceKeyForRoot(cwd));
@@ -109,7 +109,7 @@ describe('bootstrapRuntime', () => {
         reason: 'startup-hydration',
         persist: false,
         simulatorId: 'SIM-UUID',
-        simulatorName: 'iPhone 17',
+        simulatorName: 'iPhone 16 Pro Max',
       }),
     );
   });
@@ -148,7 +148,7 @@ describe('bootstrapRuntime', () => {
 
     expect(sessionStore.getActiveProfile()).toBe('ios');
     expect(sessionStore.getAll().scheme).toBe('IOSScheme');
-    expect(sessionStore.getAll().simulatorName).toBe('iPhone 17');
+    expect(sessionStore.getAll().simulatorName).toBe('iPhone 16 Pro Max');
   });
 
   describe('XCODEBUILDMCP_CWD env override', () => {

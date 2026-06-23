@@ -1,0 +1,9 @@
+schemaVersion: 1
+enabledWorkflows: ['simulator', 'ui-automation', 'debugging', 'logging']
+sessionDefaults:
+  projectPath: ./MCPTest.xcodeproj
+  scheme: MCPTest
+  simulatorName: iPhone 16 Pro Max
+  useLatestOS: true
+  platform: iOS Simulator
+  bundleId: io.sentry.MCPTest

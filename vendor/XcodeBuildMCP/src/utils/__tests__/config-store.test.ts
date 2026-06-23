@@ -207,7 +207,7 @@ describe('config-store', () => {
       fs: createFs(yaml),
       overrides: {
         sessionDefaultsProfiles: {
-          ios: { simulatorName: 'iPhone 17' },
+          ios: { simulatorName: 'iPhone 16 Pro Max' },
           watch: { scheme: 'WatchScheme' },
         },
       },
@@ -216,7 +216,7 @@ describe('config-store', () => {
     const config = getConfig();
     expect(config.activeSessionDefaultsProfile).toBe('ios');
     expect(config.sessionDefaultsProfiles?.ios?.scheme).toBe('FromFile');
-    expect(config.sessionDefaultsProfiles?.ios?.simulatorName).toBe('iPhone 17');
+    expect(config.sessionDefaultsProfiles?.ios?.simulatorName).toBe('iPhone 16 Pro Max');
     expect(config.sessionDefaultsProfiles?.watch?.scheme).toBe('WatchScheme');
   });
 
@@ -311,7 +311,7 @@ describe('config-store', () => {
       XCODEBUILDMCP_DERIVED_DATA_PATH: '/tmp/dd',
       XCODEBUILDMCP_USE_LATEST_OS: 'true',
       XCODEBUILDMCP_ARCH: 'arm64',
-      XCODEBUILDMCP_SIMULATOR_NAME: 'iPhone 17',
+      XCODEBUILDMCP_SIMULATOR_NAME: 'iPhone 16 Pro Max',
       XCODEBUILDMCP_BUNDLE_ID: 'com.example.app',
     };
 
@@ -326,7 +326,7 @@ describe('config-store', () => {
     expect(config.sessionDefaults?.derivedDataPath).toBe('/tmp/dd');
     expect(config.sessionDefaults?.useLatestOS).toBe(true);
     expect(config.sessionDefaults?.arch).toBe('arm64');
-    expect(config.sessionDefaults?.simulatorName).toBe('iPhone 17');
+    expect(config.sessionDefaults?.simulatorName).toBe('iPhone 16 Pro Max');
     expect(config.sessionDefaults?.bundleId).toBe('com.example.app');
   });
 
@@ -367,12 +367,12 @@ describe('config-store', () => {
     };
 
     await initConfigStore({ cwd, fs, env });
-    await persistSessionDefaultsPatch({ patch: { simulatorName: 'iPhone 17' } });
+    await persistSessionDefaultsPatch({ patch: { simulatorName: 'iPhone 16 Pro Max' } });
 
     const config = getConfig();
     expect(config.sessionDefaults?.workspacePath).toBe('/env/path/App.xcworkspace');
     expect(config.sessionDefaults?.scheme).toBe('FromEnv');
-    expect(config.sessionDefaults?.simulatorName).toBe('iPhone 17');
+    expect(config.sessionDefaults?.simulatorName).toBe('iPhone 16 Pro Max');
   });
 
   it('preserves injected env session defaults after persisting the active profile', async () => {

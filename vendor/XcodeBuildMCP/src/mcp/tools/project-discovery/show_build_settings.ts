@@ -173,7 +173,7 @@ export async function showBuildSettingsLogic(
     const pathKey = hasProjectPath ? 'projectPath' : 'workspacePath';
     ctx.nextStepParams = {
       build_macos: { [pathKey]: pathValue!, scheme: params.scheme },
-      build_sim: { [pathKey]: pathValue!, scheme: params.scheme, simulatorName: 'iPhone 17' },
+      build_sim: { [pathKey]: pathValue!, scheme: params.scheme, simulatorName: 'iPhone 16 Pro Max' },
       list_schemes: { [pathKey]: pathValue! },
     };
   }
