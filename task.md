@@ -23,7 +23,7 @@
   - [ ] **1.12**: Configure signing for physical iPhone (development team, bundle ID)
   - [ ] **1.13**: Build project for physical iPhone and install
   - [ ] **1.14**: Verify app runs successfully on physical iPhone
-- [ ] **2**: Phase 2: Design System & Core Components
+- [/] **2**: Phase 2: Design System & Core Components
   - [x] **2.1**: Create Task Dashboard with tree view and statistics
   - [x] **2.2**: Create Tools Inspector with timeline view
   - [x] **2.3**: Implement Terminal/Logs view with ANSI color support
@@ -33,7 +33,7 @@
   - [ ] **2.7**: Verify app runs successfully on physical iPhone
 - [ ] **3**: Phase 3: Networking Layer
 - [ ] **4**: Phase 4: Chat Feature (Core)
-- [ ] **5**: Phase 5: Task Dashboard Feature
+- [/] **5**: Phase 5: Task Dashboard Feature
   - [x] **5.1**: Check current project structure and verify completed work
   - [x] **5.2**: Implement TasksReducer with task parsing logic
   - [x] **5.3**: Build TaskDashboardView with header stats
@@ -42,7 +42,7 @@
   - [x] **5.6**: Build TaskStatsHeader with circular progress
   - [x] **5.7**: Implement TaskDetailSheet for task details
   - [/] **5.8**: Test Task Dashboard on iOS Simulator
-    - [/] **5.8.1**: Open iOS Simulator and launch ClawController app
+    - [x] **5.8.1**: Open iOS Simulator and launch ClawController app
       - [x] **5.8.1.1**: Set iPhone 16 Pro Max as default simulator
     - [ ] **5.8.2**: Navigate to Tasks tab and verify Task Dashboard loads
     - [ ] **5.8.3**: Test TaskTreeView with expand/collapse functionality

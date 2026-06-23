@@ -91,7 +91,7 @@
   {
     "id": "2",
     "content": "Phase 2: Design System & Core Components",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "2.1",
@@ -148,7 +148,7 @@
   {
     "id": "5",
     "content": "Phase 5: Task Dashboard Feature",
-    "status": "pending"
+    "status": "in_progress"
   },
   {
     "id": "5.1",
@@ -202,7 +202,7 @@
     "id": "5.8.1",
     "parent_id": "5.8",
     "content": "Open iOS Simulator and launch ClawController app",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "id": "5.8.1.1",
