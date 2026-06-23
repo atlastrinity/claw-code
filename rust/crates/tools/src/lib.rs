@@ -483,7 +483,7 @@ impl GlobalToolRegistry {
             .allowed_tool_aliases()
             .get(raw_name)
             .cloned()
-            .unwrap_or_else(|| raw_name.to_string());
+            .unwrap_or_else(|| normalization::canonical_allowed_tool_name(raw_name));
 
         if let Some(spec) = mvp_tool_specs()
             .iter()
