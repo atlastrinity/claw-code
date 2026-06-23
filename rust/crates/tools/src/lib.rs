@@ -4349,10 +4349,25 @@ fn task_graph_store_path() -> Result<std::path::PathBuf, String> {
 }
 
 fn resolve_skill_path(skill: &str) -> Result<std::path::PathBuf, String> {
+    let stripped = skill.strip_prefix("file://").unwrap_or(skill);
+    let path = std::path::Path::new(stripped);
+    if path.is_absolute() && path.exists() {
+        return Ok(path.to_path_buf());
+    }
+
+    let mut skill_name = skill;
+    if skill.ends_with("SKILL.md") {
+        if let Some(parent) = path.parent() {
+            if let Some(file_name) = parent.file_name() {
+                skill_name = file_name.to_str().unwrap_or(skill);
+            }
+        }
+    }
+
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
-    match commands::resolve_skill_path(&cwd, skill) {
+    match commands::resolve_skill_path(&cwd, skill_name) {
         Ok(path) => Ok(path),
-        Err(_) => resolve_skill_path_from_compat_roots(skill),
+        Err(_) => resolve_skill_path_from_compat_roots(skill_name).map_err(|_| format!("unknown skill: {skill}")),
     }
 }
 
