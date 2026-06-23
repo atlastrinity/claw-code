@@ -4270,41 +4270,44 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
         }
     }
 
+    // Auto-repair parent_ids based on id structure
+    for node in &mut current_nodes {
+        let parts: Vec<&str> = node.id.split('.').collect();
+        if parts.len() > 1 {
+            node.parent_id = Some(parts[..parts.len() - 1].join("."));
+        } else {
+            node.parent_id = None;
+        }
+    }
+
+    // Auto-sort nodes semantically by id (e.g., 5.8.1)
+    current_nodes.sort_by(|a, b| {
+        let a_parts: Vec<u32> = a.id.split('.').filter_map(|s| s.parse().ok()).collect();
+        let b_parts: Vec<u32> = b.id.split('.').filter_map(|s| s.parse().ok()).collect();
+        let cmp = a_parts.cmp(&b_parts);
+        if cmp == std::cmp::Ordering::Equal {
+            a.id.cmp(&b.id)
+        } else {
+            cmp
+        }
+    });
+
     if let Some(parent) = store_path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         
         let task_md_path = parent.join("task.md");
         let mut markdown = String::from("# Task List\n\n");
         
-        // Helper to recursively write nodes
-        fn write_node(
-            id: &str,
-            nodes: &[TaskNode],
-            markdown: &mut String,
-            depth: usize
-        ) {
-            if let Some(node) = nodes.iter().find(|n| n.id == id) {
-                let checkbox = match node.status {
-                    Some(TaskStatus::Completed) => "[x]",
-                    Some(TaskStatus::InProgress) => "[/]",
-                    Some(TaskStatus::Failed) => "[-]",
-                    _ => "[ ]",
-                };
-                let indent = "  ".repeat(depth);
-                markdown.push_str(&format!("{}- {} **{}**: {}\n", indent, checkbox, node.id, node.content.as_deref().unwrap_or("")));
-                
-                // Find children
-                for child in nodes.iter().filter(|n| n.parent_id.as_deref() == Some(id)) {
-                    write_node(&child.id, nodes, markdown, depth + 1);
-                }
-            }
-        }
-
-        // Roots: nodes with no parent, OR whose parent doesn't exist
-        for root in current_nodes.iter().filter(|n| {
-            n.parent_id.is_none() || !current_nodes.iter().any(|p| Some(p.id.as_str()) == n.parent_id.as_deref())
-        }) {
-            write_node(&root.id, &current_nodes, &mut markdown, 0);
+        for node in &current_nodes {
+            let depth = node.id.split('.').count().saturating_sub(1);
+            let checkbox = match node.status {
+                Some(TaskStatus::Completed) => "[x]",
+                Some(TaskStatus::InProgress) => "[/]",
+                Some(TaskStatus::Failed) => "[-]",
+                _ => "[ ]",
+            };
+            let indent = "  ".repeat(depth);
+            markdown.push_str(&format!("{}- {} **{}**: {}\n", indent, checkbox, node.id, node.content.as_deref().unwrap_or("")));
         }
 
         let _ = std::fs::write(&task_md_path, markdown);

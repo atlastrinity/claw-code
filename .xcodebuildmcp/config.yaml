@@ -12,12 +12,13 @@ sessionDefaults:
   bundleId: io.sentry.clawcontroller
 sessionDefaultsProfiles:
   physical-device:
-    projectPath: /Users/dev/Documents/GitHub/claw-code/ClawController
+    projectPath: /Users/dev/Documents/GitHub/claw-code/ClawController/ClawController.xcodeproj
     scheme: ClawController
     configuration: Debug
-    platform: iOS
+    simulatorId: AE4BE83F-88EE-4444-A6CF-214AE8B17D1C
+    simulatorPlatform: iOS Simulator
     deviceId: 00008140-0000790E3A08801C
+    platform: iOS
     bundleId: io.sentry.clawcontroller
-    xcodebuildArguments:
-      - "DEVELOPMENT_TEAM=3TU5P2H8VQ"
+    simulatorName: iPhone 17 Pro Max
 activeSessionDefaultsProfile: physical-device
