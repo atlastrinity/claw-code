@@ -1,6 +1,6 @@
 schemaVersion: 1
 sessionDefaults:
-  workspacePath: /Users/dev/Documents/GitHub/claw-code/ClawController/ClawController.xcworkspace
+  projectPath: /Users/dev/Documents/GitHub/claw-code/ClawController
   scheme: ClawController
   configuration: Debug
   simulatorName: iPhone 16 Pro Max
@@ -12,13 +12,12 @@ sessionDefaults:
   bundleId: io.sentry.clawcontroller
 sessionDefaultsProfiles:
   physical-device:
-    projectPath: /Users/dev/Documents/GitHub/claw-code/ClawController/ClawController.xcodeproj
+    projectPath: /Users/dev/Documents/GitHub/claw-code/ClawController
     scheme: ClawController
     configuration: Debug
-    simulatorName: iPhone 16 Pro Max
+    platform: iOS
     deviceId: 00008140-0000790E3A08801C
-    platform: iOS Simulator
     bundleId: io.sentry.clawcontroller
-    simulatorId: 1E6B640C-CFBA-498D-B0E1-B94B360B484D
-    simulatorPlatform: iOS Simulator
+    xcodebuildArguments:
+      - "DEVELOPMENT_TEAM=3TU5P2H8VQ"
 activeSessionDefaultsProfile: physical-device

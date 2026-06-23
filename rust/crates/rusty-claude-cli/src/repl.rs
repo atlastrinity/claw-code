@@ -6,21 +6,28 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
-    if let Ok(content) = std::fs::read_to_string("task.md") {
-        if content.contains("- [ ]") || content.contains("- [/]") {
-            let mut last_assistant_text = String::new();
-            if let Some(last_msg) = cli.runtime.session().messages.last() {
-                if last_msg.role == runtime::MessageRole::Assistant {
-                    for block in &last_msg.blocks {
-                        if let runtime::ContentBlock::Text { text } = block {
-                            last_assistant_text.push_str(text);
-                        }
-                    }
+    let auto_decide = std::env::var("CLAW_AUTO_DECIDE").map(|v| v.to_lowercase() == "true").unwrap_or(false);
+    
+    let mut last_assistant_text = String::new();
+    if let Some(last_msg) = cli.runtime.session().messages.last() {
+        if last_msg.role == runtime::MessageRole::Assistant {
+            for block in &last_msg.blocks {
+                if let runtime::ContentBlock::Text { text } = block {
+                    last_assistant_text.push_str(text);
                 }
             }
-            
-            let trimmed = last_assistant_text.trim();
-            if trimmed.ends_with('?') || trimmed.contains("Please review") || trimmed.contains("let me know") {
+        }
+    }
+    let trimmed = last_assistant_text.trim();
+    let is_question = trimmed.ends_with('?') || trimmed.contains("Please review") || trimmed.contains("let me know");
+
+    if let Ok(content) = std::fs::read_to_string("task.md") {
+        if content.contains("- [ ]") || content.contains("- [/]") {
+            if is_question {
+                if auto_decide {
+                    let prompt = "<system-reminder>CLAW_AUTO_DECIDE is enabled. You just asked the user a question or offered options. Do NOT wait for user input. Analyze the current state, session history, and task summaries. Pick the option that leads to the best progress and results (prioritizing forward momentum over extreme safety), and proceed immediately using the appropriate tools.</system-reminder>".to_string();
+                    return (true, prompt);
+                }
                 return (false, String::new());
             }
             
@@ -28,6 +35,12 @@ fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
             return (true, prompt);
         }
     }
+    
+    if auto_decide && is_question {
+        let prompt = "<system-reminder>CLAW_AUTO_DECIDE is enabled. You just asked the user a question or offered options. Do NOT wait for user input. Analyze the current state, session history, and task summaries. Pick the option that leads to the best progress and results (prioritizing forward momentum over extreme safety), and proceed immediately using the appropriate tools.</system-reminder>".to_string();
+        return (true, prompt);
+    }
+    
     (false, String::new())
 }
 

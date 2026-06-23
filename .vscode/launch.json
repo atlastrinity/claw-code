@@ -35,6 +35,24 @@
             "name": "Release xcode_spm_setup (.claw/skills/xcode_project_setup/scripts/xcode_spm_setup)",
             "program": "${workspaceFolder:claw-code}/.claw/skills/xcode_project_setup/scripts/xcode_spm_setup/.build/release/xcode_spm_setup",
             "preLaunchTask": "swift: Build Release xcode_spm_setup (.claw/skills/xcode_project_setup/scripts/xcode_spm_setup)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:claw-code}/ClawController",
+            "name": "Debug ClawController (ClawController)",
+            "program": "${workspaceFolder:claw-code}/ClawController/.build/debug/ClawController",
+            "preLaunchTask": "swift: Build Debug ClawController (ClawController)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:claw-code}/ClawController",
+            "name": "Release ClawController (ClawController)",
+            "program": "${workspaceFolder:claw-code}/ClawController/.build/release/ClawController",
+            "preLaunchTask": "swift: Build Release ClawController (ClawController)"
         }
     ]
 }

@@ -34,6 +34,14 @@
   - [x] **5.6**: Build TaskStatsHeader with circular progress
   - [x] **5.7**: Implement TaskDetailSheet for task details
   - [/] **5.8**: Test Task Dashboard on iOS Simulator
+    - [ ] **5.8.2**: Navigate to Tasks tab and verify Task Dashboard loads
+    - [ ] **5.8.3**: Test TaskTreeView with expand/collapse functionality
+    - [ ] **5.8.4**: Verify TaskNodeRow status icons (pending, in_progress, completed, failed, skipped)
+    - [ ] **5.8.5**: Test TaskStatsHeader with circular progress rings
+    - [ ] **5.8.6**: Verify TaskDetailSheet opens on tap
+    - [ ] **5.8.7**: Take screenshots and document any issues
+  - [/] **5.8.1**: Open iOS Simulator and launch ClawController app
+    - [/] **5.8.1.1**: Set iPhone 17 Pro Max as default simulator
 - [ ] **6**: Phase 6: Tools Inspector Feature
   - [x] **6.1**: Implement ToolsReducer with timeline management
   - [x] **6.2**: Build ToolsInspectorView with timeline container

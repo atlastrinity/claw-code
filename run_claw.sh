@@ -63,19 +63,18 @@ RAG_PID=$!
 # 3. Налаштовуємо автоматичне вимкнення RAG-сервісу при виході з claw
 trap "echo '🛑 Зупинка claw-rag-service...'; kill $RAG_PID 2>/dev/null" EXIT
 
-# 4. Встановлюємо таймаути (3 хвилини на запит)
-export CLAW_API_REQUEST_TIMEOUT=180
-export CLAW_API_CONNECT_TIMEOUT=30
-
 # 5. Запускаємо основний клієнт claw у циклі захисту
 echo "🚀 Запуск основного клієнта Claw ($SELECTED_MODEL) з авто-перезапуском..."
+
+RESUME_ARGS=""
 
 while true; do
   cargo run --manifest-path rust/Cargo.toml --bin claw -- \
     --model "$SELECTED_MODEL" \
     --skip-permissions \
     --accept-danger-non-interactive \
-    --attach-skill .claw/skills/project_specific/ios_remote_client.md "$@"
+    --attach-skill .claw/skills/project_specific/ios_remote_client.md \
+    $RESUME_ARGS "$@"
     
   EXIT_CODE=$?
   
@@ -86,5 +85,6 @@ while true; do
   fi
   
   echo "⚠️ Агент завершив роботу з помилкою або по таймауту (Код $EXIT_CODE). Автоматичний перезапуск через 3 секунди..."
+  RESUME_ARGS="--resume latest"
   sleep 3
 done
