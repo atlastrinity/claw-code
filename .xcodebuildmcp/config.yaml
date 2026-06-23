@@ -14,6 +14,8 @@ sessionDefaultsProfiles:
   physical-device:
     projectPath: /Users/dev/Documents/GitHub/claw-code/ClawController/ClawController.xcodeproj
     scheme: ClawController
+    configuration: Debug
     deviceId: 00008140-0000790E3A08801C
     platform: iOS
+    bundleId: com.clawcode.controller
 activeSessionDefaultsProfile: physical-device

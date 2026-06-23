@@ -34,3 +34,20 @@ logs/
 
 # Dynamic AI Todo files
 .clawd-todos.json
+
+# Task Graph & IDE Artifacts
+task.md
+.clawd-task-graph.json
+
+# iOS Project (Independent Repo)
+ClawController/
+
+# Xcode / iOS / Swift
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcshareddata/
+.xcodebuildmcp/

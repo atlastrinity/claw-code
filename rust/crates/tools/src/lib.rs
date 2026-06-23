@@ -4291,7 +4291,7 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
                     _ => "[ ]",
                 };
                 let indent = "  ".repeat(depth);
-                markdown.push_str(&format!("{}- {} {}\n", indent, checkbox, node.content.as_deref().unwrap_or("")));
+                markdown.push_str(&format!("{}- {} **{}**: {}\n", indent, checkbox, node.id, node.content.as_deref().unwrap_or("")));
                 
                 // Find children
                 for child in nodes.iter().filter(|n| n.parent_id.as_deref() == Some(id)) {
@@ -4300,8 +4300,10 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
             }
         }
 
-        // Roots
-        for root in current_nodes.iter().filter(|n| n.parent_id.is_none()) {
+        // Roots: nodes with no parent, OR whose parent doesn't exist
+        for root in current_nodes.iter().filter(|n| {
+            n.parent_id.is_none() || !current_nodes.iter().any(|p| Some(p.id.as_str()) == n.parent_id.as_deref())
+        }) {
             write_node(&root.id, &current_nodes, &mut markdown, 0);
         }
 

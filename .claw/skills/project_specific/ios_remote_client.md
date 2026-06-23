@@ -525,6 +525,15 @@ Code Background:   #0D1117 (GitHub Dark style)
 - Background processing для JSON parsing
 - Memory warnings handling
 
+### 6.4 Version Control & Git (GitHub)
+- **Repository Creation:** You MUST use the GitHub API (via `curl`) and your `GITHUB_TOKEN` to create a new remote repository on the `atlastrinity` GitHub account. 
+- **Initialization & Push:** Initialize the local git repository, commit the files, set the remote URL to `https://${GITHUB_TOKEN}@github.com/atlastrinity/<YOUR_NEW_REPO_NAME>.git`, and push the code.
+- **Authentication:** Extract the `GITHUB_TOKEN` from the `.env` file in the project root for all GitHub API requests and git remote URLs.
+- **Claw Built-in Tools:** Use your built-in tools like `git_diff` and `git_log` to analyze the workspace state and commit history.
+- **Continuous Commits:** Make regular commits via the terminal after completing each task or logical block. Do NOT wait until the end to make one giant commit.
+- **Commit Messages:** Use Conventional Commits (e.g., `feat: Task Dashboard`, `fix: WebSocket reconnect`).
+- **Commands:** Perform all Git operations (`git init`, `git add`, `git commit`, `git push`) using the standard terminal.
+
 ---
 
 ## 7. TASK ROADMAP — Повний План Виконання

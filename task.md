@@ -1,10 +1,49 @@
 # Task List
 
-- [x] Build and install ClawController on connected physical iPhone (named "айфон 2")
-  - [x] Verify project defaults and search for physical device "айфон 2"
-  - [x] Set Xcode session defaults for building to the physical device
-    - [x] Set Xcode session defaults for ClawController project
-    - [x] Update task graph for defaults completion
-  - [x] Build ClawController for iOS physical device - SUCCEEDED (ad-hoc signing)
-  - [ ] Install and verify the application on the iPhone
-  - [x] Build and run ClawController on iOS Simulator (iPhone 16 Pro Max, iOS 26.0)
+- [x] **1**: Verify current directory structure and check for existing files
+  - [x] **1.1**: Create Xcode project structure for ClawController
+  - [x] **1.2**: Set up TCA dependencies via SPM
+  - [x] **1.3**: Create core domain models (ChatMessage, TaskNode, ToolCall, AgentSession)
+  - [x] **1.4**: Implement networking layer (WebSocketManager, NDJSONParser, ConnectionStateMachine)
+  - [x] **1.5**: Create TCA reducers for all features (Chat, Tasks, Tools, Logs, Analytics, Settings)
+  - [x] **1.6**: Build Design System foundation (colors, typography, components)
+  - [x] **1.7**: Implement Chat UI with message bubbles and markdown rendering
+  - [ ] **1.8**: Build Task Dashboard with tree view and statistics
+  - [ ] **1.9**: Create Tools Inspector with timeline view
+  - [ ] **1.10**: Implement Terminal/Logs view with ANSI color support
+  - [ ] **1.11**: Build Settings screen with all configuration options
+  - [ ] **1.12**: Configure signing for physical iPhone (development team, bundle ID)
+  - [ ] **1.13**: Build project for physical iPhone and install
+  - [ ] **1.14**: Verify app runs successfully on physical iPhone
+- [ ] **2**: Phase 2: Design System & Core Components
+  - [x] **2.1**: Create Task Dashboard with tree view and statistics
+  - [x] **2.2**: Create Tools Inspector with timeline view
+  - [x] **2.3**: Implement Terminal/Logs view with ANSI color support
+  - [/] **2.4**: Build Settings screen with all configuration options
+  - [ ] **2.5**: Configure signing for physical iPhone
+  - [ ] **2.6**: Build project for physical iPhone and install
+  - [ ] **2.7**: Verify app runs successfully on physical iPhone
+- [ ] **3**: Phase 3: Networking Layer
+- [ ] **4**: Phase 4: Chat Feature (Core)
+- [ ] **5**: Phase 5: Task Dashboard Feature
+  - [x] **5.1**: Check current project structure and verify completed work
+  - [x] **5.2**: Implement TasksReducer with task parsing logic
+  - [x] **5.3**: Build TaskDashboardView with header stats
+  - [x] **5.4**: Implement TaskTreeView with expand/collapse
+  - [x] **5.5**: Create TaskNodeRow with status icons
+  - [x] **5.6**: Build TaskStatsHeader with circular progress
+  - [x] **5.7**: Implement TaskDetailSheet for task details
+  - [/] **5.8**: Test Task Dashboard on iOS Simulator
+- [ ] **6**: Phase 6: Tools Inspector Feature
+  - [x] **6.1**: Implement ToolsReducer with timeline management
+  - [x] **6.2**: Build ToolsInspectorView with timeline container
+  - [x] **6.3**: Create ToolTimelineView with chronological list
+  - [x] **6.4**: Implement ToolCallCard with full details
+  - [x] **6.5**: Build ToolFilterBar with filter chips
+  - [/] **6.6**: Create ToolStatsView with charts
+  - [ ] **6.7**: Build ToolDetailSheet for tool details
+- [ ] **7**: Phase 7: Logs/Terminal Feature
+- [ ] **8**: Phase 8: Analytics, Settings, Sessions
+- [ ] **9**: Phase 9: System Integrations
+- [ ] **10**: Phase 10: Onboarding & Polish
+- [ ] **11**: Phase 11: Deployment to Physical iPhone
