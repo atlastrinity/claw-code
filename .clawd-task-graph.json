@@ -2,8 +2,7 @@
   {
     "id": "1",
     "content": "Verify current directory structure and check for existing files",
-    "status": "completed",
-    "parent_id": null
+    "status": "completed"
   },
   {
     "id": "1.1",
@@ -92,8 +91,7 @@
   {
     "id": "2",
     "content": "Phase 2: Design System & Core Components",
-    "status": "pending",
-    "parent_id": null
+    "status": "pending"
   },
   {
     "id": "2.1",
@@ -140,20 +138,17 @@
   {
     "id": "3",
     "content": "Phase 3: Networking Layer",
-    "status": "pending",
-    "parent_id": null
+    "status": "pending"
   },
   {
     "id": "4",
     "content": "Phase 4: Chat Feature (Core)",
-    "status": "pending",
-    "parent_id": null
+    "status": "pending"
   },
   {
     "id": "5",
     "content": "Phase 5: Task Dashboard Feature",
-    "status": "pending",
-    "parent_id": null
+    "status": "pending"
   },
   {
     "id": "5.1",
@@ -213,7 +208,7 @@
     "id": "5.8.1.1",
     "parent_id": "5.8.1",
     "content": "Set iPhone 16 Pro Max as default simulator",
-    "status": "in_progress"
+    "status": "completed"
   },
   {
     "id": "5.8.2",
@@ -254,8 +249,7 @@
   {
     "id": "6",
     "content": "Phase 6: Tools Inspector Feature",
-    "status": "pending",
-    "parent_id": null
+    "status": "pending"
   },
   {
     "id": "6.1",
@@ -302,31 +296,26 @@
   {
     "id": "7",
     "content": "Phase 7: Logs/Terminal Feature",
-    "status": "pending",
-    "parent_id": null
+    "status": "pending"
   },
   {
     "id": "8",
     "content": "Phase 8: Analytics, Settings, Sessions",
-    "status": "pending",
-    "parent_id": null
+    "status": "pending"
   },
   {
     "id": "9",
     "content": "Phase 9: System Integrations",
-    "status": "pending",
-    "parent_id": null
+    "status": "pending"
   },
   {
     "id": "10",
     "content": "Phase 10: Onboarding & Polish",
-    "status": "pending",
-    "parent_id": null
+    "status": "pending"
   },
   {
     "id": "11",
     "content": "Phase 11: Deployment to Physical iPhone",
-    "status": "pending",
-    "parent_id": null
+    "status": "pending"
   }
 ]
