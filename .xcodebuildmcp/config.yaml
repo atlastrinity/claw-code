@@ -10,3 +10,10 @@ sessionDefaults:
   useLatestOS: true
   platform: iOS Simulator
   bundleId: io.sentry.clawcontroller
+sessionDefaultsProfiles:
+  physical-device:
+    projectPath: /Users/dev/Documents/GitHub/claw-code/ClawController/ClawController.xcodeproj
+    scheme: ClawController
+    deviceId: 00008140-0000790E3A08801C
+    platform: iOS
+activeSessionDefaultsProfile: physical-device
