@@ -12,9 +12,13 @@ let package = Package(
             targets: ["ClawController"]
         ),
     ],
+    dependencies: [
+        .package(path: "./ClawControllerPackage")
+    ],
     targets: [
         .target(
             name: "ClawController",
+            dependencies: ["ClawControllerFeature"],
             path: "Sources/ClawController"
         ),
     ]
