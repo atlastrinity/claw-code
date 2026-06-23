@@ -2608,6 +2608,9 @@ fn looks_like_windows_absolute_path(token: &str) -> bool {
 }
 
 fn run_bash(input: BashCommandInput, budget: ContextBudget) -> Result<String, String> {
+    if input.command.contains("task.md") && (input.command.contains('>') || input.command.contains("sed ") || input.command.contains("awk ") || input.command.contains("ed ") || input.command.contains("vim ") || input.command.contains("nano ") || input.command.contains("echo ")) {
+        return Err("Error: Direct modification of task.md via bash is forbidden. You MUST use the TaskGraph tool to maintain your task tree.".to_string());
+    }
     if let Some(output) = workspace_test_branch_preflight(&input.command) {
         return serde_json::to_string_pretty(&output).map_err(|error| error.to_string());
     }
@@ -2781,6 +2784,9 @@ fn run_read_file(input: ReadFileInput, budget: ContextBudget) -> Result<String, 
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_write_file(input: WriteFileInput) -> Result<String, String> {
+    if input.path.ends_with("task.md") {
+        return Err("Error: Direct modification of task.md is forbidden. You MUST use the TaskGraph tool to maintain your task tree.".to_string());
+    }
     let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
     to_pretty_json(
         write_file_in_workspace(&input.path, &input.content, &workspace).map_err(io_to_string)?,
@@ -2789,6 +2795,9 @@ fn run_write_file(input: WriteFileInput) -> Result<String, String> {
 
 #[allow(clippy::needless_pass_by_value)]
 fn run_edit_file(input: EditFileInput) -> Result<String, String> {
+    if input.path.ends_with("task.md") {
+        return Err("Error: Direct modification of task.md is forbidden. You MUST use the TaskGraph tool to maintain your task tree.".to_string());
+    }
     let workspace = std::env::current_dir().map_err(|error| error.to_string())?;
     to_pretty_json(
         edit_file_in_workspace(
@@ -3053,6 +3062,9 @@ fn is_within_workspace(path: &str) -> bool {
 }
 
 fn run_powershell(input: PowerShellInput) -> Result<String, String> {
+    if input.command.contains("task.md") && (input.command.contains('>') || input.command.contains("Set-Content") || input.command.contains("Add-Content") || input.command.contains("Out-File")) {
+        return Err("Error: Direct modification of task.md via powershell is forbidden. You MUST use the TaskGraph tool to maintain your task tree.".to_string());
+    }
     to_pretty_json(execute_powershell(input).map_err(|error| error.to_string())?)
 }
 
