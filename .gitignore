@@ -34,3 +34,22 @@ logs/
 
 # Dynamic AI Todo files
 .clawd-todos.json
+
+# macOS
+.DS_Store
+
+# Swift / Xcode / Build
+.build/
+.xcodebuildmcp/
+Package.resolved
+
+# Vendor
+vendor/
+
+# Models and ML Data
+model.pth
+feats_stats.npz
+spk_xvector.ark
+
+# Local configs
+config.yaml
