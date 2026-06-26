@@ -331,7 +331,52 @@ fi
 ok "built ${CLAW_BIN}"
 
 # ---------------------------------------------------------------------------
-# Step 5: post-install verification
+# Step 5: Install binaries to global directory and sync settings
+# ---------------------------------------------------------------------------
+
+step "Installing binaries and synchronizing settings"
+
+GLOBAL_DIR="$HOME/.claw"
+GLOBAL_BIN_DIR="${GLOBAL_DIR}/bin"
+
+info "Ensuring global bin directory exists: ${GLOBAL_BIN_DIR}"
+mkdir -p "${GLOBAL_BIN_DIR}"
+
+info "Copying binaries to global bin directory..."
+cp "${RUST_DIR}/target/${BUILD_PROFILE}/claw" "${GLOBAL_BIN_DIR}/"
+cp "${RUST_DIR}/target/${BUILD_PROFILE}/claw-analog" "${GLOBAL_BIN_DIR}/"
+cp "${RUST_DIR}/target/${BUILD_PROFILE}/claw-rag-service" "${GLOBAL_BIN_DIR}/"
+
+# Point verification and output to the installed binary
+CLAW_BIN="${GLOBAL_BIN_DIR}/claw"
+
+info "Synchronizing MCP Server Settings..."
+LOCAL_SETTINGS="${SCRIPT_DIR}/.claw.json"
+GLOBAL_SETTINGS="${GLOBAL_DIR}/settings.json"
+
+if [ -f "${LOCAL_SETTINGS}" ] && [ ! -f "${GLOBAL_SETTINGS}" ]; then
+    info "Creating global settings from local..."
+    cp "${LOCAL_SETTINGS}" "${GLOBAL_SETTINGS}"
+elif [ ! -f "${LOCAL_SETTINGS}" ] && [ -f "${GLOBAL_SETTINGS}" ]; then
+    info "Creating local settings from global..."
+    cp "${GLOBAL_SETTINGS}" "${LOCAL_SETTINGS}"
+elif [ -f "${LOCAL_SETTINGS}" ] && [ -f "${GLOBAL_SETTINGS}" ]; then
+    info "Syncing configurations between local and global..."
+    if [ "${LOCAL_SETTINGS}" -nt "${GLOBAL_SETTINGS}" ]; then
+        info "Local .claw.json is newer. Overwriting global settings.json..."
+        cp "${LOCAL_SETTINGS}" "${GLOBAL_SETTINGS}"
+    elif [ "${GLOBAL_SETTINGS}" -nt "${LOCAL_SETTINGS}" ]; then
+        info "Global settings.json is newer. Overwriting local .claw.json..."
+        cp "${GLOBAL_SETTINGS}" "${LOCAL_SETTINGS}"
+    else
+        info "Settings are identical in timestamp."
+    fi
+else
+    warn "Missing both local and global settings files."
+fi
+
+# ---------------------------------------------------------------------------
+# Step 6: post-install verification
 # ---------------------------------------------------------------------------
 
 step "Verifying the installed binary"
@@ -358,7 +403,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Step 6: next steps
+# Step 7: next steps
 # ---------------------------------------------------------------------------
 
 step "Next steps"
