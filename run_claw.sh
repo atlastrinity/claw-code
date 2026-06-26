@@ -59,7 +59,15 @@ else
 fi
 echo ""
 
-# 2. Запускаємо RAG-сервіс у фоновому режимі
+# 2. Перевірка та запуск Xcode (потрібен для mcpbridge)
+if ! pgrep -q -x "Xcode"; then
+  echo "🍏 Запуск Xcode (необхідно для xcode-bridge MCP)..."
+  open -a Xcode
+  # Чекаємо кілька секунд, щоб Xcode встиг запуститися
+  sleep 3
+fi
+
+# 3. Запускаємо RAG-сервіс у фоновому режимі
 echo "🚀 Запуск claw-rag-service у фоні..."
 "$HOME/.claw/bin/claw-rag-service" serve > /dev/null 2>&1 &
 RAG_PID=$!
