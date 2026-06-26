@@ -102,7 +102,7 @@ pub fn run_repl(
                 cli.record_prompt_history(&display_input);
 
                 let mut auto_continue_count = 0;
-                let max_auto_continue = 1000;
+                let max_auto_continue = usize::MAX; // Безліміт
 
                 loop {
                     cli.run_turn(&current_input)?;
