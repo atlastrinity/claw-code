@@ -3,16 +3,11 @@ use std::path::{Path, PathBuf};
 /// Environment variable name for the workspace root override.
 const WORKSPACE_ROOT_ENV: &str = "CLAW_WORKSPACE_ROOT";
 
-/// Marker directories used for anchor discovery, in priority order.
-const ANCHOR_MARKERS: &[&str] = &[".claw", ".git"];
-
 /// Resolve the canonical workspace root.
 ///
 /// Priority:
 /// 1. `CLAW_WORKSPACE_ROOT` env var (set by launcher or parent process)
-/// 2. Walk up from `cwd` looking for `.claw/` directory
-/// 3. Walk up from `cwd` looking for `.git/` directory
-/// 4. Fall back to `cwd` itself
+/// 2. Fall back to `cwd` itself directly (do not search parent directories for markers)
 ///
 /// This function is intentionally NOT cached so that tests which change
 /// `current_dir` or environment variables get correct results.
@@ -26,14 +21,8 @@ pub fn workspace_root() -> PathBuf {
         }
     }
 
-    // 2 & 3. Walk up from cwd looking for marker directories
+    // 2. Fall back to cwd
     if let Ok(cwd) = std::env::current_dir() {
-        for marker in ANCHOR_MARKERS {
-            if let Some(root) = walk_up_for_marker(&cwd, marker) {
-                return root;
-            }
-        }
-        // 4. Fall back to cwd
         return cwd;
     }
 
@@ -68,19 +57,6 @@ pub fn resolve_path(path: &str) -> PathBuf {
     }
 
     workspace_root().join(path)
-}
-
-/// Walk up from `start` looking for a directory containing `marker`.
-fn walk_up_for_marker(start: &Path, marker: &str) -> Option<PathBuf> {
-    let mut current = start.to_path_buf();
-    loop {
-        if current.join(marker).is_dir() {
-            return Some(current);
-        }
-        if !current.pop() {
-            return None;
-        }
-    }
 }
 
 /// Cross-platform home directory lookup.
@@ -122,16 +98,6 @@ mod tests {
         if let Ok(home) = env::var("HOME") {
             let result = resolve_path("~/foo/bar");
             assert_eq!(result, PathBuf::from(home).join("foo/bar"));
-        }
-    }
-
-    #[test]
-    fn walk_up_finds_marker() {
-        if let Ok(cwd) = env::current_dir() {
-            let found = walk_up_for_marker(&cwd, ".git");
-            if let Some(root) = found {
-                assert!(root.join(".git").is_dir());
-            }
         }
     }
 }

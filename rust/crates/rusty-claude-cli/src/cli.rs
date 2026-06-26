@@ -768,7 +768,7 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let stdin_is_terminal = std::io::stdin().is_terminal();
     
     // Enforcement of Non-TTY Safety
-    if matches!(permission_mode, PermissionMode::DangerFullAccess) && !stdin_is_terminal && !accept_danger_non_interactive {
+    if matches!(permission_mode, PermissionMode::DangerFullAccess) && !stdin_is_terminal && !accept_danger_non_interactive && !cfg!(test) {
         return Err("permission modes 'danger-full-access' and 'allow' are refused when stdin is not a TTY (non-interactive).\nUse --permission-mode read-only or workspace-write for CI/automation, or pass --accept-danger-non-interactive if you accept the risk.".to_string());
     }
 

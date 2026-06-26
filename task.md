@@ -8,10 +8,10 @@
 
 # Task List
 
-- [/] **1**: Phase 1: Project Setup (xcode-bridge MCP)
-  - [/] **1.1**: Перевірити доступність xcode-bridge MCP сервера
-  - [ ] **1.2**: Створити iOS проєкт через xcode-bridge MCP
-  - [ ] **1.3**: Перевірити структуру директорій проєкту
+- [x] **1**: Phase 1: Project Setup (xcode-bridge MCP)
+  - [x] **1.1**: Перевірити доступність xcode-bridge MCP сервера
+  - [x] **1.2**: Створити iOS проєкт через xcode-bridge MCP
+  - [x] **1.3**: Перевірити структуру директорій проєкту
   - [x] **1.4**: Implement networking layer (WebSocketManager, NDJSONParser, ConnectionStateMachine)
   - [x] **1.5**: Create TCA reducers for all features (Chat, Tasks, Tools, Logs, Analytics, Settings)
   - [x] **1.6**: Build Design System foundation (colors, typography, components)
@@ -23,16 +23,16 @@
   - [ ] **1.12**: Configure signing for physical iPhone (development team, bundle ID)
   - [ ] **1.13**: Build project for physical iPhone and install
   - [ ] **1.14**: Verify app runs successfully on physical iPhone
-- [ ] **2**: Phase 2: Code Implementation & Unit Tests
-  - [ ] **2.1**: Створити ClawMcpDemoApp.swift з SwiftUI
-  - [ ] **2.2**: Створити ContentView.swift з Counter логікою
-  - [ ] **2.3**: Створити ClawMcpDemoTests.swift з Unit-тестами
-  - [ ] **2.4**: Написати Unit-тести для інкременту (+)
-  - [ ] **2.5**: Написати Unit-тести для декременту (-)
+- [/] **2**: Phase 2: Code Implementation & Unit Tests
+  - [x] **2.1**: Створити ClawMcpDemoApp.swift з SwiftUI
+  - [x] **2.2**: Створити ContentView.swift з Counter логікою
+  - [x] **2.3**: Створити ClawMcpDemoTests.swift з Unit-тестами
+  - [x] **2.4**: Написати Unit-тести для інкременту (+)
+  - [x] **2.5**: Написати Unit-тести для декременту (-)
   - [ ] **2.6**: Build project for physical iPhone and install
   - [ ] **2.7**: Verify app runs successfully on physical iPhone
-- [ ] **3**: Phase 3: Build & Run Unit Tests
-  - [ ] **3.1**: Компілювати проєкт через xcode-bridge MCP
+- [/] **3**: Phase 3: Build & Run Unit Tests
+  - [/] **3.1**: Компілювати проєкт через xcode-bridge MCP
   - [ ] **3.2**: Виправити помилки якщо є
   - [ ] **3.3**: Запустити Unit-тести через MCP
   - [ ] **3.4**: Зібрати звіт про результати тестів

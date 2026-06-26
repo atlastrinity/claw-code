@@ -53,6 +53,24 @@
             "name": "Release ClawController (ClawController)",
             "program": "${workspaceFolder:claw-code}/ClawController/.build/release/ClawController",
             "preLaunchTask": "swift: Build Release ClawController (ClawController)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:claw-code}/ClawMcpDemo",
+            "name": "Debug ClawMcpDemo (ClawMcpDemo)",
+            "program": "${workspaceFolder:claw-code}/ClawMcpDemo/.build/debug/ClawMcpDemo",
+            "preLaunchTask": "swift: Build Debug ClawMcpDemo (ClawMcpDemo)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:claw-code}/ClawMcpDemo",
+            "name": "Release ClawMcpDemo (ClawMcpDemo)",
+            "program": "${workspaceFolder:claw-code}/ClawMcpDemo/.build/release/ClawMcpDemo",
+            "preLaunchTask": "swift: Build Release ClawMcpDemo (ClawMcpDemo)"
         }
     ]
 }
