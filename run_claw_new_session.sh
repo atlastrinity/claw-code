@@ -68,14 +68,27 @@ RAG_PID=$!
 trap "echo '🛑 Зупинка claw-rag-service...'; kill $RAG_PID 2>/dev/null" EXIT
 
 # 5. Запускаємо основний клієнт claw (нова сесія)
-echo "🚀 Запуск нової сесії основного клієнта Claw ($SELECTED_MODEL)..."
+echo "🚀 Запуск нової сесії основного клієнта Claw ($SELECTED_MODEL) з авто-відновленням..."
 
-"$HOME/.claw/bin/claw" \
-  --model "$SELECTED_MODEL" \
-  --skip-permissions \
-  --accept-danger-non-interactive \
-  --attach-skill .claw/skills/project_specific/ios_remote_client.md \
-  "$@"
+RESUME_ARGS=""
+
+while true; do
+  "$HOME/.claw/bin/claw" \
+    --model "$SELECTED_MODEL" \
+    --skip-permissions \
+    --accept-danger-non-interactive \
+    --attach-skill .claw/skills/project_specific/ios_remote_client.md \
+    $RESUME_ARGS "$@"
+    
+  EXIT_CODE=$?
   
-EXIT_CODE=$?
-echo "👋 Роботу завершено (Код $EXIT_CODE)."
+  # Код 0 (нормальний вихід) або 130 (Ctrl+C користувачем) зупиняє цикл
+  if [ $EXIT_CODE -eq 0 ] || [ $EXIT_CODE -eq 130 ]; then
+    echo "👋 Роботу завершено (Код $EXIT_CODE)."
+    break
+  fi
+  
+  echo "⚠️ Агент завершив роботу з помилкою або по таймауту (Код $EXIT_CODE). Автоматичний перезапуск (у тому ж контексті) через 3 секунди..."
+  RESUME_ARGS="--resume latest"
+  sleep 3
+done
