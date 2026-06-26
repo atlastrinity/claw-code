@@ -26,12 +26,25 @@ echo "==> Synchronizing MCP Server Settings..."
 LOCAL_SETTINGS="${SCRIPT_DIR}/.claw.json"
 GLOBAL_SETTINGS="${GLOBAL_DIR}/settings.json"
 
-if [ -f "${LOCAL_SETTINGS}" ] && [ -f "${GLOBAL_SETTINGS}" ]; then
+if [ -f "${LOCAL_SETTINGS}" ] && [ ! -f "${GLOBAL_SETTINGS}" ]; then
+    echo "    Creating global settings from local..."
+    cp "${LOCAL_SETTINGS}" "${GLOBAL_SETTINGS}"
+elif [ ! -f "${LOCAL_SETTINGS}" ] && [ -f "${GLOBAL_SETTINGS}" ]; then
+    echo "    Creating local settings from global..."
+    cp "${GLOBAL_SETTINGS}" "${LOCAL_SETTINGS}"
+elif [ -f "${LOCAL_SETTINGS}" ] && [ -f "${GLOBAL_SETTINGS}" ]; then
     echo "    Syncing configurations between local and global..."
-    jq -s '.[0] * .[1]' "${GLOBAL_SETTINGS}" "${LOCAL_SETTINGS}" > "${GLOBAL_SETTINGS}.tmp" && mv "${GLOBAL_SETTINGS}.tmp" "${GLOBAL_SETTINGS}"
-    echo "    Settings synced."
+    if [ "${LOCAL_SETTINGS}" -nt "${GLOBAL_SETTINGS}" ]; then
+        echo "    Local .claw.json is newer. Overwriting global settings.json..."
+        cp "${LOCAL_SETTINGS}" "${GLOBAL_SETTINGS}"
+    elif [ "${GLOBAL_SETTINGS}" -nt "${LOCAL_SETTINGS}" ]; then
+        echo "    Global settings.json is newer. Overwriting local .claw.json..."
+        cp "${GLOBAL_SETTINGS}" "${LOCAL_SETTINGS}"
+    else
+        echo "    Settings are identical in timestamp."
+    fi
 else
-    echo "    Warning: Missing local or global settings file."
+    echo "    Warning: Missing both local and global settings files."
 fi
 
 echo "==> Setup complete!"
