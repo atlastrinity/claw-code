@@ -59,7 +59,7 @@ echo ""
 
 # 2. Запускаємо RAG-сервіс у фоновому режимі
 echo "🚀 Запуск claw-rag-service у фоні..."
-cargo run --manifest-path rust/Cargo.toml -p claw-rag-service -- serve > /dev/null 2>&1 &
+"$HOME/.claw/bin/claw-rag-service" serve > /dev/null 2>&1 &
 RAG_PID=$!
 
 # 3. Налаштовуємо автоматичне вимкнення RAG-сервісу при виході з claw
@@ -71,7 +71,7 @@ echo "🚀 Запуск основного клієнта Claw ($SELECTED_MODEL)
 RESUME_ARGS=""
 
 while true; do
-  cargo run --manifest-path rust/Cargo.toml --bin claw -- \
+  "$HOME/.claw/bin/claw" \
     --model "$SELECTED_MODEL" \
     --skip-permissions \
     --accept-danger-non-interactive \

@@ -27,5 +27,19 @@
     "ToolSearch"
   ],
   "allowedTools": ["*"],
-  "mcpServers": {}
+  "mcpServers": {
+    "xcode-bridge": {
+      "command": "xcrun",
+      "args": [
+        "mcpbridge"
+      ]
+    },
+    "ios-simulator": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "ios-simulator-mcp"
+      ]
+    }
+  }
 }
