@@ -15,12 +15,15 @@ npm install -g ios-simulator-mcp
 echo "==> [2/4] Installing fb-idb Python package..."
 pip3 install --user fb-idb
 
-echo "==> [3/4] Tapping facebook/fb and installing idb-companion..."
+echo "==> [3/5] Tapping facebook/fb and installing idb-companion..."
 brew tap facebook/fb
 brew trust facebook/fb || true
 brew install idb-companion
 
-echo "==> [4/4] Creating idb wrapper at ${IDB_DEST}..."
+echo "==> [4/5] Installing xcodegen (required for project generation)..."
+brew install xcodegen || true
+
+echo "==> [5/5] Creating idb wrapper at ${IDB_DEST}..."
 SANDBOX_HOME="${SCRIPT_DIR}/.sandbox-home"
 
 # Detect if we are running in a sandboxed home directory

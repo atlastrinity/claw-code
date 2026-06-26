@@ -294,6 +294,16 @@ if [ "${OS_FAMILY}" = "macos" ]; then
     if ! require_cmd cc && ! xcode-select -p >/dev/null 2>&1; then
         warn "Xcode command line tools not detected — run: xcode-select --install"
     fi
+    if ! require_cmd xcodegen; then
+        if require_cmd brew; then
+            info "xcodegen not found — installing via Homebrew..."
+            brew install xcodegen || warn "failed to install xcodegen"
+        else
+            warn "xcodegen not found and Homebrew is missing. Please install xcodegen manually."
+        fi
+    else
+        ok "xcodegen found"
+    fi
 fi
 
 if [ "${MISSING_PREREQS}" -ne 0 ]; then
