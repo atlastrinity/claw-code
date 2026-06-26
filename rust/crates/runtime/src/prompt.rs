@@ -90,6 +90,7 @@ pub struct ProjectContext {
     pub git_diff: Option<String>,
     pub git_context: Option<GitContext>,
     pub instruction_files: Vec<ContextFile>,
+    pub file_tree: Option<String>,
 }
 
 impl ProjectContext {
@@ -99,6 +100,7 @@ impl ProjectContext {
     ) -> std::io::Result<Self> {
         let cwd = cwd.into();
         let instruction_files = discover_instruction_files(&cwd, &RulesImportConfig::default())?;
+        let file_tree = crate::file_tree::build_file_tree(&cwd, 3);
         Ok(Self {
             cwd,
             current_date: current_date.into(),
@@ -106,6 +108,7 @@ impl ProjectContext {
             git_diff: None,
             git_context: None,
             instruction_files,
+            file_tree: Some(file_tree),
         })
     }
 
@@ -116,6 +119,7 @@ impl ProjectContext {
     ) -> std::io::Result<Self> {
         let cwd = cwd.into();
         let instruction_files = discover_instruction_files(&cwd, rules_import)?;
+        let file_tree = crate::file_tree::build_file_tree(&cwd, 3);
         Ok(Self {
             cwd,
             current_date: current_date.into(),
@@ -123,6 +127,7 @@ impl ProjectContext {
             git_diff: None,
             git_context: None,
             instruction_files,
+            file_tree: Some(file_tree),
         })
     }
 
@@ -461,6 +466,13 @@ fn render_project_context(project_context: &ProjectContext) -> String {
                 lines.push(format!("  {} {}", c.hash, c.subject));
             }
         }
+    }
+    if let Some(tree) = &project_context.file_tree {
+        lines.push(String::new());
+        lines.push("## Workspace File Tree".to_string());
+        lines.push("```".to_string());
+        lines.push(tree.clone());
+        lines.push("```".to_string());
     }
     if let Some(diff) = &project_context.git_diff {
         lines.push(String::new());

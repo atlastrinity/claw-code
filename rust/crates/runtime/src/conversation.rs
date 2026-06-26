@@ -956,6 +956,7 @@ mod tests {
                 git_diff: None,
                 git_context: None,
                 instruction_files: Vec::new(),
+                file_tree: None,
             })
             .with_os("linux", "6.8")
             .build();
