@@ -92,8 +92,11 @@ while true; do
   EXIT_CODE=$?
   
   # Код 0 (нормальний вихід) або 130 (Ctrl+C користувачем) зупиняє цикл
-  if [ $EXIT_CODE -eq 0 ] || [ $EXIT_CODE -eq 130 ]; then
-    echo "👋 Роботу завершено (Код $EXIT_CODE)."
+  if [ $EXIT_CODE -eq 0 ]; then
+    echo "👋 Роботу завершено (Код 0)."
+    break
+  elif [ $EXIT_CODE -eq 130 ] || [ $EXIT_CODE -eq 143 ] || [ $EXIT_CODE -eq 137 ]; then
+    echo "🛑 Процес було примусово зупинено (Код $EXIT_CODE). Перезапуск скасовано."
     break
   fi
   
