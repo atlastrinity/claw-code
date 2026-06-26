@@ -34,11 +34,17 @@ kill_process "claw" true
 kill_process "claw-analog" true
 kill_process "claw-rag-service" true
 
-# Kill cargo run commands that are running claw
+# Kill cargo commands (both run and test) and the compiled test binaries
 kill_process "cargo run.*claw" false
+kill_process "cargo test.*" false
+kill_process "deps/claw-" false
 
 # Kill node/MCP server processes spawned by claw
 kill_process "ios-simulator-mcp" false
 kill_process "mcpbridge" false
+
+# Kill iOS simulator auxiliary daemon processes
+kill_process "idb_companion" false
+kill_process "bin/idb " false
 
 echo "✅ All claw processes have been terminated."
