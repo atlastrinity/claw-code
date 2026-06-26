@@ -90,7 +90,8 @@ while true; do
     --model "$SELECTED_MODEL" \
     --skip-permissions \
     --accept-danger-non-interactive \
-    --attach-skill "$SCRIPT_DIR/.claw/skills/project_specific/ios_remote_client.md" \
+    --attach-skill "$SCRIPT_DIR/.claw/skills/workflows/apple-development-workflow/SKILL.md" \
+    --attach-skill "$SCRIPT_DIR/.claw/skills/xcode_project_setup/SKILL.md" \
     $RESUME_ARGS "$@"
     
   EXIT_CODE=$?
