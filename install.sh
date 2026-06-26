@@ -42,7 +42,7 @@ else
 fi
 
 CURRENT_STEP=0
-TOTAL_STEPS=6
+TOTAL_STEPS=7
 
 step() {
     CURRENT_STEP=$((CURRENT_STEP + 1))

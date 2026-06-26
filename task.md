@@ -67,3 +67,9 @@
 - [ ] **9**: Phase 9: System Integrations
 - [ ] **10**: Phase 10: Onboarding & Polish
 - [ ] **11**: Phase 11: Deployment to Physical iPhone
+- [x] **100**: Remove old task plan and create new testing plan
+- [x] **101**: Read testing skill documentation for MCP servers
+- [x] **102**: Test iOS Simulator MCP server functionality
+- [x] **103**: Test xcode-bridge MCP server functionality
+- [x] **104**: Verify all MCP integrations work correctly
+- [x] **105**: Document test results

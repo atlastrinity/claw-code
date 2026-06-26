@@ -341,5 +341,35 @@
     "id": "11",
     "content": "Phase 11: Deployment to Physical iPhone",
     "status": "pending"
+  },
+  {
+    "id": "100",
+    "content": "Remove old task plan and create new testing plan",
+    "status": "completed"
+  },
+  {
+    "id": "101",
+    "content": "Read testing skill documentation for MCP servers",
+    "status": "completed"
+  },
+  {
+    "id": "102",
+    "content": "Test iOS Simulator MCP server functionality",
+    "status": "completed"
+  },
+  {
+    "id": "103",
+    "content": "Test xcode-bridge MCP server functionality",
+    "status": "completed"
+  },
+  {
+    "id": "104",
+    "content": "Verify all MCP integrations work correctly",
+    "status": "completed"
+  },
+  {
+    "id": "105",
+    "content": "Document test results",
+    "status": "completed"
   }
 ]

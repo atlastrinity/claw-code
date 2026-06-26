@@ -38,6 +38,7 @@ kill_process "claw-rag-service" true
 kill_process "cargo run.*claw" false
 
 # Kill node/MCP server processes spawned by claw
-kill_process "XcodeBuildMCP/build/index.js" false
+kill_process "ios-simulator-mcp" false
+kill_process "mcpbridge" false
 
 echo "✅ All claw processes have been terminated."

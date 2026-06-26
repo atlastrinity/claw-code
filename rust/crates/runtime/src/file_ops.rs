@@ -45,7 +45,7 @@ fn validate_workspace_boundary(resolved: &Path, workspace_root: &Path) -> io::Re
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
             format!(
-                "path {} escapes workspace boundary {}",
+                "path {} escapes workspace boundary {}. The file tools sandbox prevents reading files outside the workspace root. Do NOT retry this exact tool call. If you need this file, try using the bash/run_command tool with 'cat' instead.",
                 resolved.display(),
                 workspace_root.display()
             ),
