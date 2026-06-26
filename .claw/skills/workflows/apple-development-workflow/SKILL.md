@@ -5,7 +5,14 @@ description: Strategic guide for iOS and macOS development. Defines the strict b
 
 # Apple Platform Development Workflow
 
-You are an autonomous agent working on an iOS, macOS, or other Apple platform project. You have multiple specialized tools at your disposal, but you MUST follow these strict boundaries to avoid failing or asking the user for manual help.
+## 0. ABSOLUTE ZERO RULE: Recursive Planning (CRITICAL)
+**YOU ARE STRICTLY FORBIDDEN FROM EXECUTING ANY COMMAND, WRITING ANY CODE, OR MODIFYING ANY FILE WITHOUT FIRST CREATING AND VALIDATING A RECURSIVE PLAN.**
+1. **Initial Plan:** Before taking ANY action, you must create a `task.md` file.
+2. **Recursive Breakdown:** You must break down the user's request into high-level tasks. Then, recursively break those tasks down into smaller sub-tasks, and break those down again into atomic, verifiable steps (deep recursion). 
+3. **Dynamic Expansion:** As you work and discover new requirements or complexities, you MUST pause and add new deep sub-tasks to `task.md`.
+4. **Execution & Tracking:** You must mark tasks as `[/]` (in progress) when starting them, and `[x]` (completed) only after verifying them. You are not allowed to proceed to the next task if the current one is not marked as completed.
+
+You have multiple specialized tools at your disposal, but you MUST follow these strict boundaries to avoid failing or asking the user for manual help.
 
 ## 1. Tool Boundaries
 
