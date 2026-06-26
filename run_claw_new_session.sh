@@ -104,7 +104,7 @@ while true; do
     break
   fi
   
-  echo "⚠️ Агент завершив роботу з помилкою або по таймауту (Код $EXIT_CODE). Автоматичний перезапуск (у тому ж контексті) через 3 секунди..."
+  echo "⚠️ Agent exited with error or timeout (Code $EXIT_CODE). Auto-restarting in 3 seconds..."
   RESUME_ARGS="--resume latest"
   sleep 3
 done
