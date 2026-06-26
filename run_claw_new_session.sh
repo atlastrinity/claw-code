@@ -70,8 +70,12 @@ fi
 
 # 3. Запускаємо RAG-сервіс у фоновому режимі
 echo "🚀 Запуск claw-rag-service у фоні..."
-"$HOME/.claw/bin/claw-rag-service" serve > /dev/null 2>&1 &
+"$HOME/.claw/bin/claw-rag-service" serve >> "$HOME/.claw/logs/claw-rag-startup.err" 2>&1 &
 RAG_PID=$!
+sleep 1
+if ! kill -0 $RAG_PID 2>/dev/null; then
+  echo "❌ УВАГА: claw-rag-service відразу завершився помилкою! Див. ~/.claw/logs/claw-rag-startup.err"
+fi
 
 # 3. Налаштовуємо автоматичне вимкнення RAG-сервісу при виході з claw
 trap "echo '🛑 Зупинка claw-rag-service...'; kill $RAG_PID 2>/dev/null" EXIT
