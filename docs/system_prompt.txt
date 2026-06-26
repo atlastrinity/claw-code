@@ -56,10 +56,10 @@ index 129a341..deca1be 100644
 --- a/.claw.json
 +++ b/.claw.json
 @@ -12,7 +12,62 @@
-     "mcp__macos-use__terminal",
-     "mcp__macos-use__macos-use_run_applescript",
+     ,
+     ,
      
--    "mcp__macos-use__ocr"
+-    
 +    
 +    "bash",
 +    "read_file",
@@ -117,12 +117,7 @@ index 129a341..deca1be 100644
 +    "GitShow",
 +    "GitBlame"
    ],
-   "mcpServers": {
-     "macos-use": {
-@@ -20,4 +75,4 @@
-       "args": []
-     }
-   }
+    "mcpServers": {}
 -}
 +}
 \ No newline at end of file
@@ -180,4 +175,4 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 # Runtime config
  - Loaded Project: /Users/dev/Documents/GitHub/claw-code/.claw.json
 
-{"aliases":{"quick":"openai/qwen2.5:latest"},"allowedTools":["mcp__macos-use__macos-use_click_and_traverse","mcp__macos-use__macos-use_type_and_traverse","mcp__macos-use__macos-use_scroll_and_traverse","mcp__macos-use__execute_command","mcp__macos-use__terminal","mcp__macos-use__macos-use_run_applescript","bash","read_file","write_file","edit_file","glob_search","grep_search","WebFetch","WebSearch","TaskGraph","Skill","Agent","ToolSearch","NotebookEdit","Sleep","SendUserMessage","Config","EnterPlanMode","ExitPlanMode","StructuredOutput","REPL","PowerShell","AskUserQuestion","TaskCreate","RunTaskPacket","TaskGet","TaskList","TaskStop","TaskUpdate","TaskOutput","WorkerCreate","WorkerGet","WorkerObserve","WorkerResolveTrust","WorkerAwaitReady","WorkerSendPrompt","WorkerRestart","WorkerTerminate","WorkerObserveCompletion","TeamCreate","TeamDelete","CronCreate","CronDelete","CronList","LSP","ListMcpResources","ReadMcpResource","McpAuth","RemoteTrigger","MCP","TestingPermission","GitStatus","GitDiff","GitLog","GitShow","GitBlame"],"mcpServers":{"macos-use":{"args":[],"command":"/Users/dev/Documents/GitHub/claw-code/vendor/mcp-server-macos-use/.build/release/mcp-server-macos-use"}}}
+{"aliases":{"quick":"openai/qwen2.5:latest"},"allowedTools":[,,,,,,"bash","read_file","write_file","edit_file","glob_search","grep_search","WebFetch","WebSearch","TaskGraph","Skill","Agent","ToolSearch","NotebookEdit","Sleep","SendUserMessage","Config","EnterPlanMode","ExitPlanMode","StructuredOutput","REPL","PowerShell","AskUserQuestion","TaskCreate","RunTaskPacket","TaskGet","TaskList","TaskStop","TaskUpdate","TaskOutput","WorkerCreate","WorkerGet","WorkerObserve","WorkerResolveTrust","WorkerAwaitReady","WorkerSendPrompt","WorkerRestart","WorkerTerminate","WorkerObserveCompletion","TeamCreate","TeamDelete","CronCreate","CronDelete","CronList","LSP","ListMcpResources","ReadMcpResource","McpAuth","RemoteTrigger","MCP","TestingPermission","GitStatus","GitDiff","GitLog","GitShow","GitBlame"],"mcpServers":{}}

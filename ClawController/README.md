@@ -120,6 +120,3 @@ To include assets in your feature package:
     resources: [.process("Resources")]
 )
 ```
-
-### Generated with XcodeBuildMCP
-This project was scaffolded using [XcodeBuildMCP](https://github.com/cameroncooke/XcodeBuildMCP), which provides tools for AI-assisted iOS development workflows.

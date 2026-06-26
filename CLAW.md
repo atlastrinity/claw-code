@@ -10,9 +10,8 @@
 - **Handling Failures:** If an approach fails, do NOT delete the task. Mark it as `failed` (which appears under a minus sign `[-]`), and create a new sibling node to represent your alternative attempt. Update a task's status to `completed` only when it is successfully finished.
 - **No Manual Edits:** The system automatically syncs it to `task.md`. NEVER edit `task.md` directly using file editing tools.
 
-## 2. Xcodebuild MCP Server
+## 2. Xcode / iOS Development
 
-- **Full iOS/Xcode Authority:** You have access to an `xcodebuild` MCP server. This server is fully capable of handling *everything* in its domain related to Xcode, iOS builds, testing, and project management. Rely on its tools for any Xcode-related operations.
 - **Skill Reference:** If needed, you can use the specialized safe Xcode project setup skill: `file:///Users/dev/.gemini/config/plugins/firebase/skills/xcode_project_setup/SKILL.md` to safely modify `.pbxproj` files and add dependencies.
 
 ## 3. RAG Context Store

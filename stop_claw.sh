@@ -2,27 +2,42 @@
 
 echo "🛑 Stopping all claw-related processes..."
 
-# Kill the main claw binary
-if pgrep -x "claw" > /dev/null; then
-    echo "Killing 'claw' processes..."
-    pkill -x "claw"
-fi
+# Helper function to kill processes gracefully then forcefully
+kill_process() {
+    local pattern="$1"
+    local exact="$2"
+    
+    if [ "$exact" = true ]; then
+        if pgrep -x "$pattern" > /dev/null; then
+            echo "Killing processes matching exact name: '$pattern'..."
+            pkill -x "$pattern"
+            sleep 1
+            if pgrep -x "$pattern" > /dev/null; then
+                echo "Force killing '$pattern'..."
+                pkill -9 -x "$pattern"
+            fi
+        fi
+    else
+        if pgrep -f "$pattern" > /dev/null; then
+            echo "Killing processes matching: '$pattern'..."
+            pkill -f "$pattern"
+            sleep 1
+            if pgrep -f "$pattern" > /dev/null; then
+                echo "Force killing '$pattern'..."
+                pkill -9 -f "$pattern"
+            fi
+        fi
+    fi
+}
 
-# Kill the claw-analog wrapper if running
-if pgrep -x "claw-analog" > /dev/null; then
-    echo "Killing 'claw-analog' processes..."
-    pkill -x "claw-analog"
-fi
+kill_process "claw" true
+kill_process "claw-analog" true
+kill_process "claw-rag-service" true
 
-# Kill the claw-rag-service backend
-if pgrep -x "claw-rag-service" > /dev/null; then
-    echo "Killing 'claw-rag-service' processes..."
-    pkill -x "claw-rag-service"
-fi
+# Kill cargo run commands that are running claw
+kill_process "cargo run.*claw" false
 
 # Kill node/MCP server processes spawned by claw
-# Be careful to only kill those that look like our MCP servers
-echo "Killing XcodeBuildMCP processes..."
-pkill -f "XcodeBuildMCP/build/index.js" || true
+kill_process "XcodeBuildMCP/build/index.js" false
 
 echo "✅ All claw processes have been terminated."
