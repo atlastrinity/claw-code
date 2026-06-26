@@ -4239,6 +4239,53 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
         Vec::new()
     };
 
+    if let Some(parent) = store_path.parent() {
+        let task_md_path = parent.join("task.md");
+        if task_md_path.exists() {
+            if let Ok(md_content) = std::fs::read_to_string(&task_md_path) {
+                for line in md_content.lines() {
+                    let trimmed = line.trim_start();
+                    if trimmed.starts_with("- [") {
+                        let status_end = trimmed.find(']').unwrap_or(0);
+                        if status_end >= 3 {
+                            let status_char = &trimmed[3..status_end];
+                            let rest = &trimmed[status_end + 1..].trim_start();
+                            if rest.starts_with("**") {
+                                let id_end = rest[2..].find("**").unwrap_or(0);
+                                if id_end > 0 {
+                                    let id = &rest[2..2+id_end];
+                                    let mut content_str = &rest[2+id_end+2..];
+                                    if content_str.starts_with(":") {
+                                        content_str = &content_str[1..].trim_start();
+                                    }
+                                    
+                                    let parsed_status = match status_char {
+                                        "x" | "X" => TaskStatus::Completed,
+                                        "/" => TaskStatus::InProgress,
+                                        "-" => TaskStatus::Failed,
+                                        _ => TaskStatus::Pending,
+                                    };
+                                    
+                                    if let Some(existing) = current_nodes.iter_mut().find(|n| n.id == id) {
+                                        existing.status = Some(parsed_status);
+                                        existing.content = Some(content_str.to_string());
+                                    } else {
+                                        current_nodes.push(TaskNode {
+                                            id: id.to_string(),
+                                            parent_id: None,
+                                            content: Some(content_str.to_string()),
+                                            status: Some(parsed_status),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let mut updated_count = 0;
 
     match input.operation {

@@ -21,6 +21,10 @@ pub struct TimeoutConfig {
     /// handshake only; the stream itself is governed by SSE parsing.
     /// Defaults to 5 minutes (300 seconds).
     pub request_timeout: Duration,
+    /// Maximum time to wait for data to be read from the socket.
+    /// Used to prevent streaming API calls from hanging indefinitely.
+    /// Defaults to 60 seconds.
+    pub read_timeout: Option<Duration>,
 }
 
 impl Default for TimeoutConfig {
@@ -28,6 +32,7 @@ impl Default for TimeoutConfig {
         Self {
             connect_timeout: Duration::from_secs(30),
             request_timeout: Duration::from_secs(300),
+            read_timeout: Some(Duration::from_secs(60)),
         }
     }
 }
@@ -36,6 +41,7 @@ impl TimeoutConfig {
     /// Read timeout settings from the process environment.
     /// - `CLAW_API_CONNECT_TIMEOUT` — connect timeout in seconds
     /// - `CLAW_API_REQUEST_TIMEOUT` — overall request timeout in seconds
+    /// - `CLAW_API_READ_TIMEOUT` — read idle timeout in seconds
     #[must_use]
     pub fn from_env() -> Self {
         let connect_timeout = std::env::var("CLAW_API_CONNECT_TIMEOUT")
@@ -48,9 +54,15 @@ impl TimeoutConfig {
             .and_then(|v| v.parse::<u64>().ok())
             .map(Duration::from_secs)
             .unwrap_or(Duration::from_secs(300));
+        let read_timeout = std::env::var("CLAW_API_READ_TIMEOUT")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+            .map(Duration::from_secs)
+            .or(Some(Duration::from_secs(60)));
         Self {
             connect_timeout,
             request_timeout,
+            read_timeout,
         }
     }
 
@@ -60,6 +72,7 @@ impl TimeoutConfig {
         Self {
             connect_timeout: Duration::from_secs(connect_secs),
             request_timeout: Duration::from_secs(request_secs),
+            read_timeout: Some(Duration::from_secs(60)),
         }
     }
 }
@@ -161,6 +174,10 @@ pub fn build_http_client_with_opts(
         .user_agent("clawd-rust-tools/0.1")
         .connect_timeout(timeout.connect_timeout)
         .timeout(timeout.request_timeout);
+
+    if let Some(read_timeout) = timeout.read_timeout {
+        builder = builder.read_timeout(read_timeout);
+    }
 
     let no_proxy = config
         .no_proxy

@@ -71,6 +71,24 @@
             "name": "Release ClawMcpDemo (ClawMcpDemo)",
             "program": "${workspaceFolder:claw-code}/ClawMcpDemo/.build/release/ClawMcpDemo",
             "preLaunchTask": "swift: Build Release ClawMcpDemo (ClawMcpDemo)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:claw-code}/serena/SirenUA",
+            "name": "Debug SirenUA (serena/SirenUA)",
+            "program": "${workspaceFolder:claw-code}/serena/SirenUA/.build/debug/SirenUA",
+            "preLaunchTask": "swift: Build Debug SirenUA (serena/SirenUA)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:claw-code}/serena/SirenUA",
+            "name": "Release SirenUA (serena/SirenUA)",
+            "program": "${workspaceFolder:claw-code}/serena/SirenUA/.build/release/SirenUA",
+            "preLaunchTask": "swift: Build Release SirenUA (serena/SirenUA)"
         }
     ]
 }

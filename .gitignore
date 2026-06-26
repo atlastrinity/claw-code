@@ -56,3 +56,10 @@ spk_xvector.ark
 
 # Local configs
 config.yaml
+
+# Test sessions
+serena/
+ClawMcpDemo/
+rust/test_timeout/
+**/.clawd-task-graph.json
+**/task.md
