@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claw Code installer
+# NIMDA Code installer
 #
 # Detects the host OS, verifies the Rust toolchain (rustc + cargo),
 # builds the `claw` binary from the `rust/` workspace, and runs a
@@ -59,14 +59,14 @@ error() { printf '%s  error%s %s\n' "${COLOR_RED}" "${COLOR_RESET}" "$1" 1>&2; }
 print_banner() {
     printf '%s' "${COLOR_BOLD}"
     cat <<'EOF'
-   ____  _                   ____          _
-  / ___|| |  __ _ __      __ / ___|___   __| | ___
- | |    | | / _` |\ \ /\ / /| |   / _ \ / _` |/ _ \
- | |___ | || (_| | \ V  V / | |__| (_) | (_| |  __/
-  \____||_| \__,_|  \_/\_/   \____\___/ \__,_|\___|
+ _   _ ___ __  __ ____    _      ____          _
+| \ | |_ _|  \/  |  _ \  / \    / ___|___   __| | ___
+|  \| || || |\/| | | | |/ _ \  | |   / _ \ / _` |/ _ \
+| |\  || || |  | | |_| / ___ \ | |__| (_) | (_| |  __/
+|_| \_|___|_|  |_|____/_/   \_\ \____\___/ \__,_|\___|
 EOF
     printf '%s\n' "${COLOR_RESET}"
-    printf '%sClaw Code installer%s\n' "${COLOR_DIM}" "${COLOR_RESET}"
+    printf '%sNIMDA Code installer%s\n' "${COLOR_DIM}" "${COLOR_RESET}"
 }
 
 print_usage() {
@@ -409,7 +409,7 @@ fi
 step "Next steps"
 
 cat <<EOF
-${COLOR_GREEN}Claw Code is built and ready.${COLOR_RESET}
+${COLOR_GREEN}NIMDA Code is built and ready.${COLOR_RESET}
 
   Binary:  ${COLOR_BOLD}${CLAW_BIN}${COLOR_RESET}
   Profile: ${BUILD_PROFILE}

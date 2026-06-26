@@ -3374,7 +3374,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -3508,7 +3508,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -3599,7 +3599,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -3621,7 +3621,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
 
         assert_eq!(
@@ -3637,7 +3637,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
 
         assert_eq!(
@@ -3653,7 +3653,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
 
         assert!(parse_args(&["--".to_string()]).is_ok());
@@ -3691,7 +3691,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
         assert_eq!(
             parse_args(&["--compact".to_string(), "hello".to_string()])
@@ -3706,7 +3706,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -3749,7 +3749,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -3837,7 +3837,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -3858,7 +3858,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -3888,7 +3888,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -3915,7 +3915,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -4091,7 +4091,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
         assert_eq!(
             parse_args(&["agents".to_string(), "--help".to_string()])
@@ -5525,7 +5525,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -5596,7 +5596,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
         assert_eq!(
             parse_args(&[
@@ -5623,7 +5623,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
         assert_eq!(
             parse_args(&["/status".to_string()]).expect("/status should parse as local status"),
@@ -5758,7 +5758,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -5777,7 +5777,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -5806,7 +5806,7 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-            }
+             attach_skill: None, }
         );
     }
 
@@ -6083,6 +6083,7 @@ mod tests {
                 true,
                 None,
                 PermissionMode::DangerFullAccess,
+                Vec::new(),
             )
             .expect("cli should initialize")
             .startup_banner()

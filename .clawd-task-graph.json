@@ -1,26 +1,26 @@
 [
   {
     "id": "1",
-    "content": "Verify current directory structure and check for existing files",
-    "status": "completed"
+    "content": "Phase 1: Project Setup (xcode-bridge MCP)",
+    "status": "in_progress"
   },
   {
     "id": "1.1",
     "parent_id": "1",
-    "content": "Create Xcode project structure for ClawController",
-    "status": "completed"
+    "content": "Перевірити доступність xcode-bridge MCP сервера",
+    "status": "in_progress"
   },
   {
     "id": "1.2",
     "parent_id": "1",
-    "content": "Set up TCA dependencies via SPM",
-    "status": "completed"
+    "content": "Створити iOS проєкт через xcode-bridge MCP",
+    "status": "pending"
   },
   {
     "id": "1.3",
     "parent_id": "1",
-    "content": "Create core domain models (ChatMessage, TaskNode, ToolCall, AgentSession)",
-    "status": "completed"
+    "content": "Перевірити структуру директорій проєкту",
+    "status": "pending"
   },
   {
     "id": "1.4",
@@ -90,37 +90,37 @@
   },
   {
     "id": "2",
-    "content": "Phase 2: Design System & Core Components",
-    "status": "in_progress"
+    "content": "Phase 2: Code Implementation & Unit Tests",
+    "status": "pending"
   },
   {
     "id": "2.1",
     "parent_id": "2",
-    "content": "Create Task Dashboard with tree view and statistics",
-    "status": "completed"
+    "content": "Створити ClawMcpDemoApp.swift з SwiftUI",
+    "status": "pending"
   },
   {
     "id": "2.2",
     "parent_id": "2",
-    "content": "Create Tools Inspector with timeline view",
-    "status": "completed"
+    "content": "Створити ContentView.swift з Counter логікою",
+    "status": "pending"
   },
   {
     "id": "2.3",
     "parent_id": "2",
-    "content": "Implement Terminal/Logs view with ANSI color support",
-    "status": "completed"
+    "content": "Створити ClawMcpDemoTests.swift з Unit-тестами",
+    "status": "pending"
   },
   {
     "id": "2.4",
     "parent_id": "2",
-    "content": "Build Settings screen with all configuration options",
-    "status": "in_progress"
+    "content": "Написати Unit-тести для інкременту (+)",
+    "status": "pending"
   },
   {
     "id": "2.5",
     "parent_id": "2",
-    "content": "Configure signing for physical iPhone",
+    "content": "Написати Unit-тести для декременту (-)",
     "status": "pending"
   },
   {
@@ -137,54 +137,108 @@
   },
   {
     "id": "3",
-    "content": "Phase 3: Networking Layer",
+    "content": "Phase 3: Build & Run Unit Tests",
+    "status": "pending"
+  },
+  {
+    "id": "3.1",
+    "parent_id": "3",
+    "content": "Компілювати проєкт через xcode-bridge MCP",
+    "status": "pending"
+  },
+  {
+    "id": "3.2",
+    "parent_id": "3",
+    "content": "Виправити помилки якщо є",
+    "status": "pending"
+  },
+  {
+    "id": "3.3",
+    "parent_id": "3",
+    "content": "Запустити Unit-тести через MCP",
+    "status": "pending"
+  },
+  {
+    "id": "3.4",
+    "parent_id": "3",
+    "content": "Зібрати звіт про результати тестів",
+    "status": "pending"
+  },
+  {
+    "id": "3.5",
+    "parent_id": "3",
+    "content": "Записати час виконання тестів",
     "status": "pending"
   },
   {
     "id": "4",
-    "content": "Phase 4: Chat Feature (Core)",
+    "content": "Phase 4: Deploy to iOS Simulator",
+    "status": "pending"
+  },
+  {
+    "id": "4.1",
+    "parent_id": "4",
+    "content": "Перевірити список доступних симуляторів через MCP",
+    "status": "pending"
+  },
+  {
+    "id": "4.2",
+    "parent_id": "4",
+    "content": "Вибрати та запустити симулятор (boot)",
+    "status": "pending"
+  },
+  {
+    "id": "4.3",
+    "parent_id": "4",
+    "content": "Встановити додаток на симулятор через MCP",
+    "status": "pending"
+  },
+  {
+    "id": "4.4",
+    "parent_id": "4",
+    "content": "Запустити додаток за Bundle ID через MCP",
     "status": "pending"
   },
   {
     "id": "5",
-    "content": "Phase 5: Task Dashboard Feature",
-    "status": "in_progress"
+    "content": "Phase 5: Visual UI Verification (Agent Vision)",
+    "status": "pending"
   },
   {
     "id": "5.1",
     "parent_id": "5",
-    "content": "Check current project structure and verify completed work",
-    "status": "completed"
+    "content": "Зробити скріншот через ios-simulator MCP",
+    "status": "pending"
   },
   {
     "id": "5.2",
     "parent_id": "5",
-    "content": "Implement TasksReducer with task parsing logic",
-    "status": "completed"
+    "content": "Оцінити розмір кнопок (44pt+)",
+    "status": "pending"
   },
   {
     "id": "5.3",
     "parent_id": "5",
-    "content": "Build TaskDashboardView with header stats",
-    "status": "completed"
+    "content": "Оцінити відступи (padding >= 16pt)",
+    "status": "pending"
   },
   {
     "id": "5.4",
     "parent_id": "5",
-    "content": "Implement TaskTreeView with expand/collapse",
-    "status": "completed"
+    "content": "Внести правки у SwiftUI код якщо потрібно",
+    "status": "pending"
   },
   {
     "id": "5.5",
     "parent_id": "5",
-    "content": "Create TaskNodeRow with status icons",
-    "status": "completed"
+    "content": "Перекомпілювати та перевірити знову",
+    "status": "pending"
   },
   {
     "id": "5.6",
     "parent_id": "5",
-    "content": "Build TaskStatsHeader with circular progress",
-    "status": "completed"
+    "content": "Зробити фінальний скріншот",
+    "status": "pending"
   },
   {
     "id": "5.7",
