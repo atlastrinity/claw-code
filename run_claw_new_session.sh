@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Змінюємо робочу директорію на ту, де знаходиться сам скрипт
-cd "$(dirname "$0")"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # 0. Прибираємо зомбі-процеси, якщо минулого разу термінал впав
 echo "🧹 Перевірка та очищення завислих процесів..."
 pkill -f "claw-rag-service" 2>/dev/null
@@ -12,15 +12,16 @@ sleep 0.5
 # 1. Вибір моделі з .claw.json
 echo "🤖 Завантаження списку моделей..."
 ALIASES_OUTPUT=$(python3 -c '
-import json, sys
+import json, os, sys
 try:
-    with open(".claw.json") as f:
+    settings_path = os.path.expanduser("~/.claw/settings.json")
+    with open(settings_path) as f:
         data = json.load(f)
     for i, (k, v) in enumerate(data.get("aliases", {}).items(), 1):
         print(f"{i}|{k}|{v}")
 except Exception as e:
     sys.exit(1)
-')
+' )
 
 SELECTED_MODEL="gemini-lite"
 
@@ -85,7 +86,7 @@ while true; do
     --model "$SELECTED_MODEL" \
     --skip-permissions \
     --accept-danger-non-interactive \
-    --attach-skill .claw/skills/project_specific/ios_remote_client.md \
+    --attach-skill "$SCRIPT_DIR/.claw/skills/project_specific/ios_remote_client.md" \
     $RESUME_ARGS "$@"
     
   EXIT_CODE=$?
