@@ -1,32 +1,21 @@
 schemaVersion: 1
 sessionDefaults:
-  projectPath: /Users/dev/Documents/GitHub/claw-code/ClawController
-  scheme: ClawController
+  projectPath: /Users/dev/Documents/GitHub/claw-code/AirRaidApp
+  scheme: ClawMcpDemo
   configuration: Debug
   simulatorName: iPhone 16 Pro Max
   simulatorId: 1E6B640C-CFBA-498D-B0E1-B94B360B484D
   simulatorPlatform: iOS Simulator
-  deviceId: 00008140-0000790E3A08801C
   useLatestOS: true
   platform: iOS Simulator
-  bundleId: io.sentry.clawcontroller
+  bundleId: io.claw.demo
 sessionDefaultsProfiles:
-  physical-device:
-    projectPath: /Users/dev/Documents/GitHub/claw-code/ClawController/ClawController.xcodeproj
-    scheme: ClawController
-    configuration: Debug
-    simulatorName: iPhone 16 Pro Max
-    simulatorId: AE4BE83F-88EE-4444-A6CF-214AE8B17D1C
-    simulatorPlatform: iOS Simulator
-    deviceId: 00008140-0000790E3A08801C
-    platform: iOS
-    bundleId: io.sentry.clawcontroller
   default:
-    workspacePath: /Users/dev/Documents/GitHub/claw-code/ClawController/ClawController.xcworkspace
-    scheme: ClawController
+    projectPath: /Users/dev/Documents/GitHub/claw-code/AirRaidApp
+    scheme: ClawMcpDemo
     configuration: Debug
     simulatorId: 1E6B640C-CFBA-498D-B0E1-B94B360B484D
     simulatorPlatform: iOS Simulator
-    bundleId: com.clawcode.controller
+    bundleId: io.claw.demo
     simulatorName: iPhone 16 Pro Max
 activeSessionDefaultsProfile: default

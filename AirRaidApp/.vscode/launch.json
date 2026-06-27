@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:ClawMcpDemo}",
+            "name": "Debug ClawMcpDemo",
+            "program": "${workspaceFolder:ClawMcpDemo}/.build/debug/ClawMcpDemo",
+            "preLaunchTask": "swift: Build Debug ClawMcpDemo"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:ClawMcpDemo}",
+            "name": "Release ClawMcpDemo",
+            "program": "${workspaceFolder:ClawMcpDemo}/.build/release/ClawMcpDemo",
+            "preLaunchTask": "swift: Build Release ClawMcpDemo"
+        }
+    ]
+}
