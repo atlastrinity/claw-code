@@ -1,6 +1,5 @@
 ---
-trigger: always_on
-glob: 
+trigger: manual
 description: Core repository context, architecture, and log locations for claw-code
 ---
 
@@ -28,7 +27,7 @@ If you need to debug the application, inspect background processes, or check for
   - `~/.claw/logs/claw-analog.log.YYYY-MM-DD` (for the automation wrapper)
   - `~/.claw/logs/claw-rag-service.log.YYYY-MM-DD` (for the RAG backend)
 
-*When the user reports an issue, you should proactively `cat` or `tail` the relevant files in `~/.claw/logs/` to find error stack traces.*
+_When the user reports an issue, you should proactively `cat` or `tail` the relevant files in `~/.claw/logs/` to find error stack traces._
 
 ## 4. Useful Commands
 

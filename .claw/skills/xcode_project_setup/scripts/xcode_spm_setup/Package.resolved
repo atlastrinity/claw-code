@@ -10,12 +10,30 @@
       }
     },
     {
+      "identity" : "jsonutilities",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/yonaskolb/JSONUtilities.git",
+      "state" : {
+        "revision" : "128d2ffc22467f69569ef8ff971683e2393191a0",
+        "version" : "4.2.0"
+      }
+    },
+    {
       "identity" : "pathkit",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/kylef/PathKit.git",
       "state" : {
         "revision" : "3bfd2737b700b9a36565a8c94f4ad2b050a5e574",
         "version" : "1.0.1"
+      }
+    },
+    {
+      "identity" : "rainbow",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/onevcat/Rainbow.git",
+      "state" : {
+        "revision" : "cdf146ae671b2624917648b61c908d1244b98ca1",
+        "version" : "4.2.1"
       }
     },
     {
@@ -28,12 +46,48 @@
       }
     },
     {
+      "identity" : "swiftcli",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jakeheis/SwiftCLI.git",
+      "state" : {
+        "revision" : "2e949055d9797c1a6bddcda0e58dada16cc8e970",
+        "version" : "6.0.3"
+      }
+    },
+    {
+      "identity" : "version",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/mxcl/Version",
+      "state" : {
+        "revision" : "3043fcd2a50375db76d89ff206a612471833d1c2",
+        "version" : "2.2.1"
+      }
+    },
+    {
+      "identity" : "xcodegen",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/yonaskolb/XcodeGen.git",
+      "state" : {
+        "revision" : "8d3d3476a69ae3e5d68e1adccc701c410c05eb36",
+        "version" : "2.45.4"
+      }
+    },
+    {
       "identity" : "xcodeproj",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/tuist/XcodeProj.git",
       "state" : {
-        "revision" : "b1caa062d4aaab3e3d2bed5fe0ac5f8ce9bf84f4",
-        "version" : "8.27.7"
+        "revision" : "01bb77000bc8c23a09ea2058f4954612f03cb705",
+        "version" : "9.10.1"
+      }
+    },
+    {
+      "identity" : "yams",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jpsim/Yams.git",
+      "state" : {
+        "revision" : "3d6871d5b4a5cd519adf233fbb576e0a2af71c17",
+        "version" : "5.4.0"
       }
     }
   ],

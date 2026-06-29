@@ -2,6 +2,13 @@
 
 # Змінюємо робочу директорію на ту, де знаходиться сам скрипт
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Завантажуємо змінні оточення (API ключі тощо) з глобального .env
+if [ -f "$SCRIPT_DIR/.env" ]; then
+    set -a
+    source "$SCRIPT_DIR/.env"
+    set +a
+fi
 # 0. Прибираємо зомбі-процеси, якщо минулого разу термінал впав
 echo "🧹 Перевірка та очищення завислих процесів..."
 pkill -f "claw-rag-service" 2>/dev/null
@@ -106,6 +113,6 @@ while true; do
   fi
   
   echo "⚠️ Agent exited with error or timeout (Code $EXIT_CODE). Auto-restarting in 3 seconds..."
-  RESUME_ARGS="--resume latest"
+  # Для нової сесії не використовуємо --resume latest, оскільки це може викликати помилку в нових папках
   sleep 3
 done
