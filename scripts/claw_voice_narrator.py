@@ -22,6 +22,8 @@ import json
 import subprocess
 from pathlib import Path
 from typing import Optional, List
+import urllib.request
+import urllib.error
 
 # Додаємо корінь проекту до шляху імпорту
 project_root = Path(__file__).resolve().parent.parent
@@ -316,7 +318,7 @@ class VoicePlayer:
                 self.seg_count += 1
                 
                 # Keep only the last 10 play_*.wav files in the output directory
-                play_files = sorted(list(self.output_dir.glob("play_*.wav")))
+                play_files = sorted(list(self.output_dir.glob("play_*.wav")), key=lambda p: p.stat().st_mtime)
                 while len(play_files) > 10:
                     oldest = play_files.pop(0)
                     try:
@@ -325,6 +327,7 @@ class VoicePlayer:
                         pass
                 
                 # Play audio using afplay (built-in on macOS)
+                time.sleep(0.1) # Даємо системі час синхронізувати файл на диск перед відтворенням
                 subprocess.run(["afplay", str(wav_path)], check=True)
             except Exception as e:
                 print(f"  {COLORS['mykyta']}⚠️ Помилка відтворення аудіо: {e}{reset}")
@@ -706,82 +709,216 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         
     return spoken_text, action_desc
 
-def summarize_thinking_ua(thinking_text: str) -> str:
-    if not thinking_text.strip():
-        return "Проводжу обмірковування наступних кроків."
-        
-    text = clean_for_speech(thinking_text)
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    brief = " ".join(sentences[:2])
-    
-    translations = {
-        "Користувач просить": "Користувач запитує",
-        "Користувач хоче": "Користувач бажає",
-        "Почну з": "Почну з",
-        "Нужно проверить": "Необхідно перевірити",
-        "Для этого": "Для цього",
-        "Мне нужно": "Мені потрібно",
-        "Сначала": "Спочатку",
-        "Затем": "Потім",
-        "В первую очередь": "Перш за все",
-        "Посмотрю на": "Подивлюся на",
-        "Проверю": "Перевірю",
-        "Запущу": "Запущу",
-        "Попробую": "Спробую",
-        "I need to": "Mental need",
-        "First, I will": "First, I will",
-        "Next, I will": "Next, I will",
-        "Then I will": "Then I will",
-        "To do this": "To do this",
-        "Let me check": "Let me check",
-    }
-    
-    # Wait, let's write correct translation logic in summarize_thinking_ua
-    translations = {
-        "Користувач просить": "Користувач запитує",
-        "Користувач хоче": "Користувач бажає",
-        "Почну з": "Почну з",
-        "Нужно проверить": "Необхідно перевірити",
-        "Для этого": "Для цього",
-        "Мне нужно": "Мені потрібно",
-        "Сначала": "Спочатку",
-        "Затем": "Потім",
-        "В первую очередь": "Перш за все",
-        "Посмотрю на": "Подивлюся на",
-        "Проверю": "Перевірю",
-        "Запущу": "Запущу",
-        "Попробую": "Спробую",
-        "I need to": "Мені потрібно",
-        "First, I will": "Спочатку я",
-        "Next, I will": "Далі я",
-        "Then I will": "Потім я",
-        "To do this": "Для цього",
-        "Let me check": "Дозвольте перевірити",
-    }
-    
-    for eng_ru, ua in translations.items():
-        brief = re.sub(r'\b' + re.escape(eng_ru) + r'\b', ua, brief, flags=re.IGNORECASE)
-        
-    replacements = [
-        ("системы", "системи"),
-        ("ресурсы", "ресурси"),
-        ("файлы", "файли"),
-        ("команды", "команди"),
-        ("запрос", "запит"),
-        ("загружена", "завантажена"),
-        ("свободно", "вільно"),
-        ("памяти", "пам'яті"),
-        ("диска", "диска"),
-        ("процессов", "процесів"),
-        ("инструменты", "інструменти"),
-    ]
-    for src, dst in replacements:
-        brief = re.sub(r'\b' + re.escape(src) + r'\b', dst, brief, flags=re.IGNORECASE)
+def translate_and_summarize_thinking(text: str) -> str:
+    if not text.strip():
+        return ""
 
-    if len(brief) > 200:
-        brief = brief[:200] + "..."
+    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
+    
+    api_key = ""
+    base_url = ""
+    model_id = ""
+    
+    if model == "gemini-lite":
+        base_url = os.environ.get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/").rstrip('/')
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        model_id = "gemini-3.1-flash-lite"
+    elif model in ("glm", "glm2"):
+        base_url = os.environ.get("GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").rstrip('/')
+        api_key = os.environ.get("GLM_API_KEY", "")
+        model_id = "glm-4.7-flash"
+    else:
+        base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1").rstrip('/')
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        model_id = model
+
+    # Fallback на ключі за замовчуванням
+    if not api_key:
+        if model == "gemini-lite":
+            api_key = """"
+        elif model in ("glm", "glm2"):
+            api_key = """"
+        else:
+            api_key = os.environ.get("OPENAI_API_KEY", "")
+
+    if not base_url or not api_key:
+        return ""
+
+    url = f"{base_url}/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    
+    payload = {
+        "model": model_id,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a professional Ukrainian translator. Summarize the given English thinking process of an AI coding agent into a single, natural, descriptive sentence in Ukrainian (UA). Describe the agent's immediate action plan or deduction. Keep it under 30 words, and do not use templates. Output ONLY the translated Ukrainian sentence, with no introductory or concluding remarks."
+            },
+            {
+                "role": "user",
+                "content": text
+            }
+        ],
+        "temperature": 0.5
+    }
+    
+    try:
+        req = urllib.request.Request(
+            url, 
+            data=json.dumps(payload).encode('utf-8'), 
+            headers=headers,
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            res_data = json.loads(response.read().decode('utf-8'))
+            summary_text = res_data['choices'][0]['message']['content'].strip()
+            if summary_text:
+                return summary_text
+    except Exception as e:
+        print(f"\\n⚠️ Помилка автоперекладу та підсумку думок через {model}: {e}")
         
-    return f"Обмірковую план дій. {brief}"
+    return ""
+
+def summarize_thinking_ua(thinking_text: str) -> str:
+    import random
+    
+    clean_text = thinking_text.strip()
+    if not clean_text or len(clean_text) < 15:
+        return ""
+        
+    # Спробуємо зробити розумний підсумок через LLM
+    llm_summary = translate_and_summarize_thinking(clean_text)
+    if llm_summary:
+        return llm_summary
+        
+    # Якщо LLM не відповіла, використовуємо покращений евристичний fallback
+    text_lower = clean_text.lower()
+        
+    # (Fallback logic is now processed below because LLM check is performed above)
+    
+    # Identify agent intent based on keywords
+    if any(k in text_lower for k in ["read", "view", "file", "content", "open"]):
+        brief = random.choice([
+            "Мені потрібно детальніше ознайомитися з вмістом файлів проєкту.",
+            "Аналізую вміст файлів, щоб краще зрозуміти логіку роботи.",
+            "Потрібно переглянути код у файлах для подальшого аналізу."
+        ])
+    elif any(k in text_lower for k in ["search", "find", "glob", "grep", "locate"]):
+        brief = random.choice([
+            "Проводжу пошук потрібних файлів та аналізую структуру коду.",
+            "Шукаю необхідні компоненти та файли у проекті.",
+            "Виконую пошук за ключовими словами у коді."
+        ])
+    elif any(k in text_lower for k in ["task", "plan", "graph", "roadmap", "todo"]):
+        brief = random.choice([
+            "Оновлюю план дій та структуризую наступні кроки для виконання завдання.",
+            "Коригую наш чек-лист та планую подальші кроки.",
+            "Аналізую поточні завдання та оновлюю план роботи."
+        ])
+    elif any(k in text_lower for k in ["test", "run", "build", "execute", "compile"]):
+        brief = random.choice([
+            "Готуюся до запуску тестів або збірки проєкту для перевірки працездатності.",
+            "Перевіряю працездатність коду шляхом запуску тестів.",
+            "Запускаю збірку проекту, щоб переконатися у відсутності помилок."
+        ])
+    elif any(k in text_lower for k in ["fix", "bug", "error", "modify", "replace", "edit"]):
+        brief = random.choice([
+            "Планую внесення виправлень або редагування коду для усунення проблеми.",
+            "Готую зміни до коду для виправлення виявлених помилок.",
+            "Потрібно відредагувати код для усунення цієї проблеми."
+        ])
+    else:
+        brief = random.choice([
+            "Аналізую поточний стан системи та обмірковую наступні кроки.",
+            "Розглядаю можливі варіанти розв'язання задачі.",
+            "Визначаю оптимальний шлях вирішення проблеми."
+        ])
+        
+    return brief
+
+def translate_to_ukrainian(text: str) -> str:
+    if not text.strip():
+        return text
+
+    # Перевіримо, чи текст вже написаний українською/кирилицею
+    cyrillic_chars = len(re.findall(r'[а-яА-ЯёЁєЄіІїЇґҐ]', text))
+    total_chars = len(re.sub(r'\s+', '', text))
+    if total_chars > 0 and (cyrillic_chars / total_chars) > 0.4:
+        # Якщо є російські літери (ы, э, ъ, ё) - перекладаємо на українську, інакше пропускаємо
+        if not re.search(r'[ыЫэЭъЪёЁ]', text):
+            return text
+
+    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
+    
+    api_key = ""
+    base_url = ""
+    model_id = ""
+    
+    if model == "gemini-lite":
+        base_url = os.environ.get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/").rstrip('/')
+        api_key = os.environ.get("GEMINI_API_KEY", "")
+        model_id = "gemini-3.1-flash-lite"
+    elif model in ("glm", "glm2"):
+        base_url = os.environ.get("GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").rstrip('/')
+        api_key = os.environ.get("GLM_API_KEY", "")
+        model_id = "glm-4.7-flash"
+    else:
+        base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1").rstrip('/')
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        model_id = model
+
+    # Fallback на ключі за замовчуванням
+    if not api_key:
+        if model == "gemini-lite":
+            api_key = """"
+        elif model in ("glm", "glm2"):
+            api_key = """"
+        else:
+            api_key = os.environ.get("OPENAI_API_KEY", "")
+
+    if not base_url or not api_key:
+        return text
+
+    url = f"{base_url}/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    
+    payload = {
+        "model": model_id,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a professional Ukrainian translator. Translate the given text into natural, fluent Ukrainian (UA). Keep all technical terms, code symbols, file paths, variables, and commands in English. Output ONLY the translated Ukrainian text, with no introductory or concluding remarks."
+            },
+            {
+                "role": "user",
+                "content": text
+            }
+        ],
+        "temperature": 0.3
+    }
+    
+    try:
+        req = urllib.request.Request(
+            url, 
+            data=json.dumps(payload).encode('utf-8'), 
+            headers=headers,
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            res_data = json.loads(response.read().decode('utf-8'))
+            translated_text = res_data['choices'][0]['message']['content'].strip()
+            if translated_text:
+                return translated_text
+    except Exception as e:
+        print(f"\n⚠️ Помилка автоперекладу через {model}: {e}")
+        
+    return text
 
 def is_tool_call_text(text: str) -> bool:
     text_lower = text.lower().strip()
@@ -826,11 +963,13 @@ def process_session_entry(data: dict, player: VoicePlayer):
                         continue
                     thinking_val = block.get("thinking", "")
                     natural_thinking = summarize_thinking_ua(thinking_val)
-                    player.speak("lada", "Аналіз", natural_thinking)
+                    if natural_thinking:
+                        player.speak("lada", "Аналіз", natural_thinking)
                 elif block_type == "text":
                     text_content = block.get("text", "")
                     if text_content and not is_tool_call_text(text_content):
-                        player.speak("lada", "Результат", text_content)
+                        translated_content = translate_to_ukrainian(text_content)
+                        player.speak("lada", "Результат", translated_content)
                 elif block_type == "tool_use":
                     tool_name = block.get("name", "")
                     input_str = block.get("input", "")
@@ -879,7 +1018,14 @@ def tail_session_loop():
     audio_dir = project_root / "audio_output"
     player = VoicePlayer(audio_dir)
     
+    initial_start = True
+    
     with open(latest_file, "r") as f:
+        if initial_start:
+            # Переміщуємо курсор у кінець файлу, щоб не перечитувати стару історію сесії
+            f.seek(0, 2)
+            initial_start = False
+            
         try:
             while True:
                 line = f.readline()

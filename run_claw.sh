@@ -54,13 +54,25 @@ if [ $? -eq 0 ] && [ -n "$ALIASES_OUTPUT" ]; then
     
     echo "============================================================================"
     echo " Натисніть Enter для вибору 'gemini-lite' за замовчуванням"
-    read -p " Введіть номер моделі: " choice
+    read -p " Введіть номер основної моделі: " choice
     if [ -n "$choice" ] && [ -n "${MODEL_KEYS[$choice]}" ]; then
         SELECTED_MODEL="${MODEL_KEYS[$choice]}"
         echo " ✅ Обрано модель: $SELECTED_MODEL"
     else
         echo " ✅ Використовується за замовчуванням: $SELECTED_MODEL"
     fi
+    
+    echo "============================================================================"
+    echo " Натисніть Enter для вибору 'gemini-lite' за замовчуванням для озвучки"
+    read -p " Введіть номер моделі на озвучку: " choice_narration
+    SELECTED_NARRATION_MODEL="gemini-lite"
+    if [ -n "$choice_narration" ] && [ -n "${MODEL_KEYS[$choice_narration]}" ]; then
+        SELECTED_NARRATION_MODEL="${MODEL_KEYS[$choice_narration]}"
+        echo " ✅ Обрано модель на озвучку: $SELECTED_NARRATION_MODEL"
+    else
+        echo " ✅ Використовується на озвучку за замовчуванням: $SELECTED_NARRATION_MODEL"
+    fi
+    export CLAW_NARRATION_MODEL=$SELECTED_NARRATION_MODEL
 else
     echo " ⚠️ Не вдалося прочитати .claw.json. Використовується gemini-lite."
 fi
