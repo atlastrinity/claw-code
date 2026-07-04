@@ -1388,7 +1388,7 @@ pub fn translate_message(message: &InputMessage, model: &str) -> Vec<Value> {
                     } => reasoning.push_str(value),
                     InputContentBlock::ToolUse { id, name, input, signature } => {
                         if model.to_ascii_lowercase().contains("gemini") {
-                            text.push_str(&format!("\n[Assistant called tool '{}' with arguments: {}]", name, input));
+                            text.push_str(&format!("\n[Асистент викликав інструмент '{}' із аргументами: {}]", name, input));
                             continue;
                         }
 

@@ -22,6 +22,13 @@ cp target/release/claw "${GLOBAL_BIN_DIR}/"
 cp target/release/claw-analog "${GLOBAL_BIN_DIR}/"
 cp target/release/claw-rag-service "${GLOBAL_BIN_DIR}/"
 
+if [ "$(uname)" = "Darwin" ]; then
+    echo "==> Re-signing binaries for macOS..."
+    codesign -s - -f "${GLOBAL_BIN_DIR}/claw"
+    codesign -s - -f "${GLOBAL_BIN_DIR}/claw-analog"
+    codesign -s - -f "${GLOBAL_BIN_DIR}/claw-rag-service"
+fi
+
 echo "==> Synchronizing MCP Server Settings..."
 LOCAL_SETTINGS="${SCRIPT_DIR}/.claw.json"
 GLOBAL_SETTINGS="${GLOBAL_DIR}/settings.json"

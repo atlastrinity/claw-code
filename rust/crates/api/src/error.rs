@@ -143,6 +143,14 @@ impl ApiError {
         }
     }
 
+    pub fn is_rate_limit(&self) -> bool {
+        match self {
+            Self::Api(info) => info.status == reqwest::StatusCode::TOO_MANY_REQUESTS,
+            Self::RetriesExhausted { last_error, .. } => last_error.is_rate_limit(),
+            _ => false,
+        }
+    }
+
     pub fn is_retryable(&self) -> bool {
         match self {
             Self::Http(error) => {
@@ -152,7 +160,7 @@ impl ApiError {
                     || error.is_body()
                     || error.is_decode()
             }
-            Self::Api(info) => info.retryable,
+            Self::Api(info) => info.retryable && info.status != reqwest::StatusCode::TOO_MANY_REQUESTS,
             Self::RetriesExhausted { last_error, .. } => last_error.is_retryable(),
             Self::MissingCredentials { .. }
             | Self::ContextWindowExceeded { .. }

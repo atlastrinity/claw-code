@@ -59,6 +59,172 @@ impl ProviderClient {
         }
     }
 
+    pub fn has_key_for_index(model: &str, key_index: usize) -> bool {
+        if key_index == 1 {
+            return true;
+        }
+        let resolved_model = providers::resolve_model_alias(model);
+        let api_key_env = match providers::detect_provider_kind(&resolved_model) {
+            ProviderKind::Anthropic => "ANTHROPIC_API_KEY",
+            ProviderKind::Xai => "XAI_API_KEY",
+            ProviderKind::OpenAi => {
+                match providers::metadata_for_model(&resolved_model) {
+                    Some(meta) => meta.auth_env,
+                    None => "OPENAI_API_KEY",
+                }
+            }
+        };
+        let key_var = format!("{}{}", api_key_env, key_index);
+        if let Ok(val) = std::env::var(&key_var) {
+            !val.trim().is_empty()
+        } else {
+            false
+        }
+    }
+
+    pub fn from_model_with_key_index(
+        model: &str,
+        key_index: usize,
+    ) -> Result<Self, ApiError> {
+        let resolved_model = providers::resolve_model_alias(model);
+        match providers::detect_provider_kind(&resolved_model) {
+            ProviderKind::Anthropic => {
+                let mut api_key_val = None;
+                let mut auth_token_val = None;
+                
+                if key_index > 1 {
+                    let key_var = format!("ANTHROPIC_API_KEY{}", key_index);
+                    let token_var = format!("ANTHROPIC_AUTH_TOKEN{}", key_index);
+                    if let Ok(val) = std::env::var(&key_var) {
+                        if !val.trim().is_empty() {
+                            api_key_val = Some(val);
+                        }
+                    }
+                    if let Ok(val) = std::env::var(&token_var) {
+                        if !val.trim().is_empty() {
+                            auth_token_val = Some(val);
+                        }
+                    }
+                } else {
+                    if let Ok(val) = std::env::var("ANTHROPIC_API_KEY") {
+                        if !val.trim().is_empty() {
+                            api_key_val = Some(val);
+                        }
+                    }
+                    if let Ok(val) = std::env::var("ANTHROPIC_AUTH_TOKEN") {
+                        if !val.trim().is_empty() {
+                            auth_token_val = Some(val);
+                        }
+                    }
+                }
+                
+                let auth_source = match (api_key_val, auth_token_val) {
+                    (Some(api_key), Some(bearer_token)) => AuthSource::ApiKeyAndBearer {
+                        api_key,
+                        bearer_token,
+                    },
+                    (Some(api_key), None) => AuthSource::ApiKey(api_key),
+                    (None, Some(bearer_token)) => AuthSource::BearerToken(bearer_token),
+                    (None, None) => return Err(ApiError::Auth("Missing ANTHROPIC_API_KEY".to_string())),
+                };
+                
+                let mut client = AnthropicClient::from_auth(auth_source);
+                
+                let base_url_env = if key_index > 1 {
+                    format!("ANTHROPIC_BASE_URL{}", key_index)
+                } else {
+                    "ANTHROPIC_BASE_URL".to_string()
+                };
+                if let Ok(url) = std::env::var(&base_url_env) {
+                    if !url.trim().is_empty() {
+                        client = client.with_base_url(url);
+                    }
+                }
+                
+                Ok(Self::Anthropic(client))
+            }
+            ProviderKind::Xai => {
+                let config = OpenAiCompatConfig::xai();
+                let key_var = if key_index > 1 {
+                    format!("{}{}", config.api_key_env, key_index)
+                } else {
+                    config.api_key_env.to_string()
+                };
+                let url_var = if key_index > 1 {
+                    format!("{}{}", config.base_url_env, key_index)
+                } else {
+                    config.base_url_env.to_string()
+                };
+                
+                let api_key = match std::env::var(&key_var) {
+                    Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
+                    _ => std::env::var(config.api_key_env).unwrap_or_default()
+                };
+                if api_key.is_empty() {
+                    return Err(ApiError::Auth(format!("Missing credentials for provider: {}", config.provider_name)));
+                }
+                let base_url = match std::env::var(&url_var) {
+                    Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
+                    _ => std::env::var(config.base_url_env).unwrap_or_else(|_| config.default_base_url.to_string())
+                };
+                let client = OpenAiCompatClient::new(api_key, config).with_base_url(base_url);
+                Ok(Self::Xai(client))
+            }
+            ProviderKind::OpenAi => {
+                if std::env::var_os("OLLAMA_HOST").is_some() {
+                    Ok(Self::OpenAi(
+                        openai_compat::OpenAiCompatClient::from_ollama_env()
+                            .expect("from_ollama_env always returns Some"),
+                    ))
+                } else {
+                    let config = match providers::metadata_for_model(&resolved_model) {
+                        Some(meta) if meta.auth_env == "DASHSCOPE_API_KEY" => {
+                            OpenAiCompatConfig::dashscope()
+                        }
+                        Some(meta) if meta.auth_env == "GLM_API_KEY" => OpenAiCompatConfig::glm(),
+                        Some(meta) if meta.auth_env == "CLOUDFLARE_API_TOKEN" => OpenAiCompatConfig::cloudflare(),
+                        Some(meta) if meta.auth_env == "NVIDIA_API_KEY" => OpenAiCompatConfig::nvidia(),
+                        Some(meta) if meta.auth_env == "GEMINI_API_KEY" => OpenAiCompatConfig::gemini(),
+                        _ => OpenAiCompatConfig::openai(),
+                    };
+                    
+                    let key_var = if key_index > 1 {
+                        format!("{}{}", config.api_key_env, key_index)
+                    } else {
+                        config.api_key_env.to_string()
+                    };
+                    
+                    let url_var = if key_index > 1 {
+                        format!("{}{}", config.base_url_env, key_index)
+                    } else {
+                        config.base_url_env.to_string()
+                    };
+                    
+                    let api_key = match std::env::var(&key_var) {
+                        Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
+                        _ => {
+                            std::env::var(config.api_key_env).unwrap_or_default()
+                        }
+                    };
+                    
+                    if api_key.is_empty() {
+                        return Err(ApiError::Auth(format!("Missing credentials for provider: {}", config.provider_name)));
+                    }
+                    
+                    let base_url = match std::env::var(&url_var) {
+                        Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
+                        _ => {
+                            std::env::var(config.base_url_env).unwrap_or_else(|_| config.default_base_url.to_string())
+                        }
+                    };
+                    
+                    let client = OpenAiCompatClient::new(api_key, config).with_base_url(base_url);
+                    Ok(Self::OpenAi(client))
+                }
+            }
+        }
+    }
+
     #[must_use]
     pub const fn provider_kind(&self) -> ProviderKind {
         match self {
@@ -92,30 +258,160 @@ impl ProviderClient {
         }
     }
 
+async fn apply_api_pause() {
+    let home = std::env::var("HOME").unwrap_or_default();
+    if !home.is_empty() {
+        let lock_path = std::path::Path::new(&home).join(".claw/narration.lock");
+        while lock_path.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        }
+    }
+
+    if let Ok(val) = std::env::var("CLAW_API_PAUSE_SECS") {
+        if let Ok(secs) = val.parse::<u64>() {
+            if secs > 0 {
+                tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+            }
+        }
+    }
+}
+
     pub async fn send_message(
         &self,
         request: &MessageRequest,
     ) -> Result<MessageResponse, ApiError> {
-        match self {
-            Self::Anthropic(client) => client.send_message(request).await,
-            Self::Xai(client) | Self::OpenAi(client) => client.send_message(request).await,
+        Self::apply_api_pause().await;
+        
+        let mut models_to_try = vec![request.model.clone()];
+        let stable_model = crate::providers::resolve_model_alias("stable");
+        let gemini_lite_model = crate::providers::resolve_model_alias("gemini-lite");
+        
+        if !models_to_try.contains(&stable_model) {
+            models_to_try.push(stable_model);
         }
+        if !models_to_try.contains(&gemini_lite_model) {
+            models_to_try.push(gemini_lite_model);
+        }
+        
+        let mut last_error = None;
+        
+        for model in &models_to_try {
+            let mut key_index = 1;
+            while Self::has_key_for_index(model, key_index) {
+                if key_index > 1 || model != &request.model {
+                    eprintln!(
+                        "\n⚠️ Switching to model '{}' with API key index {}...",
+                        model, key_index
+                    );
+                }
+                
+                let mut fallback_request = request.clone();
+                fallback_request.model = model.clone();
+                
+                let client_res = if key_index == 1 && model == &request.model {
+                    match self {
+                        Self::Anthropic(client) => client.send_message(&fallback_request).await,
+                        Self::Xai(client) | Self::OpenAi(client) => client.send_message(&fallback_request).await,
+                    }
+                } else if let Ok(fallback_client) = ProviderClient::from_model_with_key_index(model, key_index) {
+                    match fallback_client {
+                        ProviderClient::Anthropic(client) => client.send_message(&fallback_request).await,
+                        ProviderClient::Xai(client) | ProviderClient::OpenAi(client) => client.send_message(&fallback_request).await,
+                    }
+                } else {
+                    Err(ApiError::Auth(format!("Missing credentials for model: {}", model)))
+                };
+                
+                match client_res {
+                    Ok(response) => return Ok(response),
+                    Err(err) => {
+                        eprintln!(
+                            "⚠️ Model '{}' with API key index {} returned error: {}.",
+                            model, key_index, err
+                        );
+                        last_error = Some(err);
+                        key_index += 1;
+                    }
+                }
+            }
+        }
+        
+        Err(last_error.unwrap_or_else(|| ApiError::Auth(format!("Missing credentials for model: {}", request.model))))
     }
 
     pub async fn stream_message(
         &self,
         request: &MessageRequest,
     ) -> Result<MessageStream, ApiError> {
-        match self {
-            Self::Anthropic(client) => client
-                .stream_message(request)
-                .await
-                .map(MessageStream::Anthropic),
-            Self::Xai(client) | Self::OpenAi(client) => client
-                .stream_message(request)
-                .await
-                .map(MessageStream::OpenAiCompat),
+        Self::apply_api_pause().await;
+        
+        let mut models_to_try = vec![request.model.clone()];
+        let stable_model = crate::providers::resolve_model_alias("stable");
+        let gemini_lite_model = crate::providers::resolve_model_alias("gemini-lite");
+        
+        if !models_to_try.contains(&stable_model) {
+            models_to_try.push(stable_model);
         }
+        if !models_to_try.contains(&gemini_lite_model) {
+            models_to_try.push(gemini_lite_model);
+        }
+        
+        let mut last_error = None;
+        
+        for model in &models_to_try {
+            let mut key_index = 1;
+            while Self::has_key_for_index(model, key_index) {
+                if key_index > 1 || model != &request.model {
+                    eprintln!(
+                        "\n⚠️ Switching to model '{}' with API key index {}...",
+                        model, key_index
+                    );
+                }
+                
+                let mut fallback_request = request.clone();
+                fallback_request.model = model.clone();
+                
+                let client_res = if key_index == 1 && model == &request.model {
+                    match self {
+                        Self::Anthropic(client) => client
+                            .stream_message(&fallback_request)
+                            .await
+                            .map(MessageStream::Anthropic),
+                        Self::Xai(client) | Self::OpenAi(client) => client
+                            .stream_message(&fallback_request)
+                            .await
+                            .map(MessageStream::OpenAiCompat),
+                    }
+                } else if let Ok(fallback_client) = ProviderClient::from_model_with_key_index(model, key_index) {
+                    match fallback_client {
+                        ProviderClient::Anthropic(client) => client
+                            .stream_message(&fallback_request)
+                            .await
+                            .map(MessageStream::Anthropic),
+                        ProviderClient::Xai(client) | ProviderClient::OpenAi(client) => client
+                            .stream_message(&fallback_request)
+                            .await
+                            .map(MessageStream::OpenAiCompat),
+                    }
+                } else {
+                    Err(ApiError::Auth(format!("Missing credentials for model: {}", model)))
+                };
+                
+                match client_res {
+                    Ok(stream) => return Ok(stream),
+                    Err(err) => {
+                        eprintln!(
+                            "⚠️ Model '{}' with API key index {} returned error: {}.",
+                            model, key_index, err
+                        );
+                        last_error = Some(err);
+                        key_index += 1;
+                    }
+                }
+            }
+        }
+        
+        Err(last_error.unwrap_or_else(|| ApiError::Auth(format!("Missing credentials for model: {}", request.model))))
     }
 }
 

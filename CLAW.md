@@ -4,7 +4,7 @@
 
 ## 1. Task Graph Management
 
-- **Maintain a Task Graph:** You MUST use the `TaskGraph` tool to maintain a tree structure of your tasks. 
+- **Maintain a Task Graph:** You MUST use the `TaskGraph` tool to maintain a tree structure of your tasks.
 - **Pre-document Actions:** Every single micro-action, tool execution, or command MUST be documented as a sub-task in the TaskGraph BEFORE you execute it.
 - **Deep Recursion:** Dynamically break down tasks into a deep hierarchy (up to 6-7 levels) so you don't get lost in sequential actions.
 - **Handling Failures:** If an approach fails, do NOT delete the task. Mark it as `failed` (which appears under a minus sign `[-]`), and create a new sibling node to represent your alternative attempt. Update a task's status to `completed` only when it is successfully finished.
@@ -22,3 +22,8 @@
 ## 4. Tool Discovery
 
 - **`ToolSearch`**: Use `ToolSearch` to discover any available tools by keyword (like MCP server tools or specialized scripts) to accomplish your goals when you don't know the exact tool name.
+
+## 5. File System and Execution Scope
+
+- **Global System Access:** You have full permission and are encouraged to read, search, and execute commands on ANY files, directories, or processes on this computer (including paths outside the current repository/workspace). Do not restrict your searches or tool calls to the workspace root.
+- **File Creation Location:** When creating or writing new files, you should prefer creating them within the active repository (`/Users/dev/Documents/GitHub/claw-code`) or the specific project directories where files were previously created, unless the user explicitly requests a different location.
