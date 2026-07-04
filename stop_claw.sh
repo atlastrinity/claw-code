@@ -2,30 +2,38 @@
 
 echo "🛑 Stopping all claw-related processes..."
 
-# Helper function to kill processes gracefully then forcefully
+# Helper function to kill processes gracefully then forcefully by tracking PIDs
 kill_process() {
     local pattern="$1"
     local exact="$2"
+    local pids
     
     if [ "$exact" = true ]; then
-        if pgrep -x "$pattern" > /dev/null; then
-            echo "Killing processes matching exact name: '$pattern'..."
-            pkill -x "$pattern"
-            sleep 1
-            if pgrep -x "$pattern" > /dev/null; then
-                echo "Force killing '$pattern'..."
-                pkill -9 -x "$pattern"
-            fi
-        fi
+        pids=$(pgrep -x "$pattern" 2>/dev/null || true)
     else
-        if pgrep -f "$pattern" > /dev/null; then
-            echo "Killing processes matching: '$pattern'..."
-            pkill -f "$pattern"
-            sleep 1
-            if pgrep -f "$pattern" > /dev/null; then
-                echo "Force killing '$pattern'..."
-                pkill -9 -f "$pattern"
+        pids=$(pgrep -f "$pattern" 2>/dev/null || true)
+    fi
+    
+    # Remove any empty lines or whitespace to normalize
+    pids=$(echo "$pids" | tr '\n' ' ' | xargs)
+    
+    if [ -n "$pids" ]; then
+        echo "Killing processes matching '$pattern' (PIDs: $pids)..."
+        kill -15 $pids 2>/dev/null || true
+        
+        sleep 1.5
+        
+        local remaining=""
+        for pid in $pids; do
+            if kill -0 "$pid" 2>/dev/null; then
+                remaining="$remaining $pid"
             fi
+        done
+        
+        remaining=$(echo "$remaining" | xargs)
+        if [ -n "$remaining" ]; then
+            echo "Force killing remaining processes: $remaining..."
+            kill -9 $remaining 2>/dev/null || true
         fi
     fi
 }
