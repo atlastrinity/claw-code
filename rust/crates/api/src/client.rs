@@ -1,9 +1,91 @@
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant};
 use crate::error::ApiError;
 use crate::prompt_cache::{PromptCache, PromptCacheRecord, PromptCacheStats};
 use crate::providers::anthropic::{self, AnthropicClient, AuthSource};
 use crate::providers::openai_compat::{self, OpenAiCompatClient, OpenAiCompatConfig};
 use crate::providers::{self, ProviderKind};
 use crate::types::{MessageRequest, MessageResponse, StreamEvent};
+
+struct TpmRateLimiter {
+    window: Mutex<Vec<(Instant, usize)>>,
+}
+
+impl TpmRateLimiter {
+    fn new() -> Self {
+        Self {
+            window: Mutex::new(Vec::new()),
+        }
+    }
+
+    async fn acquire(&self, limit: usize, estimated_tokens: usize) {
+        loop {
+            let now = Instant::now();
+            let mut lock = match self.window.lock() {
+                Ok(g) => g,
+                Err(_) => return,
+            };
+
+            lock.retain(|(time, _)| now.duration_since(*time) < Duration::from_secs(60));
+
+            let current_tokens: usize = lock.iter().map(|(_, tokens)| tokens).sum();
+
+            if current_tokens + estimated_tokens <= limit {
+                lock.push((now, estimated_tokens));
+                return;
+            }
+
+            if let Some(&(first_time, _)) = lock.first() {
+                let elapsed = now.duration_since(first_time);
+                let wait_duration = Duration::from_secs(60).saturating_sub(elapsed);
+                drop(lock);
+                tokio::time::sleep(wait_duration).await;
+            } else {
+                lock.push((now, estimated_tokens));
+                return;
+            }
+        }
+    }
+}
+
+static GLM_LIMITER: OnceLock<TpmRateLimiter> = OnceLock::new();
+static GEMINI_LIMITER: OnceLock<TpmRateLimiter> = OnceLock::new();
+static DEFAULT_LIMITER: OnceLock<TpmRateLimiter> = OnceLock::new();
+
+fn estimate_request_tokens(request: &MessageRequest) -> usize {
+    let mut total_bytes = 0;
+    if let Some(ref system) = request.system {
+        total_bytes += system.len();
+    }
+    for msg in &request.messages {
+        for block in &msg.content {
+            match block {
+                crate::types::InputContentBlock::Text { text } => {
+                    total_bytes += text.len();
+                }
+                crate::types::InputContentBlock::Thinking { thinking, .. } => {
+                    total_bytes += thinking.len();
+                }
+                crate::types::InputContentBlock::ToolUse { name, input, .. } => {
+                    total_bytes += name.len() + input.to_string().len();
+                }
+                crate::types::InputContentBlock::ToolResult { content, .. } => {
+                    for rblock in content {
+                        match rblock {
+                            crate::types::ToolResultContentBlock::Text { text } => {
+                                total_bytes += text.len();
+                            }
+                            crate::types::ToolResultContentBlock::Json { value } => {
+                                total_bytes += value.to_string().len();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    total_bytes / 2
+}
 
 struct ApiLockGuard {
     lock_path: std::path::PathBuf,
@@ -280,7 +362,7 @@ impl ProviderClient {
     }
 
 
-async fn apply_api_pause() -> Option<ApiLockGuard> {
+async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLockGuard> {
     let home = std::env::var("HOME").unwrap_or_default();
     if !home.is_empty() {
         let lock_path = std::path::Path::new(&home).join(".claw/narration.lock");
@@ -300,6 +382,25 @@ async fn apply_api_pause() -> Option<ApiLockGuard> {
     // Default rate limit sleep of 1 second between requests
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
+    // Apply model-specific TPM rate limiting
+    let limit = if model.contains("glm") {
+        20_000
+    } else if model.contains("gemini") || model.contains("stable") {
+        250_000
+    } else {
+        100_000
+    };
+
+    let limiter = if model.contains("glm") {
+        GLM_LIMITER.get_or_init(TpmRateLimiter::new)
+    } else if model.contains("gemini") || model.contains("stable") {
+        GEMINI_LIMITER.get_or_init(TpmRateLimiter::new)
+    } else {
+        DEFAULT_LIMITER.get_or_init(TpmRateLimiter::new)
+    };
+
+    limiter.acquire(limit, estimated_tokens).await;
+
     if !home.is_empty() {
         Some(ApiLockGuard::new(&home))
     } else {
@@ -311,7 +412,8 @@ async fn apply_api_pause() -> Option<ApiLockGuard> {
         &self,
         request: &MessageRequest,
     ) -> Result<MessageResponse, ApiError> {
-        let _lock = Self::apply_api_pause().await;
+        let estimated_tokens = estimate_request_tokens(request);
+        let _lock = Self::apply_api_pause(&request.model, estimated_tokens).await;
         
         let mut models_to_try = vec![request.model.clone()];
         let stable_model = crate::providers::resolve_model_alias("stable");
@@ -387,7 +489,8 @@ async fn apply_api_pause() -> Option<ApiLockGuard> {
         &self,
         request: &MessageRequest,
     ) -> Result<MessageStream, ApiError> {
-        let _lock = Self::apply_api_pause().await;
+        let estimated_tokens = estimate_request_tokens(request);
+        let _lock = Self::apply_api_pause(&request.model, estimated_tokens).await;
         
         let mut models_to_try = vec![request.model.clone()];
         let stable_model = crate::providers::resolve_model_alias("stable");
