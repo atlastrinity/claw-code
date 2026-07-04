@@ -274,6 +274,9 @@ async fn apply_api_pause() {
             }
         }
     }
+
+    // Default rate limit sleep of 1 second between requests
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 }
 
     pub async fn send_message(
