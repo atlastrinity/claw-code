@@ -18,7 +18,7 @@ sleep 0.5
 
 # Очищаємо файли планування та завдань для справді нової сесії
 echo "🧹 Очищення файлів завдань попередньої сесії..."
-rm -f "$SCRIPT_DIR/task.md" "$SCRIPT_DIR/.clawd-task-graph.json"
+rm -f "./task.md" "./.clawd-task-graph.json"
 
 # 1. Вибір моделі з .claw.json
 echo "🤖 Завантаження списку моделей..."
