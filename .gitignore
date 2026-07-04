@@ -63,3 +63,5 @@ ClawMcpDemo/
 rust/test_timeout/
 **/.clawd-task-graph.json
 **/task.md
+audio_output/
+
