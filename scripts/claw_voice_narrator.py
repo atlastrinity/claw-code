@@ -314,25 +314,38 @@ class VoicePlayer:
             print(f"\n{COLORS['mykyta']}⚠️ Помилка ініціалізації TTS: {e}{COLORS['reset']}")
 
     def get_success_speech(self, action: str) -> str:
+        import random
         templates = [
             f"Дію з {action} виконано успішно.",
             f"Операцію з {action} завершено успішно.",
             f"Успішно завершено {action}.",
             f"Крок із {action} виконано без помилок.",
+            f"Завдання з {action} успішно реалізовано.",
+            f"Операція {action} пройшла без ускладнень.",
+            f"Все гаразд із {action}.",
+            f"Дію з {action} успішно проведено.",
+            f"Ми успішно впоралися з {action}.",
+            f"Крок {action} завершено без жодних проблем.",
+            f"Успішно виконано {action}.",
+            f"Процес {action} завершився вдало."
         ]
-        speech = templates[self.success_index % len(templates)]
-        self.success_index += 1
-        return speech
+        # Використовуємо випадковий вибір, щоб уникнути повторюваності по циклу
+        return random.choice(templates)
 
     def get_failure_speech(self, action: str, error: str) -> str:
+        import random
         templates = [
             f"Не вдалося виконати {action} через помилку: {error}.",
             f"Виникла помилка під час {action}: {error}.",
             f"Операція з {action} завершилася невдачею. Причина: {error}.",
+            f"Не вдалося провести {action}. Отримано помилку: {error}.",
+            f"Дія {action} завершилася збоєм: {error}.",
+            f"Сталася помилка при {action}. Деталі: {error}.",
+            f"Помилка виконання {action}. Повідомлення: {error}.",
+            f"Щось пішло не так під час {action}: {error}.",
+            f"Крок {action} провалився з помилкою: {error}."
         ]
-        speech = templates[self.failure_index % len(templates)]
-        self.failure_index += 1
-        return speech
+        return random.choice(templates)
 
     def speak(self, voice: str, title: str, text: str):
         """Generates natural text, prints it, and plays the audio."""
