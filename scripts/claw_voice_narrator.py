@@ -859,7 +859,7 @@ def translate_and_summarize_thinking(text: str) -> str:
         "messages": [
             {
                 "role": "system",
-                "content": "You are a professional Ukrainian translator. Summarize the given English thinking process of an AI coding agent into a single, natural, descriptive sentence in Ukrainian (UA). Describe the agent's immediate action plan or deduction. Keep technical terms in English, but follow each with its phonetic Ukrainian pronunciation in parentheses, for example: 'cache (кеш)'. Keep it under 30 words, and do not use templates. Output ONLY the translated Ukrainian sentence, with no introductory or concluding remarks."
+                "content": "You are a professional Ukrainian translator. Summarize the given English thinking process of an AI coding agent into a single, natural, descriptive sentence in Ukrainian (UA). Describe the agent's immediate action plan or deduction. RULES: 1. Translate general programming concepts and standard terms directly into natural Ukrainian (e.g. 'concurrency' -> 'багатопотоковість', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'optimization' -> 'оптимізація'). 2. Only keep specific code elements (file names, paths, variables, class/function names, commands, and tool names) in English, but follow each with its phonetic Ukrainian pronunciation in parentheses, for example: 'cache.json (кеш крапка джейсон)', 'retrieve_context (ретрів контекст)'. Keep it under 30 words, and do not use templates. Output ONLY the translated Ukrainian sentence, with no introductory or concluding remarks."
             },
             {
                 "role": "user",
@@ -997,7 +997,7 @@ def translate_to_ukrainian(text: str) -> str:
         "messages": [
             {
                 "role": "system",
-                "content": "You are a professional Ukrainian translator. Translate the given text into natural, fluent Ukrainian (UA). Keep all technical terms, code symbols, file paths, variables, and commands in English, but follow each English word/term with its phonetic Ukrainian pronunciation in parentheses, for example: 'performance (перформанс)', 'cache (кеш)', 'buffer (буфер)', 'run_command (ран команд)'. Output ONLY the translated Ukrainian text, with no introductory or concluding remarks."
+                "content": "You are a professional Ukrainian translator. Translate the given text into natural, fluent Ukrainian (UA). RULES: 1. Translate general programming concepts and standard terms directly into natural Ukrainian (e.g. 'concurrency' -> 'багатопотоковість/паралельність', 'performance' -> 'продуктивність/швидкодія', 'optimization' -> 'оптимізація', 'cache' -> 'кеш', 'thread' -> 'потік', 'buffer' -> 'буфер', 'error' -> 'помилка'). 2. Only keep specific code elements (file names, paths, variables, class/function names, commands like 'git status' or 'cargo check', and tool names) in English, but follow each with its phonetic Ukrainian pronunciation in parentheses, for example: 'run_claw.sh (ран клоу крапка ес ейч)', 'VoicePlayer (войс плеєр)', 'grep_search (греп серч)'. Output ONLY the translated Ukrainian text, with no introductory or concluding remarks."
             },
             {
                 "role": "user",
