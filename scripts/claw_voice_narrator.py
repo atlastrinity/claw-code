@@ -299,6 +299,11 @@ class VoicePlayer:
                 
                 # If not cached, generate the file
                 if not cached_wav_path.exists():
+                    # Wait if Claw is currently making an API request to prevent concurrent API calls
+                    api_lock_path = Path.home() / ".claw" / "api.lock"
+                    while api_lock_path.exists():
+                        time.sleep(0.1)
+                        
                     with open(cached_wav_path, "wb") as f:
                         self.tts_engine.tts(speech_text, voice_val, Stress.Dictionary.value, f)
                 
