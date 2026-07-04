@@ -229,6 +229,13 @@ impl SystemPromptBuilder {
         sections.push(get_simple_system_section());
         sections.push(get_simple_doing_tasks_section());
         sections.push(get_actions_section());
+        
+        if let Ok(lang) = std::env::var("CLAW_NARRATION_LANGUAGE") {
+            if !lang.trim().is_empty() {
+                sections.push(format!("# Narration Language\nIMPORTANT: You MUST write your <thought> process and any tool explanation exclusively in the {} language.", lang.trim()));
+            }
+        }
+        
         sections.push(SYSTEM_PROMPT_DYNAMIC_BOUNDARY.to_string());
         sections.push(self.environment_section());
 
@@ -735,6 +742,7 @@ fn get_simple_doing_tasks_section() -> String {
         " - For GENERAL TASKS: Ensure you have performed a reasonable check (e.g., verifying a file was created, a command executed successfully, or an API returned the expected result).".to_string(),
         "Report outcomes faithfully: if verification fails or was not run, say so explicitly. Do not hallucinate successful outcomes without proof.".to_string(),
         "RAG CONTEXT RESCUE RULE: The system automatically saves conversation summaries to `.claw/summaries/` whenever context compaction occurs. If you notice a context compaction event, or if you feel you have lost track of the detailed conversation history, you MUST immediately call `retrieve_context` with queries matching your Active Session ID (which is provided in your Environment context) or keywords of the current task. Since RAG search results only return snippets of chunks, the search will return a path (e.g. `.claw/summaries/summary-{session_id}.md`). You MUST then use the `view_file` tool to read the entire summary file at that path. This will restore the exact task list, timestamp, and detailed discussion timeline, fully reconstructing your chain-of-thought without missing any details. Never hesitate to query the RAG index or read the summary files to restore your context.".to_string(),
+        "VOLUNTARY RAG USAGE RULE: You are equipped with the `retrieve_context` (RAG) tool. Since the system does not automatically inject RAG results on every tool call (to save context tokens and prevent rate limit errors), you are encouraged to actively use `retrieve_context` whenever you need to search the codebase semantically, look up prior execution logs, or find relevant context instead of doing broad wildcard searches or reading too many files.".to_string(),
     ]);
 
     std::iter::once("# Doing tasks & Planning Mode".to_string())

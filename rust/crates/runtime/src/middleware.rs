@@ -737,6 +737,7 @@ impl RagContextMiddleware {
     }
 
     /// Query RAG for context relevant to a tool call.
+    #[allow(dead_code)]
     fn query_context(&self, tool_name: &str, input: &str) -> Option<String> {
         // Build a semantic query from the tool name + input
         let query = format!("{} {}", tool_name, truncate(input, 200));
@@ -771,7 +772,7 @@ impl RagContextMiddleware {
 impl<'a, 'p> TurnMiddleware<'a, 'p> for RagContextMiddleware {
     fn process(
         &mut self,
-        mut ctx: ToolCallContext,
+        ctx: ToolCallContext,
         prompter: &mut Option<&mut (dyn PermissionPrompter + 'p)>,
         next: &mut dyn FnMut(
             ToolCallContext,
@@ -779,12 +780,14 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for RagContextMiddleware {
         ) -> ToolCallOutcome,
     ) -> ToolCallOutcome {
         // ---- Pre-execution: enrich metadata with RAG context ----
-        for call in &mut ctx.calls {
-            if let Some(context) = self.query_context(&call.request.tool_name, &call.request.input)
-            {
-                call.pre_hook_messages.push(context);
-            }
-        }
+        // Disabled automatic pre-execution RAG enrichment to prevent prompt bloating.
+        // The agent will actively query RAG using retrieve_context if it requires details.
+        // for call in &mut ctx.calls {
+        //     if let Some(context) = self.query_context(&call.request.tool_name, &call.request.input)
+        //     {
+        //         call.pre_hook_messages.push(context);
+        //     }
+        // }
 
         // Run the rest of the middleware chain
         let outcome = next(ctx, prompter);

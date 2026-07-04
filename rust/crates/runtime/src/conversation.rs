@@ -426,12 +426,13 @@ where
                 return Err(error);
             }
 
-            let mut system_prompt = self.system_prompt.clone();
-            if iterations == 1 {
-                if let Some(rag_context) = fetch_rag_context(&user_input) {
-                    system_prompt.push(rag_context);
-                }
-            }
+            let system_prompt = self.system_prompt.clone();
+            // Disabled automatic RAG context querying on initial user input to save tokens.
+            // if iterations == 1 {
+            //     if let Some(rag_context) = fetch_rag_context(&user_input) {
+            //         system_prompt.push(rag_context);
+            //     }
+            // }
 
             let request = ApiRequest {
                 system_prompt,
@@ -769,6 +770,7 @@ fn flush_text_block(text: &mut String, blocks: &mut Vec<ContentBlock>) {
     }
 }
 
+#[allow(dead_code)]
 fn fetch_rag_context(query: &str) -> Option<String> {
     let client = reqwest::blocking::Client::new();
     let body = serde_json::json!({
