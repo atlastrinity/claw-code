@@ -88,11 +88,11 @@ for arg in "$@"; do
 done
 
 if [ -z "$ENABLE_IOS" ]; then
-  # Перевірка наявності iOS/Apple файлів у робочому просторі
-  if find "$SCRIPT_DIR" -maxdepth 3 \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "Podfile" \) -print -quit | grep -q .; then
-    WORKSPACE_HAS_IOS="true"
+  # Перевірка наявності iOS/Apple файлів у безпосередній директорії (depth 1)
+  if find "$SCRIPT_DIR" -maxdepth 1 \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "Podfile" \) -print -quit | grep -q .; then
+    IMMEDIATE_HAS_IOS="true"
   else
-    WORKSPACE_HAS_IOS="false"
+    IMMEDIATE_HAS_IOS="false"
   fi
 
   # Перевірка ключових слів у аргументах запуску
@@ -104,7 +104,7 @@ if [ -z "$ENABLE_IOS" ]; then
     fi
   done
 
-  if [ "$WORKSPACE_HAS_IOS" = "true" ] || [ "$PROMPT_HAS_IOS" = "true" ]; then
+  if [ "$IMMEDIATE_HAS_IOS" = "true" ] || [ "$PROMPT_HAS_IOS" = "true" ]; then
     echo "🍏 [Автодетекція] Виявлено iOS-проект або тему Apple-розробки. Режим iOS увімкнено."
     ENABLE_IOS="true"
   else
