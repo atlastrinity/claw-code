@@ -84,19 +84,28 @@ for arg in "$@"; do
 done
 
 if [ -z "$ENABLE_IOS" ]; then
-  # Якщо вибір не зроблено явно через аргументи, запитуємо
-  echo "============================================================================"
-  echo "                      Режим Розробки Apple/iOS                             "
-  echo "============================================================================"
-  read -p " 🍏 Бажаєте увімкнути розробку під iOS (запуск Xcode та скілів)? [y/N]: " choice
-  case "$choice" in
-    [yY][eE][sS]|[yY])
-      ENABLE_IOS="true"
-      ;;
-    *)
-      ENABLE_IOS="false"
-      ;;
-  esac
+  # Перевірка наявності iOS/Apple файлів у робочому просторі
+  if find "$SCRIPT_DIR" -maxdepth 3 \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "Podfile" \) -print -quit | grep -q .; then
+    WORKSPACE_HAS_IOS="true"
+  else
+    WORKSPACE_HAS_IOS="false"
+  fi
+
+  # Перевірка ключових слів у аргументах запуску
+  PROMPT_HAS_IOS="false"
+  for arg in "${FORWARD_ARGS[@]}"; do
+    if echo "$arg" | grep -iqE "ios|xcode|swift|swiftui|cocoapods|podfile|simulator|watchos|tvos|macos|iphonesimulator"; then
+      PROMPT_HAS_IOS="true"
+      break
+    fi
+  done
+
+  if [ "$WORKSPACE_HAS_IOS" = "true" ] || [ "$PROMPT_HAS_IOS" = "true" ]; then
+    echo "🍏 [Автодетекція] Виявлено iOS-проект або тему Apple-розробки. Режим iOS увімкнено."
+    ENABLE_IOS="true"
+  else
+    ENABLE_IOS="false"
+  fi
 fi
 
 SKILL_ARGS=()
