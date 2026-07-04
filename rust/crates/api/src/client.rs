@@ -329,6 +329,19 @@ async fn apply_api_pause() {
                             "⚠️ Model '{}' with API key index {} returned error: {}.",
                             model, key_index, err
                         );
+                        
+                        let err_str = format!("{:?}", err);
+                        let is_rate_limit = err.is_rate_limit() 
+                            || err_str.contains("1305") 
+                            || err_str.contains("429")
+                            || err_str.contains("Too Many Requests")
+                            || err_str.contains("overloaded");
+                        
+                        if is_rate_limit {
+                            eprintln!("⏳ Rate limit or server overload detected. Pausing for 2 seconds before retry...");
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        }
+                        
                         last_error = Some(err);
                         key_index += 1;
                     }
@@ -404,6 +417,19 @@ async fn apply_api_pause() {
                             "⚠️ Model '{}' with API key index {} returned error: {}.",
                             model, key_index, err
                         );
+                        
+                        let err_str = format!("{:?}", err);
+                        let is_rate_limit = err.is_rate_limit() 
+                            || err_str.contains("1305") 
+                            || err_str.contains("429")
+                            || err_str.contains("Too Many Requests")
+                            || err_str.contains("overloaded");
+                        
+                        if is_rate_limit {
+                            eprintln!("⏳ Rate limit or server overload detected. Pausing for 2 seconds before retry...");
+                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                        }
+                        
                         last_error = Some(err);
                         key_index += 1;
                     }
