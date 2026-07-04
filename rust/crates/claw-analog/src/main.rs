@@ -36,6 +36,7 @@ enum OutputFormatArg {
 enum LangArg {
     En,
     Ru,
+    Uk,
 }
 
 impl From<LangArg> for AnalogLanguage {
@@ -43,6 +44,7 @@ impl From<LangArg> for AnalogLanguage {
         match a {
             LangArg::En => AnalogLanguage::En,
             LangArg::Ru => AnalogLanguage::Ru,
+            LangArg::Uk => AnalogLanguage::Uk,
         }
     }
 }
@@ -234,7 +236,7 @@ fn merge_language(cli: Option<LangArg>, file: Option<&str>) -> AnalogLanguage {
         return l.into();
     }
     file.and_then(AnalogLanguage::from_toml_str)
-        .unwrap_or_default()
+        .unwrap_or(AnalogLanguage::En)
 }
 
 fn merge_preset(cli: Option<PresetCli>, file: Option<&str>, prompt: &str) -> Preset {

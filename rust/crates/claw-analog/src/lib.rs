@@ -65,6 +65,7 @@ pub enum AnalogLanguage {
     #[default]
     En,
     Ru,
+    Uk,
 }
 
 impl AnalogLanguage {
@@ -73,6 +74,7 @@ impl AnalogLanguage {
         match s.trim().to_ascii_lowercase().as_str() {
             "en" | "english" => Some(Self::En),
             "ru" | "russian" => Some(Self::Ru),
+            "uk" | "ukrainian" | "ua" => Some(Self::Uk),
             _ => None,
         }
     }
@@ -82,6 +84,7 @@ impl AnalogLanguage {
         match self {
             Self::En => "en",
             Self::Ru => "ru",
+            Self::Uk => "uk",
         }
     }
 }
@@ -91,6 +94,9 @@ fn language_system_hint(lang: AnalogLanguage) -> Option<&'static str> {
         AnalogLanguage::En => None,
         AnalogLanguage::Ru => Some(
             "Язык: отвечайте по-русски, когда пользователь пишет по-русски; пути к файлам, идентификаторы в коде и стандартные термины API можно оставлять на английском.",
+        ),
+        AnalogLanguage::Uk => Some(
+            "Мова: відповідайте виключно українською мовою (UA), коли користувач пише українською або англійською; шляхи до файлів, ідентифікатори в коді та стандартні терміни API можна залишати англійською.",
         ),
     }
 }
