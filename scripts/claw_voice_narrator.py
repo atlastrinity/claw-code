@@ -192,6 +192,87 @@ def make_natural_speech(voice: str, title: str, raw_text: str) -> str:
     return translated
 
 
+# ──────────────────────────── TTS Phonetic Transcription ─────────────────
+
+TECH_GLOSSARY = {
+    "performance": "перформанс", "optimization": "оптимізація", "cache": "кеш", "buffer": "буфер",
+    "setup": "сетап", "git": "гіт", "run": "ран", "test": "тест", "compile": "компіляція",
+    "build": "білд", "file": "файл", "app": "апп", "swift": "свіфт", "ios": "ай ос",
+    "macos": "мак ос", "thread": "тред", "memory": "меморі", "debug": "дебаг", "error": "еррор",
+    "warning": "ворнінг", "fail": "фейл", "success": "саксес", "connection": "коннекшн",
+    "relay": "рілей", "server": "сервер", "client": "клієнт", "host": "хост", "port": "порт",
+    "quic": "квік", "udp": "ю ді пі", "tcp": "ті сі пі", "webrtc": "веб ер ті сі", "bonjour": "бонжур",
+    "mdns": "ем ді ен ес", "cloudkit": "клаудкіт", "signaling": "сигналінг", "audio": "аудіо",
+    "video": "відео", "stream": "стрім", "capture": "кепчур", "renderer": "рендерер",
+    "metal": "метал", "trackpad": "трекпад", "mouse": "маус", "keyboard": "кіборд",
+    "volume": "волюм", "unzip": "анзіп", "zip": "зіп", "mkdir": "мейкдір", "lsof": "ел ес оф",
+    "kill": "кілл", "find": "файнд", "grep": "греп", "bash": "беш", "command": "команд",
+    "tool": "тул", "project": "проджект", "code": "код", "pin": "пін", "package": "пекедж",
+    "dependency": "депенденсі", "framework": "фреймворк", "library": "лайбрері", "api": "ей пі ай",
+    "url": "ю ар ел", "ip": "ай пі", "ping": "пінг", "pong": "понг", "ack": "ек", "latency": "лейтенсі",
+    "quality": "кволіті", "fps": "еф пі ес", "bitrate": "бітрів", "codec": "кодек",
+    "h264": "ейч два шість чотири", "h265": "ейч два шість п'ять", "aac": "ей еі сі",
+    "avfoundation": "аудіо відео фаундейшн", "screencapturekit": "скрін кепчур кіт",
+    "appkit": "апп кіт", "uikit": "юі кіт", "swiftui": "свіфт юі", "combine": "комбайн",
+    "coregraphics": "кор графікс", "videotoolbox": "відео тулбокс", "analog": "аналог",
+    "language": "ленгвідж", "session": "сешн", "history": "хісторі", "meta": "мета",
+    "prompt": "промпт", "assistant": "асистент", "thinking": "сінкінг", "thought": "сот",
+    "trace": "трейс", "flow": "флоу", "runtime": "рантайм", "router": "роутер",
+    "analyst": "аналіст", "security": "сек'юріті", "system": "систем", "lock": "лок",
+    "unlock": "анлок", "binary": "байнарі", "data": "дейта", "length": "ленгс",
+    "byte": "байт", "integer": "інтіджер", "string": "стрінг", "boolean": "булеан",
+    "float": "флоат", "double": "дабл", "class": "клас", "struct": "стракт", "enum": "інум",
+    "function": "фанкшн", "method": "метод", "variable": "веріабл", "constant": "констант",
+    "import": "імпорт", "init": "ініт", "deinit": "деініт", "override": "оверрайд",
+    "super": "супер", "self": "селф", "nil": "ніл", "null": "нал", "true": "тру",
+    "false": "фолс", "and": "енд", "or": "ор", "not": "нот", "if": "іф", "else": "елс",
+    "switch": "світч", "case": "кейс", "default": "дефолт", "for": "фор", "while": "вайл",
+    "do": "ду", "break": "брейк", "continue": "контінью", "return": "рітурн", "throw": "сроу",
+    "try": "трай", "catch": "кетч", "finally": "файналі", "async": "есинк", "await": "евейт",
+    "actor": "ектор", "nonisolated": "нонізолейтед", "isolated": "ізолейтед", "sendable": "сендабл",
+    "mainactor": "мейн ектор"
+}
+
+def transliterate_eng_to_ukr(text: str) -> str:
+    rules = [
+        ("sh", "ш"), ("ch", "ч"), ("th", "т"), ("ph", "ф"), ("kh", "х"),
+        ("oo", "у"), ("ee", "і"), ("ea", "і"), ("ai", "ей"), ("ay", "ей"),
+        ("oy", "ой"), ("ou", "ау"), ("ow", "ау"), ("ck", "к"), ("qu", "кв"),
+        ("a", "а"), ("b", "б"), ("c", "к"), ("d", "д"), ("e", "е"),
+        ("f", "ф"), ("g", "г"), ("h", "х"), ("i", "і"), ("j", "дж"),
+        ("k", "к"), ("l", "л"), ("m", "м"), ("n", "н"), ("o", "о"),
+        ("p", "п"), ("q", "к"), ("r", "р"), ("s", "с"), ("t", "т"),
+        ("u", "у"), ("v", "в"), ("w", "в"), ("x", "кс"), ("y", "і"),
+        ("z", "з")
+    ]
+    
+    def repl(match):
+        word = match.group(0)
+        res = word.lower()
+        for eng, ukr in rules:
+            res = res.replace(eng, ukr)
+        return res
+        
+    return re.sub(r'[a-zA-Z]+', repl, text)
+
+def prepare_text_for_tts(text: str) -> str:
+    # 1. Замінюємо пари "Англійська (Українська транскрипція)" на "Українська транскрипція"
+    processed = re.sub(r'[a-zA-Z0-9_./\\\\#@$%^&*()+\\-]+\\s*\\(([\\u0400-\\u04FF\\s\\\'’\\-,.:;!?]+)\\)', r'\\1', text)
+    
+    # 2. Замінюємо популярні терміни за словником
+    for eng, ua in TECH_GLOSSARY.items():
+        processed = re.sub(r'\\b' + re.escape(eng) + r'\\b', ua, processed, flags=re.IGNORECASE)
+        
+    # 3. Транслітеруємо решту англійських слів, щоб вони читалися українськими буквами
+    processed = transliterate_eng_to_ukr(processed)
+    
+    # 4. Прибираємо символи дужок та інше сміття, що могло залишитися
+    processed = processed.replace("(", "").replace(")", "")
+    
+    # 5. Прибираємо зайві пробіли
+    processed = re.sub(r'\\s+', ' ', processed).strip()
+    return processed
+
 # ──────────────────────────── Audio Player ──────────────────────────────
 
 class VoicePlayer:
@@ -282,8 +363,10 @@ class VoicePlayer:
             }
             voice_val = voice_map.get(voice, Voices.Tetiana.value)
             
+            # Prepare text for TTS (transcribe English terms, clean up formatting)
+            speech_text = prepare_text_for_tts(natural_text)
+            
             # Limit TTS chunk length to avoid crashes
-            speech_text = natural_text
             if len(speech_text) > 450:
                 speech_text = speech_text[:450] + "... далі скорочено."
 
@@ -755,7 +838,7 @@ def translate_and_summarize_thinking(text: str) -> str:
         "messages": [
             {
                 "role": "system",
-                "content": "You are a professional Ukrainian translator. Summarize the given English thinking process of an AI coding agent into a single, natural, descriptive sentence in Ukrainian (UA). Describe the agent's immediate action plan or deduction. Keep it under 30 words, and do not use templates. Output ONLY the translated Ukrainian sentence, with no introductory or concluding remarks."
+                "content": "You are a professional Ukrainian translator. Summarize the given English thinking process of an AI coding agent into a single, natural, descriptive sentence in Ukrainian (UA). Describe the agent's immediate action plan or deduction. Keep technical terms in English, but follow each with its phonetic Ukrainian pronunciation in parentheses, for example: 'cache (кеш)'. Keep it under 30 words, and do not use templates. Output ONLY the translated Ukrainian sentence, with no introductory or concluding remarks."
             },
             {
                 "role": "user",
@@ -893,7 +976,7 @@ def translate_to_ukrainian(text: str) -> str:
         "messages": [
             {
                 "role": "system",
-                "content": "You are a professional Ukrainian translator. Translate the given text into natural, fluent Ukrainian (UA). Keep all technical terms, code symbols, file paths, variables, and commands in English. Output ONLY the translated Ukrainian text, with no introductory or concluding remarks."
+                "content": "You are a professional Ukrainian translator. Translate the given text into natural, fluent Ukrainian (UA). Keep all technical terms, code symbols, file paths, variables, and commands in English, but follow each English word/term with its phonetic Ukrainian pronunciation in parentheses, for example: 'performance (перформанс)', 'cache (кеш)', 'buffer (буфер)', 'run_command (ран команд)'. Output ONLY the translated Ukrainian text, with no introductory or concluding remarks."
             },
             {
                 "role": "user",
