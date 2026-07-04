@@ -856,7 +856,10 @@ def process_session_entry(data: dict, player: VoicePlayer):
                     player.speak("dmytro", "Результат інструменту", speech)
 
 def tail_session_loop():
-    sessions_dir = project_root / ".claw" / "sessions"
+    sessions_dir = Path.cwd() / ".claw" / "sessions"
+    if not sessions_dir.exists():
+        sessions_dir = project_root / ".claw" / "sessions"
+
     print(f"{COLORS['bold']}{COLORS['system']}🎙️ Режим реального часу (Tailing Mode) запущено.{COLORS['reset']}")
     print(f"{COLORS['system']}Очікування нових записів у сесіях...{COLORS['reset']}\n")
     
