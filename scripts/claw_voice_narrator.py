@@ -257,11 +257,13 @@ def transliterate_eng_to_ukr(text: str) -> str:
 
 def prepare_text_for_tts(text: str) -> str:
     # 1. English (Ukrainian) -> Ukrainian (e.g. cache (кеш) -> кеш)
-    pattern_eng_ukr = r'[a-zA-Z0-9_./\\#@$%^&*()+-]+\s*\(([\u0400-\u04FF\s\'’.,:;!?-]+)\)'
+    # We match any English term followed by parentheses containing NO English letters
+    pattern_eng_ukr = r'[a-zA-Z0-9_./\\#@$%^&*()+-]+\s*\(([^a-zA-Z]+)\)'
     processed = re.sub(pattern_eng_ukr, r'\1', text)
     
     # 2. Ukrainian (English) -> Ukrainian (e.g. звіт (report) -> звіт)
-    pattern_ukr_eng = r'([\u0400-\u04FF\s\'’.,:;!?-]+)\s*\([a-zA-Z0-9_./\\#@$%^&*()+-]+\)'
+    # We match any non-English text followed by parentheses containing English term
+    pattern_ukr_eng = r'([^a-zA-Z]+)\s*\([a-zA-Z0-9_./\\#@$%^&*()+-]+\)'
     processed = re.sub(pattern_ukr_eng, r'\1', processed)
     
     # 3. Замінюємо популярні терміни за словником
