@@ -256,21 +256,27 @@ def transliterate_eng_to_ukr(text: str) -> str:
     return re.sub(r'[a-zA-Z]+', repl, text)
 
 def prepare_text_for_tts(text: str) -> str:
-    # 1. Замінюємо пари "Англійська (Українська транскрипція)" на "Українська транскрипція"
-    processed = re.sub(r'[a-zA-Z0-9_./\\\\#@$%^&*()+\\-]+\\s*\\(([\\u0400-\\u04FF\\s\\\'’\\-,.:;!?]+)\\)', r'\\1', text)
+    # 1. English (Ukrainian) -> Ukrainian (e.g. cache (кеш) -> кеш)
+    pattern_eng_ukr = r'[a-zA-Z0-9_./\\#@$%^&*()+-]+\s*\(([\u0400-\u04FF\s\'’.,:;!?-]+)\)'
+    processed = re.sub(pattern_eng_ukr, r'\1', text)
     
-    # 2. Замінюємо популярні терміни за словником
+    # 2. Ukrainian (English) -> Ukrainian (e.g. звіт (report) -> звіт)
+    pattern_ukr_eng = r'([\u0400-\u04FF\s\'’.,:;!?-]+)\s*\([a-zA-Z0-9_./\\#@$%^&*()+-]+\)'
+    processed = re.sub(pattern_ukr_eng, r'\1', processed)
+    
+    # 3. Замінюємо популярні терміни за словником
     for eng, ua in TECH_GLOSSARY.items():
-        processed = re.sub(r'\\b' + re.escape(eng) + r'\\b', ua, processed, flags=re.IGNORECASE)
+        processed = re.sub(r'\b' + re.escape(eng) + r'\b', ua, processed, flags=re.IGNORECASE)
         
-    # 3. Транслітеруємо решту англійських слів, щоб вони читалися українськими буквами
+    # 4. Транслітеруємо решту англійських слів, щоб вони читалися українськими буквами
     processed = transliterate_eng_to_ukr(processed)
     
-    # 4. Прибираємо символи дужок та інше сміття, що могло залишитися
-    processed = processed.replace("(", "").replace(")", "")
+    # 5. Прибираємо зайві пробіли перед розділовими знаками
+    processed = re.sub(r'\s+([,.:;!?])', r'\1', processed)
     
-    # 5. Прибираємо зайві пробіли
-    processed = re.sub(r'\\s+', ' ', processed).strip()
+    # 6. Прибираємо символи дужок та зайві пробіли
+    processed = processed.replace("(", "").replace(")", "")
+    processed = re.sub(r'\s+', ' ', processed).strip()
     return processed
 
 # ──────────────────────────── Audio Player ──────────────────────────────
