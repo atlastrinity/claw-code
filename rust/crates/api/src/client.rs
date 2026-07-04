@@ -416,12 +416,8 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
         let _lock = Self::apply_api_pause(&request.model, estimated_tokens).await;
         
         let mut models_to_try = vec![request.model.clone()];
-        let stable_model = crate::providers::resolve_model_alias("stable");
         let gemini_lite_model = crate::providers::resolve_model_alias("gemini-lite");
         
-        if !models_to_try.contains(&stable_model) {
-            models_to_try.push(stable_model);
-        }
         if !models_to_try.contains(&gemini_lite_model) {
             models_to_try.push(gemini_lite_model);
         }
@@ -493,12 +489,8 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
         let _lock = Self::apply_api_pause(&request.model, estimated_tokens).await;
         
         let mut models_to_try = vec![request.model.clone()];
-        let stable_model = crate::providers::resolve_model_alias("stable");
         let gemini_lite_model = crate::providers::resolve_model_alias("gemini-lite");
         
-        if !models_to_try.contains(&stable_model) {
-            models_to_try.push(stable_model);
-        }
         if !models_to_try.contains(&gemini_lite_model) {
             models_to_try.push(gemini_lite_model);
         }

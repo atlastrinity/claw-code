@@ -6,6 +6,8 @@
     "mega": "local/meta-llama/llama-3.3-70b-instruct:free",
     "gpt": "local/openai/gpt-oss-120b:free",
     "glm": "glm-4.7-flash",
+    "glm2": "glm-4.7-flash",
+    "glm3": "glm-4.7-flash",
     "qwen": "local/qwen/qwen-2.5-coder-32b-instruct:free",
     "kimi": "cloudflare/@cf/moonshotai/kimi-k2.6",
     "nvidia": "nvidia/meta/llama3-70b-instruct",
@@ -24,11 +26,8 @@
     "Skill",
     "retrieve_context",
     "ingest_context",
-    "ToolSearch",
-    "macos-use_vision"
+    "ToolSearch"
   ],
-  "allowedTools": [
-    "*"
-  ],
+  "allowedTools": ["*"],
   "mcpServers": {}
 }
