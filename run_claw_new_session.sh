@@ -16,6 +16,10 @@ pkill -f "mcpbridge" 2>/dev/null
 pkill -f "ios-simulator-mcp" 2>/dev/null
 sleep 0.5
 
+# Очищаємо файли планування та завдань для справді нової сесії
+echo "🧹 Очищення файлів завдань попередньої сесії..."
+rm -f "$SCRIPT_DIR/task.md" "$SCRIPT_DIR/.clawd-task-graph.json"
+
 # 1. Вибір моделі з .claw.json
 echo "🤖 Завантаження списку моделей..."
 ALIASES_OUTPUT=$(python3 -c '
@@ -55,7 +59,6 @@ if [ $? -eq 0 ] && [ -n "$ALIASES_OUTPUT" ]; then
     echo "============================================================================"
     echo " Натисніть Enter для вибору 'gemini-lite' за замовчуванням"
     read -p " Введіть номер моделі: " choice
-    
     if [ -n "$choice" ] && [ -n "${MODEL_KEYS[$choice]}" ]; then
         SELECTED_MODEL="${MODEL_KEYS[$choice]}"
         echo " ✅ Обрано модель: $SELECTED_MODEL"
@@ -67,12 +70,77 @@ else
 fi
 echo ""
 
-# 2. Перевірка та запуск Xcode (потрібен для mcpbridge)
-if ! pgrep -q -x "Xcode"; then
-  echo "🍏 Запуск Xcode (необхідно для xcode-bridge MCP)..."
-  open -a Xcode
-  # Чекаємо кілька секунд, щоб Xcode встиг запуститися
-  sleep 3
+# 1.5 Перевірка необхідності iOS (Xcode та спеціальних скілів)
+ENABLE_IOS=""
+FORWARD_ARGS=()
+for arg in "$@"; do
+  case "$arg" in
+    --ios)
+      ENABLE_IOS="true"
+      ;;
+    --no-ios)
+      ENABLE_IOS="false"
+      ;;
+    *)
+      FORWARD_ARGS+=("$arg")
+      ;;
+  esac
+done
+
+if [ -z "$ENABLE_IOS" ]; then
+  # Якщо вибір не зроблено явно через аргументи, запитуємо
+  echo "============================================================================"
+  echo "                      Режим Розробки Apple/iOS                             "
+  echo "============================================================================"
+  read -p " 🍏 Бажаєте увімкнути розробку під iOS (запуск Xcode та скілів)? [y/N]: " choice
+  case "$choice" in
+    [yY][eE][sS]|[yY])
+      ENABLE_IOS="true"
+      ;;
+    *)
+      ENABLE_IOS="false"
+      ;;
+  esac
+fi
+
+SKILL_ARGS=()
+
+if [ "$ENABLE_IOS" = "true" ]; then
+  echo " ✅ Режим розробки iOS УВІМКНЕНО."
+  
+  # 2. Перевірка та запуск Xcode (потрібен для mcpbridge)
+  if ! pgrep -q -x "Xcode"; then
+    echo "🍏 Запуск Xcode (необхідно для xcode-bridge MCP)..."
+    open -a Xcode
+    # Чекаємо кілька секунд, щоб Xcode встиг запуститися
+    sleep 3
+  fi
+
+  # Додаємо iOS скіли
+  SKILL_ARGS=(
+    --attach-skill "$SCRIPT_DIR/.claw/skills/workflows/apple-development-workflow/SKILL.md"
+    --attach-skill "$SCRIPT_DIR/.claw/skills/xcode_project_setup/SKILL.md"
+  )
+else
+  echo " ℹ️ Режим розробки iOS ВИМКНЕНО."
+  
+  # Тимчасово відключаємо iOS MCP сервери у .claw.json, якщо файл існує
+  if [ -f "$SCRIPT_DIR/.claw.json" ]; then
+    echo "🧹 Тимчасове відключення iOS MCP серверів у .claw.json..."
+    cp "$SCRIPT_DIR/.claw.json" "$SCRIPT_DIR/.claw.json.bak"
+    python3 -c '
+import json
+try:
+    with open(".claw.json", "r") as f:
+        data = json.load(f)
+    if "mcpServers" in data:
+        data["mcpServers"] = {}
+    with open(".claw.json", "w") as f:
+        json.dump(data, f, indent=2)
+except Exception as e:
+    print("Warning: failed to strip mcpServers:", e)
+'
+  fi
 fi
 
 # 3. Запускаємо RAG-сервіс у фоновому режимі
@@ -84,8 +152,17 @@ if ! kill -0 $RAG_PID 2>/dev/null; then
   echo "❌ УВАГА: claw-rag-service відразу завершився помилкою! Див. ~/.claw/logs/claw-rag-startup.err"
 fi
 
-# 3. Налаштовуємо автоматичне вимкнення RAG-сервісу при виході з claw
-trap "echo '🛑 Зупинка claw-rag-service...'; kill $RAG_PID 2>/dev/null" EXIT
+# 4. Налаштовуємо автоматичне очищення при виході з claw
+cleanup() {
+  echo "🛑 Зупинка claw-rag-service..."
+  kill $RAG_PID 2>/dev/null
+  
+  if [ -f "$SCRIPT_DIR/.claw.json.bak" ]; then
+    echo "🔄 Відновлення оригінального .claw.json..."
+    mv "$SCRIPT_DIR/.claw.json.bak" "$SCRIPT_DIR/.claw.json"
+  fi
+}
+trap cleanup EXIT
 
 # 5. Запускаємо основний клієнт claw (нова сесія)
 echo "🚀 Запуск нової сесії основного клієнта Claw ($SELECTED_MODEL) з авто-відновленням..."
@@ -97,9 +174,8 @@ while true; do
     --model "$SELECTED_MODEL" \
     --skip-permissions \
     --accept-danger-non-interactive \
-    --attach-skill "$SCRIPT_DIR/.claw/skills/workflows/apple-development-workflow/SKILL.md" \
-    --attach-skill "$SCRIPT_DIR/.claw/skills/xcode_project_setup/SKILL.md" \
-    $RESUME_ARGS "$@"
+    "${SKILL_ARGS[@]}" \
+    $RESUME_ARGS "${FORWARD_ARGS[@]}"
     
   EXIT_CODE=$?
   
@@ -113,6 +189,6 @@ while true; do
   fi
   
   echo "⚠️ Agent exited with error or timeout (Code $EXIT_CODE). Auto-restarting in 3 seconds..."
-  # Для нової сесії не використовуємо --resume latest, оскільки це може викликати помилку в нових папках
+  RESUME_ARGS="--resume latest"
   sleep 3
 done

@@ -30,6 +30,13 @@ kill_process() {
     fi
 }
 
+# Kill launcher wrappers first so they do not auto-restart claw
+kill_process "run_claw.sh" false
+kill_process "run_claw_new_session.sh" false
+
+# Kill voice narrator script
+kill_process "claw_voice_narrator.py" false
+
 kill_process "claw" true
 kill_process "claw-analog" true
 kill_process "claw-rag-service" true
