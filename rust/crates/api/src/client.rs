@@ -5,6 +5,27 @@ use crate::providers::openai_compat::{self, OpenAiCompatClient, OpenAiCompatConf
 use crate::providers::{self, ProviderKind};
 use crate::types::{MessageRequest, MessageResponse, StreamEvent};
 
+struct ApiLockGuard {
+    lock_path: std::path::PathBuf,
+}
+
+impl ApiLockGuard {
+    fn new(home: &str) -> Self {
+        let lock_path = std::path::Path::new(home).join(".claw/api.lock");
+        if let Some(parent) = lock_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::File::create(&lock_path);
+        Self { lock_path }
+    }
+}
+
+impl Drop for ApiLockGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.lock_path);
+    }
+}
+
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone)]
 pub enum ProviderClient {
@@ -258,7 +279,8 @@ impl ProviderClient {
         }
     }
 
-async fn apply_api_pause() {
+
+async fn apply_api_pause() -> Option<ApiLockGuard> {
     let home = std::env::var("HOME").unwrap_or_default();
     if !home.is_empty() {
         let lock_path = std::path::Path::new(&home).join(".claw/narration.lock");
@@ -277,13 +299,19 @@ async fn apply_api_pause() {
 
     // Default rate limit sleep of 1 second between requests
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+    if !home.is_empty() {
+        Some(ApiLockGuard::new(&home))
+    } else {
+        None
+    }
 }
 
     pub async fn send_message(
         &self,
         request: &MessageRequest,
     ) -> Result<MessageResponse, ApiError> {
-        Self::apply_api_pause().await;
+        let _lock = Self::apply_api_pause().await;
         
         let mut models_to_try = vec![request.model.clone()];
         let stable_model = crate::providers::resolve_model_alias("stable");
@@ -359,7 +387,7 @@ async fn apply_api_pause() {
         &self,
         request: &MessageRequest,
     ) -> Result<MessageStream, ApiError> {
-        Self::apply_api_pause().await;
+        let _lock = Self::apply_api_pause().await;
         
         let mut models_to_try = vec![request.model.clone()];
         let stable_model = crate::providers::resolve_model_alias("stable");
