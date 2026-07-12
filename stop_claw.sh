@@ -57,9 +57,18 @@ kill_process "deps/claw-" false
 # Kill node/MCP server processes spawned by claw
 kill_process "ios-simulator-mcp" false
 kill_process "mcpbridge" false
+kill_process "firebase.*mcp" false
+kill_process "asc-mcp" false
+kill_process "mcp-server-github" false
+kill_process "mcp-remote" false
+kill_process "mcp_proxy_bundle.js" false
+kill_process "chrome-devtools-mcp" false
 
 # Kill iOS simulator auxiliary daemon processes
 kill_process "idb_companion" false
 kill_process "bin/idb " false
+
+# Remove stale lock files
+rm -f ~/.claw/api.lock ~/.claw/narration.lock
 
 echo "✅ All claw processes have been terminated."
