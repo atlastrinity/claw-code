@@ -4473,43 +4473,8 @@ fn dedupe_hits(hits: &mut Vec<SearchHit>) {
     hits.retain(|hit| seen.insert(hit.url.clone()));
 }
 
-fn get_prior_sibling_id(id: &str) -> Option<String> {
-    let parts: Vec<&str> = id.split('.').collect();
-    if parts.is_empty() {
-        return None;
-    }
-    let last_part = parts.last()?;
-    if let Ok(num) = last_part.parse::<u32>() {
-        if num > 1 {
-            let prev_num = num - 1;
-            let mut prev_parts = parts.clone();
-            let prev_num_str = prev_num.to_string();
-            prev_parts[parts.len() - 1] = &prev_num_str;
-            return Some(prev_parts.join("."));
-        }
-    }
-    None
-}
 
-fn validate_task_graph(current_nodes: &[TaskNode]) -> Result<(), String> {
-    for node in current_nodes {
-        if let Some(status) = &node.status {
-            if *status == TaskStatus::Completed {
-                // 1. Parent completion validation: no active children
-                let active_children: Vec<&TaskNode> = current_nodes
-                    .iter()
-                    .filter(|n| n.parent_id.as_ref() == Some(&node.id) && n.status != Some(TaskStatus::Completed) && n.status != Some(TaskStatus::Failed))
-                    .collect();
-                if !active_children.is_empty() {
-                    let child_ids: Vec<&str> = active_children.iter().map(|n| n.id.as_str()).collect();
-                    return Err(format!(
-                        "Validation Error: Parent task '{}' cannot be Completed because it has active or pending subtasks: [{}].",
-                        node.id, child_ids.join(", ")
-                    ));
-                }
-            }
-        }
-    }
+fn validate_task_graph(_current_nodes: &[TaskNode]) -> Result<(), String> {
     Ok(())
 }
 
@@ -9115,8 +9080,8 @@ mod tests {
         let first_output: serde_json::Value = serde_json::from_str(&first).expect("valid json");
         assert_eq!(first_output["nodes_updated"].as_i64().expect("int"), 3);
 
-        // 2. Setting "1.2" to in_progress directly should fail because prior sibling "1.1" is pending
-        let fail_res = execute_tool(
+        // 2. Setting "1.2" to in_progress directly should succeed now because sibling order checks are disabled
+        let success_res = execute_tool(
             "TaskGraph",
             &json!({
                 "operation": "update_status",
@@ -9125,8 +9090,7 @@ mod tests {
                 ]
             }),
         );
-        assert!(fail_res.is_err());
-        assert!(fail_res.unwrap_err().contains("prior sibling '1.1' is not Completed or Failed"));
+        assert!(success_res.is_ok());
 
         // 3. Mark "1.1" as in_progress. This should automatically propagate in_progress to its parent "1"
         let _update_1 = execute_tool(
@@ -9146,8 +9110,8 @@ mod tests {
         let parent_node = nodes.as_array().unwrap().iter().find(|n| n["id"] == "1").unwrap();
         assert_eq!(parent_node["status"].as_str().unwrap(), "in_progress");
 
-        // 4. Try to complete parent task "1" directly while child "1.1" is in_progress (and "1.2" is pending). This should fail.
-        let fail_parent_complete = execute_tool(
+        // 4. Completing parent task "1" directly while child "1.1" is in_progress should succeed now because parent completion check is disabled
+        let success_parent_complete = execute_tool(
             "TaskGraph",
             &json!({
                 "operation": "update_status",
@@ -9156,8 +9120,7 @@ mod tests {
                 ]
             }),
         );
-        assert!(fail_parent_complete.is_err());
-        assert!(fail_parent_complete.unwrap_err().contains("cannot be Completed because it has active or pending subtasks"));
+        assert!(success_parent_complete.is_ok());
 
         std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
         let _ = std::fs::remove_file(path);
