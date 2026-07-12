@@ -26,8 +26,61 @@
     "Skill",
     "retrieve_context",
     "ingest_context",
-    "ToolSearch"
+    "ToolSearch",
+    "McpSearch",
+    "WebSearch",
+    "WebFetch"
   ],
-  "allowedTools": ["*"],
-  "mcpServers": {}
+  "allowedTools": [
+    "*"
+  ],
+  "mcpServers": {},
+  "availableMcpServers": {
+    "appstore-connect": {
+      "command": "npx",
+      "args": ["--prefer-offline", "--package", "@pofky/asc-mcp", "asc-mcp"]
+    },
+    "firebase-mcp-server": {
+      "command": "npx",
+      "args": ["--prefer-offline", "--package", "firebase-tools", "firebase", "mcp"],
+      "env": {
+        "FIREBASE_CLI_NO_PROMPT": "1"
+      }
+    },
+    "github": {
+      "command": "npx",
+      "args": ["--prefer-offline", "--package", "@modelcontextprotocol/server-github", "mcp-server-github"],
+      "env": {
+        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
+      }
+    },
+    "ios-simulator": {
+      "command": "npx",
+      "args": ["--prefer-offline", "--package", "ios-simulator-mcp", "ios-simulator-mcp"]
+    },
+    "render": {
+      "command": "npx",
+      "args": ["--prefer-offline", "--package", "mcp-remote", "mcp-remote"]
+    },
+    "xcode-bridge": {
+      "command": "/Applications/Xcode.app/Contents/Developer/usr/bin/mcpbridge",
+      "args": []
+    },
+    "swiftlens": {
+      "command": "uvx",
+      "args": ["--python", "3.13", "swiftlens"]
+    },
+    "notebooks": {
+      "command": "node",
+      "args": ["/Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.6.1-universal/mcp_servers/cli/mcp_proxy_bundle.js"]
+    },
+    "visualization": {
+      "command": "node",
+      "args": ["/Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.6.1-universal/mcp_servers/cli/mcp_proxy_bundle.js"]
+    }
+  },
+  "sandbox": {
+    "enabled": false,
+    "filesystemMode": "off"
+  }
 }

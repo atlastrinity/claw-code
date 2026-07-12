@@ -541,6 +541,41 @@ impl McpServerManager {
         self.servers.keys().cloned().collect()
     }
 
+    pub async fn load_and_discover_server(
+        &mut self,
+        server_name: String,
+        server_config: ScopedMcpServerConfig,
+    ) -> Result<Vec<ManagedMcpTool>, McpServerManagerError> {
+        if server_config.transport() == McpTransport::Stdio {
+            let bootstrap = McpClientBootstrap::from_scoped_config(&server_name, &server_config);
+            self.servers.insert(
+                server_name.clone(),
+                ManagedMcpServer::new(bootstrap, server_config.required),
+            );
+        } else {
+            return Err(McpServerManagerError::InvalidResponse {
+                server_name: server_name.clone(),
+                method: "load_and_discover_server",
+                details: format!("unsupported transport: {:?}", server_config.transport()),
+            });
+        }
+
+        let server_tools = self.discover_tools_for_server(&server_name).await?;
+        self.clear_routes_for_server(&server_name);
+
+        for tool in &server_tools {
+            self.tool_index.insert(
+                tool.qualified_name.clone(),
+                ToolRoute {
+                    server_name: tool.server_name.clone(),
+                    raw_name: tool.raw_name.clone(),
+                },
+            );
+        }
+
+        Ok(server_tools)
+    }
+
     pub async fn discover_tools(&mut self) -> Result<Vec<ManagedMcpTool>, McpServerManagerError> {
         let server_names = self.servers.keys().cloned().collect::<Vec<_>>();
         let mut discovered_tools = Vec::new();

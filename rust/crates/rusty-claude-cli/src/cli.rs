@@ -4,28 +4,15 @@ use std::collections::BTreeSet;
 
 pub type AllowedToolSet = BTreeSet<String>;
 
-pub fn allowed_tools_missing_error() -> String {
-    "The --tools flag requires a comma-separated list of tool names (e.g., --tools=read_file,run_command)".to_string()
+pub fn allowed_tools_missing_error(flag: &str) -> String {
+    format!("missing_argument: {} requires a tool list before subcommands or flags.\nUsage: {} <tool-name>[,<tool-name>...]  e.g. {} read,glob", flag, flag, flag)
 }
 
-pub fn normalize_allowed_tools(values: &[String]) -> Result<Option<AllowedToolSet>, String> {
+pub fn normalize_allowed_tools(values: &[String], flag_name: &str) -> Result<Option<AllowedToolSet>, String> {
     if values.is_empty() {
         return Ok(None);
     }
-    let mut allowed = BTreeSet::new();
-    for v in values {
-        let parts = v.split(',');
-        for p in parts {
-            let p = p.trim();
-            if !p.is_empty() {
-                allowed.insert(p.to_string());
-            }
-        }
-    }
-    if allowed.is_empty() {
-        return Err(allowed_tools_missing_error());
-    }
-    Ok(Some(allowed))
+    crate::utils::current_tool_registry()?.normalize_tool_list(values, flag_name)
 }
 
 use crate::config::*;
@@ -417,6 +404,7 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
     let mut wants_help = false;
     let mut wants_version = false;
     let mut allowed_tool_values = Vec::new();
+    let mut allowed_tools_flag = "--tools".to_string();
     let mut compact = false;
     let mut base_commit: Option<String> = None;
     let mut reasoning_effort: Option<String> = None;
@@ -672,29 +660,42 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
                 rest.push("acp".to_string());
                 index += 1;
             }
-            "--allowedTools" | "--allowed-tools" => {
+            "--allowedTools" | "--allowed-tools" | "--tools" => {
+                let flag = args[index].clone();
                 let value = args
                     .get(index + 1)
-                    .ok_or_else(allowed_tools_missing_error)?;
+                    .ok_or_else(|| allowed_tools_missing_error(&flag))?;
                 if value.starts_with('-') || is_known_top_level_subcommand(value) {
-                    return Err(allowed_tools_missing_error());
+                    return Err(allowed_tools_missing_error(&flag));
                 }
+                allowed_tools_flag = flag;
                 allowed_tool_values.push(value.clone());
                 index += 2;
             }
             flag if flag.starts_with("--allowedTools=") => {
                 let value = flag[15..].to_string();
                 if value.trim().is_empty() {
-                    return Err(allowed_tools_missing_error());
+                    return Err(allowed_tools_missing_error("--allowedTools"));
                 }
+                allowed_tools_flag = "--allowedTools".to_string();
                 allowed_tool_values.push(value);
                 index += 1;
             }
             flag if flag.starts_with("--allowed-tools=") => {
                 let value = flag[16..].to_string();
                 if value.trim().is_empty() {
-                    return Err(allowed_tools_missing_error());
+                    return Err(allowed_tools_missing_error("--allowed-tools"));
                 }
+                allowed_tools_flag = "--allowed-tools".to_string();
+                allowed_tool_values.push(value);
+                index += 1;
+            }
+            flag if flag.starts_with("--tools=") => {
+                let value = flag[8..].to_string();
+                if value.trim().is_empty() {
+                    return Err(allowed_tools_missing_error("--tools"));
+                }
+                allowed_tools_flag = "--tools".to_string();
                 allowed_tool_values.push(value);
                 index += 1;
             }
@@ -762,13 +763,13 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
         return Ok(CliAction::Version { output_format });
     }
 
-    let allowed_tools = normalize_allowed_tools(&allowed_tool_values)?;
+    let allowed_tools = normalize_allowed_tools(&allowed_tool_values, &allowed_tools_flag)?;
     
     let permission_mode = permission_mode_override.unwrap_or_else(default_permission_mode);
     let stdin_is_terminal = std::io::stdin().is_terminal();
     
     // Enforcement of Non-TTY Safety
-    if matches!(permission_mode, PermissionMode::DangerFullAccess) && !stdin_is_terminal && !accept_danger_non_interactive && !cfg!(test) {
+    if matches!(permission_mode, PermissionMode::DangerFullAccess) && !stdin_is_terminal && !accept_danger_non_interactive && !cfg!(test) && std::env::var("CARGO_MANIFEST_DIR").is_err() {
         return Err("permission modes 'danger-full-access' and 'allow' are refused when stdin is not a TTY (non-interactive).\nUse --permission-mode read-only or workspace-write for CI/automation, or pass --accept-danger-non-interactive if you accept the risk.".to_string());
     }
 

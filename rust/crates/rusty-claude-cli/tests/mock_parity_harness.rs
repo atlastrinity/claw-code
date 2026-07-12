@@ -329,6 +329,9 @@ fn run_case(case: ScenarioCase, workspace: &HarnessWorkspace, base_url: &str) ->
     if let Some(tools) = case.tools {
         command.args(["--tools", tools]);
     }
+    if case.permission_mode == "danger-full-access" {
+        command.arg("--accept-danger-non-interactive");
+    }
     if let Some((key, value)) = case.extra_env {
         command.env(key, value);
     }

@@ -177,6 +177,14 @@ const TOP_LEVEL_FIELDS: &[FieldSpec] = &[
         expected: FieldType::Object,
     },
     FieldSpec {
+        name: "availableMcpServers",
+        expected: FieldType::Object,
+    },
+    FieldSpec {
+        name: "available_mcp_servers",
+        expected: FieldType::Object,
+    },
+    FieldSpec {
         name: "oauth",
         expected: FieldType::Object,
     },

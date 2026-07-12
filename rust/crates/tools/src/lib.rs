@@ -119,10 +119,10 @@ pub struct ToolSpec {
 #[derive(Debug, Clone)]
 pub struct GlobalToolRegistry {
     plugin_tools: Vec<PluginTool>,
-    runtime_tools: Vec<RuntimeToolDefinition>,
+    runtime_tools: std::sync::Arc<std::sync::Mutex<Vec<RuntimeToolDefinition>>>,
     enforcer: Option<PermissionEnforcer>,
-    pub injected_tools: Option<BTreeSet<String>>,
-    pub allowed_tools: Option<BTreeSet<String>>,
+    pub injected_tools: std::sync::Arc<std::sync::Mutex<Option<BTreeSet<String>>>>,
+    pub allowed_tools: std::sync::Arc<std::sync::Mutex<Option<BTreeSet<String>>>>,
     pub budget: ContextBudget,
 }
 
@@ -139,10 +139,10 @@ impl GlobalToolRegistry {
     pub fn builtin() -> Self {
         Self {
             plugin_tools: Vec::new(),
-            runtime_tools: Vec::new(),
+            runtime_tools: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             enforcer: None,
-            injected_tools: None,
-            allowed_tools: None,
+            injected_tools: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            allowed_tools: std::sync::Arc::new(std::sync::Mutex::new(None)),
             budget: ContextBudget::default_budget(),
         }
     }
@@ -168,28 +168,32 @@ impl GlobalToolRegistry {
 
         Ok(Self {
             plugin_tools,
-            runtime_tools: Vec::new(),
+            runtime_tools: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
             enforcer: None,
-            injected_tools: None,
-            allowed_tools: None,
+            injected_tools: std::sync::Arc::new(std::sync::Mutex::new(None)),
+            allowed_tools: std::sync::Arc::new(std::sync::Mutex::new(None)),
             budget: ContextBudget::default_budget(),
         })
     }
 
     #[must_use]
-    pub fn with_injected_tools(mut self, allowed: Option<BTreeSet<String>>) -> Self {
-        self.injected_tools = allowed;
+    pub fn with_injected_tools(self, allowed: Option<BTreeSet<String>>) -> Self {
+        if let Ok(mut lock) = self.injected_tools.lock() {
+            *lock = allowed;
+        }
         self
     }
 
     #[must_use]
-    pub fn with_allowed_tools(mut self, allowed: Option<BTreeSet<String>>) -> Self {
-        self.allowed_tools = allowed;
+    pub fn with_allowed_tools(self, allowed: Option<BTreeSet<String>>) -> Self {
+        if let Ok(mut lock) = self.allowed_tools.lock() {
+            *lock = allowed;
+        }
         self
     }
 
     pub fn with_runtime_tools(
-        mut self,
+        self,
         runtime_tools: Vec<RuntimeToolDefinition>,
     ) -> Result<Self, String> {
         let mut seen_names = mvp_tool_specs()
@@ -211,7 +215,9 @@ impl GlobalToolRegistry {
             }
         }
 
-        self.runtime_tools = runtime_tools;
+        if let Ok(mut lock) = self.runtime_tools.lock() {
+            *lock = runtime_tools;
+        }
         Ok(self)
     }
 
@@ -286,18 +292,18 @@ impl GlobalToolRegistry {
 
     pub fn is_tool_injected(&self, name: &str) -> bool {
         let canonical_name = canonical_allowed_tool_name(name);
-        self.injected_tools.is_none()
-            || self
-                .injected_tools
+        let lock = self.injected_tools.lock().unwrap();
+        lock.is_none()
+            || lock
                 .as_ref()
                 .is_some_and(|allowed| allowed.contains(&canonical_name))
     }
 
     pub fn is_tool_allowed(&self, name: &str) -> bool {
         let canonical_name = canonical_allowed_tool_name(name);
-        self.allowed_tools.is_none()
-            || self
-                .allowed_tools
+        let lock = self.allowed_tools.lock().unwrap();
+        lock.is_none()
+            || lock
                 .as_ref()
                 .is_some_and(|allowed| allowed.contains(&canonical_name))
     }
@@ -310,7 +316,7 @@ impl GlobalToolRegistry {
             .map(|spec| ToolDefinition {
                 name: spec.name.to_string(),
                 description: Some(spec.description.to_string()),
-                input_schema: spec.input_schema,
+                input_schema: spec.input_schema.clone(),
             });
 
         let plugins = self.plugin_tools.iter().filter_map(|tool| {
@@ -325,7 +331,8 @@ impl GlobalToolRegistry {
             }
         });
 
-        let runtime = self.runtime_tools.iter().filter_map(|tool| {
+        let runtime_lock = self.runtime_tools.lock().unwrap();
+        let runtime = runtime_lock.iter().filter_map(|tool| {
             if self.is_tool_injected(&tool.name) {
                 Some(ToolDefinition {
                     name: tool.name.clone(),
@@ -335,9 +342,9 @@ impl GlobalToolRegistry {
             } else {
                 None
             }
-        });
+        }).collect::<Vec<_>>();
 
-        builtin.chain(plugins).chain(runtime).collect()
+        builtin.chain(plugins).chain(runtime.into_iter()).collect()
     }
 
     pub fn permission_specs(
@@ -351,15 +358,18 @@ impl GlobalToolRegistry {
                     .is_none_or(|allowed| allowed.contains(&canonical_allowed_tool_name(spec.name)))
             })
             .map(|spec| (spec.name.to_string(), spec.required_permission));
-        let runtime = self
-            .runtime_tools
+
+        let runtime_lock = self.runtime_tools.lock().unwrap();
+        let runtime = runtime_lock
             .iter()
             .filter(|tool| {
                 tools.is_none_or(|allowed| {
                     allowed.contains(&canonical_allowed_tool_name(&tool.name))
                 })
             })
-            .map(|tool| (tool.name.clone(), tool.required_permission));
+            .map(|tool| (tool.name.clone(), tool.required_permission))
+            .collect::<Vec<_>>();
+
         let plugin = self
             .plugin_tools
             .iter()
@@ -375,11 +385,13 @@ impl GlobalToolRegistry {
                     .map(|permission| (tool.definition().name.clone(), permission))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(builtin.chain(runtime).chain(plugin).collect())
+        Ok(builtin.chain(runtime.into_iter()).chain(plugin).collect())
     }
 
     #[must_use]
     pub fn actual_tool_names(&self) -> Vec<String> {
+        let runtime_lock = self.runtime_tools.lock().unwrap();
+        let runtime = runtime_lock.iter().map(|tool| tool.name.clone()).collect::<Vec<_>>();
         mvp_tool_specs()
             .iter()
             .map(|spec| spec.name.to_string())
@@ -388,8 +400,32 @@ impl GlobalToolRegistry {
                     .iter()
                     .map(|tool| tool.definition().name.clone()),
             )
-            .chain(self.runtime_tools.iter().map(|tool| tool.name.clone()))
+            .chain(runtime.into_iter())
             .collect()
+    }
+
+    pub fn register_dynamic_tools(&self, new_tools: Vec<RuntimeToolDefinition>) {
+        if let Ok(mut runtime_tools) = self.runtime_tools.lock() {
+            for tool in &new_tools {
+                if !runtime_tools.iter().any(|t| t.name == tool.name) {
+                    runtime_tools.push(tool.clone());
+                }
+            }
+        }
+        if let Ok(mut injected) = self.injected_tools.lock() {
+            if let Some(set) = injected.as_mut() {
+                for tool in &new_tools {
+                    set.insert(canonical_allowed_tool_name(&tool.name));
+                }
+            }
+        }
+        if let Ok(mut allowed) = self.allowed_tools.lock() {
+            if let Some(set) = allowed.as_mut() {
+                for tool in &new_tools {
+                    set.insert(canonical_allowed_tool_name(&tool.name));
+                }
+            }
+        }
     }
 
     #[must_use]
@@ -426,7 +462,7 @@ impl GlobalToolRegistry {
     }
     #[must_use]
     pub fn has_runtime_tool(&self, name: &str) -> bool {
-        self.runtime_tools.iter().any(|tool| tool.name == name)
+        self.runtime_tools.lock().unwrap().iter().any(|tool| tool.name == name)
     }
 
     #[must_use]
@@ -524,31 +560,32 @@ impl GlobalToolRegistry {
                         | "grep_search"
                 );
 
-                let is_allowed = self.is_tool_allowed(spec.name);
+                let is_injected = self.is_tool_injected(spec.name);
 
-                !is_hardcoded_ignored && !is_allowed
+                !is_hardcoded_ignored && !is_injected
             })
             .map(|spec| SearchableToolSpec {
                 name: spec.name.to_string(),
                 description: spec.description.to_string(),
             });
-        let runtime = self
-            .runtime_tools
+        let runtime_lock = self.runtime_tools.lock().unwrap();
+        let runtime = runtime_lock
             .iter()
-            .filter(|tool| !self.is_tool_allowed(&tool.name))
+            .filter(|tool| !self.is_tool_injected(&tool.name))
             .map(|tool| SearchableToolSpec {
                 name: tool.name.clone(),
                 description: tool.description.clone().unwrap_or_default(),
-            });
+            })
+            .collect::<Vec<_>>();
         let plugin = self
             .plugin_tools
             .iter()
-            .filter(|tool| !self.is_tool_allowed(&tool.definition().name))
+            .filter(|tool| !self.is_tool_injected(&tool.definition().name))
             .map(|tool| SearchableToolSpec {
                 name: tool.definition().name.clone(),
                 description: tool.definition().description.clone().unwrap_or_default(),
             });
-        builtin.chain(runtime).chain(plugin).collect()
+        builtin.chain(runtime.into_iter()).chain(plugin).collect()
     }
 }
 
@@ -790,6 +827,19 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
                     "max_results": { "type": "integer", "minimum": 1 }
                 },
                 "required": ["query"],
+                "additionalProperties": false
+            }),
+            required_permission: PermissionMode::ReadOnly,
+        },
+        ToolSpec {
+            name: "McpSearch",
+            description: "Search for available MCP servers or load/start a specific MCP server dynamically. When loading a server, its tools will be dynamically registered and made available to you.",
+            input_schema: json!({
+                "type": "object",
+                "properties": {
+                    "query": { "type": "string", "description": "Optional search term to filter available MCP servers." },
+                    "load_server": { "type": "string", "description": "Optional name of the specific MCP server to load/start." }
+                },
                 "additionalProperties": false
             }),
             required_permission: PermissionMode::ReadOnly,
@@ -1563,6 +1613,7 @@ fn execute_tool_with_enforcer(
         "Skill" => from_value::<SkillInput>(input).and_then(run_skill),
         "Agent" => from_value::<AgentInput>(input).and_then(run_agent),
         "ToolSearch" => from_value::<ToolSearchInput>(input).and_then(run_tool_search),
+        "McpSearch" => from_value::<McpSearchInput>(input).and_then(run_mcp_search),
         "NotebookEdit" => from_value::<NotebookEditInput>(input).and_then(run_notebook_edit),
         "Sleep" => from_value::<SleepInput>(input).and_then(run_sleep),
         "SendUserMessage" | "Brief" => from_value::<BriefInput>(input).and_then(run_brief),
@@ -2853,6 +2904,20 @@ fn run_agent(input: AgentInput) -> Result<String, String> {
 
 fn run_tool_search(input: ToolSearchInput) -> Result<String, String> {
     to_pretty_json(execute_tool_search(input))
+}
+
+#[allow(dead_code)]
+#[derive(Debug, serde::Deserialize)]
+struct McpSearchInput {
+    query: Option<String>,
+    load_server: Option<String>,
+}
+
+fn run_mcp_search(_input: McpSearchInput) -> Result<String, String> {
+    to_pretty_json(json!({
+        "status": "runtime_only",
+        "message": "McpSearch is handled by the runtime executor."
+    }))
 }
 
 fn run_notebook_edit(input: NotebookEditInput) -> Result<String, String> {
@@ -7394,6 +7459,21 @@ fn parse_skill_description(contents: &str) -> Option<String> {
         }
     }
     None
+}
+
+pub fn parse_skill_mcp_servers(contents: &str) -> Vec<String> {
+    for line in contents.lines() {
+        if let Some(value) = line.strip_prefix("mcp_servers:") {
+            let trimmed = value.trim();
+            let trimmed = trimmed.trim_start_matches('[').trim_end_matches(']');
+            return trimmed
+                .split(',')
+                .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+        }
+    }
+    Vec::new()
 }
 
 pub mod lane_completion;

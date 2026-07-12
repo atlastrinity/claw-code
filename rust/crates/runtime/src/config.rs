@@ -152,6 +152,7 @@ pub struct RuntimeFeatureConfig {
     hooks: RuntimeHookConfig,
     plugins: RuntimePluginConfig,
     mcp: McpConfigCollection,
+    available_mcp: McpConfigCollection,
     oauth: Option<OAuthConfig>,
     model: Option<String>,
     aliases: BTreeMap<String, String>,
@@ -466,6 +467,7 @@ impl ConfigLoader {
         let mut merged = BTreeMap::new();
         let mut loaded_entries = Vec::new();
         let mut mcp = McpConfigCollection::default();
+        let mut available_mcp = McpConfigCollection::default();
         let mut all_warnings = Vec::new();
 
         for entry in self.discover() {
@@ -485,6 +487,7 @@ impl ConfigLoader {
             all_warnings.extend(validation.warnings);
             validate_optional_hooks_config(&parsed.object, &entry.path)?;
             merge_mcp_servers(&mut mcp, entry.source, &parsed.object, &entry.path)?;
+            merge_mcp_servers_with_key(&mut available_mcp, entry.source, &parsed.object, &entry.path, "availableMcpServers")?;
             deep_merge_objects(&mut merged, &parsed.object);
             loaded_entries.push(entry);
         }
@@ -493,7 +496,7 @@ impl ConfigLoader {
             emit_config_warning_once(&warning.to_string());
         }
 
-        build_runtime_config(merged, loaded_entries, mcp)
+        build_runtime_config(merged, loaded_entries, mcp, available_mcp)
     }
 
     /// Like [`load`] but also returns the list of validation warnings collected during
@@ -505,6 +508,7 @@ impl ConfigLoader {
         let mut merged = BTreeMap::new();
         let mut loaded_entries = Vec::new();
         let mut mcp = McpConfigCollection::default();
+        let mut available_mcp = McpConfigCollection::default();
         let mut all_warnings: Vec<String> = Vec::new();
 
         for entry in self.discover() {
@@ -524,11 +528,12 @@ impl ConfigLoader {
             all_warnings.extend(validation.warnings.iter().map(|w| w.to_string()));
             validate_optional_hooks_config(&parsed.object, &entry.path)?;
             merge_mcp_servers(&mut mcp, entry.source, &parsed.object, &entry.path)?;
+            merge_mcp_servers_with_key(&mut available_mcp, entry.source, &parsed.object, &entry.path, "availableMcpServers")?;
             deep_merge_objects(&mut merged, &parsed.object);
             loaded_entries.push(entry);
         }
 
-        let config = build_runtime_config(merged, loaded_entries, mcp)?;
+        let config = build_runtime_config(merged, loaded_entries, mcp, available_mcp)?;
         Ok((config, all_warnings))
     }
 
@@ -542,6 +547,7 @@ impl ConfigLoader {
         let mut merged = BTreeMap::new();
         let mut loaded_entries = Vec::new();
         let mut mcp = McpConfigCollection::default();
+        let mut available_mcp = McpConfigCollection::default();
         let mut warnings = Vec::new();
         let mut files = Vec::new();
         let mut load_error = None;
@@ -625,6 +631,20 @@ impl ConfigLoader {
             }
 
             if let Err(error) =
+                merge_mcp_servers_with_key(&mut available_mcp, entry.source, &parsed.object, &entry.path, "availableMcpServers")
+            {
+                let detail = error.to_string();
+                load_error.get_or_insert_with(|| detail.clone());
+                files.push(ConfigFileReport::load_error(
+                    entry,
+                    precedence_rank,
+                    "validation_error",
+                    detail,
+                ));
+                continue;
+            }
+
+            if let Err(error) =
                 merge_mcp_servers(&mut mcp, entry.source, &parsed.object, &entry.path)
             {
                 let detail = error.to_string();
@@ -646,7 +666,7 @@ impl ConfigLoader {
 
         annotate_config_file_precedence(&mut files);
 
-        let runtime_config = match build_runtime_config(merged, loaded_entries, mcp) {
+        let runtime_config = match build_runtime_config(merged, loaded_entries, mcp, available_mcp) {
             Ok(config) => Some(config),
             Err(error) => {
                 load_error.get_or_insert_with(|| error.to_string());
@@ -783,6 +803,7 @@ fn build_runtime_config(
     merged: BTreeMap<String, JsonValue>,
     loaded_entries: Vec<ConfigEntry>,
     mcp: McpConfigCollection,
+    available_mcp: McpConfigCollection,
 ) -> Result<RuntimeConfig, ConfigError> {
     let merged_value = JsonValue::Object(merged.clone());
 
@@ -790,6 +811,7 @@ fn build_runtime_config(
         hooks: parse_optional_hooks_config(&merged_value)?,
         plugins: parse_optional_plugin_config(&merged_value)?,
         mcp,
+        available_mcp,
         oauth: parse_optional_oauth_config(&merged_value, "merged settings.oauth")?,
         model: parse_optional_model(&merged_value),
         aliases: parse_optional_aliases(&merged_value)?,
@@ -858,6 +880,11 @@ impl RuntimeConfig {
     #[must_use]
     pub fn mcp(&self) -> &McpConfigCollection {
         &self.feature_config.mcp
+    }
+
+    #[must_use]
+    pub fn available_mcp(&self) -> &McpConfigCollection {
+        &self.feature_config.available_mcp
     }
 
     #[must_use]
@@ -1018,6 +1045,11 @@ impl RuntimeFeatureConfig {
     #[must_use]
     pub fn mcp(&self) -> &McpConfigCollection {
         &self.mcp
+    }
+
+    #[must_use]
+    pub fn available_mcp(&self) -> &McpConfigCollection {
+        &self.available_mcp
     }
 
     #[must_use]
@@ -1617,13 +1649,23 @@ fn merge_mcp_servers(
     root: &BTreeMap<String, JsonValue>,
     path: &Path,
 ) -> Result<(), ConfigError> {
-    let Some(mcp_servers) = root.get("mcpServers") else {
+    merge_mcp_servers_with_key(target, source, root, path, "mcpServers")
+}
+
+fn merge_mcp_servers_with_key(
+    target: &mut McpConfigCollection,
+    source: ConfigSource,
+    root: &BTreeMap<String, JsonValue>,
+    path: &Path,
+    key_name: &str,
+) -> Result<(), ConfigError> {
+    let Some(mcp_servers) = root.get(key_name) else {
         return Ok(());
     };
-    let servers = expect_object(mcp_servers, &format!("{}: mcpServers", path.display()))?;
+    let servers = expect_object(mcp_servers, &format!("{}: {key_name}", path.display()))?;
     target.total_configured += servers.len();
     for (name, value) in servers {
-        let context = format!("{}: mcpServers.{name}", path.display());
+        let context = format!("{}: {key_name}.{name}", path.display());
         let Ok(object) = expect_object(value, &context) else {
             let error = expect_object(value, &context).expect_err("object parse must fail");
             target.servers.remove(name);

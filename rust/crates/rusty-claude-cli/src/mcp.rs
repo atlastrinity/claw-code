@@ -117,6 +117,7 @@ pub struct RuntimeMcpState {
     manager: McpServerManager,
     pending_servers: Vec<String>,
     degraded_report: Option<runtime::McpDegradedReport>,
+    available_servers: std::collections::BTreeMap<String, runtime::ScopedMcpServerConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -143,7 +144,8 @@ impl RuntimeMcpState {
         runtime_config: &runtime::RuntimeConfig,
     ) -> Result<Option<(Self, runtime::McpToolDiscoveryReport)>, Box<dyn std::error::Error>> {
         let mut manager = McpServerManager::from_runtime_config(runtime_config);
-        if manager.server_names().is_empty() && manager.unsupported_servers().is_empty() {
+        let available_servers = runtime_config.available_mcp().servers().clone();
+        if manager.server_names().is_empty() && manager.unsupported_servers().is_empty() && available_servers.is_empty() {
             return Ok(None);
         }
 
@@ -226,6 +228,7 @@ impl RuntimeMcpState {
                 manager,
                 pending_servers,
                 degraded_report,
+                available_servers,
             },
             discovery,
         )))
@@ -246,6 +249,24 @@ impl RuntimeMcpState {
 
     fn server_names(&self) -> Vec<String> {
         self.manager.server_names()
+    }
+
+    pub fn available_servers(&self) -> &std::collections::BTreeMap<String, runtime::ScopedMcpServerConfig> {
+        &self.available_servers
+    }
+
+    pub fn loaded_servers(&self) -> Vec<String> {
+        self.manager.server_names()
+    }
+
+    pub fn load_server(&mut self, name: &str) -> Result<Vec<runtime::ManagedMcpTool>, String> {
+        let Some(config) = self.available_servers.get(name).cloned() else {
+            return Err(format!("Server '{}' is not defined in availableMcpServers", name));
+        };
+        self.runtime.block_on(async {
+            self.manager.load_and_discover_server(name.to_string(), config).await
+                .map_err(|e| e.to_string())
+        })
     }
 
     pub fn call_tool(
@@ -339,6 +360,7 @@ pub fn build_runtime_mcp_state(
     let Some((mcp_state, discovery)) = RuntimeMcpState::new(runtime_config)? else {
         return Ok((None, Vec::new()));
     };
+
 
     let mut runtime_tools = discovery
         .tools

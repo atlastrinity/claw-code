@@ -3066,6 +3066,33 @@ pub fn resolve_skill_invocation(
                 let mut message = format!("Unknown skill: {skill_token} ({error})");
                 let roots = discover_skill_roots(cwd);
                 if let Ok(available) = load_skills_from_roots(&roots) {
+                    let mut suggestions = available
+                        .iter()
+                        .filter(|s| s.shadowed_by.is_none())
+                        .map(|s| {
+                            let candidate = s.name.to_ascii_lowercase();
+                            let query = skill_token.to_ascii_lowercase();
+                            let prefix_rank =
+                                if candidate.starts_with(&query) || query.starts_with(&candidate) {
+                                    0
+                                } else if candidate.contains(&query) || query.contains(&candidate) {
+                                    1
+                                } else {
+                                    2
+                                };
+                            let distance = levenshtein_distance(&candidate, &query);
+                            (prefix_rank, distance, s.name.clone())
+                        })
+                        .filter(|(prefix_rank, distance, _)| *prefix_rank <= 1 || *distance <= 3)
+                        .collect::<Vec<_>>();
+
+                    suggestions.sort_unstable_by_key(|(prefix, dist, name)| (*prefix, *dist, name.len(), name.clone()));
+                    let suggested_names: Vec<String> = suggestions.into_iter().map(|(_, _, name)| name).collect();
+                    if !suggested_names.is_empty() {
+                        message.push_str("\n  Did you mean: ");
+                        message.push_str(&suggested_names.join(", "));
+                    }
+
                     let names: Vec<String> = available
                         .iter()
                         .filter(|s| s.shadowed_by.is_none())
@@ -3155,6 +3182,24 @@ pub fn resolve_skill_path(cwd: &Path, skill: &str) -> std::io::Result<PathBuf> {
         format!("unknown skill: {requested}"),
     ))
 }
+
+pub fn get_available_skills(cwd: &Path) -> std::io::Result<Vec<(String, Option<String>, PathBuf)>> {
+    let roots = discover_skill_roots(cwd);
+    let skills = load_skills_from_roots(&roots)?;
+    let mut result = Vec::new();
+    for skill in skills {
+        if let Some(path) = skill.path {
+            let skill_file = path.join("SKILL.md");
+            if skill_file.is_file() {
+                result.push((skill.name, skill.description, skill_file));
+            } else if path.is_file() && path.extension().is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("md")) {
+                result.push((skill.name, skill.description, path));
+            }
+        }
+    }
+    Ok(result)
+}
+
 
 #[allow(clippy::unnecessary_wraps)]
 fn render_mcp_report_for(
@@ -7179,5 +7224,27 @@ mod tests {
 
         let _ = fs::remove_dir_all(config_home);
         let _ = fs::remove_dir_all(bundled_root);
+    }
+
+    #[test]
+    fn test_resolve_skill_invocation_suggestions() {
+        let temp = temp_dir("skill-suggestions");
+        let skills_dir = temp.join(".claw").join("skills");
+        fs::create_dir_all(&skills_dir).unwrap();
+
+        let target_skill = skills_dir.join("xcode-bridge");
+        fs::create_dir_all(&target_skill).unwrap();
+        fs::write(
+            target_skill.join("SKILL.md"),
+            "---\nname: xcode-bridge\ndescription: iOS Xcode bridge practices\n---\nXcode guidelines",
+        )
+        .unwrap();
+
+        let result = super::resolve_skill_invocation(&temp, Some("xcod"));
+        assert!(result.is_err());
+        let err_msg = result.err().unwrap();
+        assert!(err_msg.contains("Did you mean: xcode-bridge"), "Error message was: {err_msg}");
+
+        let _ = fs::remove_dir_all(temp);
     }
 }

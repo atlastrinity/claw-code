@@ -226,7 +226,11 @@ fn main() {
                 }
             } else if kind == "missing_argument" {
                 if let Some(object) = error_json.as_object_mut() {
-                    if message.contains("--tools") {
+                    if message.contains("--allowedTools") {
+                        object.insert("argument".to_string(), serde_json::json!("--allowedTools"));
+                    } else if message.contains("--allowed-tools") {
+                        object.insert("argument".to_string(), serde_json::json!("--allowed-tools"));
+                    } else if message.contains("--tools") {
                         object.insert("argument".to_string(), serde_json::json!("--tools"));
                     } else if message.contains("prompt or subcommand") {
                         object.insert(
@@ -677,8 +681,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             let resolved_model = resolve_repl_model(model)?;
             
             let mut extra_sections = Vec::new();
+            let cwd = std::env::current_dir()?;
+            
+            // Auto match and load skills
+            if let Ok(matched_paths) = utils::auto_match_skills(&cwd, &effective_prompt) {
+                for path in matched_paths {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        extra_sections.push(content);
+                    }
+                }
+            }
+
             if let Some(skill_name) = attach_skill {
-                let cwd = std::env::current_dir()?;
                 let skill_path = commands::resolve_skill_path(&cwd, &skill_name)
                     .unwrap_or_else(|_| std::path::PathBuf::from(&skill_name));
                 let content = std::fs::read_to_string(&skill_path)?;
@@ -752,8 +766,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             cleanup_orphaned_processes();
             tracing::info!(model = %model, permission_mode = %permission_mode.as_str(), "entering REPL mode");
             let mut extra_sections = Vec::new();
+            let cwd = std::env::current_dir()?;
+
+            // Auto match and load skills (empty prompt context, only matching based on workspace files)
+            if let Ok(matched_paths) = utils::auto_match_skills(&cwd, "") {
+                for path in matched_paths {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        extra_sections.push(content);
+                    }
+                }
+            }
+
             if let Some(skill_name) = attach_skill {
-                let cwd = std::env::current_dir()?;
                 let skill_path = commands::resolve_skill_path(&cwd, &skill_name)
                     .unwrap_or_else(|_| std::path::PathBuf::from(&skill_name));
                 let content = std::fs::read_to_string(&skill_path)?;

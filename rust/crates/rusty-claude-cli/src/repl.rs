@@ -31,7 +31,7 @@ fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
                 return (false, String::new());
             }
             
-            let prompt = "<system-reminder>You stopped generating tool calls, but the TaskGraph still contains uncompleted tasks. Please analyze your current stage, verify what has been executed, and continue working. If you have finished the work, you MUST call the TaskGraph tool to update task statuses to 'completed'. Do NOT manually edit task.md. If you are blocked and need user input, explain the issue clearly.</system-reminder>".to_string();
+            let prompt = "<system-reminder>CRITICAL: You stopped generating tool calls, but the TaskGraph still contains uncompleted or in-progress tasks in task.md. If you have finished the work, you MUST immediately call the TaskGraph tool with operation 'update_status' to mark all remaining tasks as 'completed'. DO NOT output final text or call other tools without updating the TaskGraph first. If you are not finished, continue working on the tasks using the appropriate tools.</system-reminder>".to_string();
             return (true, prompt);
         }
     }
@@ -102,7 +102,10 @@ pub fn run_repl(
                 cli.record_prompt_history(&display_input);
 
                 let mut auto_continue_count = 0;
-                let max_auto_continue = usize::MAX; // Безліміт
+                let max_auto_continue = std::env::var("CLAW_MAX_AUTO_CONTINUE")
+                    .ok()
+                    .and_then(|v| v.parse().ok())
+                    .unwrap_or(8);
 
                 loop {
                     cli.run_turn(&current_input)?;
@@ -856,12 +859,26 @@ impl LiveCli {
                 serde_json::json!({
                     "message": final_assistant_text(&summary),
                     "model": self.model,
+                    "iterations": summary.iterations,
+                    "auto_compaction": summary.auto_compaction.map(|event| serde_json::json!({
+                        "removed_messages": event.removed_message_count,
+                        "notice": crate::render::format_auto_compaction_notice(event.removed_message_count),
+                    })),
+                    "tool_uses": crate::utils::collect_tool_uses(&summary),
+                    "tool_results": crate::utils::collect_tool_results(&summary),
+                    "prompt_cache_events": crate::utils::collect_prompt_cache_events(&summary),
                     "usage": {
                         "input_tokens": summary.usage.input_tokens,
                         "output_tokens": summary.usage.output_tokens,
                         "cache_creation_input_tokens": summary.usage.cache_creation_input_tokens,
                         "cache_read_input_tokens": summary.usage.cache_read_input_tokens,
                     },
+                    "estimated_cost": runtime::format_usd(
+                        summary.usage.estimate_cost_usd_with_pricing(
+                            runtime::pricing_for_model(&self.model)
+                                .unwrap_or_else(runtime::ModelPricing::default_sonnet_tier)
+                        ).total_cost_usd()
+                    ),
                 })
             );
         }

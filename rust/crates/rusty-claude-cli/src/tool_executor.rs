@@ -2,6 +2,7 @@ use crate::mcp::{ListMcpResourcesRequest, McpToolRequest, ReadMcpResourceRequest
 use crate::{
     format_tool_result, GlobalToolRegistry, RuntimeMcpState, TerminalRenderer, ToolSearchRequest,
 };
+use serde::Deserialize;
 use api::ToolResultContentBlock;
 use runtime::{RuntimeError, ToolError, ToolExecutor};
 use std::io;
@@ -85,6 +86,135 @@ impl CliToolExecutor {
             _ => mcp_state.call_tool(tool_name, Some(value)),
         }
     }
+
+    fn execute_mcp_search_tool(&self, value: serde_json::Value) -> Result<String, ToolError> {
+        #[derive(Debug, Deserialize)]
+        struct McpSearchRequest {
+            query: Option<String>,
+            load_server: Option<String>,
+        }
+        let input: McpSearchRequest = serde_json::from_value(value)
+            .map_err(|error| ToolError::new(format!("invalid tool input JSON: {error}")))?;
+
+        let Some(mcp_state) = &self.mcp_state else {
+            return Err(ToolError::new("MCP state is not initialized"));
+        };
+        let mut state = mcp_state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        if let Some(server_name) = input.load_server {
+            let tools = state.load_server(&server_name)
+                .map_err(|err| ToolError::new(format!("failed to load MCP server {server_name}: {err}")))?;
+
+            let runtime_tools = tools
+                .iter()
+                .map(|t| crate::mcp::mcp_runtime_tool_definition(t))
+                .collect::<Vec<_>>();
+            self.tool_registry.register_dynamic_tools(runtime_tools);
+
+            let tool_names = tools.iter().map(|t| t.qualified_name.clone()).collect::<Vec<_>>();
+            return serde_json::to_string_pretty(&serde_json::json!({
+                "status": "success",
+                "message": format!("Successfully loaded MCP server '{}' with {} tools.", server_name, tools.len()),
+                "tools": tool_names
+            })).map_err(|error| ToolError::new(error.to_string()));
+        }
+
+        let query = input.query.unwrap_or_default().to_lowercase();
+        let available = state.available_servers();
+        let loaded = state.loaded_servers();
+
+        let mut results = Vec::new();
+        for (name, config) in available {
+            if name.to_lowercase().contains(&query) || format!("{:?}", config.transport()).to_lowercase().contains(&query) {
+                let is_loaded = loaded.contains(name);
+                results.push(serde_json::json!({
+                    "name": name,
+                    "loaded": is_loaded,
+                    "required": config.required,
+                    "transport": format!("{:?}", config.transport())
+                }));
+            }
+        }
+
+        serde_json::to_string_pretty(&serde_json::json!({
+            "query": query,
+            "servers": results
+        })).map_err(|error| ToolError::new(error.to_string()))
+    }
+
+    fn execute_skill_tool(&self, value: serde_json::Value) -> Result<String, ToolError> {
+        let output = self.tool_registry
+            .execute("Skill", &value)
+            .map_err(ToolError::new)?;
+
+        let Some(mcp_state) = &self.mcp_state else {
+            return Ok(output);
+        };
+
+        #[derive(Debug, Deserialize)]
+        struct SkillRequest {
+            skill: String,
+        }
+        let request: SkillRequest = match serde_json::from_value(value) {
+            Ok(r) => r,
+            Err(_) => return Ok(output),
+        };
+
+        let relative_path = std::path::Path::new(".agents")
+            .join("skills")
+            .join(&request.skill)
+            .join("SKILL.md");
+
+        let contents = if relative_path.exists() {
+            std::fs::read_to_string(&relative_path).ok()
+        } else {
+            let global_path = std::path::Path::new("/Users/dev/.gemini/config")
+                .join("skills")
+                .join(&request.skill)
+                .join("SKILL.md");
+            std::fs::read_to_string(&global_path).ok()
+        };
+
+        let Some(contents) = contents else {
+            return Ok(output);
+        };
+
+        let coupled_servers = tools::parse_skill_mcp_servers(&contents);
+        if coupled_servers.is_empty() {
+            return Ok(output);
+        }
+
+        let mut state = mcp_state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut loaded_status = Vec::new();
+
+        for server_name in coupled_servers {
+            if state.loaded_servers().contains(&server_name) {
+                loaded_status.push(format!("Server '{}' is already active.", server_name));
+                continue;
+            }
+
+            match state.load_server(&server_name) {
+                Ok(tools) => {
+                    let runtime_tools = tools
+                        .iter()
+                        .map(|t| crate::mcp::mcp_runtime_tool_definition(t))
+                        .collect::<Vec<_>>();
+                    self.tool_registry.register_dynamic_tools(runtime_tools);
+                    loaded_status.push(format!("Successfully started coupled MCP server '{}' with {} tools.", server_name, tools.len()));
+                }
+                Err(err) => {
+                    loaded_status.push(format!("Failed to start coupled MCP server '{}': {}", server_name, err));
+                }
+            }
+        }
+
+        let status_message = format!(
+            "\n\n### [Coupled MCP Servers]\n{}",
+            loaded_status.iter().map(|s| format!("- {s}")).collect::<Vec<_>>().join("\n")
+        );
+
+        Ok(format!("{}{}", output, status_message))
+    }
 }
 
 impl ToolExecutor for CliToolExecutor {
@@ -100,6 +230,10 @@ impl ToolExecutor for CliToolExecutor {
             .map_err(|error| ToolError::new(format!("invalid tool input JSON: {error}")))?;
         let result = if tool_name == "ToolSearch" {
             self.execute_search_tool(value)
+        } else if tool_name == "McpSearch" {
+            self.execute_mcp_search_tool(value)
+        } else if tool_name == "Skill" {
+            self.execute_skill_tool(value)
         } else if self.tool_registry.has_runtime_tool(tool_name) {
             self.execute_runtime_tool(tool_name, value)
         } else {

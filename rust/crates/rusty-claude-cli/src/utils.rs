@@ -3202,12 +3202,15 @@ mod tests {
 
     #[test]
     fn test_auto_match_skills_scoring_and_ignore() {
+        let _env_guard = env_lock();
+        let _cwd_guard = cwd_guard();
         let temp = std::env::current_dir().unwrap().join("target").join("temp_skills_test");
+        let _ = std::fs::remove_dir_all(&temp);
         let target_dir = temp.join("target");
         std::fs::create_dir_all(&target_dir).unwrap();
         std::fs::write(target_dir.join("xcode_ignored.rs"), "ignored").unwrap();
 
-        std::fs::write(temp.join("ml_model_run.py"), "active").unwrap();
+        std::fs::write(temp.join("ml_model_predict.py"), "active").unwrap();
 
         let matched = super::auto_match_skills(&temp, "running machine learning classification").unwrap();
         assert!(!matched.is_empty());
@@ -8149,6 +8152,7 @@ UU conflicted.rs",
             config_home.join("settings.json"),
             format!(
                 r#"{{
+                  "injectedTools": ["ToolSearch", "MCPTool"],
                   "mcpServers": {{
                     "alpha": {{
                       "command": "python3",
@@ -8169,6 +8173,8 @@ UU conflicted.rs",
         let mut runtime_config = loader.load().expect("runtime config should load");
         let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &mut runtime_config)
             .expect("runtime plugin state should load");
+
+        println!("DEBUG: test tools list: {:?}", state.tool_registry.actual_tool_names());
 
         let allowed = state
             .tool_registry
@@ -8445,23 +8451,16 @@ pub fn write_mcp_server_fixture(script_path: &Path) {
             "import json, sys",
             "",
             "def read_message():",
-            "    header = b''",
-            r"    while not header.endswith(b'\r\n\r\n'):",
-            "        chunk = sys.stdin.buffer.read(1)",
-            "        if not chunk:",
-            "            return None",
-            "        header += chunk",
-            "    length = 0",
-            r"    for line in header.decode().split('\r\n'):",
-            r"        if line.lower().startswith('content-length:'):",
-            "            length = int(line.split(':', 1)[1].strip())",
-            "    payload = sys.stdin.buffer.read(length)",
-            "    return json.loads(payload.decode())",
+            "    line = sys.stdin.buffer.readline()",
+            "    if not line:",
+            "        return None",
+            "    return json.loads(line.decode())",
             "",
             "def send_message(message):",
             "    payload = json.dumps(message).encode()",
-            r"    sys.stdout.buffer.write(f'Content-Length: {len(payload)}\r\n\r\n'.encode() + payload)",
+            "    sys.stdout.buffer.write(payload + b'\\n')",
             "    sys.stdout.buffer.flush()",
+
             "",
             "while True:",
             "    request = read_message()",
