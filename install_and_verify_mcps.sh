@@ -50,28 +50,28 @@ verify_command() {
 
 # 1. appstore-connect
 verify_command "App Store Connect (asc-mcp)" \
-    "npx --package @pofky/asc-mcp asc-mcp --help" \
+    "npx --prefer-offline --package @pofky/asc-mcp asc-mcp --help" \
     "npm install -g @pofky/asc-mcp"
 
 # 2. firebase-mcp-server
 export FIREBASE_CLI_NO_PROMPT=1
 verify_command "Firebase Tools MCP" \
-    "npx --package firebase-tools firebase --version --non-interactive" \
+    "npx --prefer-offline --package firebase-tools firebase --version --non-interactive" \
     "npm install -g firebase-tools"
 
 # 3. github
 verify_command "GitHub MCP Server" \
-    "npx --package @modelcontextprotocol/server-github mcp-server-github --help" \
+    "npx --prefer-offline --package @modelcontextprotocol/server-github mcp-server-github --help" \
     "npm install -g @modelcontextprotocol/server-github"
 
 # 4. ios-simulator
 verify_command "iOS Simulator MCP" \
-    "npx --package ios-simulator-mcp ios-simulator-mcp --help" \
+    "npx --prefer-offline --package ios-simulator-mcp ios-simulator-mcp --help" \
     "npm install -g ios-simulator-mcp"
 
 # 5. render (mcp-remote)
 verify_command "Render MCP Client (mcp-remote)" \
-    "npx --package mcp-remote mcp-remote --help" \
+    "npx --prefer-offline --package mcp-remote mcp-remote --help" \
     "npm install -g mcp-remote"
 
 # 6. xcode-bridge (mcpbridge)
