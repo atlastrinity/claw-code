@@ -124,8 +124,8 @@ pub fn allowed_tool_aliases_json(registry: &GlobalToolRegistry) -> Value {
 pub fn current_tool_registry() -> Result<GlobalToolRegistry, String> {
     let cwd = std::env::current_dir().map_err(|error| error.to_string())?;
     let loader = ConfigLoader::default_for(&cwd);
-    let runtime_config = loader.load().map_err(|error| error.to_string())?;
-    let state = build_runtime_plugin_state_with_loader(&cwd, &loader, &runtime_config)
+    let mut runtime_config = loader.load().map_err(|error| error.to_string())?;
+    let state = build_runtime_plugin_state_with_loader(&cwd, &loader, &mut runtime_config)
         .map_err(|error| error.to_string())?;
     let registry = state.tool_registry.clone();
     if let Some(mcp_state) = state.mcp_state {
@@ -2118,15 +2118,53 @@ pub fn plugins_command_payload_from_result(
 pub fn build_runtime_plugin_state() -> Result<RuntimePluginState, Box<dyn std::error::Error>> {
     let cwd = std::env::current_dir()?;
     let loader = ConfigLoader::default_for(&cwd);
-    let runtime_config = loader.load()?;
-    build_runtime_plugin_state_with_loader(&cwd, &loader, &runtime_config)
+    let mut runtime_config = loader.load()?;
+    build_runtime_plugin_state_with_loader(&cwd, &loader, &mut runtime_config)
 }
 
 pub fn build_runtime_plugin_state_with_loader(
     cwd: &Path,
     loader: &ConfigLoader,
-    runtime_config: &runtime::RuntimeConfig,
+    runtime_config: &mut runtime::RuntimeConfig,
 ) -> Result<RuntimePluginState, Box<dyn std::error::Error>> {
+    // Dynamic MCP server discovery via skills
+    if let Ok(matched_paths) = auto_match_skills(cwd, "") {
+        for path in matched_paths {
+            if let Some(skill_dir) = path.parent() {
+                let mcp_json_path = skill_dir.join("mcp.json");
+                if mcp_json_path.is_file() {
+                    if let Ok(mcp_json_str) = std::fs::read_to_string(&mcp_json_path) {
+                        let skill_name = skill_dir.file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| "unknown".to_string());
+
+                        tracing::info!(
+                            skill = %skill_name,
+                            path = %mcp_json_path.display(),
+                            "Found dynamic MCP configurations in matched skill. Merging..."
+                        );
+
+                        match runtime_config.merge_dynamic_mcp_servers(&mcp_json_str, &mcp_json_path) {
+                            Ok(_) => {
+                                tracing::info!(
+                                    skill = %skill_name,
+                                    "Successfully merged dynamic MCP servers from skill"
+                                );
+                            }
+                            Err(err) => {
+                                tracing::error!(
+                                    skill = %skill_name,
+                                    error = %err,
+                                    "Failed to merge dynamic MCP servers from skill"
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     let plugin_manager = build_plugin_manager(cwd, loader, runtime_config);
     let plugin_registry = plugin_manager.plugin_registry()?;
     let plugin_hook_config =
@@ -2986,6 +3024,128 @@ pub fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
         .collect()
 }
 
+pub fn auto_match_skills(cwd: &std::path::Path, prompt: &str) -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
+    use std::collections::HashSet;
+
+    const STOP_WORDS: &[&str] = &[
+        "and", "or", "the", "a", "an", "in", "on", "at", "to", "for", "with", "by", "of", "from",
+        "using", "replaces", "defines", "strict", "boundaries", "between", "guide", "strategic"
+    ];
+
+    const IGNORED_DIRS: &[&str] = &[
+        "target",
+        "node_modules",
+        "build",
+        "dist",
+        "bin",
+        "obj",
+        "vendor",
+        "assets",
+    ];
+
+    let clean_tokens = |text: &str| -> HashSet<String> {
+        let mut cleaned = HashSet::new();
+        let chars: Vec<char> = text.chars().collect();
+        let mut start = None;
+        for i in 0..chars.len() {
+            let is_alphanum = chars[i].is_alphanumeric() || chars[i] == '-' || chars[i] == '_';
+            if is_alphanum {
+                if start.is_none() {
+                    start = Some(i);
+                }
+            } else if let Some(s) = start {
+                let word: String = chars[s..i].iter().collect();
+                let token = word.to_lowercase();
+                for part in token.split(|c| c == '-' || c == '_') {
+                    if part.len() > 2 && !STOP_WORDS.contains(&part) {
+                        cleaned.insert(part.to_string());
+                    }
+                }
+                if token.len() > 2 && !STOP_WORDS.contains(&token.as_str()) {
+                    cleaned.insert(token);
+                }
+                start = None;
+            }
+        }
+        if let Some(s) = start {
+            let word: String = chars[s..].iter().collect();
+            let token = word.to_lowercase();
+            for part in token.split(|c| c == '-' || c == '_') {
+                if part.len() > 2 && !STOP_WORDS.contains(&part) {
+                    cleaned.insert(part.to_string());
+                }
+            }
+            if token.len() > 2 && !STOP_WORDS.contains(&token.as_str()) {
+                cleaned.insert(token);
+            }
+        }
+        cleaned
+    };
+
+    let mut context_keywords = clean_tokens(prompt);
+
+    if cwd.is_dir() {
+        if let Ok(entries) = std::fs::read_dir(cwd) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let file_name = entry.file_name().to_string_lossy().to_string();
+                if file_name.starts_with('.') || IGNORED_DIRS.contains(&file_name.as_str()) {
+                    continue;
+                }
+                context_keywords.extend(clean_tokens(&file_name));
+                if let Some(ext) = path.extension() {
+                    context_keywords.insert(ext.to_string_lossy().to_lowercase());
+                }
+                
+                if path.is_dir() {
+                    if let Ok(sub_entries) = std::fs::read_dir(&path) {
+                        for sub_entry in sub_entries.flatten() {
+                            let sub_path = sub_entry.path();
+                            let sub_file_name = sub_entry.file_name().to_string_lossy().to_string();
+                            if sub_file_name.starts_with('.') || IGNORED_DIRS.contains(&sub_file_name.as_str()) {
+                                continue;
+                            }
+                            context_keywords.extend(clean_tokens(&sub_file_name));
+                            if let Some(ext) = sub_path.extension() {
+                                context_keywords.insert(ext.to_string_lossy().to_lowercase());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let mut matched = Vec::new();
+    if let Ok(skills) = commands::get_available_skills(cwd) {
+        for (name, description, path) in skills {
+            let skill_name_keywords = clean_tokens(&name);
+            let mut skill_keywords = skill_name_keywords.clone();
+            if let Some(desc) = description {
+                skill_keywords.extend(clean_tokens(&desc));
+            }
+            
+            let mut score = 0;
+            for k in &skill_keywords {
+                if context_keywords.contains(k) {
+                    score += 1;
+                    if skill_name_keywords.contains(k) {
+                        score += 2;
+                    }
+                }
+            }
+            
+            if score > 0 {
+                matched.push((path, score));
+            }
+        }
+    }
+
+    matched.sort_by(|a, b| b.1.cmp(&a.1));
+    let matched_paths: Vec<_> = matched.into_iter().map(|(path, _)| path).collect();
+    Ok(matched_paths)
+}
+
 #[allow(clippy::too_many_lines)]
 #[cfg(test)]
 mod tests {
@@ -3030,6 +3190,75 @@ mod tests {
     use plugins::{
         PluginManager, PluginManagerConfig, PluginTool, PluginToolDefinition, PluginToolPermission,
     };
+
+    #[test]
+    fn test_auto_match_skills_xcode() {
+        let cwd = std::path::Path::new("/Users/dev/Documents/music");
+        let matched = super::auto_match_skills(cwd, "ios development Xcode").unwrap();
+        assert!(!matched.is_empty());
+        let has_xcode = matched.iter().any(|p| p.to_string_lossy().contains("xcode") || p.to_string_lossy().contains("apple"));
+        assert!(has_xcode);
+    }
+
+    #[test]
+    fn test_auto_match_skills_scoring_and_ignore() {
+        let temp = std::env::current_dir().unwrap().join("target").join("temp_skills_test");
+        let target_dir = temp.join("target");
+        std::fs::create_dir_all(&target_dir).unwrap();
+        std::fs::write(target_dir.join("xcode_ignored.rs"), "ignored").unwrap();
+
+        std::fs::write(temp.join("ml_model_run.py"), "active").unwrap();
+
+        let matched = super::auto_match_skills(&temp, "running machine learning classification").unwrap();
+        assert!(!matched.is_empty());
+        let first_match = matched[0].to_string_lossy();
+        assert!(first_match.contains("ml-best-practices"));
+
+        let has_xcode = matched.iter().any(|p| p.to_string_lossy().contains("xcode"));
+        assert!(!has_xcode);
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
+    #[test]
+    fn test_dynamic_mcp_injection_via_skill() {
+        let temp = std::env::current_dir().unwrap().join("target").join("temp_mcp_injection_test");
+        let skills_dir = temp.join(".agents").join("skills");
+        let skill_dir = skills_dir.join("dummy-skill");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: dummy-skill\ndescription: dummy skill\n---\n",
+        )
+        .unwrap();
+
+        std::fs::write(
+            skill_dir.join("mcp.json"),
+            r#"{
+              "alpha": {
+                "command": "python3",
+                "args": ["-c", "import sys; sys.exit(0)"]
+              }
+            }"#,
+        )
+        .unwrap();
+
+        std::fs::write(temp.join("dummy-skill.txt"), "active").unwrap();
+
+        let loader = ConfigLoader::new(&temp, &temp);
+        let mut runtime_config = loader.load().expect("load should succeed");
+
+        assert!(!runtime_config.mcp().servers().contains_key("alpha"));
+
+        let _state = build_runtime_plugin_state_with_loader(&temp, &loader, &mut runtime_config)
+            .expect("build plugin state should succeed");
+
+        assert!(runtime_config.mcp().servers().contains_key("alpha"));
+
+        let _ = std::fs::remove_dir_all(temp);
+    }
+
     use runtime::{
         load_oauth_credentials, save_oauth_credentials, AssistantEvent, ConfigLoader, ContentBlock,
         ConversationMessage, MessageRole, OAuthConfig, PermissionMode, Session, ToolExecutor,
@@ -7892,8 +8121,8 @@ UU conflicted.rs",
             .install(source_root.to_str().expect("utf8 source path"))
             .expect("plugin install should succeed");
         let loader = ConfigLoader::new(&workspace, &config_home);
-        let runtime_config = loader.load().expect("runtime config should load");
-        let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &runtime_config)
+        let mut runtime_config = loader.load().expect("runtime config should load");
+        let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &mut runtime_config)
             .expect("plugin state should load");
         let pre_hooks = state.feature_config.hooks().pre_tool_use();
         assert_eq!(pre_hooks.len(), 1);
@@ -7937,8 +8166,8 @@ UU conflicted.rs",
         .expect("write mcp settings");
 
         let loader = ConfigLoader::new(&workspace, &config_home);
-        let runtime_config = loader.load().expect("runtime config should load");
-        let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &runtime_config)
+        let mut runtime_config = loader.load().expect("runtime config should load");
+        let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &mut runtime_config)
             .expect("runtime plugin state should load");
 
         let allowed = state
@@ -8043,8 +8272,8 @@ UU conflicted.rs",
         .expect("write mcp settings");
 
         let loader = ConfigLoader::new(&workspace, &config_home);
-        let runtime_config = loader.load().expect("runtime config should load");
-        let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &runtime_config)
+        let mut runtime_config = loader.load().expect("runtime config should load");
+        let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &mut runtime_config)
             .expect("runtime plugin state should load");
         let executor =
             CliToolExecutor::new(false, state.tool_registry.clone(), state.mcp_state.clone());
@@ -8094,9 +8323,9 @@ UU conflicted.rs",
             .expect("plugin install should succeed");
         let log_path = install.install_path.join("lifecycle.log");
         let loader = ConfigLoader::new(&workspace, &config_home);
-        let runtime_config = loader.load().expect("runtime config should load");
+        let mut runtime_config = loader.load().expect("runtime config should load");
         let runtime_plugin_state =
-            build_runtime_plugin_state_with_loader(&workspace, &loader, &runtime_config)
+            build_runtime_plugin_state_with_loader(&workspace, &loader, &mut runtime_config)
                 .expect("plugin state should load");
         let mut runtime = build_runtime_with_plugin_state(
             Session::new(),

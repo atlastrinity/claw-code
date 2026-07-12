@@ -1,0 +1,10 @@
+{
+  "xcode-bridge": {
+    "command": "/Applications/Xcode.app/Contents/Developer/usr/bin/mcpbridge",
+    "args": []
+  },
+  "ios-simulator": {
+    "command": "npx",
+    "args": ["-y", "ios-simulator-mcp"]
+  }
+}

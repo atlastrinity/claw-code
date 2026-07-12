@@ -970,6 +970,19 @@ impl RuntimeConfig {
     pub fn trusted_roots_with_overrides(&self, per_call_roots: &[String]) -> Vec<String> {
         merge_trusted_roots(self.trusted_roots(), per_call_roots)
     }
+
+    /// Merge dynamically detected MCP servers from matched skills.
+    pub fn merge_dynamic_mcp_servers(
+        &mut self,
+        mcp_servers_json: &str,
+        path: &Path,
+    ) -> Result<(), ConfigError> {
+        let parsed = JsonValue::parse(mcp_servers_json)
+            .map_err(|e| ConfigError::Parse(e.to_string()))?;
+        let mut root = BTreeMap::new();
+        root.insert("mcpServers".to_string(), parsed);
+        merge_mcp_servers(&mut self.feature_config.mcp, ConfigSource::Project, &root, path)
+    }
 }
 
 impl RuntimeFeatureConfig {
