@@ -160,7 +160,7 @@ impl ApiError {
                     || error.is_body()
                     || error.is_decode()
             }
-            Self::Api(info) => info.retryable && info.status != reqwest::StatusCode::TOO_MANY_REQUESTS,
+            Self::Api(info) => info.retryable,
             Self::RetriesExhausted { last_error, .. } => last_error.is_retryable(),
             Self::MissingCredentials { .. }
             | Self::ContextWindowExceeded { .. }

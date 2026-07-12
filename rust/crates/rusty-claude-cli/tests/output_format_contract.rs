@@ -452,13 +452,22 @@ fn direct_resume_safe_slash_commands_route_to_local_json_actions_831() {
         .output()
         .expect("git init should launch");
 
+    let config_home = root.join("config-home");
+    let home = root.join("home");
+    fs::create_dir_all(&config_home).expect("config home");
+    fs::create_dir_all(&home).expect("home");
+    let envs = [
+        ("HOME", home.to_str().expect("utf8")),
+        ("CLAW_CONFIG_HOME", config_home.to_str().expect("utf8")),
+    ];
+
     for (command, expected_kind, expected_status) in [
         ("/version", "version", "ok"),
         ("/sandbox", "sandbox", "warn"),
         ("/diff", "diff", "ok"),
         ("/status", "status", "ok"),
     ] {
-        let output = run_claw(&root, &["--output-format", "json", command], &[]);
+        let output = run_claw(&root, &["--output-format", "json", command], &envs);
         assert!(
             output.status.success(),
             "{command} should route to a local CliAction, stdout:\n{}\n\nstderr:\n{}",
@@ -1477,7 +1486,7 @@ fn doctor_and_resume_status_emit_json_when_requested() {
         .is_some_and(|available| available.iter().any(|name| name == "web_fetch")));
 
     let checks = doctor["checks"].as_array().expect("doctor checks");
-    assert_eq!(checks.len(), 12);
+    assert_eq!(checks.len(), 13);
     let check_names = checks
         .iter()
         .map(|check| {
@@ -1498,6 +1507,7 @@ fn doctor_and_resume_status_emit_json_when_requested() {
         vec![
             "auth",
             "base urls",
+            "github integration",
             "config",
             "mcp validation",
             "hook validation",

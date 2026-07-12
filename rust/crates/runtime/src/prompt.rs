@@ -318,10 +318,20 @@ pub fn prepend_bullets(items: Vec<String>) -> Vec<String> {
 
 fn instruction_file_source(path: &Path) -> &'static str {
     let file_name = path.file_name().and_then(|name| name.to_str());
+    let parent_name = path
+        .parent()
+        .and_then(|parent| parent.file_name())
+        .and_then(|name| name.to_str());
 
-    match file_name {
-        Some("CLAW.md") => "claw_md",
-        Some("task.md") => "task_md",
+    match (parent_name, file_name) {
+        (Some(".claw"), Some("CLAUDE.md")) => "claw_claude_md",
+        (Some(".claude"), Some("CLAUDE.md")) => "claude_claude_md",
+        (_, Some("CLAUDE.md")) => "claude_md",
+        (_, Some("CLAW.md")) => "claw_md",
+        (_, Some("AGENTS.md")) => "agents_md",
+        (_, Some("CLAUDE.local.md")) => "claude_local_md",
+        (Some(".claw"), Some("instructions.md")) => "claw_instructions",
+        (_, Some("task.md")) => "task_md",
         _ => "rule_file",
     }
 }
@@ -333,9 +343,27 @@ fn discover_instruction_files(
     directories.reverse();
 
     let mut files = Vec::new();
+    
+    // Always try to load global CLAW.md first as system-wide directives
+    let home = if cfg!(test) {
+        None
+    } else {
+        std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()).map(PathBuf::from)
+    };
+    if let Some(home_path) = home {
+        let global_claw = home_path.join(".claw").join("CLAW.md");
+        push_context_file(&mut files, global_claw)?;
+    }
+
     for dir in directories {
         for candidate in [
+            dir.join("CLAUDE.md"),
             dir.join("CLAW.md"),
+            dir.join("AGENTS.md"),
+            dir.join("CLAUDE.local.md"),
+            dir.join(".claw").join("CLAUDE.md"),
+            dir.join(".claw").join("instructions.md"),
+            dir.join(".claude").join("CLAUDE.md"),
             dir.join("task.md"),
         ] {
             push_context_file(&mut files, candidate)?;

@@ -383,7 +383,7 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
     tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     // Apply model-specific TPM rate limiting
-    let limit = if model.contains("glm") {
+    let mut limit = if model.contains("glm") {
         20_000
     } else if model.contains("gemini") || model.contains("stable") {
         250_000
@@ -391,15 +391,43 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
         100_000
     };
 
-    let limiter = if model.contains("glm") {
-        GLM_LIMITER.get_or_init(TpmRateLimiter::new)
+    if model.contains("glm") {
+        if let Ok(val) = std::env::var("CLAW_GLM_TPM_LIMIT") {
+            if let Ok(parsed) = val.parse::<usize>() {
+                limit = parsed;
+            }
+        }
     } else if model.contains("gemini") || model.contains("stable") {
-        GEMINI_LIMITER.get_or_init(TpmRateLimiter::new)
+        if let Ok(val) = std::env::var("CLAW_GEMINI_TPM_LIMIT") {
+            if let Ok(parsed) = val.parse::<usize>() {
+                limit = parsed;
+            }
+        }
     } else {
-        DEFAULT_LIMITER.get_or_init(TpmRateLimiter::new)
-    };
+        if let Ok(val) = std::env::var("CLAW_DEFAULT_TPM_LIMIT") {
+            if let Ok(parsed) = val.parse::<usize>() {
+                limit = parsed;
+            }
+        }
+    }
 
-    limiter.acquire(limit, estimated_tokens).await;
+    if let Ok(val) = std::env::var("CLAW_TPM_LIMIT") {
+        if let Ok(parsed) = val.parse::<usize>() {
+            limit = parsed;
+        }
+    }
+
+    if limit > 0 {
+        let limiter = if model.contains("glm") {
+            GLM_LIMITER.get_or_init(TpmRateLimiter::new)
+        } else if model.contains("gemini") || model.contains("stable") {
+            GEMINI_LIMITER.get_or_init(TpmRateLimiter::new)
+        } else {
+            DEFAULT_LIMITER.get_or_init(TpmRateLimiter::new)
+        };
+
+        limiter.acquire(limit, estimated_tokens).await;
+    }
 
     if !home.is_empty() {
         Some(ApiLockGuard::new(&home))
