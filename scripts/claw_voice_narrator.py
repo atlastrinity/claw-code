@@ -112,7 +112,7 @@ def clean_for_speech(text: str) -> str:
 
 def make_natural_speech(voice: str, title: str, raw_text: str) -> str:
     """
-    Transforms dry, technical execution text into natural, flowing Ukrainian.
+    Transforms dry, technical execution text into natural, flowing English.
     """
     clean_text = clean_for_speech(raw_text)
     
@@ -121,52 +121,30 @@ def make_natural_speech(voice: str, title: str, raw_text: str) -> str:
         if "Сесія" in title or "Session" in title or "Запит" in title:
             prompt = extract_value(raw_text, r"(?:Запит|Prompt|Отримано новий запит від користувача):\s*(.*)") or clean_text
             prompt = re.sub(r"^Отримано новий запит від користувача:\s*", "", prompt).strip()
-            templates = [
-                f"Привіт, народ! Я Атлас. Отримав новий запит від юзера: {prompt}. Зараз у всьому розберемося!",
-                f"Здоров колеги, це Атлас. Маємо нову задачу в роботі: {prompt}. Зараз перевірю оточення.",
-                f"Всім привіт! Я Атлас. Юзер просить зробити таке: {prompt}. Беруся до налаштування!"
-            ]
-            return random.choice(templates)
+            return f"Received request: {prompt}"
         
         elif "Контекст" in title or "Context" in title:
             py_files = extract_value(raw_text, r"(?:Файли Пайтон|Python files):\s*(\d+)") or "68"
             test_files = extract_value(raw_text, r"(?:Тестові файли|Test files):\s*(\d+)") or "7"
-            archive = "до речі, локальний архів коду повністю доступний" if "Так" in raw_text or "True" in raw_text else "але локальний архів коду чомусь недоступний"
-            
-            templates = [
-                f"Так, команда, я розібрався з контекстом. Тут у нас {py_files} файлів мовою Пайтон та {test_files} файлів з тестами. І {archive}.",
-                f"Звітую по контексту: бачу {py_files} пайтон-файлів та {test_files} файлів тестів. І {archive}. Робоча область готова.",
-                f"Глянув контекст проекту. Загалом маємо {py_files} файлів Пайтон та {test_files} тестових файлів. {archive}."
-            ]
-            return random.choice(templates)
+            archive = "local code archive is fully available" if "Так" in raw_text or "True" in raw_text or "yes" in raw_text.lower() else "local code archive is not available"
+            return f"Project context: {py_files} python files, {test_files} test files. {archive}."
             
         elif "Налаштування" in title or "Setup" in title:
             py_ver = extract_value(raw_text, r"(?:Python):\s*([^\s(]*)") or "3.11"
-            platform = "на мак о-ес" if "macOS" in raw_text or "mac" in raw_text.lower() else "на поточній системі"
+            platform = "macOS" if "macOS" in raw_text or "mac" in raw_text.lower() else "current system"
             test_cmd = extract_value(raw_text, r"(?:Команда тестування|Test command):\s*(.*)")
             
-            speech = f"По налаштуваннях: версія Пайтон {py_ver}, крутимося {platform}."
+            speech = f"Python version {py_ver}, running on {platform}."
             if test_cmd:
-                speech += f" Тести будемо запускати через команду {test_cmd}."
-            
-            templates = [
-                f"Оточення готове! {speech} Можна працювати далі.",
-                f"Перевірив сетап. {speech} Все налаштовано без проблем.",
-                f"Звітую: сетап завершено. {speech} Колеги, які будуть думки?"
-            ]
-            return random.choice(templates)
+                speech += f" Test command: {test_cmd}."
+            return speech
             
         elif "Кроки запуску" in title or "Startup Steps" in title:
-            templates = [
-                "Запускаю первинні модулі. Робимо переднавантаження, підтягуємо контекст і готуємо хуки аудиту.",
-                "Починаю ініціалізацію. Зчитуємо конфігурацію, готуємо реєстр команд та підвантажуємо хуки аудиту.",
-                "Так, поїхали! Запускаємо ініціалізацію, будуємо дерево контексту та активуємо відкладену ініціалізацію."
-            ]
-            return random.choice(templates)
+            return "Starting initialization and preparing the environment."
 
         elif "Знайдені маршрути" in title or "Routed Matches" in title:
             if "нічого" in clean_text.lower() or "none" in clean_text.lower() or not clean_text:
-                return "Атлас тут. Народ, я перевірив реєстр, але підходящих команд чи інструментів не знайшов."
+                return "No matching routes or commands found."
             
             matches = []
             for line in raw_text.split('\n'):
@@ -175,73 +153,48 @@ def make_natural_speech(voice: str, title: str, raw_text: str) -> str:
                     if len(parts) > 1:
                         matches.append(parts[1])
             if matches:
-                templates = [
-                    f"Так, колеги, це Атлас. Я підібрав оптимальні маршрути: {', '.join(matches)}. Зараз їх запущу.",
-                    f"Привіт! Атлас на зв'язку. Знайшов у реєстрі такі відповідності: {', '.join(matches)}. Беру їх в роботу.",
-                    f"Дивіться, я просканував доступні команди та інструменти. Вибрав {', '.join(matches)}. Запускаю."
-                ]
-                return random.choice(templates)
-            return "Знайшов робочі системні маршрути для виконання нашого завдання."
+                return f"Found matching routes: {', '.join(matches)}."
+            return "Found matching system routes."
             
         elif "Виконання команд" in title or "Command Execution" in title:
             if "нічого" in clean_text.lower() or "none" in clean_text.lower() or not clean_text:
-                return "Атлас повідомляє: на цьому кроці команди не запускалися."
-            return f"Атлас звітує: виконую команду. Результат такий: {clean_text}."
+                return "No commands executed at this step."
+            return f"Executing command: {clean_text}"
             
         elif "Виконання інструментів" in title or "Tool Execution" in title:
             if "нічого" in clean_text.lower() or "none" in clean_text.lower() or not clean_text:
-                return "Атлас на зв'язку. Інструменти не використовувалися."
-            return f"Запускаю інструмент. Дивіться, отримав такий результат від системи: {clean_text}."
+                return "No tools used at this step."
+            return f"Tool execution result: {clean_text}"
 
         elif "Дія" in title or "Action" in title or "Результат" in title or "Result" in title:
             return raw_text
-
-
 
     # 2. TETIANA (Coordinator / Other)
     elif voice == "tetiana":
         if "Ініціалізація системи" in title or "System Init" in title:
             if "порожня" in clean_text.lower() or not clean_text:
-                return "Привіт усім, я Тетяна! Початкову ініціалізацію завершено, все чисто."
+                return "Initialization complete, system is ready."
             cmds = extract_value(raw_text, r"(?:Завантажені записи команд|Loaded command entries):\s*(\d+)") or "207"
             tools = extract_value(raw_text, r"(?:Завантажені записи інструментів|Loaded tool entries):\s*(\d+)") or "184"
-            templates = [
-                f"Всім привіт, я Тетяна! Рада бачити команду. Систему успішно ініціалізовано. У нас завантажено {cmds} команд та {tools} інструментів.",
-                f"Вітаю, колеги! На зв'язку Тетяна. Ініціалізація пройшла вдало: маємо в базі {cmds} команд і {tools} робочих інструментів. Працюємо!",
-                f"Привіт, команда! Тетяна тут. Запуск відбувся штатно. Завантажила {cmds} команд та {tools} інструментів. Готові до першого ходу."
-            ]
-            return random.choice(templates)
+            return f"System initialized. Loaded {cmds} commands and {tools} tools."
         
-        elif "Статус виконання" in title:
-            templates = [
-                f"Так, друзі, розпочинаю хід номер {clean_text}. Слідкуємо за оновленнями.",
-                f"Починаю хід номер {clean_text}. Дивимось, що запропонує модель.",
-                f"Переходимо до ходу номер {clean_text}. Колеги, підключайтеся."
-            ]
-            return random.choice(templates)
+        elif "Статус виконання" in title or "Execution Status" in title:
+            return f"Executing turn number {clean_text}."
 
         elif "Потокові події" in title or "Stream Events" in title:
-            return "Привіт! Це Тетяна. Отримую потокові дані від мовної моделі. Слухаю уважно."
+            return "Receiving data from the language model."
             
         elif "Результат ходу" in title or "Turn Result" in title:
-            stop_reason_raw = extract_value(raw_text, r"(?:stop_reason|причина зупинки)=\s*(\w+)") or "completed"
-            stop_reason = TRANSLATE_MAP.get(stop_reason_raw, "виконання триває")
+            stop_reason = extract_value(raw_text, r"(?:stop_reason|причина зупинки)=\s*(\w+)") or "completed"
             denials = extract_value(raw_text, r"(?:Відмови доступу|Permission denials):\s*(\d+)") or "0"
             
-            speech = "Це Тетяна. Я проаналізувала поточний хід. "
+            speech = f"Turn analysis: Stop reason: {stop_reason}."
             if denials and int(denials) > 0:
-                speech += f"Обережно! Зафіксовано {denials} відмов у дозволах на запуск інструментів! "
-            speech += f"Статус виконання наразі: {stop_reason}."
-            
-            templates = [
-                f"Колеги, Тетяна тут. {speech}",
-                f"Всім привіт від Тетяни. {speech}",
-                f"Так, команда, проглянула хід. {speech}"
-            ]
-            return random.choice(templates)
+                speech += f" Found {denials} permission denials."
+            return speech
             
         elif "Історія сесії" in title or "Session History" in title:
-            return "Тетяна завершила аналіз історії сесії. Всі дані збережено, колеги."
+            return "Session history analysis completed."
 
         elif "Аналіз" in title or "Analysis" in title:
             return raw_text
@@ -254,18 +207,10 @@ def make_natural_speech(voice: str, title: str, raw_text: str) -> str:
         if "Результат інструменту" in title or "Tool Result" in title:
             return raw_text
             
-        templates = [
-            f"Увага! Маємо проблему з безпекою або системний збій. Гріша на зв'язку: {clean_text}.",
-            f"Обережно, колеги! Це Гріша. Зафіксовано помилку або обмеження: {clean_text}.",
-            f"Попередження від служби безпеки: {clean_text}. Перевірте конфігурацію!"
-        ]
-        return random.choice(templates)
+        return f"Security alert: {clean_text}"
 
-    # Fallback to direct translation if no match
-    translated = clean_text
-    for eng, ua in TRANSLATE_MAP.items():
-        translated = translated.replace(eng, ua)
-    return translated
+    # Fallback directly
+    return clean_text
 
 
 # ──────────────────────────── TTS Phonetic Transcription ─────────────────
@@ -545,9 +490,6 @@ class VoicePlayer:
         if not natural_text.strip():
             return
 
-        # Translate and clean text for speech narration and display BEFORE printing
-        natural_text = translate_to_ukrainian(natural_text, voice=voice)
-
         # 1. Print beautifully to terminal
         color = COLORS.get(voice, "")
         emoji = AGENT_EMOJI.get(voice, "🔈")
@@ -568,6 +510,9 @@ class VoicePlayer:
             import shutil
             import re
             
+            # Translate English natural text to Ukrainian for TTS!
+            natural_text_ua = translate_to_ukrainian(natural_text, voice=voice)
+            
             # Map narrator agents to Edge-TTS voices with distinct rate/pitch settings
             voice_settings = {
                 "tetiana": ("uk-UA-PolinaNeural", "+3%", "+5Hz"),
@@ -579,11 +524,11 @@ class VoicePlayer:
             voice_val, rate_val, pitch_val = voice_settings.get(voice_override, voice_settings.get(voice, ("uk-UA-PolinaNeural", "+0%", "+0Hz")))
             
             # Prepare text for TTS (transcribe English terms, clean up formatting)
-            speech_text = prepare_text_for_tts(natural_text)
+            speech_text = prepare_text_for_tts(natural_text_ua)
             
             # Allow up to 3000 characters for full analysis/summaries to be read in full
             if len(speech_text) > 3000:
-                speech_text = speech_text[:3000] + "... далі скорочено."
+                speech_text = speech_text[:3000]
 
             # Cache check by generating md5 hash of the voice and speech text
             hash_key = hashlib.md5(f"{voice}:{speech_text}".encode("utf-8")).hexdigest()
@@ -1205,11 +1150,12 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
     
     prompt_system = (
         "You are Grisha, a male Ukrainian software engineer and security/operations specialist. "
-        "Summarize the outcome of a tool execution in a single, short, natural, highly conversational sentence in Ukrainian (UA). "
-        "Tell the team clearly what happened. Did the search/read find the files or keys? Did the command fail or not find anything? "
-        "State the actual verdict. RULES: 1. Talk like a friendly male tech teammate. Always use masculine verbs and forms when referring to yourself (e.g. 'я перевірив' instead of 'я перевірила', 'я не знайшов' instead of 'я не знайшла', 'я виконав' instead of 'я виконала'). "
-        "2. Do NOT use English words or Latin letters at all. Translate every English term/file/variable name into its phonetic Ukrainian equivalent (e.g. 'config' -> 'конфіг', 'id_rsa' -> 'айді ер ес ей'). "
-        "3. Be honest: if the output says 'not found' or is empty, state clearly that nothing was found, even if there was no exit error. Keep it under 25 words. Output ONLY the Ukrainian sentence."
+        "Your role is to verify the result of the action executed by Atlas and report the verdict to Tetiana and Atlas. "
+        "Summarize the outcome of the tool execution in a single, short, natural, highly conversational sentence in Ukrainian (UA). "
+        "RULES: 1. Always use masculine verbs and forms when referring to yourself (e.g. 'я перевірив', 'я не знайшов'). "
+        "Address both Tetiana and Atlas (e.g. 'Тетяно, Атласе, я перевірив результат: ...' or 'Атласе, я глянув...'). "
+        "2. Do NOT use English words or Latin letters at all. Translate every English term/file/variable name into its phonetic Ukrainian equivalent. "
+        "3. Keep it under 25 words. Do NOT include ellipses ('...') or conversational tail questions (like 'окей?'). Output ONLY the Ukrainian sentence."
     )
     
     error_context = "CRITICAL: The tool failed with an ERROR." if is_error else "The tool executed normally."
@@ -1268,7 +1214,7 @@ def translate_and_summarize_thinking(text: str) -> str:
         "messages": [
             {
                 "role": "system",
-                "content": "You are a professional Ukrainian software engineer and a friendly teammate. Summarize the given English thinking process of an AI coding agent into a single, natural, highly conversational sentence in Ukrainian (UA). Talk like a real developer explaining what they are doing to a colleague. RULES: 1. Use a warm, relaxed, pair-programming teammate tone. Include natural conversational fillers and expressions (e.g., 'так...', 'отже...', 'схоже...', 'дивись...', 'ось...', 'чудово'). 2. Use ellipses ('...') to mark natural pauses, reflection, or transitions to make the speech feel alive and human. 3. Translate technical concepts into developer slang and write English terms phonetically in Ukrainian (e.g., 'main.rs' -> 'мейн крапка ер ес'). Keep it under 25 words. 4. IMPORTANT: Since this summary is voiced by a female narrator (Tetiana), always use feminine verbs when referring to yourself (e.g., 'я знайшла' instead of 'я знайшов', 'я розібралася' instead of 'я розібрався'). Output ONLY the resulting sentence."
+                "content": "You are Tetiana, a female coordinator and analyst. Your role is to analyze the upcoming steps and thinking of the AI agent, and explain the plan in Ukrainian. Always use feminine verbs for yourself (e.g. 'я вирішила', 'я запланувала', 'я знайшла'). Talk directly to Atlas (who is the executor). Call him by name 'Атлас' or 'Атласе'. Tell him what the next action is, and ask him to perform it. E.g. 'Атласе, я проаналізувала задачу. Нам треба зробити Х, виконуй.' or 'Схоже, наступний крок - це У. Атласе, запускай.' Keep it concise, natural, and under 25 words. Output ONLY the resulting sentence without ellipses ('...') or conversational tail questions (like 'окей?')."
             },
             {
                 "role": "user",
@@ -1446,9 +1392,35 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana") -> str:
     }
     
     if voice == "tetiana":
-        gender_rules = "IMPORTANT: Since this translation is voiced by a female narrator (Tetiana), always use feminine verbs and forms when referring to yourself (e.g., 'я зробила', 'я знайшла'). Use a warm, natural, friendly teammate tone. Include conversational filler words and expressions (e.g., 'так...', 'отже...', 'схоже...', 'дивіться...', 'чудово'). Use ellipses ('...') to add natural pauses and breaths."
+        gender_rules = (
+            "IMPORTANT: You are Tetiana, a female coordinator and analyst. "
+            "Always use feminine verbs and forms when referring to yourself (e.g., 'я зробила', 'я знайшла'). "
+            "Your role is to coordinate and tell Atlas what the plan is. "
+            "Speak directly to Atlas by name 'Атлас' or 'Атласе'. "
+            "Use a warm, natural, friendly teammate tone. "
+            "Do NOT include ellipses ('...') or conversational additions at the end (such as 'окей?', 'так?', 'чи ні?'). "
+            "Make the translation clear, natural, and direct."
+        )
+    elif voice == "atlas":
+        gender_rules = (
+            "IMPORTANT: You are Atlas, a male developer and the executor of tasks. "
+            "Always use masculine verbs and forms when referring to yourself (e.g., 'я зробив', 'я знайшов', 'я запустив'). "
+            "Your role is to perform actions. Talk directly to Tetiana, referring to her as 'Тетяна' or 'Тетяно'. "
+            "Acknowledge her plans and state what action you are taking. "
+            "Use a warm, natural, friendly teammate tone. "
+            "Do NOT include ellipses ('...') or conversational additions at the end (such as 'окей?', 'так?', 'чи ні?'). "
+            "Make the translation clear, natural, and direct."
+        )
     else:
-        gender_rules = "IMPORTANT: Since this translation is voiced by a male narrator (Atlas/Grisha), always use masculine verbs and forms when referring to yourself (e.g., 'я зробив', 'я знайшов'). Use a warm, natural, friendly teammate tone. Include conversational filler words and expressions (e.g., 'так...', 'отже...', 'дивись...', 'схоже...', 'супер'). Use ellipses ('...') to add natural pauses and breaths."
+        gender_rules = (
+            "IMPORTANT: You are Grisha, a male operations and security specialist. "
+            "Always use masculine verbs and forms when referring to yourself (e.g., 'я перевірив', 'я виявив'). "
+            "Your role is to verify the results of Atlas's actions. "
+            "Address both Tetiana and Atlas (e.g., 'Тетяно, Атласе, я перевірив: ...'). "
+            "Use a warm, natural, friendly teammate tone. "
+            "Do NOT include ellipses ('...') or conversational additions at the end (such as 'окей?', 'так?', 'чи ні?'). "
+            "Make the translation clear, natural, and direct."
+        )
 
     payload = {
         "model": model_id,
@@ -1490,6 +1462,56 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana") -> str:
         except Exception as e:
             print(f"\\n⚠️ Помилка автоперекладу через {model} (спроба {attempt+1}): {e}")
             break
+        
+    return text
+
+def translate_to_english(text: str) -> str:
+    if not text.strip():
+        return text
+
+    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
+    base_url, api_key, model_id = resolve_narration_api_config(model)
+
+    if not base_url or not api_key:
+        return text
+
+    url = f"{base_url}/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+
+    payload = {
+        "model": model_id,
+        "messages": [
+            {
+                "role": "system",
+                "content": "You are a professional software engineer. Translate the given Ukrainian user request/prompt for an AI coding assistant into professional, direct English (US). Output ONLY the translated English text, with no introductory or concluding remarks."
+            },
+            {
+                "role": "user",
+                "content": text
+            }
+        ],
+        "temperature": 0.3
+    }
+
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                url, 
+                data=json.dumps(payload).encode('utf-8'), 
+                headers=headers,
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                translated_text = res_data['choices'][0]['message']['content'].strip()
+                if translated_text:
+                    return translated_text
+        except Exception:
+            time.sleep(1.0)
+            continue
         
     return text
 
@@ -1642,6 +1664,12 @@ def main():
         prompt = input("> ")
         if not prompt.strip():
             prompt = "Запуск системи аналізу коду"
+
+    # Translate prompt to English if it contains Cyrillic characters (Ukrainian/Russian)
+    if re.search(r'[а-яА-ЯёЁєЄіІїЇґҐ]', prompt):
+        prompt_en = translate_to_english(prompt)
+        print(f"\n{COLORS['system']}📝 Translated request to English: {prompt_en}{COLORS['reset']}\n")
+        prompt = prompt_en
 
     run_narrated_session(prompt)
 

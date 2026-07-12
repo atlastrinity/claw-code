@@ -230,12 +230,6 @@ impl SystemPromptBuilder {
         sections.push(get_simple_doing_tasks_section());
         sections.push(get_actions_section());
         
-        if let Ok(lang) = std::env::var("CLAW_NARRATION_LANGUAGE") {
-            if !lang.trim().is_empty() {
-                sections.push(format!("# Narration Language\nIMPORTANT: You MUST write your <thought> process and any tool explanation exclusively in the {} language.", lang.trim()));
-            }
-        }
-        
         sections.push(SYSTEM_PROMPT_DYNAMIC_BOUNDARY.to_string());
         sections.push(self.environment_section());
 
