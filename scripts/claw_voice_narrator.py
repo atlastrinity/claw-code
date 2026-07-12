@@ -1006,7 +1006,7 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         cmd_str = str(cmd).strip()
         desc_str = str(desc).strip()
         action_desc = get_command_description_ua(cmd_str, desc_str)
-        spoken_text = f"Виконую команду для {action_desc}."
+        spoken_text = f"Запускаю команду для {action_desc}..."
         
     elif tool_name in ("read_file", "view_file"):
         path = params.get("AbsolutePath", params.get("path", ""))
@@ -1014,10 +1014,10 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         parent = Path(path).parent.name if path else ""
         if parent and parent != "claw-code":
             action_desc = f"читання файлу {filename} у папці {parent}"
-            spoken_text = f"Зчитую вміст файлу {filename} у папці {parent} для аналізу його коду."
+            spoken_text = f"Так... Зчитую вміст файлу {filename} у папці {parent}... глянемо, який там код."
         else:
             action_desc = f"читання файлу {filename}"
-            spoken_text = f"Зчитую вміст файлу {filename} для аналізу його коду."
+            spoken_text = f"Так... Зчитую вміст файлу {filename}... глянемо, який там код."
         
     elif tool_name in ("write_to_file", "write_file", "create_file"):
         path = params.get("TargetFile", params.get("path", ""))
@@ -1025,10 +1025,10 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         parent = Path(path).parent.name if path else ""
         if parent and parent != "claw-code":
             action_desc = f"запису у файл {filename} у папці {parent}"
-            spoken_text = f"Створюю або перезаписую файл {filename} у папці {parent}."
+            spoken_text = f"Добре, створюю або перезаписую файл {filename} у папці {parent}..."
         else:
             action_desc = f"запису у файл {filename}"
-            spoken_text = f"Створюю або перезаписую файл {filename}."
+            spoken_text = f"Добре, створюю або перезаписую файл {filename}..."
         
     elif tool_name in ("replace_file_content", "multi_replace_file_content", "edit_file"):
         path = params.get("TargetFile", params.get("path", ""))
@@ -1036,20 +1036,20 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         parent = Path(path).parent.name if path else ""
         if parent and parent != "claw-code":
             action_desc = f"редагування файлу {filename} у папці {parent}"
-            spoken_text = f"Вношу необхідні зміни та редагую код у файлі {filename} у папці {parent}."
+            spoken_text = f"Редагую файл {filename} у папці {parent}... зараз внесу потрібні зміни."
         else:
             action_desc = f"редагування файлу {filename}"
-            spoken_text = f"Вношу необхідні зміни та редагую код у файлі {filename}."
+            spoken_text = f"Редагую файл {filename}... зараз внесу потрібні зміни."
         
     elif tool_name == "grep_search":
         query = params.get("Query", params.get("query", ""))
         action_desc = f"пошуку тексту '{query}' у коді"
-        spoken_text = f"Шукаю фрагмент коду із запитом '{query}' по всьому репозиторію."
+        spoken_text = f"Шукаю фрагмент '{query}' у коді... сподіваюся, зараз знайдеться."
         
     elif tool_name == "glob_search":
         pattern = params.get("Pattern", params.get("pattern", ""))
         action_desc = f"пошуку файлів за шаблоном '{pattern}'"
-        spoken_text = f"Шукаю файли за шаблоном '{pattern}' у структурі проекту."
+        spoken_text = f"Шукаю файли за шаблоном '{pattern}' у структурі проекту..."
         
     elif tool_name == "list_dir":
         path = params.get("DirectoryPath", params.get("path", ""))
@@ -1057,24 +1057,24 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         parent = Path(path).parent.name if path else ""
         if parent and parent != "claw-code" and dirname:
             action_desc = f"перегляду вмісту папки {dirname} у папці {parent}"
-            spoken_text = f"Отримую список файлів у папці {dirname} у папці {parent}."
+            spoken_text = f"Гляну, які файли є в папці {dirname} у папці {parent}..."
         else:
             action_desc = f"перегляду вмісту папки {dirname}"
-            spoken_text = f"Отримую список файлів у папці {dirname}."
+            spoken_text = f"Гляну, які файли є в папці {dirname}..."
         
     elif tool_name == "TaskGraph":
         op = params.get("operation", "")
         if op == "update_status":
             action_desc = "оновлення статусу завдань у чек-листі"
-            spoken_text = "Оновлюю статус завдань у нашому чек-листі."
+            spoken_text = "Оновлюю наш чек-лист... позначу виконане."
         else:
             action_desc = "оновлення списку завдань планування"
-            spoken_text = "Вношу нові завдання до нашого чек-листа планування."
+            spoken_text = "Оновлюю наш список завдань планування..."
             
     else:
         tool_name_ua = TOOL_NAMES_UA.get(tool_name, tool_name)
         action_desc = f"виконання інструменту {tool_name_ua}"
-        spoken_text = f"Запускаю системний інструмент {tool_name_ua}."
+        spoken_text = f"Запускаю інструмент {tool_name_ua}..."
         
     return spoken_text, action_desc
         
@@ -1211,7 +1211,7 @@ def translate_and_summarize_thinking(text: str) -> str:
         "messages": [
             {
                 "role": "system",
-                "content": "You are a professional Ukrainian software engineer and a tech colleague. Summarize the given English thinking process of an AI coding agent into a single, natural, highly conversational sentence in Ukrainian (UA). Talk like a tech teammate explaining their ideas/findings to other colleagues in the team. RULES: 1. Translate all concepts directly into natural Ukrainian developer slang (e.g. 'bug' -> 'баг', 'concurrency' -> 'багатопотоковість', 'cache' -> 'кеш', 'optimizing' -> 'оптимізую'). 2. Do NOT use English words or Latin letters at all. Translate every English term/file/variable name into its phonetic Ukrainian equivalent (e.g. 'cache.json' -> 'кеш крапка джейсон'). Keep it under 25 words. Do not use generic templates. 3. IMPORTANT: Since this summary is voiced by a female narrator (Tetiana), always use feminine verbs and forms when referring to yourself (e.g., 'я зробила' instead of 'я зробив', 'я виявила' instead of 'я виявив', 'я проаналізувала' instead of 'я проаналізував'). Output ONLY the translated Ukrainian sentence."
+                "content": "You are a professional Ukrainian software engineer and a friendly teammate. Summarize the given English thinking process of an AI coding agent into a single, natural, highly conversational sentence in Ukrainian (UA). Talk like a real developer explaining what they are doing to a colleague. RULES: 1. Use a warm, relaxed, pair-programming teammate tone. Include natural conversational fillers and expressions (e.g., 'так...', 'отже...', 'схоже...', 'дивись...', 'ось...', 'чудово'). 2. Use ellipses ('...') to mark natural pauses, reflection, or transitions to make the speech feel alive and human. 3. Translate technical concepts into developer slang and write English terms phonetically in Ukrainian (e.g., 'main.rs' -> 'мейн крапка ер ес'). Keep it under 25 words. 4. IMPORTANT: Since this summary is voiced by a female narrator (Tetiana), always use feminine verbs when referring to yourself (e.g., 'я знайшла' instead of 'я знайшов', 'я розібралася' instead of 'я розібрався'). Output ONLY the resulting sentence."
             },
             {
                 "role": "user",
@@ -1320,9 +1320,9 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana") -> str:
     }
     
     if voice == "tetiana":
-        gender_rules = "IMPORTANT: Since this translation is voiced by a female narrator (Tetiana), always use feminine verbs and forms when referring to yourself (e.g., 'я зробила' instead of 'я зробив', 'я спробувала' instead of 'я спробував', 'я підготувала' instead of 'я підготував')."
+        gender_rules = "IMPORTANT: Since this translation is voiced by a female narrator (Tetiana), always use feminine verbs and forms when referring to yourself (e.g., 'я зробила', 'я знайшла'). Use a warm, natural, friendly teammate tone. Include conversational filler words and expressions (e.g., 'так...', 'отже...', 'схоже...', 'дивіться...', 'чудово'). Use ellipses ('...') to add natural pauses and breaths."
     else:
-        gender_rules = "IMPORTANT: Since this translation is voiced by a male narrator (Atlas/Grisha), always use masculine verbs and forms when referring to yourself (e.g., 'я зробив' instead of 'я зробила', 'я спробував' instead of 'я спробувала', 'я підготував' instead of 'я підготувала')."
+        gender_rules = "IMPORTANT: Since this translation is voiced by a male narrator (Atlas/Grisha), always use masculine verbs and forms when referring to yourself (e.g., 'я зробив', 'я знайшов'). Use a warm, natural, friendly teammate tone. Include conversational filler words and expressions (e.g., 'так...', 'отже...', 'дивись...', 'схоже...', 'супер'). Use ellipses ('...') to add natural pauses and breaths."
 
     payload = {
         "model": model_id,
