@@ -1,6 +1,6 @@
 # Концепция проекта Claw Code
 
-Документ фиксирует **цели**, **архитектуру** и **принципы** репозитория **Claw Code** — публичной Rust-реализации CLI-агента **`claw`** и сопутствующих инструментов. Источник правды по кодовой базе: workspace в каталоге [`rust/`](rust/README.md); операционные сценарии — [`USAGE.md`](USAGE.md), [`how_to_run.md`](how_to_run.md) (claw-analog), бэклог идеи — [`futute.md`](futute.md).
+Документ фиксирует **цели**, **архитектуру** и **принципы** репозитория **Claw Code** — публичной Rust-реализации CLI-агента **`claw`** и сопутствующих инструментов. Источник правды по кодовой базе: workspace в каталоге [`rust/`](../rust/README.md); операционные сценарии — [`USAGE.md`](USAGE.md), [`how_to_run.md`](how_to_run.md) (claw-analog), бэклог идеи — [`futute.md`](futute.md).
 
 Отдельная продуктовая линия «из CLI → в личного помощника» (каналы/память/инструменты/проактивность/сессии) описана в [`docs/personal-assistant-roadmap.md`](docs/personal-assistant-roadmap.md).
 

@@ -64,13 +64,13 @@
 <p align="center">
   <a href="https://github.com/ultraworkers/claw-code">ultraworkers/claw-code</a>
   ·
-  <a href="./USAGE.md">Usage</a>
+  <a href="./docs/USAGE.md">Usage</a>
   ·
   <a href="./rust/README.md">Rust workspace</a>
   ·
-  <a href="./PARITY.md">Parity</a>
+  <a href="./docs/PARITY.md">Parity</a>
   ·
-  <a href="./ROADMAP.md">Roadmap</a>
+  <a href="./docs/ROADMAP.md">Roadmap</a>
   ·
   <a href="./CONTRIBUTING.md">Contributing</a>
   ·
@@ -97,17 +97,17 @@ Claw Code is the public Rust implementation of the `claw` CLI agent harness.
 The canonical implementation lives in [`rust/`](./rust), and the current source of truth for this repository is **ultraworkers/claw-code**.
 
 > [!IMPORTANT]
-> Start with [`USAGE.md`](./USAGE.md) for build, auth, CLI, session, and parity-harness workflows. For file submission/navigation questions, see [Navigation and file context](./docs/navigation-file-context.md). For local OpenAI-compatible models and offline skill installs, see [Local OpenAI-compatible providers and skills setup](./docs/local-openai-compatible-providers.md). Windows users can jump to the PowerShell-first [Windows install and release quickstart](./docs/windows-install-release.md). Make `claw doctor` your first health check after building, use [`rust/README.md`](./rust/README.md) for crate-level details, read [`PARITY.md`](./PARITY.md) for the current Rust-port checkpoint, and see [`docs/container.md`](./docs/container.md) for the container-first workflow.
+> Start with [`USAGE.md`](./docs/USAGE.md) for build, auth, CLI, session, and parity-harness workflows. For file submission/navigation questions, see [Navigation and file context](./docs/navigation-file-context.md). For local OpenAI-compatible models and offline skill installs, see [Local OpenAI-compatible providers and skills setup](./docs/local-openai-compatible-providers.md). Windows users can jump to the PowerShell-first [Windows install and release quickstart](./docs/windows-install-release.md). Make `claw doctor` your first health check after building, use [`rust/README.md`](./rust/README.md) for crate-level details, read [`PARITY.md`](./docs/PARITY.md) for the current Rust-port checkpoint, and see [`docs/container.md`](./docs/container.md) for the container-first workflow.
 >
 > **ACP / Zed status:** `claw-code` does not ship an ACP/Zed daemon or JSON-RPC entrypoint yet. Run `claw acp` (or `claw --acp`) for the current status instead of guessing from source layout; `claw acp serve` is currently a discoverability alias only, returns status with exit code 0, and real ACP support remains tracked separately in `ROADMAP.md`. For the public JSON contract, see [`docs/g011-acp-json-rpc-status-contract.md`](./docs/g011-acp-json-rpc-status-contract.md).
 
 ## Current repository shape
 
 - **`rust/`** — canonical Rust workspace and the `claw` CLI binary
-- **`USAGE.md`** — task-oriented usage guide for the current product surface
-- **`PARITY.md`** — Rust-port parity status and migration notes
-- **`ROADMAP.md`** — active roadmap and cleanup backlog
-- **`PHILOSOPHY.md`** — project intent and system-design framing
+- **`docs/USAGE.md`** — task-oriented usage guide for the current product surface
+- **`docs/PARITY.md`** — Rust-port parity status and migration notes
+- **`docs/ROADMAP.md`** — active roadmap and cleanup backlog
+- **`docs/PHILOSOPHY.md`** — project intent and system-design framing
 - **`src/` + `tests/`** — companion Python/reference workspace and audit helpers; not the primary runtime surface
 
 ## Quick start
@@ -273,16 +273,16 @@ cargo test --workspace
 
 ## Documentation map
 
-- [`USAGE.md`](./USAGE.md) — quick commands, auth, sessions, config, parity harness
+- [`docs/USAGE.md`](./docs/USAGE.md) — quick commands, auth, sessions, config, parity harness
 - [`docs/navigation-file-context.md`](./docs/navigation-file-context.md) — terminal navigation, scrollback, `@path` file context, attachments, and secret-safety guidance
 - [`docs/local-openai-compatible-providers.md`](./docs/local-openai-compatible-providers.md) — Ollama/llama.cpp/vLLM setup, Claw multi-provider positioning, and local skills install checks
 - [`docs/windows-install-release.md`](./docs/windows-install-release.md) — PowerShell-first install, release artifact, provider switching, and Windows/WSL notification smoke paths
 - [`rust/README.md`](./rust/README.md) — crate map, CLI surface, features, workspace layout
-- [`PARITY.md`](./PARITY.md) — parity status for the Rust port
+- [`docs/PARITY.md`](./docs/PARITY.md) — parity status for the Rust port
 - [`rust/MOCK_PARITY_HARNESS.md`](./rust/MOCK_PARITY_HARNESS.md) — deterministic mock-service harness details
-- [`ROADMAP.md`](./ROADMAP.md) — active roadmap and open cleanup work
+- [`docs/ROADMAP.md`](./docs/ROADMAP.md) — active roadmap and open cleanup work
 - [`docs/g004-events-reports-contract.md`](./docs/g004-events-reports-contract.md) — Stream 2 lane event/report contract guidance for consumers
-- [`PHILOSOPHY.md`](./PHILOSOPHY.md) — why the project exists and how it is operated
+- [`docs/PHILOSOPHY.md`](./docs/PHILOSOPHY.md) — why the project exists and how it is operated
 - [`CONTRIBUTING.md`](./CONTRIBUTING.md), [`SECURITY.md`](./SECURITY.md), [`SUPPORT.md`](./SUPPORT.md), and [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md) — contribution, vulnerability-reporting, support, and community policies
 - [`LICENSE`](./LICENSE) — MIT license for this repository
 

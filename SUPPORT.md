@@ -2,7 +2,7 @@
 
 Use the lightest support path that fits the request:
 
-- **Usage questions:** start with [USAGE.md](./USAGE.md) and
+- **Usage questions:** start with [USAGE.md](docs/USAGE.md) and
   [rust/README.md](./rust/README.md).
 - **Bugs or regressions:** open a GitHub issue with the command, OS/shell,
   expected behavior, actual behavior, and relevant non-secret output.

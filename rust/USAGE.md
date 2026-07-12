@@ -1,6 +1,6 @@
 # Rust usage guide
 
-The canonical task-oriented usage guide lives at [`../USAGE.md`](../USAGE.md).
+The canonical task-oriented usage guide lives at [`../docs/USAGE.md`](../docs/USAGE.md).
 
 Use that guide for:
 

@@ -58,7 +58,7 @@ id guard before pushing:
 ```bash
 git pull --rebase
 NEXT=$(scripts/roadmap-next-id.sh)
-# append "${NEXT}. **...**" to ROADMAP.md
+# append "${NEXT}. **...**" to docs/ROADMAP.md
 scripts/roadmap-check-ids.sh
 ```
 
