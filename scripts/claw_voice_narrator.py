@@ -1068,7 +1068,8 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
         "3. Be honest: if the output says 'not found' or is empty, state clearly that nothing was found, even if there was no exit error. Keep it under 25 words. Output ONLY the Ukrainian sentence."
     )
     
-    prompt_user = f"The tool was run for: '{action_desc}'. The raw output was: '{output_summary}'."
+    error_context = "CRITICAL: The tool failed with an ERROR." if is_error else "The tool executed normally."
+    prompt_user = f"The tool was run for: '{action_desc}'. {error_context} The raw output was: '{output_summary}'."
     
     payload = {
         "model": model_id,
