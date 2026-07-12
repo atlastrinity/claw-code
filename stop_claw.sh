@@ -63,6 +63,8 @@ kill_process "mcp-server-github" false
 kill_process "mcp-remote" false
 kill_process "mcp_proxy_bundle.js" false
 kill_process "chrome-devtools-mcp" false
+kill_process "swiftlens" false
+kill_process "uv tool uvx.*swiftlens" false
 
 # Kill iOS simulator auxiliary daemon processes
 kill_process "idb_companion" false
