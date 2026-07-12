@@ -3309,6 +3309,8 @@ struct TaskGraphInput {
 #[derive(Debug, Serialize)]
 struct TaskGraphOutput {
     nodes_updated: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    alert: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -4293,6 +4295,65 @@ fn dedupe_hits(hits: &mut Vec<SearchHit>) {
     hits.retain(|hit| seen.insert(hit.url.clone()));
 }
 
+fn get_prior_sibling_id(id: &str) -> Option<String> {
+    let parts: Vec<&str> = id.split('.').collect();
+    if parts.is_empty() {
+        return None;
+    }
+    let last_part = parts.last()?;
+    if let Ok(num) = last_part.parse::<u32>() {
+        if num > 1 {
+            let prev_num = num - 1;
+            let mut prev_parts = parts.clone();
+            let prev_num_str = prev_num.to_string();
+            prev_parts[parts.len() - 1] = &prev_num_str;
+            return Some(prev_parts.join("."));
+        }
+    }
+    None
+}
+
+fn validate_task_graph(current_nodes: &[TaskNode]) -> Result<(), String> {
+    for node in current_nodes {
+        if let Some(status) = &node.status {
+            if *status == TaskStatus::InProgress || *status == TaskStatus::Completed {
+                // 1. Sibling order validation
+                if let Some(prev_id) = get_prior_sibling_id(&node.id) {
+                    if let Some(sibling) = current_nodes.iter().find(|n| n.id == prev_id) {
+                        if sibling.status != Some(TaskStatus::Completed) && sibling.status != Some(TaskStatus::Failed) {
+                            return Err(format!(
+                                "Validation Error: Cannot set task '{}' to InProgress or Completed because its prior sibling '{}' is not Completed or Failed (status: {:?}).",
+                                node.id, prev_id, sibling.status
+                            ));
+                        }
+                    } else {
+                        return Err(format!(
+                            "Validation Error: Prior sibling '{}' for task '{}' is missing from the task graph.",
+                            prev_id, node.id
+                        ));
+                    }
+                }
+            }
+
+            if *status == TaskStatus::Completed {
+                // 2. Parent completion validation: no active children
+                let active_children: Vec<&TaskNode> = current_nodes
+                    .iter()
+                    .filter(|n| n.parent_id.as_ref() == Some(&node.id) && n.status != Some(TaskStatus::Completed) && n.status != Some(TaskStatus::Failed))
+                    .collect();
+                if !active_children.is_empty() {
+                    let child_ids: Vec<&str> = active_children.iter().map(|n| n.id.as_str()).collect();
+                    return Err(format!(
+                        "Validation Error: Parent task '{}' cannot be Completed because it has active or pending subtasks: [{}].",
+                        node.id, child_ids.join(", ")
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
 fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> {
     let store_path = task_graph_store_path()?;
     let mut current_nodes = if store_path.exists() {
@@ -4303,53 +4364,6 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
     } else {
         Vec::new()
     };
-
-    if let Some(parent) = store_path.parent() {
-        let task_md_path = parent.join("task.md");
-        if task_md_path.exists() {
-            if let Ok(md_content) = std::fs::read_to_string(&task_md_path) {
-                for line in md_content.lines() {
-                    let trimmed = line.trim_start();
-                    if trimmed.starts_with("- [") {
-                        let status_end = trimmed.find(']').unwrap_or(0);
-                        if status_end >= 3 {
-                            let status_char = &trimmed[3..status_end];
-                            let rest = &trimmed[status_end + 1..].trim_start();
-                            if rest.starts_with("**") {
-                                let id_end = rest[2..].find("**").unwrap_or(0);
-                                if id_end > 0 {
-                                    let id = &rest[2..2+id_end];
-                                    let mut content_str = &rest[2+id_end+2..];
-                                    if content_str.starts_with(":") {
-                                        content_str = &content_str[1..].trim_start();
-                                    }
-                                    
-                                    let parsed_status = match status_char {
-                                        "x" | "X" => TaskStatus::Completed,
-                                        "/" => TaskStatus::InProgress,
-                                        "-" => TaskStatus::Failed,
-                                        _ => TaskStatus::Pending,
-                                    };
-                                    
-                                    if let Some(existing) = current_nodes.iter_mut().find(|n| n.id == id) {
-                                        existing.status = Some(parsed_status);
-                                        existing.content = Some(content_str.to_string());
-                                    } else {
-                                        current_nodes.push(TaskNode {
-                                            id: id.to_string(),
-                                            parent_id: None,
-                                            content: Some(content_str.to_string()),
-                                            status: Some(parsed_status),
-                                        });
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     let mut updated_count = 0;
 
@@ -4419,6 +4433,61 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
         }
     });
 
+    // Auto-propagate InProgress status up the hierarchy
+    let mut changed = true;
+    while changed {
+        changed = false;
+        let mut parents_to_update = Vec::new();
+        for node in &current_nodes {
+            if node.status == Some(TaskStatus::InProgress) || node.status == Some(TaskStatus::Completed) {
+                if let Some(ref p_id) = node.parent_id {
+                    if let Some(parent) = current_nodes.iter().find(|n| n.id == *p_id) {
+                        if parent.status != Some(TaskStatus::InProgress) && parent.status != Some(TaskStatus::Completed) {
+                            parents_to_update.push(p_id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for p_id in parents_to_update {
+            if let Some(parent) = current_nodes.iter_mut().find(|n| n.id == p_id) {
+                parent.status = Some(TaskStatus::InProgress);
+                changed = true;
+            }
+        }
+    }
+
+    // Validate transitions
+    validate_task_graph(&current_nodes)?;
+
+    // Check for alerts (all children under an InProgress parent are Completed/Failed)
+    let mut finished_parent_ids = Vec::new();
+    for node in &current_nodes {
+        if node.status == Some(TaskStatus::InProgress) {
+            let children: Vec<&TaskNode> = current_nodes
+                .iter()
+                .filter(|n| n.parent_id.as_ref() == Some(&node.id))
+                .collect();
+            if !children.is_empty() {
+                let all_finished = children.iter().all(|c| {
+                    c.status == Some(TaskStatus::Completed) || c.status == Some(TaskStatus::Failed)
+                });
+                if all_finished {
+                    finished_parent_ids.push(node.id.clone());
+                }
+            }
+        }
+    }
+
+    let alert = if !finished_parent_ids.is_empty() {
+        Some(format!(
+            "⚠️ Alert: All subtasks under parent task(s) [{}] are completed or failed. Please verify the work, update the parent task status using 'update_status', and proceed to the next sibling task.",
+            finished_parent_ids.join(", ")
+        ))
+    } else {
+        None
+    };
+
     if let Some(parent) = store_path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
         
@@ -4459,6 +4528,7 @@ r#"> [!IMPORTANT]
 
     Ok(TaskGraphOutput {
         nodes_updated: updated_count,
+        alert,
     })
 }
 
@@ -8843,6 +8913,78 @@ mod tests {
         let second_output: serde_json::Value = serde_json::from_str(&second).expect("valid json");
         assert_eq!(second_output["nodes_updated"].as_i64().expect("int"), 1);
         
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn task_graph_validation_and_propagation() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("validation_tasks.json");
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        // 1. Add some structured nodes
+        let first = execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "add",
+                "nodes": [
+                    {"id": "1", "content": "Parent Task"},
+                    {"id": "1.1", "content": "Sub Task 1"},
+                    {"id": "1.2", "content": "Sub Task 2"}
+                ]
+            }),
+        )
+        .expect("Adding structured tasks should succeed");
+        let first_output: serde_json::Value = serde_json::from_str(&first).expect("valid json");
+        assert_eq!(first_output["nodes_updated"].as_i64().expect("int"), 3);
+
+        // 2. Setting "1.2" to in_progress directly should fail because prior sibling "1.1" is pending
+        let fail_res = execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "update_status",
+                "nodes": [
+                    {"id": "1.2", "status": "in_progress"}
+                ]
+            }),
+        );
+        assert!(fail_res.is_err());
+        assert!(fail_res.unwrap_err().contains("prior sibling '1.1' is not Completed or Failed"));
+
+        // 3. Mark "1.1" as in_progress. This should automatically propagate in_progress to its parent "1"
+        let _update_1 = execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "update_status",
+                "nodes": [
+                    {"id": "1.1", "status": "in_progress"}
+                ]
+            }),
+        )
+        .expect("Updating '1.1' should succeed");
+        
+        // Load the saved nodes to verify parent "1" propagated to InProgress
+        let store_content = std::fs::read_to_string(&path).expect("read store");
+        let nodes: serde_json::Value = serde_json::from_str(&store_content).expect("parse store");
+        let parent_node = nodes.as_array().unwrap().iter().find(|n| n["id"] == "1").unwrap();
+        assert_eq!(parent_node["status"].as_str().unwrap(), "in_progress");
+
+        // 4. Try to complete parent task "1" directly while child "1.1" is in_progress (and "1.2" is pending). This should fail.
+        let fail_parent_complete = execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "update_status",
+                "nodes": [
+                    {"id": "1", "status": "completed"}
+                ]
+            }),
+        );
+        assert!(fail_parent_complete.is_err());
+        assert!(fail_parent_complete.unwrap_err().contains("cannot be Completed because it has active or pending subtasks"));
+
         std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
         let _ = std::fs::remove_file(path);
     }
