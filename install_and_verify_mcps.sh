@@ -54,8 +54,9 @@ verify_command "App Store Connect (asc-mcp)" \
     "npm install -g @pofky/asc-mcp"
 
 # 2. firebase-mcp-server
+export FIREBASE_CLI_NO_PROMPT=1
 verify_command "Firebase Tools MCP" \
-    "npx --package firebase-tools firebase --version" \
+    "npx --package firebase-tools firebase --version --non-interactive" \
     "npm install -g firebase-tools"
 
 # 3. github
