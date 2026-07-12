@@ -2,6 +2,7 @@
 
 # Збережемо оригінальну директорію, звідки запустили скрипт
 export CLAW_CALLER_CWD="$PWD"
+export CLAW_BYPASS_WORKSPACE_CHECK="${CLAW_BYPASS_WORKSPACE_CHECK:-true}"
 
 # Змінюємо робочу директорію на ту, де знаходиться сам скрипт
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

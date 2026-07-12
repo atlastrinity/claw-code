@@ -569,7 +569,7 @@ class VoicePlayer:
             
             # Ensure English words/Latin letters are not permitted - translate aggressively if any are found
             if re.search(r'[a-zA-Z]', natural_text):
-                natural_text = translate_to_ukrainian(natural_text)
+                natural_text = translate_to_ukrainian(natural_text, voice=voice)
                 
             # Prepare text for TTS (transcribe English terms, clean up formatting)
             speech_text = prepare_text_for_tts(natural_text)
@@ -1295,11 +1295,11 @@ def summarize_thinking_ua(thinking_text: str) -> str:
         
     return brief
 
-def translate_to_ukrainian(text: str) -> str:
+def translate_to_ukrainian(text: str, voice: str = "tetiana") -> str:
     if not text.strip():
         return text
 
-    # Перевіримо, чи текст вже написаний українською/кирилицею
+    # Перевіримо, чи text вже написаний українською/кирилицею
     cyrillic_chars = len(re.findall(r'[а-яА-ЯёЁєЄіІїЇґҐ]', text))
     total_chars = len(re.sub(r'\s+', '', text))
     if total_chars > 0 and (cyrillic_chars / total_chars) > 0.4:
@@ -1319,12 +1319,17 @@ def translate_to_ukrainian(text: str) -> str:
         "Authorization": f"Bearer {api_key}"
     }
     
+    if voice == "tetiana":
+        gender_rules = "IMPORTANT: Since this translation is voiced by a female narrator (Tetiana), always use feminine verbs and forms when referring to yourself (e.g., 'я зробила' instead of 'я зробив', 'я спробувала' instead of 'я спробував', 'я підготувала' instead of 'я підготував')."
+    else:
+        gender_rules = "IMPORTANT: Since this translation is voiced by a male narrator (Atlas/Grisha), always use masculine verbs and forms when referring to yourself (e.g., 'я зробив' instead of 'я зробила', 'я спробував' instead of 'я спробувала', 'я підготував' instead of 'я підготувала')."
+
     payload = {
         "model": model_id,
         "messages": [
             {
                 "role": "system",
-                "content": "You are a professional Ukrainian software engineer and narrator. Translate the given text into natural, fluent Ukrainian (UA). RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts and standard terms directly into natural Ukrainian developer slang (e.g. 'concurrency' -> 'паралельність', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'bug' -> 'баг', 'error' -> 'помилка'). 2. Do NOT use any English words or Latin letters. Translate every English code element, file name, path, variable, class/function name, command or tool name into its phonetic Ukrainian equivalent (e.g., 'run_claw.sh' -> 'ран клоу крапка ес ейч', 'VoicePlayer' -> 'войс плеєр', 'grep_search' -> 'ґреп серч', 'git status' -> 'ґіт статус'). 3. IMPORTANT: Since this translation is voiced by a female narrator (Tetiana), always use feminine verbs and forms when referring to yourself (e.g., 'я зробила' instead of 'я зробив', 'я спробувала' instead of 'я спробував', 'я підготувала' instead of 'я підготував'). Output ONLY the translated Ukrainian text, with no introductory or concluding remarks."
+                "content": f"You are a professional Ukrainian software engineer and narrator. Translate the given text into natural, fluent Ukrainian (UA). RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts and standard terms directly into natural Ukrainian developer slang (e.g. 'concurrency' -> 'паралельність', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'bug' -> 'баг', 'error' -> 'помилка'). 2. Do NOT use any English words or Latin letters. Translate every English code element, file name, path, variable, class/function name, command or tool name into its phonetic Ukrainian equivalent (e.g., 'run_claw.sh' -> 'ран клоу крапка ес ейч', 'VoicePlayer' -> 'войс плеєр', 'grep_search' -> 'ґреп серч', 'git status' -> 'ґіт статус'). 3. {gender_rules} Output ONLY the translated Ukrainian text, with no introductory or concluding remarks."
             },
             {
                 "role": "user",
@@ -1397,7 +1402,7 @@ def process_session_entry(data: dict, player: VoicePlayer):
                 elif block_type == "text":
                     text_content = block.get("text", "")
                     if text_content and not is_tool_call_text(text_content):
-                        translated_content = translate_to_ukrainian(text_content)
+                        translated_content = translate_to_ukrainian(text_content, voice="atlas")
                         player.speak("atlas", "Результат", translated_content)
                 elif block_type == "tool_use":
                     tool_name = block.get("name", "")
