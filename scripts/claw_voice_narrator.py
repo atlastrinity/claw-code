@@ -567,9 +567,8 @@ class VoicePlayer:
             voice_override = os.environ.get(f"CLAW_TTS_{voice.upper()}_VOICE", voice)
             voice_val, rate_val, pitch_val = voice_settings.get(voice_override, voice_settings.get(voice, ("uk-UA-PolinaNeural", "+0%", "+0Hz")))
             
-            # Ensure English words/Latin letters are not permitted - translate aggressively if any are found
-            if re.search(r'[a-zA-Z]', natural_text):
-                natural_text = translate_to_ukrainian(natural_text, voice=voice)
+            # Translate and clean text for speech narration
+            natural_text = translate_to_ukrainian(natural_text, voice=voice)
                 
             # Prepare text for TTS (transcribe English terms, clean up formatting)
             speech_text = prepare_text_for_tts(natural_text)
@@ -1299,16 +1298,32 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana") -> str:
     if not text.strip():
         return text
 
-    # Перевіримо, чи text вже написаний українською/кирилицею
-    cyrillic_chars = len(re.findall(r'[а-яА-ЯёЁєЄіІїЇґҐ]', text))
-    total_chars = len(re.sub(r'\s+', '', text))
-    if total_chars > 0 and (cyrillic_chars / total_chars) > 0.4:
-        # Якщо в тексті є російські літери (ы, э, ъ, ё) - завжди перекладаємо.
-        # Якщо є хоч одна унікальна українська літера (є, і, ї, ґ) - вважаємо текст українським і не перекладаємо.
-        if re.search(r'[ыЫэЭъЪёЁ]', text):
-            pass
-        elif re.search(r'[єЄіІїЇґҐ]', text):
-            return text
+    # Check if text needs translation or cleaning for TTS.
+    # 1. Contains Latin characters (files, commands, emails, keys)
+    # 2. Contains Russian characters (ы, э, ъ, ё)
+    # 3. Contains markdown structures (headers, tables, bold list items, horizontal lines)
+    # 4. Contains paths or numbers/tokens
+    needs_processing = False
+    if re.search(r'[a-zA-Z]', text):
+        needs_processing = True
+    elif re.search(r'[ыЫэЭъЪёЁ]', text):
+        needs_processing = True
+    elif re.search(r'[|#*`_─━]', text):  # Markdown/visual separators
+        needs_processing = True
+    elif re.search(r'/\w+/', text) or re.search(r'\\\w+', text): # Paths
+        needs_processing = True
+    elif re.search(r'\d{8,}', text): # Long numbers/tokens
+        needs_processing = True
+    elif '@' in text: # Emails
+        needs_processing = True
+
+    if not needs_processing:
+        # Check cyrillic proportion
+        cyrillic_chars = len(re.findall(r'[а-яА-ЯёЁєЄіІїЇґҐ]', text))
+        total_chars = len(re.sub(r'\s+', '', text))
+        if total_chars > 0 and (cyrillic_chars / total_chars) > 0.4:
+            if re.search(r'[єЄіІїЇґҐ]', text):
+                return text
 
     model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
     base_url, api_key, model_id = resolve_narration_api_config(model)
@@ -1332,7 +1347,7 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana") -> str:
         "messages": [
             {
                 "role": "system",
-                "content": f"You are a professional Ukrainian software engineer and narrator. Translate the given text into natural, fluent Ukrainian (UA). RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts and standard terms directly into natural Ukrainian developer slang (e.g. 'concurrency' -> 'паралельність', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'bug' -> 'баг', 'error' -> 'помилка'). 2. Do NOT use any English words or Latin letters. Translate every English code element, file name, path, variable, class/function name, command or tool name into its phonetic Ukrainian equivalent (e.g., 'run_claw.sh' -> 'ран клоу крапка ес ейч', 'VoicePlayer' -> 'войс плеєр', 'grep_search' -> 'ґреп серч', 'git status' -> 'ґіт статус'). 3. {gender_rules} Output ONLY the translated Ukrainian text, with no introductory or concluding remarks."
+                "content": f"You are a professional Ukrainian software engineer and narrator. Translate or rewrite the given text into natural, fluent Ukrainian (UA). RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts and standard terms directly into natural Ukrainian developer slang (e.g. 'concurrency' -> 'паралельність', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'bug' -> 'баг', 'error' -> 'помилка'). 2. Do NOT use any English words or Latin letters. Translate every English code element, file name, path, variable, class/function name, command or tool name into its phonetic Ukrainian equivalent (e.g., 'run_claw.sh' -> 'ран клоу крапка ес ейч', 'VoicePlayer' -> 'войс плеєр', 'grep_search' -> 'ґреп серч', 'git status' -> 'ґіт статус'). 3. {gender_rules} 4. IMPORTANT FOR SPEECH SYNTHESIS (TTS): This text will be read aloud. You MUST strip out or simplify all heavy technical visual elements. Do NOT read long SSH keys, API bot tokens, email lists, full path directories, or long numeric IDs literally. Replace them with brief natural Ukrainian summaries (e.g., 'ssh-ed25519 AAA...' -> 'публічний ключ деплою', 'dima1203@gmail.com' -> 'електронні пошти отримувачів', '/home/dima/scripts/x.py' -> 'скрипт ікс', '8562512293:AAEX...' -> 'токен телеграм-бота'). Remove all markdown structures, headers, lists, and tables, converting them into smooth, conversational, easy-to-read paragraphs. Output ONLY the clean, speech-friendly Ukrainian text, with no introductory or concluding remarks."
             },
             {
                 "role": "user",
