@@ -30,6 +30,24 @@ sys.path.insert(0, str(project_root))
 original_cwd = Path.cwd()
 os.chdir(project_root)
 
+# Load .env files automatically to ensure API keys are populated even if run in raw shell
+for env_dir in (project_root, Path.home() / ".claw"):
+    env_file = env_dir / ".env"
+    if env_file.exists():
+        try:
+            with open(env_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line_str = line.strip()
+                    if line_str and not line_str.startswith("#") and "=" in line_str:
+                        k, v = line_str.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip("\"").strip("'")
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+        except Exception:
+            pass
+
+
 try:
     from src.runtime import PortRuntime, RoutedMatch
     from src.query_engine import QueryEnginePort, TurnResult
@@ -425,17 +443,6 @@ class VoicePlayer:
     def get_success_speech(self, action: str) -> str:
         import random
         templates = [
-            f"Круто, інструмент {action} успішно відпрацював!",
-            f"Все супер, операція {action} закрита без помилок.",
-            f"Я перевірив, {action} завершено вдало, жодних проблем.",
-            f"Добре, {action} виконано. Можемо рухатись далі.",
-            f"Завдання {action} реалізовано на сто відсотків.",
-            f"Крок {action} пройшов як по маслу, все чисто.",
-            f"Супер, з {action} розібралися без ускладнень.",
-            f"Гарні новини: {action} завершився без жодного збою.",
-            f"Процес {action} успішно виконано, все зелене.",
-            f"Успішно закрили крок {action}, продовжуємо політ.",
-            f"З {action} все готово, ніяких зауважень немає.",
             f"Все чітко: {action} виконано в повному обсязі.",
             f"Інструмент {action} відпрацював на відмінно.",
             f"Завершили {action} без пригод, статус успішний.",
@@ -449,7 +456,7 @@ class VoicePlayer:
             f"Крок {action} виконано успішно, рухаємося до наступного.",
             f"Інструмент {action} завершив роботу без нарікань.",
             f"Все зелене: {action} виконано без зауважень.",
-            f"Звітую про успіх: {action} завершено вдало.",
+            f"Звіт по кроку: {action} завершено вдало.",
             f"Все готово: {action} відпрацював без жодної помарки.",
             f"Чудово, {action} завершився з успішним результатом.",
             f"По кроку {action} все виконано, ніяких затримок.",
@@ -461,8 +468,8 @@ class VoicePlayer:
     def get_failure_speech(self, action: str, error: str) -> str:
         import random
         templates = [
-            f"От халепа, не вдалося виконати {action} через помилку: {error}.",
-            f"Тут проблема, колеги. Виникла помилка під час {action}. Деталі такі: {error}.",
+            f"Не вдалося виконати {action} через помилку: {error}.",
+            f"Виникла помилка під час {action}. Деталі такі: {error}.",
             f"Запуск {action} завершився невдачею. Повідомлення системи: {error}.",
             f"На жаль, крок {action} провалився. Помилка: {error}.",
             f"Щось пішло не так із {action}. Маємо збій: {error}.",
@@ -479,7 +486,7 @@ class VoicePlayer:
             f"Крок {action} завершився з помилкою. Повідомлення: {error}.",
             f"Завдання {action} провалилося. Система каже: {error}.",
             f"Маємо збій у виконанні {action}. Помилка: {error}.",
-            f"Звітую про помилку на кроці {action}: {error}.",
+            f"Звіт про помилку на кроці {action}: {error}.",
             f"Не вдалося опрацювати {action}. Деталі помилки: {error}.",
             f"Помилка при виконанні {action}. Опис помилки: {error}.",
             f"Крок {action} не пройшов. Причина збою: {error}.",
@@ -492,6 +499,7 @@ class VoicePlayer:
             f"Процес {action} перервано через помилку: {error}.",
             f"Запуск {action} провалився. Помилка виконання: {error}."
         ]
+        return random.choice(templates)
     def get_tool_verdict_speech(self, tool_name: str, action_desc: str, is_error: bool, output_val: str) -> str:
         clean_out = output_val.strip() if output_val else ""
         lower_out = clean_out.lower()
@@ -510,16 +518,16 @@ class VoicePlayer:
         if is_actually_error:
             error_msg = clean_error_message(output_val)
             if "not found" in lower_out or "no such file" in lower_out:
-                return f"Я перевірив, але {action_desc} закінчилося нічим: об'єкт або файл не знайдено."
+                return f"Аналіз показав, що {action_desc} закінчилося нічим: об'єкт або файл не знайдено."
             return self.get_failure_speech(action_desc, error_msg)
 
         if not clean_out:
             if tool_name in ("grep_search", "glob_search", "list_dir", "bash", "run_command"):
-                return f"Я провів {action_desc}, але ніяких результатів не знайдено. Тут порожньо."
+                return f"Агент виконав {action_desc}, але ніяких результатів не знайдено. Там порожньо."
             return f"Операцію {action_desc} виконано, але ніяких даних система не повернула."
 
         if "not found" in lower_out or "no such file" in lower_out:
-            return f"Я спробував виконати {action_desc}, але в результаті нічого не знайшов."
+            return f"Агент спробував виконати {action_desc}, але в результаті нічого не знайдено."
             
         return self.get_success_speech(action_desc)
 
@@ -536,6 +544,9 @@ class VoicePlayer:
         natural_text = make_natural_speech(voice, title, text)
         if not natural_text.strip():
             return
+
+        # Translate and clean text for speech narration and display BEFORE printing
+        natural_text = translate_to_ukrainian(natural_text, voice=voice)
 
         # 1. Print beautifully to terminal
         color = COLORS.get(voice, "")
@@ -567,9 +578,6 @@ class VoicePlayer:
             voice_override = os.environ.get(f"CLAW_TTS_{voice.upper()}_VOICE", voice)
             voice_val, rate_val, pitch_val = voice_settings.get(voice_override, voice_settings.get(voice, ("uk-UA-PolinaNeural", "+0%", "+0Hz")))
             
-            # Translate and clean text for speech narration
-            natural_text = translate_to_ukrainian(natural_text, voice=voice)
-                
             # Prepare text for TTS (transcribe English terms, clean up formatting)
             speech_text = prepare_text_for_tts(natural_text)
             
@@ -977,6 +985,44 @@ def get_command_description_ua(cmd: str, desc: str) -> str:
     # Try general clean up of description
     desc_clean = desc.strip()
     if desc_clean:
+        # Convert first word to noun if it is a common Ukrainian verb or noun in wrong case
+        words = desc_clean.split()
+        first_word = words[0].lower().rstrip(":,.") if words else ""
+        
+        verb_to_noun = {
+            "перевірити": "перевірки",
+            "перевірка": "перевірки",
+            "переглянути": "перегляду",
+            "перегляд": "перегляду",
+            "знайти": "пошуку",
+            "пошук": "пошуку",
+            "пошукати": "пошуку",
+            "запустити": "запуску",
+            "запуск": "запуску",
+            "створити": "створення",
+            "створення": "створення",
+            "записати": "запису",
+            "запис": "запису",
+            "редагувати": "редагування",
+            "відредагувати": "редагування",
+            "редагування": "редагування",
+            "видалити": "видалення",
+            "видалення": "видалення",
+            "отримати": "отримання",
+            "отримання": "отримання",
+            "зчитати": "зчитування",
+            "зчитування": "зчитування",
+            "виконати": "виконання",
+            "виконання": "виконання",
+            "зупинити": "зупинки",
+            "зупинка": "зупинки",
+        }
+        
+        if first_word in verb_to_noun:
+            words[0] = verb_to_noun[first_word]
+            # Ensure the rest of the string has appropriate case/formatting
+            return " ".join(words)
+
         if desc_clean.lower().startswith("check "):
             return "перевірки " + desc_clean[6:]
         elif desc_clean.lower().startswith("run "):
@@ -1084,7 +1130,19 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str]:
     
     if model == "gemini-lite":
         base_url = os.environ.get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/").rstrip('/')
-        api_key = os.environ.get("GEMINI_API_KEY", "")
+        # Collect all available Gemini API Keys for rotation to avoid 429 rate limits
+        keys = []
+        primary_key = os.environ.get("GEMINI_API_KEY", "")
+        if primary_key:
+            keys.append(primary_key)
+        for i in range(1, 10):
+            k = os.environ.get(f"GEMINI_API_KEY{i}", "")
+            if k:
+                keys.append(k)
+        if keys:
+            api_key = random.choice(keys)
+        else:
+            api_key = ""
         model_id = "gemini-3.1-flash-lite"
     elif model in ("glm", "glm2", "glm3"):
         if model == "glm2":
@@ -1220,20 +1278,31 @@ def translate_and_summarize_thinking(text: str) -> str:
         "temperature": 0.5
     }
     
-    try:
-        req = urllib.request.Request(
-            url, 
-            data=json.dumps(payload).encode('utf-8'), 
-            headers=headers,
-            method='POST'
-        )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            res_data = json.loads(response.read().decode('utf-8'))
-            summary_text = res_data['choices'][0]['message']['content'].strip()
-            if summary_text:
-                return summary_text
-    except Exception as e:
-        print(f"\\n⚠️ Помилка автоперекладу та підсумку думок через {model}: {e}")
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                url, 
+                data=json.dumps(payload).encode('utf-8'), 
+                headers=headers,
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                summary_text = res_data['choices'][0]['message']['content'].strip()
+                if summary_text:
+                    return summary_text
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < 2:
+                if model == "gemini-lite":
+                    base_url, api_key, model_id = resolve_narration_api_config(model)
+                    headers["Authorization"] = f"Bearer {api_key}"
+                time.sleep(1.0)
+                continue
+            print(f"\\n⚠️ Помилка автоперекладу та підсумку думок через {model} (спроба {attempt+1}): {e}")
+            break
+        except Exception as e:
+            print(f"\\n⚠️ Помилка автоперекладу та підсумку думок через {model} (спроба {attempt+1}): {e}")
+            break
         
     return ""
 
@@ -1396,20 +1465,31 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana") -> str:
         "temperature": 0.3
     }
     
-    try:
-        req = urllib.request.Request(
-            url, 
-            data=json.dumps(payload).encode('utf-8'), 
-            headers=headers,
-            method='POST'
-        )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            res_data = json.loads(response.read().decode('utf-8'))
-            translated_text = res_data['choices'][0]['message']['content'].strip()
-            if translated_text:
-                return translated_text
-    except Exception as e:
-        print(f"\n⚠️ Помилка автоперекладу через {model}: {e}")
+    for attempt in range(3):
+        try:
+            req = urllib.request.Request(
+                url, 
+                data=json.dumps(payload).encode('utf-8'), 
+                headers=headers,
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                translated_text = res_data['choices'][0]['message']['content'].strip()
+                if translated_text:
+                    return translated_text
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt < 2:
+                if model == "gemini-lite":
+                    base_url, api_key, model_id = resolve_narration_api_config(model)
+                    headers["Authorization"] = f"Bearer {api_key}"
+                time.sleep(1.0)
+                continue
+            print(f"\\n⚠️ Помилка автоперекладу через {model} (спроба {attempt+1}): {e}")
+            break
+        except Exception as e:
+            print(f"\\n⚠️ Помилка автоперекладу через {model} (спроба {attempt+1}): {e}")
+            break
         
     return text
 
@@ -1516,27 +1596,9 @@ def tail_session_loop():
     audio_dir = project_root / "audio_output"
     player = VoicePlayer(audio_dir)
     
-    initial_start = True
-    
     with open(latest_file, "r") as f:
-        if initial_start:
-            file_age = 1000.0  # default to old
-            match = re.search(r'session-(\d+)', latest_file.name)
-            if match:
-                try:
-                    session_start_ms = int(match.group(1))
-                    file_age = time.time() - (session_start_ms / 1000.0)
-                except Exception:
-                    pass
-            else:
-                try:
-                    file_age = time.time() - latest_file.stat().st_birthtime
-                except AttributeError:
-                    file_age = time.time() - latest_file.stat().st_ctime
-                    
-            if file_age > 120.0:
-                f.seek(0, 2)
-            initial_start = False
+        # Seek to the end of the file immediately to only process new entries
+        f.seek(0, 2)
             
         try:
             while True:

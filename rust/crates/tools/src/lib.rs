@@ -1539,6 +1539,95 @@ pub fn enforce_permission_check(
     }
 }
 
+fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String> {
+    // Only check action-related tools
+    if name != "bash" && name != "write_file" && name != "edit_file" {
+        return Ok(());
+    }
+
+    let store_path = match task_graph_store_path() {
+        Ok(p) => p,
+        Err(_) => return Ok(()),
+    };
+    if !store_path.exists() {
+        return Ok(()); // If no task graph initialized yet, allow
+    }
+
+    let file_content = std::fs::read_to_string(&store_path)
+        .map_err(|error| format!("Failed to read task graph: {error}"))?;
+    let nodes: Vec<TaskNode> = serde_json::from_str(&file_content)
+        .map_err(|error| format!("Failed to parse task graph: {error}"))?;
+
+    // Check if there is at least one task in progress
+    let has_in_progress = nodes.iter().any(|node| node.status == Some(TaskStatus::InProgress));
+    if !has_in_progress {
+        return Err("Error: Strict TaskGraph Enforcement. There are no tasks currently marked as 'in_progress' in your task.md. You MUST call the TaskGraph tool to set at least one task to 'in_progress' before you can execute this action.".to_string());
+    }
+
+    // Extract description
+    let desc = input.get("description")
+        .or_else(|| input.get("Description"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim();
+
+    if desc.is_empty() {
+        return Err("Error: Action description is missing. Every tool call must include a 'description' parameter detailing what it does.".to_string());
+    }
+
+    let desc_lower = desc.to_lowercase();
+    let mut matches_any = false;
+    let mut in_progress_tasks = Vec::new();
+
+    for node in &nodes {
+        if node.status == Some(TaskStatus::InProgress) {
+            if let Some(node_content) = &node.content {
+                in_progress_tasks.push(node_content.clone());
+                let node_content_lower = node_content.to_lowercase();
+                
+                // Direct substring matching
+                if desc_lower.contains(&node_content_lower) || node_content_lower.contains(&desc_lower) {
+                    matches_any = true;
+                    break;
+                }
+                
+                // Word overlap check (check if they share at least 2 significant words)
+                let desc_words: std::collections::HashSet<&str> = desc_lower
+                    .split(|c: char| !c.is_alphanumeric())
+                    .filter(|s| s.len() >= 3)
+                    .collect();
+                let node_words: std::collections::HashSet<&str> = node_content_lower
+                    .split(|c: char| !c.is_alphanumeric())
+                    .filter(|s| s.len() >= 3)
+                    .collect();
+                let overlap = desc_words.intersection(&node_words).count();
+                if overlap >= 2 {
+                    matches_any = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    if !matches_any {
+        return Err(format!(
+            "Error: Strict TaskGraph Enforcement.\n\
+             Your current action description ('{}') does not match any active 'in_progress' task in your task list.\n\
+             Active 'in_progress' tasks:\n\
+             {}\n\n\
+             You MUST call the TaskGraph tool to 'add' a matching sub-task or 'update_status' of the appropriate task to 'in_progress' BEFORE you can execute this action.",
+            desc,
+            if in_progress_tasks.is_empty() {
+                "- (None)".to_string()
+            } else {
+                in_progress_tasks.iter().map(|t| format!("- {}", t)).collect::<Vec<_>>().join("\n")
+            }
+        ));
+    }
+
+    Ok(())
+}
+
 pub fn execute_tool(name: &str, input: &Value) -> Result<String, String> {
     execute_tool_with_enforcer(None, name, input, ContextBudget::default_budget())
 }
@@ -1551,6 +1640,7 @@ fn execute_tool_with_enforcer(
     input: &Value,
     budget: ContextBudget,
 ) -> Result<String, String> {
+    validate_active_task_for_tool(name, input)?;
     match name {
         "bash" => {
             // Parse input to get the command for permission classification
@@ -7353,7 +7443,13 @@ fn execute_shell_command(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    if let Some(timeout_ms) = timeout {
+    let timeout_ms = match timeout {
+        Some(30_000) => Some(60_000),
+        Some(t) => Some(t),
+        None => Some(60_000),
+    };
+
+    if let Some(t_ms) = timeout_ms {
         let mut child = process.spawn()?;
         let started = Instant::now();
         loop {
@@ -7380,16 +7476,15 @@ fn execute_shell_command(
                     sandbox_status: None,
                 });
             }
-            if started.elapsed() >= Duration::from_millis(timeout_ms) {
+            if started.elapsed() >= Duration::from_millis(t_ms) {
                 let _ = child.kill();
                 let output = child.wait_with_output()?;
                 let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
                 let stderr = if stderr.trim().is_empty() {
-                    format!("Command exceeded timeout of {timeout_ms} ms")
+                    format!("Command exceeded timeout of {t_ms} ms")
                 } else {
                     format!(
-                        "{}
-Command exceeded timeout of {timeout_ms} ms",
+                        "{}\nCommand exceeded timeout of {t_ms} ms",
                         stderr.trim_end()
                     )
                 };
@@ -7408,7 +7503,7 @@ Command exceeded timeout of {timeout_ms} ms",
                     return_code_interpretation: Some(String::from(return_code_interpretation)),
                     no_output_expected: Some(false),
                     structured_content: Some(vec![test_timeout_provenance(
-                        command, timeout_ms, is_test,
+                        command, t_ms, is_test,
                     )]),
                     persisted_output_path: None,
                     persisted_output_size: None,
