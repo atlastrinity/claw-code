@@ -67,7 +67,7 @@ verify_command "GitHub MCP Server" \
 # 4. ios-simulator
 verify_command "iOS Simulator MCP" \
     "npx --prefer-offline --package ios-simulator-mcp ios-simulator-mcp --help" \
-    "npm install -g ios-simulator-mcp"
+    "bash \"${SCRIPT_DIR}/setup_mcp.sh\""
 
 # 5. render (mcp-remote)
 verify_command "Render MCP Client (mcp-remote)" \

@@ -7,6 +7,14 @@ export CLAW_CALLER_CWD="$PWD"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Знаходимо робочий інтерпретатор Python (pyenv шіми можуть зависати)
+PYTHON_BIN="python3"
+if [ -x "/opt/homebrew/bin/python3" ]; then
+    PYTHON_BIN="/opt/homebrew/bin/python3"
+elif [ -x "/usr/bin/python3" ]; then
+    PYTHON_BIN="/usr/bin/python3"
+fi
+
 # Завантажуємо змінні оточення (API ключі тощо) з різних джерел у порядку пріоритету
 # 1. Глобальний .env у домашній папці
 if [ -f "$HOME/.claw/.env" ]; then
@@ -68,6 +76,13 @@ if [ -d "$SCRIPT_DIR/.claw/skills" ]; then
     mkdir -p "$GLOBAL_DIR/skills"
     rsync -a --exclude=".build" --exclude=".git" "$SCRIPT_DIR/.claw/skills/" "$GLOBAL_DIR/skills/"
 fi
+
+# Очищаємо файли планування та завдань для нової сесії, якщо встановлено CLAW_NEW_SESSION
+if [ "$CLAW_NEW_SESSION" = "true" ]; then
+    echo "🧹 Очищення файлів завдань попередньої сесії..."
+    rm -f "${CLAW_CALLER_CWD:-.}/task.md" "${CLAW_CALLER_CWD:-.}/.clawd-task-graph.json"
+fi
+
 # 0. Прибираємо зомбі-процеси, якщо минулого разу термінал впав
 echo "🧹 Перевірка та очищення завислих процесів..."
 pkill -f "claw-rag-service" 2>/dev/null
@@ -77,7 +92,7 @@ sleep 0.5
 
 # 1. Вибір моделі з .claw.json
 echo "🤖 Завантаження списку моделей..."
-ALIASES_OUTPUT=$(python3 -c '
+ALIASES_OUTPUT=$("$PYTHON_BIN" -c '
 import json, os, sys
 try:
     settings_path = os.path.expanduser("~/.claw/settings.json")
@@ -167,7 +182,7 @@ else
   if [ -f "$TARGET_CLAW_JSON" ]; then
     echo "🧹 Тимчасове відключення iOS MCP серверів у $TARGET_CLAW_JSON..."
     cp "$TARGET_CLAW_JSON" "$TARGET_CLAW_JSON.bak"
-    python3 -c '
+    "$PYTHON_BIN" -c '
 import json, sys
 try:
     with open(sys.argv[1], "r") as f:
@@ -212,17 +227,22 @@ echo "🚀 Запуск основного клієнта Claw ($SELECTED_MODEL)
 
 # Перевіряємо, чи є вже існуючі сесії, щоб продовжити останню
 SESSIONS_DIR="${CLAW_CALLER_CWD:-.}/.claw/sessions"
-if [ -d "$SESSIONS_DIR" ] && [ "$(find "$SESSIONS_DIR" -name "*.jsonl" 2>/dev/null | wc -l)" -gt 0 ]; then
+if [ "$CLAW_NEW_SESSION" != "true" ] && [ -d "$SESSIONS_DIR" ] && [ "$(find "$SESSIONS_DIR" -name "*.jsonl" 2>/dev/null | wc -l)" -gt 0 ]; then
   echo "🔄 Знайдено попередню сесію. Продовжуємо роботу з останнього місця..."
   RESUME_ARGS="--resume latest"
 else
-  echo "🌱 Попередніх сесій не знайдено. Запускаємо нову сесію..."
+  if [ "$CLAW_NEW_SESSION" = "true" ]; then
+    echo "🌱 Запуск нової сесії основного клієнта Claw ($SELECTED_MODEL) з авто-відновленням..."
+  else
+    echo "🌱 Попередніх сесій не знайдено. Запускаємо нову сесію..."
+  fi
   RESUME_ARGS=""
 fi
 
 while true; do
   "$HOME/.claw/bin/claw" \
     --model "$SELECTED_MODEL" \
+    --permission-mode danger-full-access \
     --skip-permissions \
     --accept-danger-non-interactive \
     $RESUME_ARGS "${FORWARD_ARGS[@]}"

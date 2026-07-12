@@ -353,9 +353,26 @@ info "Ensuring global bin directory exists: ${GLOBAL_BIN_DIR}"
 mkdir -p "${GLOBAL_BIN_DIR}"
 
 info "Copying binaries to global bin directory..."
+rm -f "${GLOBAL_BIN_DIR}/claw" "${GLOBAL_BIN_DIR}/claw-analog" "${GLOBAL_BIN_DIR}/claw-rag-service"
 cp "${RUST_DIR}/target/${BUILD_PROFILE}/claw" "${GLOBAL_BIN_DIR}/"
 cp "${RUST_DIR}/target/${BUILD_PROFILE}/claw-analog" "${GLOBAL_BIN_DIR}/"
 cp "${RUST_DIR}/target/${BUILD_PROFILE}/claw-rag-service" "${GLOBAL_BIN_DIR}/"
+
+info "Copying CLAW.md rules to global configuration directory..."
+cp "${SCRIPT_DIR}/CLAW.md" "${GLOBAL_DIR}/CLAW.md"
+
+if [ -d "${SCRIPT_DIR}/.claw/skills" ]; then
+    info "Copying skills to global configuration directory..."
+    mkdir -p "${GLOBAL_DIR}/skills"
+    rsync -a --exclude=".build" --exclude=".git" "${SCRIPT_DIR}/.claw/skills/" "${GLOBAL_DIR}/skills/"
+fi
+
+if [ "${OS_FAMILY}" = "macos" ]; then
+    info "Re-signing binaries for macOS..."
+    codesign -s - -f "${GLOBAL_BIN_DIR}/claw" || warn "failed to codesign claw"
+    codesign -s - -f "${GLOBAL_BIN_DIR}/claw-analog" || warn "failed to codesign claw-analog"
+    codesign -s - -f "${GLOBAL_BIN_DIR}/claw-rag-service" || warn "failed to codesign claw-rag-service"
+fi
 
 # Point verification and output to the installed binary
 CLAW_BIN="${GLOBAL_BIN_DIR}/claw"
