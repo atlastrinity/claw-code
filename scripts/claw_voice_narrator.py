@@ -313,7 +313,46 @@ def transliterate_eng_to_ukr(text: str) -> str:
         
     return re.sub(r'[a-zA-Z]+', repl, text)
 
+def simplify_path_for_speech(text: str) -> str:
+    """
+    Simplifies file paths and command lines for cleaner speech output.
+    E.g. /Users/dev/Documents/GitHub/claw-code/rust/Cargo.toml -> Cargo.toml у папці rust
+    And strips extensions like .py, .sh, .swift, .rs, .yaml, .json
+    """
+    # 1. Simplify absolute paths pointing to the project
+    def path_repl(match):
+        full_path = match.group(0)
+        # Try to make it relative to claw-code
+        if "claw-code/" in full_path:
+            rel = full_path.split("claw-code/")[-1]
+        elif "claw-code\\" in full_path:
+            rel = full_path.split("claw-code\\")[-1]
+        else:
+            rel = Path(full_path).name
+            
+        parts = rel.replace('\\', '/').split('/')
+        filename = parts[-1]
+        
+        # Strip common developer file extensions
+        filename_no_ext = re.sub(r'\.(py|sh|swift|rs|yaml|yml|json|md|txt|log)$', '', filename, flags=re.IGNORECASE)
+        
+        if len(parts) > 1:
+            parent_dir = parts[-2]
+            return f"{filename_no_ext} у папці {parent_dir}"
+        return filename_no_ext
+
+    # Match absolute paths
+    text = re.sub(r'/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+/[a-zA-Z0-9_./-]+', path_repl, text)
+    
+    # 2. Strip extensions from isolated files with extensions (e.g. script.py, run_claw.sh)
+    text = re.sub(r'\b([a-zA-Z0-9_-]+)\.(py|sh|swift|rs|yaml|yml|json|md|txt|log)\b', r'\1', text, flags=re.IGNORECASE)
+    
+    return text
+
 def prepare_text_for_tts(text: str) -> str:
+    # 0. Спрощення шляхів та прибирання розширень (.py, .sh тощо)
+    text = simplify_path_for_speech(text)
+
     # 1. English (Ukrainian) -> Ukrainian (e.g. cache (кеш) -> кеш)
     # We match any English term followed by parentheses containing NO English letters
     pattern_eng_ukr = r'[a-zA-Z0-9_./\\#@$%^&*()+-]+\s*\(([^a-zA-Z]+)\)'
@@ -775,7 +814,46 @@ def clean_error_message(content: str) -> str:
 
 def get_command_description_ua(cmd: str, desc: str) -> str:
     cmd = cmd.strip()
+    cmd_lower = cmd.lower()
     
+    # 0. Git, Cargo, and Python developer commands
+    if cmd_lower.startswith("git status"):
+        return "перевірки статусу репозиторію"
+    elif cmd_lower.startswith("git diff"):
+        return "перегляду зміненого коду"
+    elif cmd_lower.startswith("git add"):
+        files = cmd[7:].strip()
+        if files in (".", "-A", "--all"):
+            return "додавання всіх змінених файлів"
+        return f"індексації файлів {files}"
+    elif cmd_lower.startswith("git commit"):
+        msg = re.search(r'-m\s+["\']([^"\']+)["\']', cmd)
+        msg_str = f" з повідомленням '{msg.group(1)}'" if msg else ""
+        return f"створення комміту{msg_str}"
+    elif cmd_lower.startswith("git push"):
+        return "відправки змін у віддалений репозиторій"
+    elif cmd_lower.startswith("git pull"):
+        return "отримання свіжих змін із сервера"
+    elif cmd_lower.startswith("git log"):
+        return "перегляду історії змін"
+    elif "cargo test" in cmd_lower:
+        package = re.search(r'-p\s+(\S+)', cmd)
+        pkg_str = f" пакета {package.group(1)}" if package else ""
+        return f"запуску тестів{pkg_str}"
+    elif "cargo build" in cmd_lower:
+        return "компіляції проекту"
+    elif "cargo run" in cmd_lower:
+        return "запуску програми"
+    elif "cargo check" in cmd_lower:
+        return "швидкої перевірки коду"
+    elif "cargo clippy" in cmd_lower:
+        return "статичного аналізу коду"
+    elif cmd_lower.startswith("python") or cmd_lower.startswith("python3"):
+        parts = cmd.split(" ")
+        script = parts[1] if len(parts) > 1 else ""
+        script_name = Path(script).name if script else "скрипта"
+        return f"запуску пайтон скрипта {script_name}"
+        
     # 1. diskutil commands
     if cmd.startswith("diskutil list"):
         return "отримання списку підключених дисків та розділів"
@@ -933,20 +1011,35 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
     elif tool_name in ("read_file", "view_file"):
         path = params.get("AbsolutePath", params.get("path", ""))
         filename = Path(path).name if path else "файлу"
-        action_desc = f"читання файлу {filename}"
-        spoken_text = f"Зчитую вміст файлу {filename} для аналізу його коду."
+        parent = Path(path).parent.name if path else ""
+        if parent and parent != "claw-code":
+            action_desc = f"читання файлу {filename} у папці {parent}"
+            spoken_text = f"Зчитую вміст файлу {filename} у папці {parent} для аналізу його коду."
+        else:
+            action_desc = f"читання файлу {filename}"
+            spoken_text = f"Зчитую вміст файлу {filename} для аналізу його коду."
         
     elif tool_name in ("write_to_file", "write_file", "create_file"):
         path = params.get("TargetFile", params.get("path", ""))
         filename = Path(path).name if path else "файлу"
-        action_desc = f"запису у файл {filename}"
-        spoken_text = f"Створюю або перезаписую файл {filename} з новими налаштуваннями."
+        parent = Path(path).parent.name if path else ""
+        if parent and parent != "claw-code":
+            action_desc = f"запису у файл {filename} у папці {parent}"
+            spoken_text = f"Створюю або перезаписую файл {filename} у папці {parent}."
+        else:
+            action_desc = f"запису у файл {filename}"
+            spoken_text = f"Створюю або перезаписую файл {filename}."
         
     elif tool_name in ("replace_file_content", "multi_replace_file_content", "edit_file"):
         path = params.get("TargetFile", params.get("path", ""))
         filename = Path(path).name if path else "файлу"
-        action_desc = f"редагування файлу {filename}"
-        spoken_text = f"Вношу необхідні зміни та редагую код у файлі {filename}."
+        parent = Path(path).parent.name if path else ""
+        if parent and parent != "claw-code":
+            action_desc = f"редагування файлу {filename} у папці {parent}"
+            spoken_text = f"Вношу необхідні зміни та редагую код у файлі {filename} у папці {parent}."
+        else:
+            action_desc = f"редагування файлу {filename}"
+            spoken_text = f"Вношу необхідні зміни та редагую код у файлі {filename}."
         
     elif tool_name == "grep_search":
         query = params.get("Query", params.get("query", ""))
@@ -961,8 +1054,13 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
     elif tool_name == "list_dir":
         path = params.get("DirectoryPath", params.get("path", ""))
         dirname = Path(path).name if path else "директорії"
-        action_desc = f"перегляду вмісту папки {dirname}"
-        spoken_text = f"Отримую список файлів у папці {dirname}."
+        parent = Path(path).parent.name if path else ""
+        if parent and parent != "claw-code" and dirname:
+            action_desc = f"перегляду вмісту папки {dirname} у папці {parent}"
+            spoken_text = f"Отримую список файлів у папці {dirname} у папці {parent}."
+        else:
+            action_desc = f"перегляду вмісту папки {dirname}"
+            spoken_text = f"Отримую список файлів у папці {dirname}."
         
     elif tool_name == "TaskGraph":
         op = params.get("operation", "")
@@ -1007,6 +1105,7 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str]:
 
     # Fallback на ключі за замовчуванням
     if not api_key:
+<<<<<<< HEAD
         if model == "gemini-lite":
 <<<<<<< HEAD
             api_key = """"
@@ -1019,6 +1118,9 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str]:
 >>>>>>> 7d46e5c41 (feat: implement voice toggles and overrides via CLAW_TTS env variables in claw_voice_narrator.py)
         else:
             api_key = os.environ.get("OPENAI_API_KEY", "")
+=======
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+>>>>>>> 22e2286c4 (chore: remove hardcoded fallback API keys to prevent secret exposure)
             
     return base_url, api_key, model_id
 
