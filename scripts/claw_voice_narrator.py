@@ -1105,22 +1105,7 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str]:
 
     # Fallback на ключі за замовчуванням
     if not api_key:
-<<<<<<< HEAD
-        if model == "gemini-lite":
-<<<<<<< HEAD
-            api_key = """"
-        elif model in ("glm", "glm2"):
-            api_key = """"
-=======
-            api_key = """"
-        elif model in ("glm", "glm2", "glm3"):
-            api_key = """"
->>>>>>> 7d46e5c41 (feat: implement voice toggles and overrides via CLAW_TTS env variables in claw_voice_narrator.py)
-        else:
-            api_key = os.environ.get("OPENAI_API_KEY", "")
-=======
         api_key = os.environ.get("OPENAI_API_KEY", "")
->>>>>>> 22e2286c4 (chore: remove hardcoded fallback API keys to prevent secret exposure)
             
     return base_url, api_key, model_id
 
@@ -1323,36 +1308,7 @@ def translate_to_ukrainian(text: str) -> str:
             return text
 
     model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
-<<<<<<< HEAD
-    
-    api_key = ""
-    base_url = ""
-    model_id = ""
-    
-    if model == "gemini-lite":
-        base_url = os.environ.get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/").rstrip('/')
-        api_key = os.environ.get("GEMINI_API_KEY", "")
-        model_id = "gemini-3.1-flash-lite"
-    elif model in ("glm", "glm2"):
-        base_url = os.environ.get("GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").rstrip('/')
-        api_key = os.environ.get("GLM_API_KEY", "")
-        model_id = "glm-4.7-flash"
-    else:
-        base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1").rstrip('/')
-        api_key = os.environ.get("OPENAI_API_KEY", "")
-        model_id = model
-
-    # Fallback на ключі за замовчуванням
-    if not api_key:
-        if model == "gemini-lite":
-            api_key = """"
-        elif model in ("glm", "glm2"):
-            api_key = """"
-        else:
-            api_key = os.environ.get("OPENAI_API_KEY", "")
-=======
     base_url, api_key, model_id = resolve_narration_api_config(model)
->>>>>>> 7d46e5c41 (feat: implement voice toggles and overrides via CLAW_TTS env variables in claw_voice_narrator.py)
 
     if not base_url or not api_key:
         return text
