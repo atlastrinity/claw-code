@@ -105,7 +105,56 @@ except Exception as e:
     sys.exit(1)
 ' )
 
-SELECTED_MODEL="gemini-lite"
+update_env_var() {
+  local key="$1"
+  local val="$2"
+  # Update SCRIPT_DIR/.env
+  if [ -f "$SCRIPT_DIR/.env" ]; then
+    "$PYTHON_BIN" -c '
+import sys, os
+key = sys.argv[1]
+val = sys.argv[2]
+env_path = sys.argv[3]
+with open(env_path, "r") as f:
+    lines = f.readlines()
+updated = False
+for i, line in enumerate(lines):
+    if line.strip().startswith(key + "="):
+        lines[i] = f"{key}=\"{val}\"\n"
+        updated = True
+        break
+if not updated:
+    lines.append(f"{key}=\"{val}\"\n")
+with open(env_path, "w") as f:
+    f.writelines(lines)
+' "$key" "$val" "$SCRIPT_DIR/.env"
+  fi
+  # Update CLAW_CALLER_CWD/.env
+  if [ -n "$CLAW_CALLER_CWD" ] && [ -f "$CLAW_CALLER_CWD/.env" ] && [ "$CLAW_CALLER_CWD" != "$SCRIPT_DIR" ]; then
+    "$PYTHON_BIN" -c '
+import sys, os
+key = sys.argv[1]
+val = sys.argv[2]
+env_path = sys.argv[3]
+with open(env_path, "r") as f:
+    lines = f.readlines()
+updated = False
+for i, line in enumerate(lines):
+    if line.strip().startswith(key + "="):
+        lines[i] = f"{key}=\"{val}\"\n"
+        updated = True
+        break
+if not updated:
+    lines.append(f"{key}=\"{val}\"\n")
+with open(env_path, "w") as f:
+    f.writelines(lines)
+' "$key" "$val" "$CLAW_CALLER_CWD/.env"
+  fi
+}
+
+DEFAULT_MODEL="${SELECTED_MODEL:-gemini-lite}"
+DEFAULT_NARRATION="${CLAW_NARRATION_MODEL:-gemini-lite}"
+DEFAULT_GRISHA="${GRISHA_MODEL:-glm2}"
 
 if [ $? -eq 0 ] && [ -n "$ALIASES_OUTPUT" ]; then
     echo "============================================================================"
@@ -128,19 +177,20 @@ if [ $? -eq 0 ] && [ -n "$ALIASES_OUTPUT" ]; then
     IFS=$OLDIFS
     
     echo "============================================================================"
-    echo " Натисніть Enter для вибору 'gemini-lite' за замовчуванням"
+    echo " Натисніть Enter для вибору '$DEFAULT_MODEL' за замовчуванням"
     read -p " Введіть номер основної моделі: " choice
     if [ -n "$choice" ] && [ -n "${MODEL_KEYS[$choice]}" ]; then
         SELECTED_MODEL="${MODEL_KEYS[$choice]}"
         echo " ✅ Обрано модель: $SELECTED_MODEL"
     else
+        SELECTED_MODEL="$DEFAULT_MODEL"
         echo " ✅ Використовується за замовчуванням: $SELECTED_MODEL"
     fi
     
     echo "============================================================================"
-    echo " Натисніть Enter для вибору 'gemini-lite' за замовчуванням для озвучки"
+    echo " Натисніть Enter для вибору '$DEFAULT_NARRATION' за замовчуванням для озвучки"
     read -p " Введіть номер моделі на озвучку: " choice_narration
-    SELECTED_NARRATION_MODEL="gemini-lite"
+    SELECTED_NARRATION_MODEL="$DEFAULT_NARRATION"
     if [ -n "$choice_narration" ] && [ -n "${MODEL_KEYS[$choice_narration]}" ]; then
         SELECTED_NARRATION_MODEL="${MODEL_KEYS[$choice_narration]}"
         echo " ✅ Обрано модель на озвучку: $SELECTED_NARRATION_MODEL"
@@ -148,8 +198,28 @@ if [ $? -eq 0 ] && [ -n "$ALIASES_OUTPUT" ]; then
         echo " ✅ Використовується на озвучку за замовчуванням: $SELECTED_NARRATION_MODEL"
     fi
     export CLAW_NARRATION_MODEL=$SELECTED_NARRATION_MODEL
+
+    echo "============================================================================"
+    echo " Натисніть Enter для вибору '$DEFAULT_GRISHA' за замовчуванням для верифікатора Гріші"
+    read -p " Введіть номер моделі для Гріші: " choice_grisha
+    SELECTED_GRISHA_MODEL="$DEFAULT_GRISHA"
+    if [ -n "$choice_grisha" ] && [ -n "${MODEL_KEYS[$choice_grisha]}" ]; then
+        SELECTED_GRISHA_MODEL="${MODEL_KEYS[$choice_grisha]}"
+        echo " ✅ Обрано модель для Гріші: $SELECTED_GRISHA_MODEL"
+    else
+        echo " ✅ Використовується для Гріші за замовчуванням: $SELECTED_GRISHA_MODEL"
+    fi
+    export GRISHA_MODEL=$SELECTED_GRISHA_MODEL
+
+    # Зберігаємо вибір у .env для синхронізації
+    update_env_var "SELECTED_MODEL" "$SELECTED_MODEL"
+    update_env_var "CLAW_NARRATION_MODEL" "$SELECTED_NARRATION_MODEL"
+    update_env_var "GRISHA_MODEL" "$SELECTED_GRISHA_MODEL"
 else
-    echo " ⚠️ Не вдалося прочитати .claw.json. Використовується gemini-lite."
+    SELECTED_MODEL="$DEFAULT_MODEL"
+    export CLAW_NARRATION_MODEL="$DEFAULT_NARRATION"
+    export GRISHA_MODEL="$DEFAULT_GRISHA"
+    echo " ⚠️ Не вдалося прочитати .claw.json. Використовуються поточні налаштування з .env."
 fi
 echo ""
 

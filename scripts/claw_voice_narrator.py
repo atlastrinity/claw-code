@@ -1096,7 +1096,7 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str]:
         else:
             base_url = os.environ.get("GLM_BASE_URL", "https://api.z.ai/api/paas/v4").rstrip('/')
             api_key = os.environ.get("GLM_API_KEY", "")
-        model_id = "glm-4.7-flash"
+        model_id = "glm-4-flash"
     else:
         base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1").rstrip('/')
         api_key = os.environ.get("OPENAI_API_KEY", "")
@@ -1251,9 +1251,48 @@ def summarize_thinking_ua(thinking_text: str) -> str:
         
     # Якщо LLM не відповіла, використовуємо покращений евристичний fallback
     text_lower = clean_text.lower()
-        
-    # (Fallback logic is now processed below because LLM check is performed above)
     
+    # 1. Пошук файлів
+    files = re.findall(r'\b([\w_-]+\.(?:py|rs|swift|sh|json|toml|md|txt|yml|yaml))\b', clean_text)
+    files = list(dict.fromkeys(files))
+    
+    # 2. Пошук інструментів
+    tools = re.findall(r'\b(TaskGraph|replace_file_content|read_file|view_file|run_command|grep_search|list_dir|write_to_file|multi_replace_file_content|search_web|read_url_content)\b', clean_text)
+    tools = list(dict.fromkeys(tools))
+    
+    # 3. Пошук команд у бектіках
+    commands = re.findall(r'`([^`]+)`', clean_text)
+    commands = [c for c in commands if any(cmd in c.lower() for cmd in ["cargo", "test", "git", "xcodebuild", "run", "python", "sh", "npm", "npm run"])]
+    commands = list(dict.fromkeys(commands))
+
+    # Словник для транслітерації назв інструментів для приємнішого озвучення
+    tool_pronunciation = {
+        "taskgraph": "таск граф",
+        "replace_file_content": "реплейс файл контент",
+        "read_file": "рід файл",
+        "view_file": "в'ю файл",
+        "run_command": "ран команд",
+        "grep_search": "греп серч",
+        "list_dir": "ліст дір",
+        "write_to_file": "райт ту файл",
+        "multi_replace_file_content": "мульті реплейс файл контент",
+        "search_web": "серч веб",
+        "read_url_content": "рід ю-ар-ел контент"
+    }
+
+    if tools and files:
+        t_name = tools[0]
+        t_pron = tool_pronunciation.get(t_name.lower(), t_name)
+        return f"Зараз я використаю інструмент {t_pron} для роботи з файлом {files[0]}."
+    elif tools:
+        t_name = tools[0]
+        t_pron = tool_pronunciation.get(t_name.lower(), t_name)
+        return f"Потрібно запустити системний інструмент {t_pron} для виконання цього кроку."
+    elif files:
+        return f"Вивчаю структуру проекту та аналізую зміни у файлі {files[0]}."
+    elif commands:
+        return f"Готую до виконання в терміналі команду {commands[0]}."
+        
     # Identify agent intent based on keywords
     if any(k in text_lower for k in ["read", "view", "file", "content", "open"]):
         brief = random.choice([
