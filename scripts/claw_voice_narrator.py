@@ -3,11 +3,9 @@
 🎙️ CLAW Voice Narrator — Природна озвучка виводу claw-code українськими голосами
 
 Кожна секція виводу програми озвучується відповідним «агентом»:
-  🎙️ Тетяна (Диктор)     — загальні повідомлення, заголовки, ініціалізація
-  ⚙️ Дмитро (Рантайм)    — контекст, setup, кроки запуску
-  🔍 Олекса (Маршрутизатор) — пошук команд/інструментів, виконання
-  📊 Лада   (Аналітик)    — результати ходу, статистика, історія
-  🛡️ Микита (Безпека)     — відмови доступу, критичні попередження
+  ⚙️ Атлас (Основний)     — запуск, контекст, налаштування, маршрути та команди
+  🎙️ Тетяна (Координатор) — аналіз ходу, результати, потокові події та історія
+  🛡️ Гріша (Безпека)      — відмови доступу, критичні попередження
 
 Якщо процес не завершився повністю, озвучка продовжується у наступних ходах.
 """
@@ -19,6 +17,7 @@ import re
 import sys
 import time
 import json
+import random
 import subprocess
 from pathlib import Path
 from typing import Optional, List
@@ -28,6 +27,8 @@ import urllib.error
 # Додаємо корінь проекту до шляху імпорту
 project_root = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(project_root))
+original_cwd = Path.cwd()
+os.chdir(project_root)
 
 try:
     from src.runtime import PortRuntime, RoutedMatch
@@ -43,11 +44,9 @@ except ImportError as e:
 # ──────────────────────────── Colour & Emoji ────────────────────────────
 
 COLORS = {
-    "tetiana":  "\033[95m",   # Magenta — Диктор
-    "dmytro":   "\033[96m",   # Cyan — Рантайм
-    "oleksa":   "\033[93m",   # Yellow — Маршрутизатор
-    "lada":     "\033[92m",   # Green — Аналітик
-    "mykyta":   "\033[91m",   # Red — Безпека
+    "tetiana":  "\033[95m",   # Magenta — Тетяна
+    "atlas":    "\033[96m",   # Cyan — Атлас
+    "grisha":   "\033[91m",   # Red — Гріша
     "system":   "\033[94m",   # Blue — Системні логи
     "reset":    "\033[0m",
     "bold":     "\033[1m",
@@ -56,24 +55,20 @@ COLORS = {
 
 AGENT_EMOJI = {
     "tetiana": "🎙️",
-    "dmytro":  "⚙️",
-    "oleksa":  "🔍",
-    "lada":    "📊",
-    "mykyta":  "🛡️",
+    "atlas":   "⚙️",
+    "grisha":  "🛡️",
 }
 
 AGENT_NAME_UA = {
-    "tetiana": "Тетяна · Диктор",
-    "dmytro":  "Дмитро · Рантайм-агент",
-    "oleksa":  "Олекса · Маршрутизатор",
-    "lada":    "Лада · Аналітик",
-    "mykyta":  "Микита · Безпека",
+    "tetiana": "Тетяна · Координатор",
+    "atlas":   "Атлас · Основний",
+    "grisha":  "Гріша · Безпека",
 }
 
 # ──────────────────────────── Translation Helpers ────────────────────────
 
 TRANSLATE_MAP = {
-    "completed": "завершено успішно",
+    "completed": "хід завершено",
     "max_turns_reached": "досягнуто ліміту ходів",
     "max_budget_reached": "вичерпано бюджет токенів",
 }
@@ -103,46 +98,57 @@ def make_natural_speech(voice: str, title: str, raw_text: str) -> str:
     """
     clean_text = clean_for_speech(raw_text)
     
-    if voice == "dmytro":  # Runtime
+    # 1. ATLAS (Main Agent)
+    if voice == "atlas":
         if "Сесія" in title or "Session" in title or "Запит" in title:
-            prompt = extract_value(raw_text, r"(?:Запит|Prompt):\s*(.*)") or clean_text
-            return f"Вітаю. Рантайм-агент Дмитро готовий до роботи. Отримано новий запит на аналіз: {prompt}."
+            prompt = extract_value(raw_text, r"(?:Запит|Prompt|Отримано новий запит від користувача):\s*(.*)") or clean_text
+            prompt = re.sub(r"^Отримано новий запит від користувача:\s*", "", prompt).strip()
+            templates = [
+                f"Привіт, народ! Я Атлас. Отримав новий запит від юзера: {prompt}. Зараз у всьому розберемося!",
+                f"Здоров колеги, це Атлас. Маємо нову задачу в роботі: {prompt}. Зараз перевірю оточення.",
+                f"Всім привіт! Я Атлас. Юзер просить зробити таке: {prompt}. Беруся до налаштування!"
+            ]
+            return random.choice(templates)
         
         elif "Контекст" in title or "Context" in title:
             py_files = extract_value(raw_text, r"(?:Файли Пайтон|Python files):\s*(\d+)") or "68"
             test_files = extract_value(raw_text, r"(?:Тестові файли|Test files):\s*(\d+)") or "7"
-            archive = "доступний" if "Так" in raw_text or "True" in raw_text else "наразі недоступний"
+            archive = "до речі, локальний архів коду повністю доступний" if "Так" in raw_text or "True" in raw_text else "але локальний архів коду чомусь недоступний"
             
-            return (f"Проводжу сканування робочого простору. Виявлено {py_files} файлів мовою Пайтон "
-                    f"та {test_files} файлів з тестами. Локальний архів коду {archive}.")
+            templates = [
+                f"Так, команда, я розібрався з контекстом. Тут у нас {py_files} файлів мовою Пайтон та {test_files} файлів з тестами. І {archive}.",
+                f"Звітую по контексту: бачу {py_files} пайтон-файлів та {test_files} файлів тестів. І {archive}. Робоча область готова.",
+                f"Глянув контекст проекту. Загалом маємо {py_files} файлів Пайтон та {test_files} тестових файлів. {archive}."
+            ]
+            return random.choice(templates)
             
         elif "Налаштування" in title or "Setup" in title:
             py_ver = extract_value(raw_text, r"(?:Python):\s*([^\s(]*)") or "3.11"
-            platform = "на платформі мак о-ес" if "macOS" in raw_text or "mac" in raw_text.lower() else "на робочій платформі"
+            platform = "на мак о-ес" if "macOS" in raw_text or "mac" in raw_text.lower() else "на поточній системі"
             test_cmd = extract_value(raw_text, r"(?:Команда тестування|Test command):\s*(.*)")
             
-            speech = f"Середовище повністю підготовлено. Версія Пайтон {py_ver}, працюємо {platform}."
+            speech = f"По налаштуваннях: версія Пайтон {py_ver}, крутимося {platform}."
             if test_cmd:
-                speech += f" Тестування налаштовано через команду: {test_cmd}."
-            return speech
+                speech += f" Тести будемо запускати через команду {test_cmd}."
+            
+            templates = [
+                f"Оточення готове! {speech} Можна працювати далі.",
+                f"Перевірив сетап. {speech} Все налаштовано без проблем.",
+                f"Звітую: сетап завершено. {speech} Колеги, які будуть думки?"
+            ]
+            return random.choice(templates)
             
         elif "Кроки запуску" in title or "Startup Steps" in title:
-            return ("Починаю ініціалізацію модулів. Виконую запуск попереднього завантаження, "
-                    "будую контекст робочого простору, завантажую знімки команд та інструментів, "
-                    "після чого готую хуки аудиту та застосовую відкладену ініціалізацію.")
+            templates = [
+                "Запускаю первинні модулі. Робимо переднавантаження, підтягуємо контекст і готуємо хуки аудиту.",
+                "Починаю ініціалізацію. Зчитуємо конфігурацію, готуємо реєстр команд та підвантажуємо хуки аудиту.",
+                "Так, поїхали! Запускаємо ініціалізацію, будуємо дерево контексту та активуємо відкладену ініціалізацію."
+            ]
+            return random.choice(templates)
 
-    elif voice == "tetiana":  # Narrator
-        if "Ініціалізація системи" in title or "System Init" in title:
-            if "порожня" in clean_text.lower() or not clean_text:
-                return "Початкова ініціалізація системи завершена без зауважень."
-            cmds = extract_value(raw_text, r"(?:Завантажені записи команд|Loaded command entries):\s*(\d+)") or "207"
-            tools = extract_value(raw_text, r"(?:Завантажені записи інструментів|Loaded tool entries):\s*(\d+)") or "184"
-            return f"Систему успішно ініціалізовано. Усі системи готові до роботи. Завантажено {cmds} команд та {tools} інструментів."
-
-    elif voice == "oleksa":  # Router
-        if "Знайдені маршрути" in title or "Routed Matches" in title:
+        elif "Знайдені маршрути" in title or "Routed Matches" in title:
             if "нічого" in clean_text.lower() or "none" in clean_text.lower() or not clean_text:
-                return "Маршрутизатор Олекса повідомляє: підходящих команд або інструментів для цього запиту не знайдено."
+                return "Атлас тут. Народ, я перевірив реєстр, але підходящих команд чи інструментів не знайшов."
             
             matches = []
             for line in raw_text.split('\n'):
@@ -151,39 +157,91 @@ def make_natural_speech(voice: str, title: str, raw_text: str) -> str:
                     if len(parts) > 1:
                         matches.append(parts[1])
             if matches:
-                return f"Маршрутизатор знайшов наступні відповідності в реєстрі: {', '.join(matches)}."
-            return "Знайдено відповідні системні маршрути для обробки запиту."
+                templates = [
+                    f"Так, колеги, це Атлас. Я підібрав оптимальні маршрути: {', '.join(matches)}. Зараз їх запущу.",
+                    f"Привіт! Атлас на зв'язку. Знайшов у реєстрі такі відповідності: {', '.join(matches)}. Беру їх в роботу.",
+                    f"Дивіться, я просканував доступні команди та інструменти. Вибрав {', '.join(matches)}. Запускаю."
+                ]
+                return random.choice(templates)
+            return "Знайшов робочі системні маршрути для виконання нашого завдання."
             
         elif "Виконання команд" in title or "Command Execution" in title:
             if "нічого" in clean_text.lower() or "none" in clean_text.lower() or not clean_text:
-                return "Жодних зовнішніх команд на цьому кроці не виконувалось."
-            return f"Проводжу виконання відповідної команди. Результат роботи наступний: {clean_text}."
+                return "Атлас повідомляє: на цьому кроці команди не запускалися."
+            return f"Атлас звітує: виконую команду. Результат такий: {clean_text}."
             
         elif "Виконання інструментів" in title or "Tool Execution" in title:
             if "нічого" in clean_text.lower() or "none" in clean_text.lower() or not clean_text:
-                return "Жодних допоміжних інструментів не було запущено."
-            return f"Запускаю необхідні інструменти. Отримано наступну відповідь від системи: {clean_text}."
+                return "Атлас на зв'язку. Інструменти не використовувалися."
+            return f"Запускаю інструмент. Дивіться, отримав такий результат від системи: {clean_text}."
 
-    elif voice == "lada":  # Analyst
-        if "Потокові події" in title or "Stream Events" in title:
-            return "Починаю приймати потокові події від мовної моделі. Дані надходять у реальному часі."
+        elif "Дія" in title or "Action" in title or "Результат" in title or "Result" in title:
+            return raw_text
+
+
+
+    # 2. TETIANA (Coordinator / Other)
+    elif voice == "tetiana":
+        if "Ініціалізація системи" in title or "System Init" in title:
+            if "порожня" in clean_text.lower() or not clean_text:
+                return "Привіт усім, я Тетяна! Початкову ініціалізацію завершено, все чисто."
+            cmds = extract_value(raw_text, r"(?:Завантажені записи команд|Loaded command entries):\s*(\d+)") or "207"
+            tools = extract_value(raw_text, r"(?:Завантажені записи інструментів|Loaded tool entries):\s*(\d+)") or "184"
+            templates = [
+                f"Всім привіт, я Тетяна! Рада бачити команду. Систему успішно ініціалізовано. У нас завантажено {cmds} команд та {tools} інструментів.",
+                f"Вітаю, колеги! На зв'язку Тетяна. Ініціалізація пройшла вдало: маємо в базі {cmds} команд і {tools} робочих інструментів. Працюємо!",
+                f"Привіт, команда! Тетяна тут. Запуск відбувся штатно. Завантажила {cmds} команд та {tools} інструментів. Готові до першого ходу."
+            ]
+            return random.choice(templates)
+        
+        elif "Статус виконання" in title:
+            templates = [
+                f"Так, друзі, розпочинаю хід номер {clean_text}. Слідкуємо за оновленнями.",
+                f"Починаю хід номер {clean_text}. Дивимось, що запропонує модель.",
+                f"Переходимо до ходу номер {clean_text}. Колеги, підключайтеся."
+            ]
+            return random.choice(templates)
+
+        elif "Потокові події" in title or "Stream Events" in title:
+            return "Привіт! Це Тетяна. Отримую потокові дані від мовної моделі. Слухаю уважно."
             
         elif "Результат ходу" in title or "Turn Result" in title:
             stop_reason_raw = extract_value(raw_text, r"(?:stop_reason|причина зупинки)=\s*(\w+)") or "completed"
             stop_reason = TRANSLATE_MAP.get(stop_reason_raw, "виконання триває")
             denials = extract_value(raw_text, r"(?:Відмови доступу|Permission denials):\s*(\d+)") or "0"
             
-            speech = "Аналітик Лада на зв'язку. Отримано результат поточного кроку. "
+            speech = "Це Тетяна. Я проаналізувала поточний хід. "
             if denials and int(denials) > 0:
-                speech += f"Увага! Зафіксовано {denials} відмов у дозволах на виконання інструментів! "
-            speech += f"Статус виконання ходу: {stop_reason}."
-            return speech
+                speech += f"Обережно! Зафіксовано {denials} відмов у дозволах на запуск інструментів! "
+            speech += f"Статус виконання наразі: {stop_reason}."
+            
+            templates = [
+                f"Колеги, Тетяна тут. {speech}",
+                f"Всім привіт від Тетяни. {speech}",
+                f"Так, команда, проглянула хід. {speech}"
+            ]
+            return random.choice(templates)
             
         elif "Історія сесії" in title or "Session History" in title:
-            return f"Аналіз сесії завершено. Всі дані та контекст збережено у сховище сесій."
+            return "Тетяна завершила аналіз історії сесії. Всі дані збережено, колеги."
 
-    elif voice == "mykyta":  # Security
-        return f"Увага! Обмеження безпеки. Виявлено наступну загрозу або відмову: {clean_text}."
+        elif "Аналіз" in title or "Analysis" in title:
+            return raw_text
+
+        elif "Результат" in title or "Result" in title:
+            return raw_text
+
+    # 3. GRISHA (Security Specialist)
+    elif voice == "grisha":
+        if "Результат інструменту" in title or "Tool Result" in title:
+            return raw_text
+            
+        templates = [
+            f"Увага! Маємо проблему з безпекою або системний збій. Гріша на зв'язку: {clean_text}.",
+            f"Обережно, колеги! Це Гріша. Зафіксовано помилку або обмеження: {clean_text}.",
+            f"Попередження від служби безпеки: {clean_text}. Перевірте конфігурацію!"
+        ]
+        return random.choice(templates)
 
     # Fallback to direct translation if no match
     translated = clean_text
@@ -302,55 +360,140 @@ class VoicePlayer:
                 lock_path.unlink()
             except Exception:
                 pass
+                
+        # Clean cache directory on startup to delete old TTS files
+        cache_dir = self.output_dir / "cache"
+        if cache_dir.exists():
+            import shutil
+            try:
+                shutil.rmtree(cache_dir)
+            except Exception:
+                pass
+        cache_dir.mkdir(exist_ok=True)
         
         # Load TTS
         try:
-            from ukrainian_tts.tts import TTS
-            print(f"\n{COLORS['system']}⏳ Завантаження TTS моделі українського мовлення...{COLORS['reset']}")
-            self.tts_engine = TTS(device="cpu")
-            print(f"{COLORS['system']}✅ TTS модель успішно завантажена!{COLORS['reset']}\n")
+            from edge_tts_wrapper.edge_tts_helper import EdgeTTSHelper
+            print(f"\n{COLORS['system']}⏳ Ініціалізація EdgeTTSHelper...{COLORS['reset']}")
+            self.tts_engine = EdgeTTSHelper(default_voice="uk-UA-OstapNeural", sample_rate=44100)
+            print(f"{COLORS['system']}✅ EdgeTTSHelper успішно ініціалізовано!{COLORS['reset']}\n")
         except ImportError:
-            print(f"\n{COLORS['mykyta']}⚠️ Бібліотека ukrainian-tts не встановлена.{COLORS['reset']}")
+            print(f"\n{COLORS['grisha']}⚠️ Бібліотека edge_tts_wrapper не встановлена.{COLORS['reset']}")
             print("Озвучка відбуватиметься лише в текстовому режимі.")
         except Exception as e:
-            print(f"\n{COLORS['mykyta']}⚠️ Помилка ініціалізації TTS: {e}{COLORS['reset']}")
+            print(f"\n{COLORS['grisha']}⚠️ Помилка ініціалізації TTS: {e}{COLORS['reset']}")
 
     def get_success_speech(self, action: str) -> str:
         import random
         templates = [
-            f"Дію з {action} виконано успішно.",
-            f"Операцію з {action} завершено успішно.",
-            f"Успішно завершено {action}.",
-            f"Крок із {action} виконано без помилок.",
-            f"Завдання з {action} успішно реалізовано.",
-            f"Операція {action} пройшла без ускладнень.",
-            f"Все гаразд із {action}.",
-            f"Дію з {action} успішно проведено.",
-            f"Ми успішно впоралися з {action}.",
-            f"Крок {action} завершено без жодних проблем.",
-            f"Успішно виконано {action}.",
-            f"Процес {action} завершився вдало."
+            f"Круто, інструмент {action} успішно відпрацював!",
+            f"Все супер, операція {action} закрита без помилок.",
+            f"Я перевірив, {action} завершено вдало, жодних проблем.",
+            f"Добре, {action} виконано. Можемо рухатись далі.",
+            f"Завдання {action} реалізовано на сто відсотків.",
+            f"Крок {action} пройшов як по маслу, все чисто.",
+            f"Супер, з {action} розібралися без ускладнень.",
+            f"Гарні новини: {action} завершився без жодного збою.",
+            f"Процес {action} успішно виконано, все зелене.",
+            f"Успішно закрили крок {action}, продовжуємо політ.",
+            f"З {action} все готово, ніяких зауважень немає.",
+            f"Все чітко: {action} виконано в повному обсязі.",
+            f"Інструмент {action} відпрацював на відмінно.",
+            f"Завершили {action} без пригод, статус успішний.",
+            f"Крок {action} виконано повністю, перешкод немає.",
+            f"Усе пройшло штатно, {action} завершено.",
+            f"Звітую: {action} завершено успішно, жодних багів.",
+            f"Операція {action} відпрацювала без жодного пилу.",
+            f"Завдання {action} виконано, рухаємося за планом.",
+            f"Все готово по {action}, результат позитивний.",
+            f"З {action} розібралися, все працює як годинник.",
+            f"Крок {action} виконано успішно, рухаємося до наступного.",
+            f"Інструмент {action} завершив роботу без нарікань.",
+            f"Все зелене: {action} виконано без зауважень.",
+            f"Звітую про успіх: {action} завершено вдало.",
+            f"Все готово: {action} відпрацював без жодної помарки.",
+            f"Чудово, {action} завершився з успішним результатом.",
+            f"По кроку {action} все виконано, ніяких затримок.",
+            f"Операцію {action} закрито успішно, все під контролем.",
+            f"Все зроблено: {action} виконано на всі сто."
         ]
-        # Використовуємо випадковий вибір, щоб уникнути повторюваності по циклу
         return random.choice(templates)
 
     def get_failure_speech(self, action: str, error: str) -> str:
         import random
         templates = [
-            f"Не вдалося виконати {action} через помилку: {error}.",
-            f"Виникла помилка під час {action}: {error}.",
-            f"Операція з {action} завершилася невдачею. Причина: {error}.",
-            f"Не вдалося провести {action}. Отримано помилку: {error}.",
-            f"Дія {action} завершилася збоєм: {error}.",
-            f"Сталася помилка при {action}. Деталі: {error}.",
-            f"Помилка виконання {action}. Повідомлення: {error}.",
-            f"Щось пішло не так під час {action}: {error}.",
-            f"Крок {action} провалився з помилкою: {error}."
+            f"От халепа, не вдалося виконати {action} через помилку: {error}.",
+            f"Тут проблема, колеги. Виникла помилка під час {action}. Деталі такі: {error}.",
+            f"Запуск {action} завершився невдачею. Повідомлення системи: {error}.",
+            f"На жаль, крок {action} провалився. Помилка: {error}.",
+            f"Щось пішло не так із {action}. Маємо збій: {error}.",
+            f"Зафіксовано помилку під час {action}: {error}.",
+            f"Виникли проблеми з {action}. Опис збою: {error}.",
+            f"Не вдалося завершити {action}. Помилка в системі: {error}.",
+            f"Операція {action} впала з помилкою: {error}.",
+            f"Збій на кроці {action}. Причина помилки: {error}.",
+            f"Крок {action} не виконано. Отримали виняток: {error}.",
+            f"Маємо невдалий запуск {action}. Деталі збою: {error}.",
+            f"Виникла критична помилка в {action}: {error}.",
+            f"Не вдалося виконати {action}. Помилка: {error}.",
+            f"Операція {action} завершилась аварійно. Опис: {error}.",
+            f"Крок {action} завершився з помилкою. Повідомлення: {error}.",
+            f"Завдання {action} провалилося. Система каже: {error}.",
+            f"Маємо збій у виконанні {action}. Помилка: {error}.",
+            f"Звітую про помилку на кроці {action}: {error}.",
+            f"Не вдалося опрацювати {action}. Деталі помилки: {error}.",
+            f"Помилка при виконанні {action}. Опис помилки: {error}.",
+            f"Крок {action} не пройшов. Причина збою: {error}.",
+            f"Спроба запустити {action} завершилася помилкою: {error}.",
+            f"Операція {action} заблокована через помилку: {error}.",
+            f"Помилка під час кроку {action}. Код або опис: {error}.",
+            f"Крок {action} закінчився збоєм. Деталі помилки: {error}.",
+            f"Не змогли завершити {action} через виняток: {error}.",
+            f"Виникла помилка в процесі {action}. Повідомлення: {error}.",
+            f"Процес {action} перервано через помилку: {error}.",
+            f"Запуск {action} провалився. Помилка виконання: {error}."
         ]
-        return random.choice(templates)
+    def get_tool_verdict_speech(self, tool_name: str, action_desc: str, is_error: bool, output_val: str) -> str:
+        clean_out = output_val.strip() if output_val else ""
+        lower_out = clean_out.lower()
+        
+        # Спробуємо отримати вердикт через LLM
+        llm_verdict = narrate_tool_result_via_llm(tool_name, action_desc, is_error, output_val)
+        if llm_verdict:
+            return llm_verdict
+
+        # Локальні правила (fallback)
+        is_actually_error = is_error
+        if not is_actually_error and clean_out:
+            if any(term in lower_out for term in ("traceback (most", "error:", "❌ помилка", "no such option:", "exception:", "command not found")):
+                is_actually_error = True
+
+        if is_actually_error:
+            error_msg = clean_error_message(output_val)
+            if "not found" in lower_out or "no such file" in lower_out:
+                return f"Я перевірив, але {action_desc} закінчилося нічим: об'єкт або файл не знайдено."
+            return self.get_failure_speech(action_desc, error_msg)
+
+        if not clean_out:
+            if tool_name in ("grep_search", "glob_search", "list_dir", "bash", "run_command"):
+                return f"Я провів {action_desc}, але ніяких результатів не знайдено. Тут порожньо."
+            return f"Операцію {action_desc} виконано, але ніяких даних система не повернула."
+
+        if "not found" in lower_out or "no such file" in lower_out:
+            return f"Я спробував виконати {action_desc}, але в результаті нічого не знайшов."
+            
+        return self.get_success_speech(action_desc)
 
     def speak(self, voice: str, title: str, text: str):
         """Generates natural text, prints it, and plays the audio."""
+        # Check if the specific voice is enabled via environment variables
+        if voice == "atlas" and os.environ.get("CLAW_TTS_ATLAS", "true").lower() == "false":
+            return
+        if voice == "grisha" and os.environ.get("CLAW_TTS_GRISHA", "true").lower() == "false":
+            return
+        if voice == "tetiana" and os.environ.get("CLAW_TTS_TETIANA", "true").lower() == "false":
+            return
+
         natural_text = make_natural_speech(voice, title, text)
         if not natural_text.strip():
             return
@@ -370,26 +513,31 @@ class VoicePlayer:
         print(f"{dim}{color}{'─' * 60}{reset}")
 
         # 2. Generate and play audio if TTS is available
-        if self.tts_engine:
-            from ukrainian_tts.tts import Voices, Stress
+        if self.tts_engine and os.environ.get("CLAW_TTS", "true").lower() != "false":
             import hashlib
             import shutil
+            import re
             
-            voice_map = {
-                "tetiana": Voices.Tetiana.value,
-                "dmytro":  Voices.Dmytro.value,
-                "oleksa":  Voices.Oleksa.value,
-                "lada":    Voices.Tetiana.value,
-                "mykyta":  Voices.Mykyta.value,
+            # Map narrator agents to Edge-TTS voices with distinct rate/pitch settings
+            voice_settings = {
+                "tetiana": ("uk-UA-PolinaNeural", "+3%", "+5Hz"),
+                "atlas":   ("uk-UA-OstapNeural", "+5%", "+3Hz"),
+                "grisha":  ("uk-UA-OstapNeural", "-8%", "-15Hz"),
             }
-            voice_val = voice_map.get(voice, Voices.Tetiana.value)
+            # Allow overriding the voice settings via environment variables (e.g. CLAW_TTS_ATLAS_VOICE="tetiana")
+            voice_override = os.environ.get(f"CLAW_TTS_{voice.upper()}_VOICE", voice)
+            voice_val, rate_val, pitch_val = voice_settings.get(voice_override, voice_settings.get(voice, ("uk-UA-PolinaNeural", "+0%", "+0Hz")))
             
+            # Ensure English words/Latin letters are not permitted - translate aggressively if any are found
+            if re.search(r'[a-zA-Z]', natural_text):
+                natural_text = translate_to_ukrainian(natural_text)
+                
             # Prepare text for TTS (transcribe English terms, clean up formatting)
             speech_text = prepare_text_for_tts(natural_text)
             
-            # Limit TTS chunk length to avoid crashes
-            if len(speech_text) > 450:
-                speech_text = speech_text[:450] + "... далі скорочено."
+            # Allow up to 3000 characters for full analysis/summaries to be read in full
+            if len(speech_text) > 3000:
+                speech_text = speech_text[:3000] + "... далі скорочено."
 
             # Cache check by generating md5 hash of the voice and speech text
             hash_key = hashlib.md5(f"{voice}:{speech_text}".encode("utf-8")).hexdigest()
@@ -407,11 +555,28 @@ class VoicePlayer:
                 if not cached_wav_path.exists():
                     # Wait if Claw is currently making an API request to prevent concurrent API calls
                     api_lock_path = Path.home() / ".claw" / "api.lock"
+                    wait_start = time.time()
+                    warned = False
                     while api_lock_path.exists():
+                        if time.time() - wait_start > 60.0:
+                            print(f"\n⚠️  Попередження: виявлено застаріле блокування api.lock. Продовжуємо без очікування.")
+                            try:
+                                api_lock_path.unlink()
+                            except Exception:
+                                pass
+                            break
+                        if time.time() - wait_start > 5.0 and not warned:
+                            print(f"\n⏳ Очікування завершення API запиту Claw (блокування api.lock)...")
+                            warned = True
                         time.sleep(0.1)
                         
-                    with open(cached_wav_path, "wb") as f:
-                        self.tts_engine.tts(speech_text, voice_val, Stress.Dictionary.value, f)
+                    self.tts_engine.synthesize_to_wav(
+                        speech_text, 
+                        str(cached_wav_path), 
+                        voice=voice_val, 
+                        rate=rate_val, 
+                        pitch=pitch_val
+                    )
                 
                 # Copy cached file to session play file
                 wav_path = self.output_dir / f"play_{self.seg_count:03d}_{voice}_{title[:15].replace(' ', '_')}.wav"
@@ -434,7 +599,7 @@ class VoicePlayer:
                 time.sleep(0.1) # Даємо системі час синхронізувати файл на диск перед відтворенням
                 subprocess.run(["afplay", str(wav_path)], check=True)
             except Exception as e:
-                print(f"  {COLORS['mykyta']}⚠️ Помилка відтворення аудіо: {e}{reset}")
+                print(f"  {COLORS['grisha']}⚠️ Помилка відтворення аудіо: {e}{reset}")
             finally:
                 if lock_path.exists():
                     try:
@@ -478,7 +643,7 @@ class VoicePlayer:
                 sf.write(str(final_path), combined, sample_rate)
                 print(f"\n{COLORS['system']}🎵 Повний трек зустрічі збережено: {final_path}{COLORS['reset']}")
         except Exception as e:
-            print(f"\n{COLORS['mykyta']}⚠️  Не вдалось склеїти повний аудіозапис: {e}{COLORS['reset']}")
+            print(f"\n{COLORS['grisha']}⚠️  Не вдалось склеїти повний аудіозапис: {e}{COLORS['reset']}")
 
 
 # ──────────────────────────── Dynamic Turn Loop Narrator ─────────────────
@@ -487,22 +652,22 @@ def run_narrated_session(prompt: str, max_turns: int = 3):
     audio_dir = project_root / "audio_output"
     player = VoicePlayer(audio_dir)
 
-    # --- 1. Startup & Setup (Dmytro & Tetiana) ---
-    player.speak("dmytro", "Запит", f"Запит: {prompt}")
+    # --- 1. Startup & Setup (Atlas & Tetiana) ---
+    player.speak("atlas", "Запит", f"Запит: {prompt}")
     
     # Context
     context = build_port_context()
     raw_ctx = f"Файли Пайтон: {context.python_file_count}\nТестові файли: {context.test_files_count if hasattr(context, 'test_files_count') else 7}\nАрхів доступний: {'Так' if context.archive_available else 'Ні'}"
-    player.speak("dmytro", "Контекст", raw_ctx)
+    player.speak("atlas", "Контекст", raw_ctx)
 
     # Setup
     setup_report = run_setup(trusted=True)
     setup = setup_report.setup
     raw_setup = f"Python: {setup.python_version}\nPlatform: {setup.platform_name}\nTest command: {setup.test_command}"
-    player.speak("dmytro", "Налаштування", raw_setup)
+    player.speak("atlas", "Налаштування", raw_setup)
     
     # Startup steps
-    player.speak("dmytro", "Кроки запуску", "")
+    player.speak("atlas", "Кроки запуску", "")
 
     # System Init
     player.speak("tetiana", "Ініціалізація системи", "Loaded command entries: 207\nLoaded tool entries: 184")
@@ -517,9 +682,9 @@ def run_narrated_session(prompt: str, max_turns: int = 3):
     command_names = tuple(match.name for match in matches if match.kind == 'command')
     tool_names = tuple(match.name for match in matches if match.kind == 'tool')
 
-    # Speak matches (Oleksa)
+    # Speak matches (Atlas)
     raw_matches = "\n".join(f"• {m.kind} {m.name}" for m in matches) if matches else "none"
-    player.speak("oleksa", "Знайдені маршрути", raw_matches)
+    player.speak("atlas", "Знайдені маршрути", raw_matches)
 
     # Loop through turns dynamically
     process_finished = False
@@ -532,14 +697,14 @@ def run_narrated_session(prompt: str, max_turns: int = 3):
         # Execute turn
         result = engine.submit_message(turn_prompt, command_names, tool_names, ())
         
-        # Narrate what was executed (Oleksa)
+        # Narrate what was executed (Atlas)
         if result.matched_commands:
-            player.speak("oleksa", "Виконання команд", f"Виконую наступні команди: {', '.join(result.matched_commands)}")
+            player.speak("atlas", "Виконання команд", f"Виконую наступні команди: {', '.join(result.matched_commands)}")
         if result.matched_tools:
-            player.speak("oleksa", "Виконання інструментів", f"Запускаю відповідні інструменти: {', '.join(result.matched_tools)}")
+            player.speak("atlas", "Виконання інструментів", f"Запускаю відповідні інструменти: {', '.join(result.matched_tools)}")
 
-        # Narrate turn results (Lada)
-        player.speak("lada", "Результат ходу", f"stop_reason={result.stop_reason}\nВідмови доступу={len(result.permission_denials)}")
+        # Narrate turn results (Tetiana)
+        player.speak("tetiana", "Результат ходу", f"stop_reason={result.stop_reason}\nВідмови доступу={len(result.permission_denials)}")
         
         # Check if the process is finished
         if result.stop_reason == 'completed':
@@ -547,7 +712,7 @@ def run_narrated_session(prompt: str, max_turns: int = 3):
             player.speak("tetiana", "Статус процесу", "Усі завдання поточного процесу успішно виконано.")
             break
         else:
-            player.speak("mykyta", "Процес не закінчився", 
+            player.speak("grisha", "Процес не закінчився", 
                          f"Процес зупинено з причиною: {result.stop_reason}. Процес не закінчився, озвучка продовжується.")
             time.sleep(1.0)
 
@@ -555,7 +720,7 @@ def run_narrated_session(prompt: str, max_turns: int = 3):
     if process_finished:
         player.speak("tetiana", "Завершення роботи", "Всі кроки успішно виконано. Озвучку повністю завершено. До зустрічі!")
     else:
-        player.speak("mykyta", "Критичне завершення", "Увага! Досягнуто ліміту спроб, але процес так і не завершився. Озвучку зупинено у зв'язку з тайм-аутом.")
+        player.speak("grisha", "Критичне завершення", "Увага! Досягнуто ліміту спроб, але процес так і не завершився. Озвучку зупинено у зв'язку з тайм-аутом.")
 
     player.finalize()
 
@@ -585,6 +750,8 @@ TOOL_NAMES_UA = {
     "glob_search": "пошуку файлів",
     "list_dir": "перегляду папки",
     "TaskGraph": "оновлення списку завдань",
+    "WebSearch": "веб-пошуку",
+    "WebFetch": "завантаження веб-сторінки",
 }
 
 def clean_error_message(content: str) -> str:
@@ -812,13 +979,8 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         spoken_text = f"Запускаю системний інструмент {tool_name_ua}."
         
     return spoken_text, action_desc
-
-def translate_and_summarize_thinking(text: str) -> str:
-    if not text.strip():
-        return ""
-
-    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
-    
+        
+def resolve_narration_api_config(model: str) -> tuple[str, str, str]:
     api_key = ""
     base_url = ""
     model_id = ""
@@ -827,9 +989,16 @@ def translate_and_summarize_thinking(text: str) -> str:
         base_url = os.environ.get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/").rstrip('/')
         api_key = os.environ.get("GEMINI_API_KEY", "")
         model_id = "gemini-3.1-flash-lite"
-    elif model in ("glm", "glm2"):
-        base_url = os.environ.get("GLM_BASE_URL", "https://open.bigmodel.cn/api/paas/v4").rstrip('/')
-        api_key = os.environ.get("GLM_API_KEY", "")
+    elif model in ("glm", "glm2", "glm3"):
+        if model == "glm2":
+            base_url = os.environ.get("GLM_BASE_URL2", os.environ.get("GLM_BASE_URL", "https://api.z.ai/api/paas/v4")).rstrip('/')
+            api_key = os.environ.get("GLM_API_KEY2", os.environ.get("GLM_API_KEY", ""))
+        elif model == "glm3":
+            base_url = os.environ.get("GLM_BASE_URL3", os.environ.get("GLM_BASE_URL", "https://api.z.ai/api/paas/v4")).rstrip('/')
+            api_key = os.environ.get("GLM_API_KEY3", os.environ.get("GLM_API_KEY", ""))
+        else:
+            base_url = os.environ.get("GLM_BASE_URL", "https://api.z.ai/api/paas/v4").rstrip('/')
+            api_key = os.environ.get("GLM_API_KEY", "")
         model_id = "glm-4.7-flash"
     else:
         base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1").rstrip('/')
@@ -839,11 +1008,106 @@ def translate_and_summarize_thinking(text: str) -> str:
     # Fallback на ключі за замовчуванням
     if not api_key:
         if model == "gemini-lite":
+<<<<<<< HEAD
             api_key = """"
         elif model in ("glm", "glm2"):
             api_key = """"
+=======
+            api_key = """"
+        elif model in ("glm", "glm2", "glm3"):
+            api_key = """"
+>>>>>>> 7d46e5c41 (feat: implement voice toggles and overrides via CLAW_TTS env variables in claw_voice_narrator.py)
         else:
             api_key = os.environ.get("OPENAI_API_KEY", "")
+            
+    return base_url, api_key, model_id
+
+def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool, output_val: str) -> str:
+    if not output_val.strip() and not is_error:
+        return ""
+
+    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
+    base_url, api_key, model_id = resolve_narration_api_config(model)
+
+    if not base_url or not api_key:
+        return ""
+
+    # Limit output length to prevent payload bloat
+    output_summary = output_val.strip()
+    
+    # Спробуємо розпарсити вивід як JSON, щоб дістати чистий stdout/stderr
+    try:
+        parsed_out = json.loads(output_val)
+        if isinstance(parsed_out, dict):
+            stdout = parsed_out.get("stdout", "")
+            stderr = parsed_out.get("stderr", "")
+            if stdout or stderr:
+                output_summary = f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}".strip()
+            elif "nodes_updated" in parsed_out:
+                output_summary = f"TaskGraph updated nodes: {parsed_out['nodes_updated']}"
+            elif "output" in parsed_out:
+                output_summary = str(parsed_out["output"]).strip()
+    except Exception:
+        pass
+
+    if len(output_summary) > 1000:
+        output_summary = output_summary[:1000] + "... [вивід скорочено]"
+
+    url = f"{base_url}/chat/completions"
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}"
+    }
+    
+    prompt_system = (
+        "You are Grisha, a male Ukrainian software engineer and security/operations specialist. "
+        "Summarize the outcome of a tool execution in a single, short, natural, highly conversational sentence in Ukrainian (UA). "
+        "Tell the team clearly what happened. Did the search/read find the files or keys? Did the command fail or not find anything? "
+        "State the actual verdict. RULES: 1. Talk like a friendly male tech teammate. Always use masculine verbs and forms when referring to yourself (e.g. 'я перевірив' instead of 'я перевірила', 'я не знайшов' instead of 'я не знайшла', 'я виконав' instead of 'я виконала'). "
+        "2. Do NOT use English words or Latin letters at all. Translate every English term/file/variable name into its phonetic Ukrainian equivalent (e.g. 'config' -> 'конфіг', 'id_rsa' -> 'айді ер ес ей'). "
+        "3. Be honest: if the output says 'not found' or is empty, state clearly that nothing was found, even if there was no exit error. Keep it under 25 words. Output ONLY the Ukrainian sentence."
+    )
+    
+    prompt_user = f"The tool was run for: '{action_desc}'. The raw output was: '{output_summary}'."
+    
+    payload = {
+        "model": model_id,
+        "messages": [
+            {
+                "role": "system",
+                "content": prompt_system
+            },
+            {
+                "role": "user",
+                "content": prompt_user
+            }
+        ],
+        "temperature": 0.5
+    }
+    
+    try:
+        req = urllib.request.Request(
+            url, 
+            data=json.dumps(payload).encode('utf-8'), 
+            headers=headers,
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=10) as response:
+            res_data = json.loads(response.read().decode('utf-8'))
+            summary_text = res_data['choices'][0]['message']['content'].strip()
+            if summary_text:
+                return summary_text
+    except Exception as e:
+        print(f"\n⚠️ Помилка автоозвучки результату інструменту через {model}: {e}")
+        
+    return ""
+
+def translate_and_summarize_thinking(text: str) -> str:
+    if not text.strip():
+        return ""
+
+    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
+    base_url, api_key, model_id = resolve_narration_api_config(model)
 
     if not base_url or not api_key:
         return ""
@@ -859,7 +1123,7 @@ def translate_and_summarize_thinking(text: str) -> str:
         "messages": [
             {
                 "role": "system",
-                "content": "You are a professional Ukrainian translator. Summarize the given English thinking process of an AI coding agent into a single, natural, descriptive sentence in Ukrainian (UA). Describe the agent's immediate action plan or deduction. RULES: 1. Translate general programming concepts and standard terms directly into natural Ukrainian (e.g. 'concurrency' -> 'багатопотоковість', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'optimization' -> 'оптимізація'). 2. Only keep specific code elements (file names, paths, variables, class/function names, commands, and tool names) in English, but follow each with its phonetic Ukrainian pronunciation in parentheses, for example: 'cache.json (кеш крапка джейсон)', 'retrieve_context (ретрів контекст)'. Keep it under 30 words, and do not use templates. Output ONLY the translated Ukrainian sentence, with no introductory or concluding remarks."
+                "content": "You are a professional Ukrainian software engineer and a tech colleague. Summarize the given English thinking process of an AI coding agent into a single, natural, highly conversational sentence in Ukrainian (UA). Talk like a tech teammate explaining their ideas/findings to other colleagues in the team. RULES: 1. Translate all concepts directly into natural Ukrainian developer slang (e.g. 'bug' -> 'баг', 'concurrency' -> 'багатопотоковість', 'cache' -> 'кеш', 'optimizing' -> 'оптимізую'). 2. Do NOT use English words or Latin letters at all. Translate every English term/file/variable name into its phonetic Ukrainian equivalent (e.g. 'cache.json' -> 'кеш крапка джейсон'). Keep it under 25 words. Do not use generic templates. 3. IMPORTANT: Since this summary is voiced by a female narrator (Tetiana), always use feminine verbs and forms when referring to yourself (e.g., 'я зробила' instead of 'я зробив', 'я виявила' instead of 'я виявив', 'я проаналізувала' instead of 'я проаналізував'). Output ONLY the translated Ukrainian sentence."
             },
             {
                 "role": "user",
@@ -956,6 +1220,7 @@ def translate_to_ukrainian(text: str) -> str:
             return text
 
     model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
+<<<<<<< HEAD
     
     api_key = ""
     base_url = ""
@@ -982,6 +1247,9 @@ def translate_to_ukrainian(text: str) -> str:
             api_key = """"
         else:
             api_key = os.environ.get("OPENAI_API_KEY", "")
+=======
+    base_url, api_key, model_id = resolve_narration_api_config(model)
+>>>>>>> 7d46e5c41 (feat: implement voice toggles and overrides via CLAW_TTS env variables in claw_voice_narrator.py)
 
     if not base_url or not api_key:
         return text
@@ -997,7 +1265,7 @@ def translate_to_ukrainian(text: str) -> str:
         "messages": [
             {
                 "role": "system",
-                "content": "You are a professional Ukrainian translator. Translate the given text into natural, fluent Ukrainian (UA). RULES: 1. Translate general programming concepts and standard terms directly into natural Ukrainian (e.g. 'concurrency' -> 'багатопотоковість/паралельність', 'performance' -> 'продуктивність/швидкодія', 'optimization' -> 'оптимізація', 'cache' -> 'кеш', 'thread' -> 'потік', 'buffer' -> 'буфер', 'error' -> 'помилка'). 2. Only keep specific code elements (file names, paths, variables, class/function names, commands like 'git status' or 'cargo check', and tool names) in English, but follow each with its phonetic Ukrainian pronunciation in parentheses, for example: 'run_claw.sh (ран клоу крапка ес ейч)', 'VoicePlayer (войс плеєр)', 'grep_search (греп серч)'. Output ONLY the translated Ukrainian text, with no introductory or concluding remarks."
+                "content": "You are a professional Ukrainian software engineer and narrator. Translate the given text into natural, fluent Ukrainian (UA). RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts and standard terms directly into natural Ukrainian developer slang (e.g. 'concurrency' -> 'паралельність', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'bug' -> 'баг', 'error' -> 'помилка'). 2. Do NOT use any English words or Latin letters. Translate every English code element, file name, path, variable, class/function name, command or tool name into its phonetic Ukrainian equivalent (e.g., 'run_claw.sh' -> 'ран клоу крапка ес ейч', 'VoicePlayer' -> 'войс плеєр', 'grep_search' -> 'ґреп серч', 'git status' -> 'ґіт статус'). 3. IMPORTANT: Since this translation is voiced by a female narrator (Tetiana), always use feminine verbs and forms when referring to yourself (e.g., 'я зробила' instead of 'я зробив', 'я спробувала' instead of 'я спробував', 'я підготувала' instead of 'я підготував'). Output ONLY the translated Ukrainian text, with no introductory or concluding remarks."
             },
             {
                 "role": "user",
@@ -1042,7 +1310,7 @@ def process_session_entry(data: dict, player: VoicePlayer):
     elif entry_type == "prompt_history":
         text = data.get("text", "")
         if text:
-            player.speak("dmytro", "Запит", f"Отримано новий запит від користувача: {text}")
+            player.speak("atlas", "Запит", f"Отримано новий запит від користувача: {text}")
             
     elif entry_type == "message":
         message = data.get("message", {})
@@ -1063,17 +1331,15 @@ def process_session_entry(data: dict, player: VoicePlayer):
             for block in blocks:
                 block_type = block.get("type")
                 if block_type == "thinking":
-                    if has_real_text:
-                        continue
                     thinking_val = block.get("thinking", "")
                     natural_thinking = summarize_thinking_ua(thinking_val)
                     if natural_thinking:
-                        player.speak("lada", "Аналіз", natural_thinking)
+                        player.speak("tetiana", "Аналіз", natural_thinking)
                 elif block_type == "text":
                     text_content = block.get("text", "")
                     if text_content and not is_tool_call_text(text_content):
                         translated_content = translate_to_ukrainian(text_content)
-                        player.speak("lada", "Результат", translated_content)
+                        player.speak("atlas", "Результат", translated_content)
                 elif block_type == "tool_use":
                     tool_name = block.get("name", "")
                     input_str = block.get("input", "")
@@ -1081,7 +1347,7 @@ def process_session_entry(data: dict, player: VoicePlayer):
                         natural_tool, action_desc = make_natural_tool_use(tool_name, input_str)
                         player.last_action_desc = action_desc
                         player.last_action_tool = tool_name
-                        player.speak("oleksa", "Дія", natural_tool)
+                        player.speak("atlas", "Дія", natural_tool)
                         
         elif role == "tool":
             for block in blocks:
@@ -1095,16 +1361,23 @@ def process_session_entry(data: dict, player: VoicePlayer):
                     if not action_desc or getattr(player, "last_action_tool", "") != tool_name:
                         action_desc = TOOL_NAMES_UA.get(tool_name, tool_name)
                         
-                    if is_error:
-                        error_msg = clean_error_message(output_val)
-                        speech = player.get_failure_speech(action_desc, error_msg)
-                    else:
-                        speech = player.get_success_speech(action_desc)
-                        
-                    player.speak("dmytro", "Результат інструменту", speech)
+                    has_error_traces = False
+                    if not is_error and output_val:
+                        lower_out = output_val.lower()
+                        # Detect hidden failures (e.g. script errors reported as success)
+                        if any(term in lower_out for term in ("traceback (most", "error:", "❌ помилка", "no such option:", "exception:", "command not found")):
+                            has_error_traces = True
+                            
+                    speech = player.get_tool_verdict_speech(tool_name, action_desc, is_error, output_val)
+                    player.speak("grisha", "Результат інструменту", speech)
 
 def tail_session_loop():
-    sessions_dir = Path.cwd() / ".claw" / "sessions"
+    caller_cwd = os.environ.get("CLAW_CALLER_CWD")
+    if caller_cwd:
+        sessions_dir = Path(caller_cwd) / ".claw" / "sessions"
+    else:
+        sessions_dir = original_cwd / ".claw" / "sessions"
+        
     if not sessions_dir.exists():
         sessions_dir = project_root / ".claw" / "sessions"
 
@@ -1126,8 +1399,22 @@ def tail_session_loop():
     
     with open(latest_file, "r") as f:
         if initial_start:
-            # Переміщуємо курсор у кінець файлу, щоб не перечитувати стару історію сесії
-            f.seek(0, 2)
+            file_age = 1000.0  # default to old
+            match = re.search(r'session-(\d+)', latest_file.name)
+            if match:
+                try:
+                    session_start_ms = int(match.group(1))
+                    file_age = time.time() - (session_start_ms / 1000.0)
+                except Exception:
+                    pass
+            else:
+                try:
+                    file_age = time.time() - latest_file.stat().st_birthtime
+                except AttributeError:
+                    file_age = time.time() - latest_file.stat().st_ctime
+                    
+            if file_age > 120.0:
+                f.seek(0, 2)
             initial_start = False
             
         try:
@@ -1145,7 +1432,7 @@ def tail_session_loop():
                     
                     time.sleep(0.5)
                     # Скидаємо EOF прапор для зчитування нових рядків
-                    f.seek(0, 1)
+                    f.seek(f.tell())
                     continue
                 
                 try:

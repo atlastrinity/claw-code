@@ -1,13 +1,72 @@
 #!/bin/bash
 
+# Збережемо оригінальну директорію, звідки запустили скрипт
+export CLAW_CALLER_CWD="$PWD"
+
 # Змінюємо робочу директорію на ту, де знаходиться сам скрипт
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR"
 
-# Завантажуємо змінні оточення (API ключі тощо) з глобального .env
+# Завантажуємо змінні оточення (API ключі тощо) з різних джерел у порядку пріоритету
+# 1. Глобальний .env у домашній папці
+if [ -f "$HOME/.claw/.env" ]; then
+    set -a
+    source "$HOME/.claw/.env"
+    set +a
+fi
+
+# 2. .env у папці встановлення скрипта
 if [ -f "$SCRIPT_DIR/.env" ]; then
     set -a
     source "$SCRIPT_DIR/.env"
     set +a
+fi
+
+# 3. Локальний .env у директорії, звідки запустили команду (пріоритетний)
+if [ -n "$CLAW_CALLER_CWD" ] && [ -f "$CLAW_CALLER_CWD/.env" ]; then
+    set -a
+    source "$CLAW_CALLER_CWD/.env"
+    set +a
+fi
+
+# Синхронізуємо конфігурації (settings та CLAW.md) з глобальною папкою перед запуском
+GLOBAL_DIR="$HOME/.claw"
+mkdir -p "$GLOBAL_DIR"
+
+LOCAL_SETTINGS="$SCRIPT_DIR/.claw.json"
+GLOBAL_SETTINGS="$GLOBAL_DIR/settings.json"
+
+if [ -f "$LOCAL_SETTINGS" ] && [ ! -f "$GLOBAL_SETTINGS" ]; then
+    cp "$LOCAL_SETTINGS" "$GLOBAL_SETTINGS"
+elif [ ! -f "$LOCAL_SETTINGS" ] && [ -f "$GLOBAL_SETTINGS" ]; then
+    cp "$GLOBAL_SETTINGS" "$LOCAL_SETTINGS"
+elif [ -f "$LOCAL_SETTINGS" ] && [ -f "$GLOBAL_SETTINGS" ]; then
+    if [ "$LOCAL_SETTINGS" -nt "$GLOBAL_SETTINGS" ]; then
+        cp "$LOCAL_SETTINGS" "$GLOBAL_SETTINGS"
+    elif [ "$GLOBAL_SETTINGS" -nt "$LOCAL_SETTINGS" ]; then
+        cp "$GLOBAL_SETTINGS" "$LOCAL_SETTINGS"
+    fi
+fi
+
+LOCAL_CLAW="$SCRIPT_DIR/CLAW.md"
+GLOBAL_CLAW="$GLOBAL_DIR/CLAW.md"
+
+if [ -f "$LOCAL_CLAW" ] && [ ! -f "$GLOBAL_CLAW" ]; then
+    cp "$LOCAL_CLAW" "$GLOBAL_CLAW"
+elif [ ! -f "$LOCAL_CLAW" ] && [ -f "$GLOBAL_CLAW" ]; then
+    cp "$GLOBAL_CLAW" "$LOCAL_CLAW"
+elif [ -f "$LOCAL_CLAW" ] && [ -f "$GLOBAL_CLAW" ]; then
+    if [ "$LOCAL_CLAW" -nt "$GLOBAL_CLAW" ]; then
+        cp "$LOCAL_CLAW" "$GLOBAL_CLAW"
+    elif [ "$GLOBAL_CLAW" -nt "$LOCAL_CLAW" ]; then
+        cp "$GLOBAL_CLAW" "$LOCAL_CLAW"
+    fi
+fi
+
+# Синхронізуємо скіли з глобальною папкою перед запуском
+if [ -d "$SCRIPT_DIR/.claw/skills" ]; then
+    mkdir -p "$GLOBAL_DIR/skills"
+    rsync -a --exclude=".build" --exclude=".git" "$SCRIPT_DIR/.claw/skills/" "$GLOBAL_DIR/skills/"
 fi
 # 0. Прибираємо зомбі-процеси, якщо минулого разу термінал впав
 echo "🧹 Перевірка та очищення завислих процесів..."
@@ -18,7 +77,7 @@ sleep 0.5
 
 # Очищаємо файли планування та завдань для справді нової сесії
 echo "🧹 Очищення файлів завдань попередньої сесії..."
-rm -f "./task.md" "./.clawd-task-graph.json"
+rm -f "$CLAW_CALLER_CWD/task.md" "$CLAW_CALLER_CWD/.clawd-task-graph.json"
 
 # 1. Вибір моделі з .claw.json
 echo "🤖 Завантаження списку моделей..."
@@ -82,87 +141,53 @@ else
 fi
 echo ""
 
-# 1.5 Перевірка необхідності iOS (Xcode та спеціальних скілів)
-ENABLE_IOS=""
+# 1.5 Перевірка наявності iOS-компонентів для автозапуску Xcode
 FORWARD_ARGS=()
 for arg in "$@"; do
-  case "$arg" in
-    --ios)
-      ENABLE_IOS="true"
-      ;;
-    --no-ios)
-      ENABLE_IOS="false"
-      ;;
-    *)
-      FORWARD_ARGS+=("$arg")
-      ;;
-  esac
+  FORWARD_ARGS+=("$arg")
 done
 
-if [ -z "$ENABLE_IOS" ]; then
-  # Перевірка наявності iOS/Apple файлів у безпосередній директорії (depth 1)
-  if find "$SCRIPT_DIR" -maxdepth 1 \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "Podfile" \) -print -quit | grep -q .; then
-    IMMEDIATE_HAS_IOS="true"
-  else
-    IMMEDIATE_HAS_IOS="false"
-  fi
-
-  # Перевірка ключових слів у аргументах запуску
-  PROMPT_HAS_IOS="false"
-  for arg in "${FORWARD_ARGS[@]}"; do
-    if echo "$arg" | grep -iqE "ios|xcode|swift|swiftui|cocoapods|podfile|simulator|watchos|tvos|macos|iphonesimulator"; then
-      PROMPT_HAS_IOS="true"
-      break
-    fi
-  done
-
-  if [ "$IMMEDIATE_HAS_IOS" = "true" ] || [ "$PROMPT_HAS_IOS" = "true" ]; then
-    echo "🍏 [Автодетекція] Виявлено iOS-проект або тему Apple-розробки. Режим iOS увімкнено."
-    ENABLE_IOS="true"
-  else
-    ENABLE_IOS="false"
-  fi
+# Якщо є згадки Xcode/iOS в аргументах або відповідні файли в проекті, запускаємо Xcode
+IS_APPLE_DEV="false"
+if find "${CLAW_CALLER_CWD:-.}" -maxdepth 1 \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "Podfile" \) -print -quit | grep -q .; then
+  IS_APPLE_DEV="true"
 fi
+for arg in "${FORWARD_ARGS[@]}"; do
+  if echo "$arg" | grep -iqE "ios|xcode|swift|swiftui|cocoapods|podfile|simulator|watchos|tvos|macos|iphonesimulator"; then
+    IS_APPLE_DEV="true"
+    break
+  fi
+done
 
-SKILL_ARGS=()
-
-if [ "$ENABLE_IOS" = "true" ]; then
-  echo " ✅ Режим розробки iOS УВІМКНЕНО."
-  
-  # 2. Перевірка та запуск Xcode (потрібен для mcpbridge)
+if [ "$IS_APPLE_DEV" = "true" ]; then
   if ! pgrep -q -x "Xcode"; then
     echo "🍏 Запуск Xcode (необхідно для xcode-bridge MCP)..."
     open -a Xcode
-    # Чекаємо кілька секунд, щоб Xcode встиг запуститися
     sleep 3
   fi
-
-  # Додаємо iOS скіли
-  SKILL_ARGS=(
-    --attach-skill "$SCRIPT_DIR/.claw/skills/workflows/apple-development-workflow/SKILL.md"
-    --attach-skill "$SCRIPT_DIR/.claw/skills/xcode_project_setup/SKILL.md"
-  )
 else
-  echo " ℹ️ Режим розробки iOS ВИМКНЕНО."
-  
-  # Тимчасово відключаємо iOS MCP сервери у .claw.json, якщо файл існує
-  if [ -f "$SCRIPT_DIR/.claw.json" ]; then
-    echo "🧹 Тимчасове відключення iOS MCP серверів у .claw.json..."
-    cp "$SCRIPT_DIR/.claw.json" "$SCRIPT_DIR/.claw.json.bak"
+  # Тимчасово відключаємо iOS MCP сервери у .claw.json, якщо вони не використовуються
+  TARGET_CLAW_JSON="${CLAW_CALLER_CWD:-.}/.claw.json"
+  if [ -f "$TARGET_CLAW_JSON" ]; then
+    echo "🧹 Тимчасове відключення iOS MCP серверів у $TARGET_CLAW_JSON..."
+    cp "$TARGET_CLAW_JSON" "$TARGET_CLAW_JSON.bak"
     python3 -c '
-import json
+import json, sys
 try:
-    with open(".claw.json", "r") as f:
+    with open(sys.argv[1], "r") as f:
         data = json.load(f)
     if "mcpServers" in data:
         data["mcpServers"] = {}
-    with open(".claw.json", "w") as f:
+    with open(sys.argv[1], "w") as f:
         json.dump(data, f, indent=2)
 except Exception as e:
     print("Warning: failed to strip mcpServers:", e)
-'
+' "$TARGET_CLAW_JSON"
   fi
 fi
+
+# Повертаємося до директорії запуску перед стартом сервісів та клієнта
+cd "${CLAW_CALLER_CWD:-.}"
 
 # 3. Запускаємо RAG-сервіс у фоновому режимі
 echo "🚀 Запуск claw-rag-service у фоні..."
@@ -178,9 +203,10 @@ cleanup() {
   echo "🛑 Зупинка claw-rag-service..."
   kill $RAG_PID 2>/dev/null
   
-  if [ -f "$SCRIPT_DIR/.claw.json.bak" ]; then
+  TARGET_CLAW_JSON="${CLAW_CALLER_CWD:-.}/.claw.json"
+  if [ -f "$TARGET_CLAW_JSON.bak" ]; then
     echo "🔄 Відновлення оригінального .claw.json..."
-    mv "$SCRIPT_DIR/.claw.json.bak" "$SCRIPT_DIR/.claw.json"
+    mv "$TARGET_CLAW_JSON.bak" "$TARGET_CLAW_JSON"
   fi
 }
 trap cleanup EXIT
@@ -195,7 +221,6 @@ while true; do
     --model "$SELECTED_MODEL" \
     --skip-permissions \
     --accept-danger-non-interactive \
-    "${SKILL_ARGS[@]}" \
     $RESUME_ARGS "${FORWARD_ARGS[@]}"
     
   EXIT_CODE=$?
