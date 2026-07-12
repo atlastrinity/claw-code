@@ -1303,8 +1303,11 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana") -> str:
     cyrillic_chars = len(re.findall(r'[а-яА-ЯёЁєЄіІїЇґҐ]', text))
     total_chars = len(re.sub(r'\s+', '', text))
     if total_chars > 0 and (cyrillic_chars / total_chars) > 0.4:
-        # Якщо є російські літери (ы, э, ъ, ё) - перекладаємо на українську, інакше пропускаємо
-        if not re.search(r'[ыЫэЭъЪёЁ]', text):
+        # Якщо в тексті є російські літери (ы, э, ъ, ё) - завжди перекладаємо.
+        # Якщо є хоч одна унікальна українська літера (є, і, ї, ґ) - вважаємо текст українським і не перекладаємо.
+        if re.search(r'[ыЫэЭъЪёЁ]', text):
+            pass
+        elif re.search(r'[єЄіІїЇґҐ]', text):
             return text
 
     model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
