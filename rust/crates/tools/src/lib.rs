@@ -1539,6 +1539,49 @@ pub fn enforce_permission_check(
     }
 }
 
+fn parse_task_md_to_nodes(content: &str) -> Vec<TaskNode> {
+    let mut nodes = Vec::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if !trimmed.starts_with("- ") {
+            continue;
+        }
+        
+        let status = if trimmed.contains("[x]") {
+            Some(TaskStatus::Completed)
+        } else if trimmed.contains("[/]") {
+            Some(TaskStatus::InProgress)
+        } else if trimmed.contains("[-]") {
+            Some(TaskStatus::Failed)
+        } else {
+            Some(TaskStatus::Pending)
+        };
+        
+        if let Some(first_star) = trimmed.find("**") {
+            if let Some(second_star) = trimmed[first_star + 2..].find("**") {
+                let id = trimmed[first_star + 2..first_star + 2 + second_star].trim().to_string();
+                let after_id = &trimmed[first_star + 2 + second_star + 2..];
+                let content_str = after_id.trim_start_matches(':').trim().to_string();
+                
+                let parts: Vec<&str> = id.split('.').collect();
+                let parent_id = if parts.len() > 1 {
+                    Some(parts[..parts.len() - 1].join("."))
+                } else {
+                    None
+                };
+                
+                nodes.push(TaskNode {
+                    id,
+                    parent_id,
+                    content: Some(content_str),
+                    status,
+                });
+            }
+        }
+    }
+    nodes
+}
+
 fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String> {
     // Only check action-related tools
     if name != "bash" && name != "write_file" && name != "edit_file" {
@@ -1549,14 +1592,28 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
         Ok(p) => p,
         Err(_) => return Ok(()),
     };
-    if !store_path.exists() {
-        return Ok(()); // If no task graph initialized yet, allow
+
+    let mut nodes = Vec::new();
+    let mut loaded = false;
+    if let Some(parent) = store_path.parent() {
+        let task_md_path = parent.join("task.md");
+        if task_md_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&task_md_path) {
+                nodes = parse_task_md_to_nodes(&content);
+                loaded = true;
+            }
+        }
     }
 
-    let file_content = std::fs::read_to_string(&store_path)
-        .map_err(|error| format!("Failed to read task graph: {error}"))?;
-    let nodes: Vec<TaskNode> = serde_json::from_str(&file_content)
-        .map_err(|error| format!("Failed to parse task graph: {error}"))?;
+    if !loaded {
+        if !store_path.exists() {
+            return Ok(()); // If no task graph initialized yet, allow
+        }
+        let file_content = std::fs::read_to_string(&store_path)
+            .map_err(|error| format!("Failed to read task graph: {error}"))?;
+        nodes = serde_json::from_str(&file_content)
+            .map_err(|error| format!("Failed to parse task graph: {error}"))?;
+    }
 
     // Check if there is at least one task in progress
     let has_in_progress = nodes.iter().any(|node| node.status == Some(TaskStatus::InProgress));
@@ -1579,6 +1636,12 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
     let mut matches_any = false;
     let mut in_progress_tasks = Vec::new();
 
+    // Split description into words of length >= 3
+    let desc_words: std::collections::HashSet<&str> = desc_lower
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| s.len() >= 3)
+        .collect();
+
     for node in &nodes {
         if node.status == Some(TaskStatus::InProgress) {
             if let Some(node_content) = &node.content {
@@ -1590,18 +1653,43 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
                     matches_any = true;
                     break;
                 }
-                
-                // Word overlap check (check if they share at least 2 significant words)
-                let desc_words: std::collections::HashSet<&str> = desc_lower
-                    .split(|c: char| !c.is_alphanumeric())
-                    .filter(|s| s.len() >= 3)
-                    .collect();
-                let node_words: std::collections::HashSet<&str> = node_content_lower
-                    .split(|c: char| !c.is_alphanumeric())
-                    .filter(|s| s.len() >= 3)
-                    .collect();
-                let overlap = desc_words.intersection(&node_words).count();
-                if overlap >= 2 {
+
+                // Build a set of all words from this task and its parent chain
+                let mut active_words = std::collections::HashSet::new();
+                for word in node_content_lower.split(|c: char| !c.is_alphanumeric()) {
+                    if word.len() >= 3 {
+                        active_words.insert(word.to_string());
+                    }
+                }
+
+                let mut current_parent_id = node.parent_id.clone();
+                while let Some(pid) = current_parent_id {
+                    if let Some(parent_node) = nodes.iter().find(|n| n.id == pid) {
+                        if let Some(parent_content) = &parent_node.content {
+                            let parent_content_lower = parent_content.to_lowercase();
+                            if desc_lower.contains(&parent_content_lower) || parent_content_lower.contains(&desc_lower) {
+                                matches_any = true;
+                                break;
+                            }
+                            for word in parent_content_lower.split(|c: char| !c.is_alphanumeric()) {
+                                if word.len() >= 3 {
+                                    active_words.insert(word.to_string());
+                                }
+                            }
+                        }
+                        current_parent_id = parent_node.parent_id.clone();
+                    } else {
+                        break;
+                    }
+                }
+
+                if matches_any {
+                    break;
+                }
+
+                // Check for at least 1 overlapping word of length >= 3
+                let overlap = desc_words.iter().any(|&w| active_words.contains(w));
+                if overlap {
                     matches_any = true;
                     break;
                 }
@@ -4406,27 +4494,8 @@ fn get_prior_sibling_id(id: &str) -> Option<String> {
 fn validate_task_graph(current_nodes: &[TaskNode]) -> Result<(), String> {
     for node in current_nodes {
         if let Some(status) = &node.status {
-            if *status == TaskStatus::InProgress || *status == TaskStatus::Completed {
-                // 1. Sibling order validation
-                if let Some(prev_id) = get_prior_sibling_id(&node.id) {
-                    if let Some(sibling) = current_nodes.iter().find(|n| n.id == prev_id) {
-                        if sibling.status != Some(TaskStatus::Completed) && sibling.status != Some(TaskStatus::Failed) {
-                            return Err(format!(
-                                "Validation Error: Cannot set task '{}' to InProgress or Completed because its prior sibling '{}' is not Completed or Failed (status: {:?}).",
-                                node.id, prev_id, sibling.status
-                            ));
-                        }
-                    } else {
-                        return Err(format!(
-                            "Validation Error: Prior sibling '{}' for task '{}' is missing from the task graph.",
-                            prev_id, node.id
-                        ));
-                    }
-                }
-            }
-
             if *status == TaskStatus::Completed {
-                // 2. Parent completion validation: no active children
+                // 1. Parent completion validation: no active children
                 let active_children: Vec<&TaskNode> = current_nodes
                     .iter()
                     .filter(|n| n.parent_id.as_ref() == Some(&node.id) && n.status != Some(TaskStatus::Completed) && n.status != Some(TaskStatus::Failed))
@@ -4446,14 +4515,24 @@ fn validate_task_graph(current_nodes: &[TaskNode]) -> Result<(), String> {
 
 fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> {
     let store_path = task_graph_store_path()?;
-    let mut current_nodes = if store_path.exists() {
-        serde_json::from_str::<Vec<TaskNode>>(
+    let mut current_nodes = Vec::new();
+    let mut loaded = false;
+    if let Some(parent) = store_path.parent() {
+        let task_md_path = parent.join("task.md");
+        if task_md_path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&task_md_path) {
+                current_nodes = parse_task_md_to_nodes(&content);
+                loaded = true;
+            }
+        }
+    }
+
+    if !loaded && store_path.exists() {
+        current_nodes = serde_json::from_str::<Vec<TaskNode>>(
             &std::fs::read_to_string(&store_path).map_err(|error| error.to_string())?,
         )
-        .map_err(|error| error.to_string())?
-    } else {
-        Vec::new()
-    };
+        .map_err(|error| error.to_string())?;
+    }
 
     let mut updated_count = 0;
 
