@@ -1,6 +1,7 @@
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use crate::error::ApiError;
+use crate::key_rotation;
 use crate::prompt_cache::{PromptCache, PromptCacheRecord, PromptCacheStats};
 use crate::providers::anthropic::{self, AnthropicClient, AuthSource};
 use crate::providers::openai_compat::{self, OpenAiCompatClient, OpenAiCompatConfig};
@@ -154,6 +155,7 @@ impl ProviderClient {
                         Some(meta) if meta.auth_env == "CLOUDFLARE_API_TOKEN" => OpenAiCompatConfig::cloudflare(),
                         Some(meta) if meta.auth_env == "NVIDIA_API_KEY" => OpenAiCompatConfig::nvidia(),
                         Some(meta) if meta.auth_env == "GEMINI_API_KEY" => OpenAiCompatConfig::gemini(),
+                        Some(meta) if meta.auth_env == "SILICONFLOW_API_KEY" => OpenAiCompatConfig::siliconflow(),
                         _ => OpenAiCompatConfig::openai(),
                     };
                     Ok(Self::OpenAi(OpenAiCompatClient::from_env(config)?))
@@ -163,8 +165,8 @@ impl ProviderClient {
     }
 
     pub fn has_key_for_index(model: &str, key_index: usize) -> bool {
-        if key_index == 1 {
-            return true;
+        if key_index == 0 {
+            return false;
         }
         let resolved_model = providers::resolve_model_alias(model);
         let api_key_env = match providers::detect_provider_kind(&resolved_model) {
@@ -177,12 +179,7 @@ impl ProviderClient {
                 }
             }
         };
-        let key_var = format!("{}{}", api_key_env, key_index);
-        if let Ok(val) = std::env::var(&key_var) {
-            !val.trim().is_empty()
-        } else {
-            false
-        }
+        key_rotation::has_key_at_index(api_key_env, key_index)
     }
 
     pub fn from_model_with_key_index(
@@ -192,36 +189,11 @@ impl ProviderClient {
         let resolved_model = providers::resolve_model_alias(model);
         match providers::detect_provider_kind(&resolved_model) {
             ProviderKind::Anthropic => {
-                let mut api_key_val = None;
-                let mut auth_token_val = None;
+                let auth_env = "ANTHROPIC_API_KEY";
+                let api_key = key_rotation::key_at_index(auth_env, key_index);
+                let auth_token = key_rotation::key_at_index("ANTHROPIC_AUTH_TOKEN", key_index);
                 
-                if key_index > 1 {
-                    let key_var = format!("ANTHROPIC_API_KEY{}", key_index);
-                    let token_var = format!("ANTHROPIC_AUTH_TOKEN{}", key_index);
-                    if let Ok(val) = std::env::var(&key_var) {
-                        if !val.trim().is_empty() {
-                            api_key_val = Some(val);
-                        }
-                    }
-                    if let Ok(val) = std::env::var(&token_var) {
-                        if !val.trim().is_empty() {
-                            auth_token_val = Some(val);
-                        }
-                    }
-                } else {
-                    if let Ok(val) = std::env::var("ANTHROPIC_API_KEY") {
-                        if !val.trim().is_empty() {
-                            api_key_val = Some(val);
-                        }
-                    }
-                    if let Ok(val) = std::env::var("ANTHROPIC_AUTH_TOKEN") {
-                        if !val.trim().is_empty() {
-                            auth_token_val = Some(val);
-                        }
-                    }
-                }
-                
-                let auth_source = match (api_key_val, auth_token_val) {
+                let auth_source = match (api_key, auth_token) {
                     (Some(api_key), Some(bearer_token)) => AuthSource::ApiKeyAndBearer {
                         api_key,
                         bearer_token,
@@ -233,12 +205,9 @@ impl ProviderClient {
                 
                 let mut client = AnthropicClient::from_auth(auth_source);
                 
-                let base_url_env = if key_index > 1 {
-                    format!("ANTHROPIC_BASE_URL{}", key_index)
-                } else {
-                    "ANTHROPIC_BASE_URL".to_string()
-                };
-                if let Ok(url) = std::env::var(&base_url_env) {
+                // For base URL, try numbered env var, then default
+                let base_url_keys = key_rotation::parse_keys("ANTHROPIC_BASE_URL");
+                if let Some(url) = base_url_keys.into_iter().nth(key_index.saturating_sub(1)) {
                     if !url.trim().is_empty() {
                         client = client.with_base_url(url);
                     }
@@ -248,28 +217,19 @@ impl ProviderClient {
             }
             ProviderKind::Xai => {
                 let config = OpenAiCompatConfig::xai();
-                let key_var = if key_index > 1 {
-                    format!("{}{}", config.api_key_env, key_index)
-                } else {
-                    config.api_key_env.to_string()
-                };
-                let url_var = if key_index > 1 {
-                    format!("{}{}", config.base_url_env, key_index)
-                } else {
-                    config.base_url_env.to_string()
-                };
-                
-                let api_key = match std::env::var(&key_var) {
-                    Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
-                    _ => std::env::var(config.api_key_env).unwrap_or_default()
-                };
+                let api_key = key_rotation::key_at_index(config.api_key_env, key_index)
+                    .unwrap_or_default();
                 if api_key.is_empty() {
                     return Err(ApiError::Auth(format!("Missing credentials for provider: {}", config.provider_name)));
                 }
-                let base_url = match std::env::var(&url_var) {
-                    Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
-                    _ => std::env::var(config.base_url_env).unwrap_or_else(|_| config.default_base_url.to_string())
-                };
+                let base_url_keys = key_rotation::parse_keys(config.base_url_env);
+                let base_url = base_url_keys
+                    .into_iter()
+                    .nth(key_index.saturating_sub(1))
+                    .unwrap_or_else(|| {
+                        std::env::var(config.base_url_env)
+                            .unwrap_or_else(|_| config.default_base_url.to_string())
+                    });
                 let client = OpenAiCompatClient::new(api_key, config).with_base_url(base_url);
                 Ok(Self::Xai(client))
             }
@@ -288,38 +248,25 @@ impl ProviderClient {
                         Some(meta) if meta.auth_env == "CLOUDFLARE_API_TOKEN" => OpenAiCompatConfig::cloudflare(),
                         Some(meta) if meta.auth_env == "NVIDIA_API_KEY" => OpenAiCompatConfig::nvidia(),
                         Some(meta) if meta.auth_env == "GEMINI_API_KEY" => OpenAiCompatConfig::gemini(),
+                        Some(meta) if meta.auth_env == "SILICONFLOW_API_KEY" => OpenAiCompatConfig::siliconflow(),
                         _ => OpenAiCompatConfig::openai(),
                     };
                     
-                    let key_var = if key_index > 1 {
-                        format!("{}{}", config.api_key_env, key_index)
-                    } else {
-                        config.api_key_env.to_string()
-                    };
-                    
-                    let url_var = if key_index > 1 {
-                        format!("{}{}", config.base_url_env, key_index)
-                    } else {
-                        config.base_url_env.to_string()
-                    };
-                    
-                    let api_key = match std::env::var(&key_var) {
-                        Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
-                        _ => {
-                            std::env::var(config.api_key_env).unwrap_or_default()
-                        }
-                    };
+                    let api_key = key_rotation::key_at_index(config.api_key_env, key_index)
+                        .unwrap_or_default();
                     
                     if api_key.is_empty() {
                         return Err(ApiError::Auth(format!("Missing credentials for provider: {}", config.provider_name)));
                     }
                     
-                    let base_url = match std::env::var(&url_var) {
-                        Ok(val) if !val.trim().is_empty() => val.trim().to_string(),
-                        _ => {
-                            std::env::var(config.base_url_env).unwrap_or_else(|_| config.default_base_url.to_string())
-                        }
-                    };
+                    let base_url_keys = key_rotation::parse_keys(config.base_url_env);
+                    let base_url = base_url_keys
+                        .into_iter()
+                        .nth(key_index.saturating_sub(1))
+                        .unwrap_or_else(|| {
+                            std::env::var(config.base_url_env)
+                                .unwrap_or_else(|_| config.default_base_url.to_string())
+                        });
                     
                     let client = OpenAiCompatClient::new(api_key, config).with_base_url(base_url);
                     Ok(Self::OpenAi(client))
@@ -443,12 +390,7 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
         let estimated_tokens = estimate_request_tokens(request);
         let _lock = Self::apply_api_pause(&request.model, estimated_tokens).await;
         
-        let mut models_to_try = vec![request.model.clone()];
-        let gemini_lite_model = crate::providers::resolve_model_alias("gemini-lite");
-        
-        if !models_to_try.contains(&gemini_lite_model) {
-            models_to_try.push(gemini_lite_model);
-        }
+        let models_to_try = vec![request.model.clone()];
         
         let mut last_error = None;
         
@@ -516,12 +458,7 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
         let estimated_tokens = estimate_request_tokens(request);
         let _lock = Self::apply_api_pause(&request.model, estimated_tokens).await;
         
-        let mut models_to_try = vec![request.model.clone()];
-        let gemini_lite_model = crate::providers::resolve_model_alias("gemini-lite");
-        
-        if !models_to_try.contains(&gemini_lite_model) {
-            models_to_try.push(gemini_lite_model);
-        }
+        let models_to_try = vec![request.model.clone()];
         
         let mut last_error = None;
         

@@ -1099,46 +1099,72 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         
     return spoken_text, action_desc
         
+_key_indices = {}
+        
 def resolve_narration_api_config(model: str) -> tuple[str, str, str]:
     api_key = ""
     base_url = ""
     model_id = ""
     
+    def parse_env_keys(env_var_name: str) -> list[str]:
+        raw_val = os.environ.get(env_var_name, "")
+        keys = []
+        if raw_val:
+            if "," in raw_val:
+                keys.extend([k.strip() for k in raw_val.split(",") if k.strip()])
+            else:
+                keys.append(raw_val.strip())
+        for i in range(2, 21):
+            k = os.environ.get(f"{env_var_name}{i}", "")
+            if k and k.strip() not in keys:
+                keys.append(k.strip())
+        return keys
+
+    def get_next_key(env_var_name: str) -> str:
+        keys = parse_env_keys(env_var_name)
+        if not keys:
+            return ""
+        global _key_indices
+        idx = _key_indices.get(env_var_name, 0)
+        selected = keys[idx % len(keys)]
+        _key_indices[env_var_name] = (idx + 1) % len(keys)
+        return selected
+
     if model == "gemini-lite":
         base_url = os.environ.get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/").rstrip('/')
-        # Collect all available Gemini API Keys for rotation to avoid 429 rate limits
-        keys = []
-        primary_key = os.environ.get("GEMINI_API_KEY", "")
-        if primary_key:
-            keys.append(primary_key)
-        for i in range(1, 10):
-            k = os.environ.get(f"GEMINI_API_KEY{i}", "")
-            if k:
-                keys.append(k)
-        if keys:
-            api_key = random.choice(keys)
-        else:
-            api_key = ""
+        api_key = get_next_key("GEMINI_API_KEY")
         model_id = "gemini-3.1-flash-lite"
     elif model in ("glm", "glm2", "glm3"):
-        if model == "glm2":
-            base_url = os.environ.get("GLM_BASE_URL2", os.environ.get("GLM_BASE_URL", "https://api.z.ai/api/paas/v4")).rstrip('/')
-            api_key = os.environ.get("GLM_API_KEY2", os.environ.get("GLM_API_KEY", ""))
-        elif model == "glm3":
-            base_url = os.environ.get("GLM_BASE_URL3", os.environ.get("GLM_BASE_URL", "https://api.z.ai/api/paas/v4")).rstrip('/')
-            api_key = os.environ.get("GLM_API_KEY3", os.environ.get("GLM_API_KEY", ""))
+        base_url = os.environ.get("GLM_BASE_URL", "https://api.z.ai/api/paas/v4").rstrip('/')
+        keys = parse_env_keys("GLM_API_KEY")
+        if keys:
+            if model == "glm2" and len(keys) >= 2:
+                api_key = keys[1]
+            elif model == "glm3" and len(keys) >= 3:
+                api_key = keys[2]
+            else:
+                api_key = get_next_key("GLM_API_KEY")
         else:
-            base_url = os.environ.get("GLM_BASE_URL", "https://api.z.ai/api/paas/v4").rstrip('/')
-            api_key = os.environ.get("GLM_API_KEY", "")
+            api_key = ""
         model_id = "glm-4-flash"
     else:
-        base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1").rstrip('/')
-        api_key = os.environ.get("OPENAI_API_KEY", "")
+        # Sniff base URL and API key var name for other providers
+        env_var_name = "OPENAI_API_KEY"
+        if "silicon" in model.lower():
+            env_var_name = "SILICONFLOW_API_KEY"
+            base_url = os.environ.get("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1").rstrip('/')
+        elif "anthropic" in model.lower() or "claude" in model.lower():
+            env_var_name = "ANTHROPIC_API_KEY"
+            base_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1").rstrip('/')
+        else:
+            base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1").rstrip('/')
+            
+        api_key = get_next_key(env_var_name)
         model_id = model
 
     # Fallback на ключі за замовчуванням
     if not api_key:
-        api_key = os.environ.get("OPENAI_API_KEY", "")
+        api_key = get_next_key("OPENAI_API_KEY")
             
     return base_url, api_key, model_id
 

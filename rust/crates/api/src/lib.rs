@@ -1,6 +1,7 @@
 mod client;
 mod error;
 mod http_client;
+pub mod key_rotation;
 mod prompt_cache;
 mod providers;
 mod sse;

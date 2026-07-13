@@ -263,6 +263,15 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
             default_base_url: openai_compat::DEFAULT_GEMINI_BASE_URL,
         },
     ),
+    (
+        "silicon",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "SILICONFLOW_API_KEY",
+            base_url_env: "SILICONFLOW_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_SILICONFLOW_BASE_URL,
+        },
+    ),
 ];
 
 #[must_use]
@@ -292,6 +301,7 @@ pub fn resolve_model_alias(model: &str) -> String {
                     "gemini-lite" => "gemini-3.1-flash-lite",
                     "gemini-live" => "gemini-3.1-flash-live-preview",
                     "gemini-preview" => "gemini-3-flash-preview",
+                    "silicon" => "Qwen/Qwen3-8B",
                     _ => trimmed,
                 },
             })
@@ -395,6 +405,29 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
             auth_env: "NVIDIA_API_KEY",
             base_url_env: "NVIDIA_BASE_URL",
             default_base_url: openai_compat::DEFAULT_NVIDIA_BASE_URL,
+        });
+    }
+    // SiliconFlow cloud platform (Qwen, DeepSeek, Llama, etc.).
+    if canonical.starts_with("siliconflow/") || canonical.starts_with("silicon/") {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "SILICONFLOW_API_KEY",
+            base_url_env: "SILICONFLOW_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_SILICONFLOW_BASE_URL,
+        });
+    }
+    // SiliconFlow model names with org prefix (e.g. Qwen/Qwen3-8B, deepseek-ai/DeepSeek-R1-0528).
+    // These are hosted on SiliconFlow but use the upstream model naming.
+    // We only match here when SILICONFLOW_API_KEY is present to avoid
+    // accidentally capturing these model names for other providers.
+    if (canonical.starts_with("Qwen/") || canonical.starts_with("deepseek-ai/"))
+        && openai_compat::has_api_key("SILICONFLOW_API_KEY")
+    {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "SILICONFLOW_API_KEY",
+            base_url_env: "SILICONFLOW_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_SILICONFLOW_BASE_URL,
         });
     }
     None
@@ -798,6 +831,11 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
             max_output_tokens: 8_192,
             context_window_tokens: 2_097_152,
         }),
+        // SiliconFlow-hosted models
+        "Qwen/Qwen3-8B" => Some(ModelTokenLimit {
+            max_output_tokens: 32_768,
+            context_window_tokens: 131_072,
+        }),
         _ => None,
     }
 }
@@ -875,6 +913,11 @@ const FOREIGN_PROVIDER_ENV_VARS: &[(&str, &str, &str)] = &[
         "NVIDIA_API_KEY",
         "NVIDIA NIM",
         "prefix your model name with `nvidia/` so prefix routing selects the NVIDIA backend",
+    ),
+    (
+        "SILICONFLOW_API_KEY",
+        "SiliconFlow",
+        "prefix your model name with `siliconflow/` or `silicon/` (e.g. `--model silicon`) so prefix routing selects the SiliconFlow backend",
     ),
 ];
 

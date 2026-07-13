@@ -25,6 +25,7 @@ pub const DEFAULT_GLM_BASE_URL: &str = "https://open.bigmodel.cn/api/paas/v4";
 pub const DEFAULT_CLOUDFLARE_BASE_URL: &str = "https://api.cloudflare.com/client/v4/accounts/default/ai/v1";
 pub const DEFAULT_NVIDIA_BASE_URL: &str = "https://integrate.api.nvidia.com/v1";
 pub const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai/";
+pub const DEFAULT_SILICONFLOW_BASE_URL: &str = "https://api.siliconflow.cn/v1";
 const REQUEST_ID_HEADER: &str = "request-id";
 const ALT_REQUEST_ID_HEADER: &str = "x-request-id";
 const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
@@ -51,6 +52,7 @@ const GLM_ENV_VARS: &[&str] = &["GLM_API_KEY"];
 const CLOUDFLARE_ENV_VARS: &[&str] = &["CLOUDFLARE_API_TOKEN"];
 const NVIDIA_ENV_VARS: &[&str] = &["NVIDIA_API_KEY"];
 const GEMINI_ENV_VARS: &[&str] = &["GEMINI_API_KEY"];
+const SILICONFLOW_ENV_VARS: &[&str] = &["SILICONFLOW_API_KEY"];
 
 // Provider-specific request body size limits in bytes
 const XAI_MAX_REQUEST_BODY_BYTES: usize = 52_428_800; // 50MB
@@ -60,6 +62,7 @@ const GLM_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const CLOUDFLARE_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const NVIDIA_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const GEMINI_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
+const SILICONFLOW_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 
 pub const OLLAMA_CONFIG: OpenAiCompatConfig = OpenAiCompatConfig {
     provider_name: "Ollama",
@@ -151,6 +154,19 @@ impl OpenAiCompatConfig {
         }
     }
 
+    /// SiliconFlow cloud platform — hosts open-source models (Qwen, DeepSeek,
+    /// Llama, etc.) behind a unified OpenAI-compatible endpoint.
+    #[must_use]
+    pub const fn siliconflow() -> Self {
+        Self {
+            provider_name: "SiliconFlow",
+            api_key_env: "SILICONFLOW_API_KEY",
+            base_url_env: "SILICONFLOW_BASE_URL",
+            default_base_url: DEFAULT_SILICONFLOW_BASE_URL,
+            max_request_body_bytes: SILICONFLOW_MAX_REQUEST_BODY_BYTES,
+        }
+    }
+
     #[must_use]
     pub fn credential_env_vars(self) -> &'static [&'static str] {
         match self.provider_name {
@@ -161,6 +177,7 @@ impl OpenAiCompatConfig {
             "Cloudflare" => CLOUDFLARE_ENV_VARS,
             "NVIDIA" => NVIDIA_ENV_VARS,
             "Gemini" => GEMINI_ENV_VARS,
+            "SiliconFlow" => SILICONFLOW_ENV_VARS,
             _ => &[],
         }
     }
@@ -1856,11 +1873,19 @@ fn parse_sse_frame(
 }
 
 fn read_env_non_empty(key: &str) -> Result<Option<String>, ApiError> {
-    match std::env::var(key) {
-        Ok(value) if !value.is_empty() => Ok(Some(value)),
-        Ok(_) | Err(std::env::VarError::NotPresent) => Ok(super::dotenv_value(key)),
-        Err(error) => Err(ApiError::from(error)),
-    }
+    let raw = match std::env::var(key) {
+        Ok(value) if !value.is_empty() => Some(value),
+        Ok(_) | Err(std::env::VarError::NotPresent) => super::dotenv_value(key),
+        Err(error) => return Err(ApiError::from(error)),
+    };
+    
+    Ok(raw.map(|val| {
+        if val.contains(',') {
+            val.split(',').next().unwrap_or("").trim().to_string()
+        } else {
+            val
+        }
+    }).filter(|s| !s.is_empty()))
 }
 
 #[must_use]
