@@ -1169,6 +1169,9 @@ fn wire_model_for_base_url<'a>(
     config: OpenAiCompatConfig,
     base_url: &str,
 ) -> Cow<'a, str> {
+    if config.provider_name == "SiliconFlow" {
+        return Cow::Borrowed(model);
+    }
     let Some(pos) = model.find('/') else {
         return Cow::Borrowed(model);
     };

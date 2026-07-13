@@ -56,10 +56,7 @@
     },
     "github": {
       "command": "npx",
-      "args": ["--prefer-offline", "--package", "@modelcontextprotocol/server-github", "mcp-server-github"],
-      "env": {
-        "GITHUB_PERSONAL_ACCESS_TOKEN": ""
-      }
+      "args": ["--prefer-offline", "--package", "@modelcontextprotocol/server-github", "mcp-server-github"]
     },
     "ios-simulator": {
       "command": "npx",
