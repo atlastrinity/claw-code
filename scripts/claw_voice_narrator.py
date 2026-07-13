@@ -357,6 +357,7 @@ class VoicePlayer:
         self.last_action_tool = ""
         self.success_index = 0
         self.failure_index = 0
+        self.current_proc = None
         
         # Remove stale lock
         lock_path = Path.home() / ".claw" / "narration.lock"
@@ -405,10 +406,12 @@ class VoicePlayer:
             wav_path = item
             try:
                 time.sleep(0.1)  # Give system time to sync file to disk
-                subprocess.run(["afplay", str(wav_path)], check=True)
+                self.current_proc = subprocess.Popen(["afplay", str(wav_path)])
+                self.current_proc.wait()
             except Exception as e:
                 print(f"\n⚠️ Помилка відтворення аудіо: {e}")
             finally:
+                self.current_proc = None
                 self.play_queue.task_done()
                 # If no more items are currently playing or queued, release narration lock
                 if self.play_queue.empty():
@@ -636,6 +639,18 @@ class VoicePlayer:
         # Stop background thread
         self.play_queue.put(None)
         
+        # Kill active playback process if running
+        if self.current_proc:
+            try:
+                self.current_proc.terminate()
+                self.current_proc.wait(timeout=1.0)
+            except Exception:
+                try:
+                    self.current_proc.kill()
+                except Exception:
+                    pass
+            self.current_proc = None
+            
         # Remove lock
         lock_path = Path.home() / ".claw" / "narration.lock"
         if lock_path.exists():
