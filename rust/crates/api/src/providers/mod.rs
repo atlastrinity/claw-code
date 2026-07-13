@@ -420,7 +420,7 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
     // These are hosted on SiliconFlow but use the upstream model naming.
     // We only match here when SILICONFLOW_API_KEY is present to avoid
     // accidentally capturing these model names for other providers.
-    if (canonical.starts_with("Qwen/") || canonical.starts_with("deepseek-ai/"))
+    if (canonical.starts_with("Qwen/") || canonical.starts_with("deepseek-ai/") || canonical.starts_with("meta-llama/"))
         && openai_compat::has_api_key("SILICONFLOW_API_KEY")
     {
         return Some(ProviderMetadata {
@@ -1171,6 +1171,45 @@ mod tests {
         assert_eq!(
             anthropic.custom_parameters,
             ProviderFeatureSupport::Unsupported
+        );
+    }
+
+    #[test]
+    fn test_siliconflow_routing_rules() {
+        let _lock = env_lock();
+        
+        // When SILICONFLOW_API_KEY is not set
+        let _guard_silicon = EnvVarGuard::set("SILICONFLOW_API_KEY", None);
+        let _guard_anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
+        let _guard_openai = EnvVarGuard::set("OPENAI_API_KEY", Some("sk-dummy"));
+
+        assert_eq!(
+            provider_capabilities_for_model("silicon/Qwen/Qwen3-8B").auth_env,
+            "SILICONFLOW_API_KEY"
+        );
+        // Fallback for org prefix when key is missing goes to OpenAI (OpenRouter)
+        assert_eq!(
+            provider_capabilities_for_model("Qwen/Qwen3-8B").auth_env,
+            "OPENAI_API_KEY"
+        );
+        assert_eq!(
+            provider_capabilities_for_model("meta-llama/Meta-Llama-3.1-8B-Instruct").auth_env,
+            "OPENAI_API_KEY"
+        );
+
+        // When SILICONFLOW_API_KEY is set
+        let _guard_silicon_set = EnvVarGuard::set("SILICONFLOW_API_KEY", Some("sk-dummy"));
+        assert_eq!(
+            provider_capabilities_for_model("silicon").auth_env,
+            "SILICONFLOW_API_KEY"
+        );
+        assert_eq!(
+            provider_capabilities_for_model("Qwen/Qwen3-8B").auth_env,
+            "SILICONFLOW_API_KEY"
+        );
+        assert_eq!(
+            provider_capabilities_for_model("meta-llama/Meta-Llama-3.1-8B-Instruct").auth_env,
+            "SILICONFLOW_API_KEY"
         );
     }
 
