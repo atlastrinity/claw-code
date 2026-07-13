@@ -70,11 +70,24 @@ kill_process "pyscn-mcp" false
 kill_process "uv tool uvx.*pyscn-mcp" false
 
 
+# Kill edge-tts Python TTS synthesis processes
+kill_process "edge.tts" false
+kill_process "edge_tts" false
+
 # Kill iOS simulator auxiliary daemon processes
 kill_process "idb_companion" false
 kill_process "bin/idb " false
 
 # Remove stale lock files
 rm -f ~/.claw/api.lock ~/.claw/narration.lock ~/.claw/voice_narrator.pid
+
+# Restore .claw.json from backup if stop was called before cleanup trap
+for bak_file in $(find "$HOME" -maxdepth 4 -name ".claw.json.bak" 2>/dev/null); do
+    original="${bak_file%.bak}"
+    if [ -f "$bak_file" ]; then
+        echo "🔄 Відновлення $original з бекапу..."
+        mv "$bak_file" "$original"
+    fi
+done
 
 echo "✅ All claw processes have been terminated."

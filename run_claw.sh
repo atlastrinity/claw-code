@@ -284,6 +284,11 @@ fi
 cleanup() {
   echo "🛑 Зупинка claw-rag-service..."
   kill $RAG_PID 2>/dev/null
+
+  # Зупинка озвучки якщо працює
+  pkill -f "claw_voice_narrator.py" 2>/dev/null
+  pkill -f "afplay" 2>/dev/null
+  rm -f ~/.claw/narration.lock ~/.claw/voice_narrator.pid
   
   TARGET_CLAW_JSON="${CLAW_CALLER_CWD:-.}/.claw.json"
   if [ -f "$TARGET_CLAW_JSON.bak" ]; then
