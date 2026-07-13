@@ -85,6 +85,14 @@ fn resolve_embed_config() -> Result<EmbedConfig, String> {
     EmbedConfig::from_env()
 }
 
+fn new_http_client() -> reqwest::Client {
+    reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .connect_timeout(std::time::Duration::from_secs(2))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new())
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let _logger_guard = claw_logger::init_logger("claw-rag-service");
@@ -96,7 +104,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
 
     if let Some(Cmd::Ingest(a)) = cli.command {
         let cfg = resolve_embed_config()?;
-        let client = reqwest::Client::new();
+        let client = new_http_client();
         let st = run_ingest(&a.workspace, &a.db, &cfg, &client).await?;
         tracing::info!(
             files = st.files_indexed,
@@ -125,7 +133,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cfg = resolve_embed_config()?;
     let state = Arc::new(AppState {
         db_path: db.clone(),
-        client: reqwest::Client::new(),
+        client: new_http_client(),
         cfg,
     });
 
@@ -163,6 +171,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             || path_str.contains("target/")
                             || path_str.contains(".claw-rag/")
                             || path_str.contains(".gemini/")
+                            || path_str.contains(".claw/")
+                            || path_str.contains("audio_output/")
                             || path_str.contains("temp/")
                             || path_str.ends_with(".sqlite")
                             || path_str.ends_with(".sqlite-journal")
@@ -211,7 +221,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 );
                 tracing::info!("detected file changes, triggering auto-ingest");
                 if let Ok(cfg) = resolve_embed_config() {
-                    let client = reqwest::Client::new();
+                    let client = new_http_client();
                     match handle.block_on(run_ingest(&serve_workspaces, &db_path, &cfg, &client)) {
                         Ok(st) => {
                             tracing::info!(
