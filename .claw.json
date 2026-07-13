@@ -17,10 +17,10 @@
     "silicon": "Qwen/Qwen3-8B",
     "siliconflow": "Qwen/Qwen3-8B",
     "qwen-7b": "Qwen/Qwen2.5-7B-Instruct",
-    "qwen-14b": "Qwen/Qwen2.5-14B-Instruct",
-    "qwen-coder-7b": "Qwen/Qwen2.5-Coder-7B-Instruct",
-    "llama-8b": "meta-llama/Meta-Llama-3.1-8B-Instruct",
-    "deepseek-qwen-7b": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
+    "qwen-14b": "Qwen/Qwen3-14B",
+    "qwen-coder-7b": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "llama-8b": "deepseek-ai/DeepSeek-V3",
+    "deepseek-qwen-7b": "deepseek-ai/DeepSeek-R1"
   },
   "injectedTools": [
     "bash",
