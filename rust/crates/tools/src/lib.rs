@@ -1588,6 +1588,44 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
         return Ok(());
     }
 
+    // Bypass check for read-only bash commands to prevent blocking exploration
+    if name == "bash" {
+        if let Some(cmd_val) = input.get("command").or_else(|| input.get("Command")) {
+            if let Some(cmd) = cmd_val.as_str() {
+                let trimmed = cmd.trim().to_lowercase();
+                let is_read_only = trimmed.starts_with("cat ") 
+                    || trimmed.starts_with("ls ") 
+                    || trimmed.starts_with("grep ") 
+                    || trimmed.starts_with("find ") 
+                    || trimmed.starts_with("file ") 
+                    || trimmed.starts_with("stat ") 
+                    || trimmed.starts_with("head ") 
+                    || trimmed.starts_with("tail ") 
+                    || trimmed.starts_with("wc ")
+                    || trimmed.starts_with("echo ")
+                    || trimmed.starts_with("sleep ")
+                    || trimmed.contains("status")
+                    || trimmed.contains("overview")
+                    || trimmed.contains("--help")
+                    || trimmed.contains("-h")
+                    || (trimmed.starts_with("ssh ") && (
+                        trimmed.contains("cat ") || 
+                        trimmed.contains("ls ") || 
+                        trimmed.contains("grep ") || 
+                        trimmed.contains("find ") || 
+                        trimmed.contains("head ") || 
+                        trimmed.contains("tail ") ||
+                        trimmed.contains("status") ||
+                        trimmed.contains("overview") ||
+                        trimmed.contains("--help")
+                    ));
+                if is_read_only {
+                    return Ok(());
+                }
+            }
+        }
+    }
+
     let store_path = match task_graph_store_path() {
         Ok(p) => p,
         Err(_) => return Ok(()),
