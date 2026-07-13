@@ -1550,6 +1550,7 @@ def process_session_entry(data: dict, player: VoicePlayer):
                         real_text_blocks.append(text_val)
             
             has_real_text = len(real_text_blocks) > 0
+            taskgraph_pending_speech = None
             
             for block in blocks:
                 block_type = block.get("type")
@@ -1562,6 +1563,9 @@ def process_session_entry(data: dict, player: VoicePlayer):
                     text_content = block.get("text", "")
                     if text_content and not is_tool_call_text(text_content):
                         translated_content = translate_to_ukrainian(text_content, voice="atlas")
+                        if taskgraph_pending_speech:
+                            translated_content = f"{taskgraph_pending_speech} {translated_content}"
+                            taskgraph_pending_speech = None
                         player.speak("atlas", "Результат", translated_content)
                 elif block_type == "tool_use":
                     tool_name = block.get("name", "")
@@ -1570,13 +1574,36 @@ def process_session_entry(data: dict, player: VoicePlayer):
                         natural_tool, action_desc = make_natural_tool_use(tool_name, input_str)
                         player.last_action_desc = action_desc
                         player.last_action_tool = tool_name
-                        player.speak("atlas", "Дія", natural_tool)
+                        
+                        if tool_name == "TaskGraph":
+                            # Buffer TaskGraph speech instead of speaking immediately
+                            taskgraph_pending_speech = natural_tool.rstrip('.') if natural_tool else None
+                        else:
+                            if taskgraph_pending_speech:
+                                # Pair it with the next action
+                                if natural_tool:
+                                    first_char = natural_tool[0].lower()
+                                    rest = natural_tool[1:]
+                                    combined_tool = f"{taskgraph_pending_speech}, а тепер {first_char}{rest}"
+                                else:
+                                    combined_tool = f"{taskgraph_pending_speech}, а тепер виконую наступну дію"
+                                taskgraph_pending_speech = None
+                                player.speak("atlas", "Дія", combined_tool)
+                            else:
+                                player.speak("atlas", "Дія", natural_tool)
+                                
+            if taskgraph_pending_speech:
+                player.speak("atlas", "Дія", taskgraph_pending_speech)
                         
         elif role == "tool":
             for block in blocks:
                 block_type = block.get("type")
                 if block_type == "tool_result":
                     tool_name = block.get("tool_name", "")
+                    if tool_name == "TaskGraph":
+                        # Skip TaskGraph results to avoid extra narration turns
+                        continue
+                        
                     is_error = block.get("is_error", False)
                     output_val = block.get("output", "")
                     
