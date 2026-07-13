@@ -121,7 +121,7 @@ def make_natural_speech(voice: str, title: str, raw_text: str) -> str:
         if "Сесія" in title or "Session" in title or "Запит" in title:
             prompt = extract_value(raw_text, r"(?:Запит|Prompt|Отримано новий запит від користувача):\s*(.*)") or clean_text
             prompt = re.sub(r"^Отримано новий запит від користувача:\s*", "", prompt).strip()
-            return f"Received request: {prompt}"
+            return prompt
         
         elif "Контекст" in title or "Context" in title:
             py_files = extract_value(raw_text, r"(?:Файли Пайтон|Python files):\s*(\d+)") or "68"
@@ -171,7 +171,10 @@ def make_natural_speech(voice: str, title: str, raw_text: str) -> str:
 
     # 2. TETIANA (Coordinator / Other)
     elif voice == "tetiana":
-        if "Ініціалізація системи" in title or "System Init" in title:
+        if "Системний запуск" in title or "System Start" in title:
+            return f"Model {clean_text}"
+            
+        elif "Ініціалізація системи" in title or "System Init" in title:
             if "порожня" in clean_text.lower() or not clean_text:
                 return "Initialization complete, system is ready."
             cmds = extract_value(raw_text, r"(?:Завантажені записи команд|Loaded command entries):\s*(\d+)") or "207"
@@ -385,6 +388,36 @@ class VoicePlayer:
         except Exception as e:
             print(f"\n{COLORS['grisha']}⚠️ Помилка ініціалізації TTS: {e}{COLORS['reset']}")
 
+        # Audio playback queue and background thread
+        import queue
+        import threading
+        self.play_queue = queue.Queue()
+        self.play_thread = threading.Thread(target=self._play_loop, daemon=True)
+        self.play_thread.start()
+
+    def _play_loop(self):
+        lock_path = Path.home() / ".claw" / "narration.lock"
+        while True:
+            item = self.play_queue.get()
+            if item is None:
+                self.play_queue.task_done()
+                break
+            wav_path = item
+            try:
+                time.sleep(0.1)  # Give system time to sync file to disk
+                subprocess.run(["afplay", str(wav_path)], check=True)
+            except Exception as e:
+                print(f"\n⚠️ Помилка відтворення аудіо: {e}")
+            finally:
+                self.play_queue.task_done()
+                # If no more items are currently playing or queued, release narration lock
+                if self.play_queue.empty():
+                    if lock_path.exists():
+                        try:
+                            lock_path.unlink()
+                        except Exception:
+                            pass
+
     def get_success_speech(self, action: str) -> str:
         import random
         templates = [
@@ -587,13 +620,12 @@ class VoicePlayer:
                     except Exception:
                         pass
                 
-                # Play audio using afplay (built-in on macOS)
-                time.sleep(0.1) # Даємо системі час синхронізувати файл на диск перед відтворенням
-                subprocess.run(["afplay", str(wav_path)], check=True)
+                # Enqueue the generated WAV path for background playback
+                self.play_queue.put(wav_path)
             except Exception as e:
-                print(f"  {COLORS['grisha']}⚠️ Помилка відтворення аудіо: {e}{reset}")
-            finally:
-                if lock_path.exists():
+                print(f"  {COLORS['grisha']}⚠️ Помилка генерації аудіо: {e}{reset}")
+                # Since generation failed and we touched the lock, release it if queue is empty
+                if self.play_queue.empty() and lock_path.exists():
                     try:
                         lock_path.unlink()
                     except Exception:
@@ -601,6 +633,9 @@ class VoicePlayer:
 
     def finalize(self):
         """Concatenates all segments into one final file."""
+        # Stop background thread
+        self.play_queue.put(None)
+        
         # Remove lock
         lock_path = Path.home() / ".claw" / "narration.lock"
         if lock_path.exists():
@@ -997,75 +1032,55 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         cmd_str = str(cmd).strip()
         desc_str = str(desc).strip()
         action_desc = get_command_description_ua(cmd_str, desc_str)
-        spoken_text = f"Запускаю команду для {action_desc}..."
+        spoken_text = f"Запуск: {action_desc}."
         
     elif tool_name in ("read_file", "view_file"):
         path = params.get("AbsolutePath", params.get("path", ""))
         filename = Path(path).name if path else "файлу"
-        parent = Path(path).parent.name if path else ""
-        if parent and parent != "claw-code":
-            action_desc = f"читання файлу {filename} у папці {parent}"
-            spoken_text = f"Так... Зчитую вміст файлу {filename} у папці {parent}... глянемо, який там код."
-        else:
-            action_desc = f"читання файлу {filename}"
-            spoken_text = f"Так... Зчитую вміст файлу {filename}... глянемо, який там код."
+        action_desc = f"читання файлу {filename}"
+        spoken_text = f"Зчитую {filename}."
         
     elif tool_name in ("write_to_file", "write_file", "create_file"):
         path = params.get("TargetFile", params.get("path", ""))
         filename = Path(path).name if path else "файлу"
-        parent = Path(path).parent.name if path else ""
-        if parent and parent != "claw-code":
-            action_desc = f"запису у файл {filename} у папці {parent}"
-            spoken_text = f"Добре, створюю або перезаписую файл {filename} у папці {parent}..."
-        else:
-            action_desc = f"запису у файл {filename}"
-            spoken_text = f"Добре, створюю або перезаписую файл {filename}..."
+        action_desc = f"запису у файл {filename}"
+        spoken_text = f"Записую {filename}."
         
     elif tool_name in ("replace_file_content", "multi_replace_file_content", "edit_file"):
         path = params.get("TargetFile", params.get("path", ""))
         filename = Path(path).name if path else "файлу"
-        parent = Path(path).parent.name if path else ""
-        if parent and parent != "claw-code":
-            action_desc = f"редагування файлу {filename} у папці {parent}"
-            spoken_text = f"Редагую файл {filename} у папці {parent}... зараз внесу потрібні зміни."
-        else:
-            action_desc = f"редагування файлу {filename}"
-            spoken_text = f"Редагую файл {filename}... зараз внесу потрібні зміни."
+        action_desc = f"редагування файлу {filename}"
+        spoken_text = f"Редагую {filename}."
         
     elif tool_name == "grep_search":
         query = params.get("Query", params.get("query", ""))
         action_desc = f"пошуку тексту '{query}' у коді"
-        spoken_text = f"Шукаю фрагмент '{query}' у коді... сподіваюся, зараз знайдеться."
+        spoken_text = f"Пошук '{query}'."
         
     elif tool_name == "glob_search":
         pattern = params.get("Pattern", params.get("pattern", ""))
         action_desc = f"пошуку файлів за шаблоном '{pattern}'"
-        spoken_text = f"Шукаю файли за шаблоном '{pattern}' у структурі проекту..."
+        spoken_text = f"Пошук файлів '{pattern}'."
         
     elif tool_name == "list_dir":
         path = params.get("DirectoryPath", params.get("path", ""))
         dirname = Path(path).name if path else "директорії"
-        parent = Path(path).parent.name if path else ""
-        if parent and parent != "claw-code" and dirname:
-            action_desc = f"перегляду вмісту папки {dirname} у папці {parent}"
-            spoken_text = f"Гляну, які файли є в папці {dirname} у папці {parent}..."
-        else:
-            action_desc = f"перегляду вмісту папки {dirname}"
-            spoken_text = f"Гляну, які файли є в папці {dirname}..."
+        action_desc = f"перегляду вмісту папки {dirname}"
+        spoken_text = f"Список файлів {dirname}."
         
     elif tool_name == "TaskGraph":
         op = params.get("operation", "")
         if op == "update_status":
-            action_desc = "оновлення статусу завдань у чек-листі"
-            spoken_text = "Оновлюю наш чек-лист... позначу виконане."
+            action_desc = "оновлення статусу завдань"
+            spoken_text = "Оновлюю статус завдань."
         else:
-            action_desc = "оновлення списку завдань планування"
-            spoken_text = "Оновлюю наш список завдань планування..."
+            action_desc = "оновлення планування"
+            spoken_text = "Оновлюю планування."
             
     else:
         tool_name_ua = TOOL_NAMES_UA.get(tool_name, tool_name)
         action_desc = f"виконання інструменту {tool_name_ua}"
-        spoken_text = f"Запускаю інструмент {tool_name_ua}..."
+        spoken_text = f"Запуск {tool_name_ua}."
         
     return spoken_text, action_desc
         
@@ -1215,7 +1230,17 @@ def translate_and_summarize_thinking(text: str) -> str:
         "messages": [
             {
                 "role": "system",
-                "content": "You are Tetiana, a female coordinator and analyst. Your role is to analyze the upcoming steps and thinking of the AI agent, and explain the plan in Ukrainian. Always use feminine verbs for yourself (e.g. 'я вирішила', 'я запланувала', 'я знайшла'). Talk directly to Atlas (who is the executor). Call him by name 'Атлас' or 'Атласе'. Tell him what the next action is, and ask him to perform it. E.g. 'Атласе, я проаналізувала задачу. Нам треба зробити Х, виконуй.' or 'Схоже, наступний крок - це У. Атласе, запускай.' Keep it concise, natural, and under 25 words. Output ONLY the resulting sentence without ellipses ('...') or conversational tail questions (like 'окей?')."
+                "content": (
+                    "You are Tetiana, a software coordinator. Analyze the upcoming steps/thinking of the AI agent, "
+                    "and explain the next planned action in Ukrainian. "
+                    "RULES: "
+                    "1. Speak directly and strictly to the point. "
+                    "2. Do NOT use conversational prefixes like 'Атласе, я проаналізувала задачу', 'Схоже, наступний крок', 'Я вирішила' etc. "
+                    "3. Do NOT address the agent as 'Атлас' or 'Атласе' in your speech. "
+                    "4. Explain ONLY the concrete plan/action concisely. Keep it under 12 words if possible. "
+                    "E.g., instead of 'Атласе, я проаналізувала код і пропоную запустити тести, виконуй' write 'Планую запустити тести для перевірки змін.' "
+                    "Output ONLY the Ukrainian plan description."
+                )
             },
             {
                 "role": "user",
@@ -1299,53 +1324,29 @@ def summarize_thinking_ua(thinking_text: str) -> str:
     if tools and files:
         t_name = tools[0]
         t_pron = tool_pronunciation.get(t_name.lower(), t_name)
-        return f"Зараз я використаю інструмент {t_pron} для роботи з файлом {files[0]}."
+        return f"Використовую {t_pron} для {files[0]}."
     elif tools:
         t_name = tools[0]
         t_pron = tool_pronunciation.get(t_name.lower(), t_name)
-        return f"Потрібно запустити системний інструмент {t_pron} для виконання цього кроку."
+        return f"Запуск інструменту {t_pron}."
     elif files:
-        return f"Вивчаю структуру проекту та аналізую зміни у файлі {files[0]}."
+        return f"Аналіз файлу {files[0]}."
     elif commands:
-        return f"Готую до виконання в терміналі команду {commands[0]}."
+        return f"Запуск команди {commands[0]}."
         
     # Identify agent intent based on keywords
     if any(k in text_lower for k in ["read", "view", "file", "content", "open"]):
-        brief = random.choice([
-            "Мені потрібно детальніше ознайомитися з вмістом файлів проєкту.",
-            "Аналізую вміст файлів, щоб краще зрозуміти логіку роботи.",
-            "Потрібно переглянути код у файлах для подальшого аналізу."
-        ])
+        brief = "Аналіз вмісту файлів."
     elif any(k in text_lower for k in ["search", "find", "glob", "grep", "locate"]):
-        brief = random.choice([
-            "Проводжу пошук потрібних файлів та аналізую структуру коду.",
-            "Шукаю необхідні компоненти та файли у проекті.",
-            "Виконую пошук за ключовими словами у коді."
-        ])
+        brief = "Пошук файлів або коду."
     elif any(k in text_lower for k in ["task", "plan", "graph", "roadmap", "todo"]):
-        brief = random.choice([
-            "Оновлюю план дій та структуризую наступні кроки для виконання завдання.",
-            "Коригую наш чек-лист та планую подальші кроки.",
-            "Аналізую поточні завдання та оновлюю план роботи."
-        ])
+        brief = "Оновлення чек-листа."
     elif any(k in text_lower for k in ["test", "run", "build", "execute", "compile"]):
-        brief = random.choice([
-            "Готуюся до запуску тестів або збірки проєкту для перевірки працездатності.",
-            "Перевіряю працездатність коду шляхом запуску тестів.",
-            "Запускаю збірку проекту, щоб переконатися у відсутності помилок."
-        ])
+        brief = "Тестування або збірка проекту."
     elif any(k in text_lower for k in ["fix", "bug", "error", "modify", "replace", "edit"]):
-        brief = random.choice([
-            "Планую внесення виправлень або редагування коду для усунення проблеми.",
-            "Готую зміни до коду для виправлення виявлених помилок.",
-            "Потрібно відредагувати код для усунення цієї проблеми."
-        ])
+        brief = "Редагування коду."
     else:
-        brief = random.choice([
-            "Аналізую поточний стан системи та обмірковую наступні кроки.",
-            "Розглядаю можливі варіанти розв'язання задачі.",
-            "Визначаю оптимальний шлях вирішення проблеми."
-        ])
+        brief = "Аналіз стану системи."
         
     return brief
 
@@ -1395,7 +1396,7 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
             "IMPORTANT: Translate the user's request directly and literally into Ukrainian. "
             "Do NOT rewrite the request as actions you have already taken. "
             "Do NOT write in the first person (do NOT use 'я зробив', 'я знайшов' etc.). "
-            "Just translate what the user is asking to be done, prefixing it with 'Отримано запит: '."
+            "Just translate what the user is asking to be done directly. Do NOT add any prefixes or introductory phrases."
         )
     elif voice == "tetiana":
         gender_rules = (
@@ -1572,12 +1573,12 @@ def process_session_entry(data: dict, player: VoicePlayer):
     entry_type = data.get("type")
     if entry_type == "session_meta":
         model = data.get("model", "невідома модель")
-        player.speak("tetiana", "Системний запуск", f"Розпочато нову сесію основного клієнта Claw за допомогою моделі {model}.")
+        player.speak("tetiana", "Системний запуск", model)
         
     elif entry_type == "prompt_history":
         text = data.get("text", "")
         if text:
-            player.speak("atlas", "Запит", f"Отримано новий запит від користувача: {text}")
+            player.speak("atlas", "Запит", text)
             
     elif entry_type == "message":
         message = data.get("message", {})
@@ -1663,7 +1664,11 @@ def process_session_entry(data: dict, player: VoicePlayer):
                         if any(term in lower_out for term in ("traceback (most", "error:", "❌ помилка", "no such option:", "exception:", "command not found")):
                             has_error_traces = True
                             
-                    speech = player.get_tool_verdict_speech(tool_name, action_desc, is_error, output_val)
+                    if not is_error and not has_error_traces:
+                        # Skip successful tool results to keep narration clean and fast
+                        continue
+                        
+                    speech = player.get_tool_verdict_speech(tool_name, action_desc, is_error or has_error_traces, output_val)
                     player.speak("grisha", "Результат інструменту", speech)
 
 def tail_session_loop():
