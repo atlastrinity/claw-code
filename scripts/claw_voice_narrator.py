@@ -490,6 +490,10 @@ class VoicePlayer:
         if not natural_text.strip():
             return
 
+        # Translate English/mixed natural text to Ukrainian for BOTH display and TTS!
+        # This ensures the printed text on the screen matches the spoken voice perfectly.
+        natural_text_ua = translate_to_ukrainian(natural_text, voice=voice)
+
         # 1. Print beautifully to terminal
         color = COLORS.get(voice, "")
         emoji = AGENT_EMOJI.get(voice, "🔈")
@@ -501,7 +505,7 @@ class VoicePlayer:
         print(f"\n{bold}{color}{'─' * 60}{reset}")
         print(f"{color}{emoji}  {name}  —  {title}{reset}")
         print(f"{dim}{color}{'─' * 60}{reset}")
-        print(f"  {color}{natural_text}{reset}")
+        print(f"  {color}{natural_text_ua}{reset}")
         print(f"{dim}{color}{'─' * 60}{reset}")
 
         # 2. Generate and play audio if TTS is available
@@ -509,9 +513,6 @@ class VoicePlayer:
             import hashlib
             import shutil
             import re
-            
-            # Translate English natural text to Ukrainian for TTS!
-            natural_text_ua = translate_to_ukrainian(natural_text, voice=voice)
             
             # Map narrator agents to Edge-TTS voices with distinct rate/pitch settings
             voice_settings = {
@@ -1406,8 +1407,9 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana") -> str:
             "IMPORTANT: You are Atlas, a male developer and the executor of tasks. "
             "Always use masculine verbs and forms when referring to yourself (e.g., 'я зробив', 'я знайшов', 'я запустив'). "
             "Your role is to perform actions. Speak naturally without constantly repeating the name 'Тетяна' or 'Тетяно'. "
-            "Acknowledge her plans and state what action you are taking. "
-            "Use a warm, natural, friendly teammate tone. "
+            "State only the action you are taking. Do NOT acknowledge plans, and do NOT say things like 'мені подобається твій план', 'згоден' or 'чудовий план'. "
+            "Keep it extremely concise, short, and under 15 words. "
+            "Use a natural, direct, friendly teammate tone. "
             "Do NOT include ellipses ('...') or conversational additions at the end (such as 'окей?', 'так?', 'чи ні?'). "
             "Make the translation clear, natural, and direct."
         )
@@ -1562,11 +1564,10 @@ def process_session_entry(data: dict, player: VoicePlayer):
                 elif block_type == "text":
                     text_content = block.get("text", "")
                     if text_content and not is_tool_call_text(text_content):
-                        translated_content = translate_to_ukrainian(text_content, voice="atlas")
                         if taskgraph_pending_speech:
-                            translated_content = f"{taskgraph_pending_speech} {translated_content}"
+                            text_content = f"{taskgraph_pending_speech}. {text_content}"
                             taskgraph_pending_speech = None
-                        player.speak("atlas", "Результат", translated_content)
+                        player.speak("atlas", "Результат", text_content)
                 elif block_type == "tool_use":
                     tool_name = block.get("name", "")
                     input_str = block.get("input", "")
