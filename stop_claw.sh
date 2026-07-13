@@ -42,8 +42,9 @@ kill_process() {
 kill_process "run_claw.sh" false
 kill_process "run_claw_new_session.sh" false
 
-# Kill voice narrator script
+# Kill voice narrator script and any active audio playbacks
 kill_process "claw_voice_narrator.py" false
+kill_process "afplay" false
 
 kill_process "claw" true
 kill_process "claw-analog" true
@@ -71,6 +72,6 @@ kill_process "idb_companion" false
 kill_process "bin/idb " false
 
 # Remove stale lock files
-rm -f ~/.claw/api.lock ~/.claw/narration.lock
+rm -f ~/.claw/api.lock ~/.claw/narration.lock ~/.claw/voice_narrator.pid
 
 echo "✅ All claw processes have been terminated."
