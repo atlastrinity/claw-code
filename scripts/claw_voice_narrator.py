@@ -424,61 +424,26 @@ class VoicePlayer:
     def get_success_speech(self, action: str) -> str:
         import random
         templates = [
-            f"Все чітко: {action} виконано в повному обсязі.",
-            f"Інструмент {action} відпрацював на відмінно.",
-            f"Завершили {action} без пригод, статус успішний.",
-            f"Крок {action} виконано повністю, перешкод немає.",
-            f"Усе пройшло штатно, {action} завершено.",
-            f"Звітую: {action} завершено успішно, жодних багів.",
-            f"Операція {action} відпрацювала без жодного пилу.",
-            f"Завдання {action} виконано, рухаємося за планом.",
-            f"Все готово по {action}, результат позитивний.",
-            f"З {action} розібралися, все працює як годинник.",
-            f"Крок {action} виконано успішно, рухаємося до наступного.",
-            f"Інструмент {action} завершив роботу без нарікань.",
-            f"Все зелене: {action} виконано без зауважень.",
-            f"Звіт по кроку: {action} завершено вдало.",
-            f"Все готово: {action} відпрацював без жодної помарки.",
-            f"Чудово, {action} завершився з успішним результатом.",
-            f"По кроку {action} все виконано, ніяких затримок.",
-            f"Операцію {action} закрито успішно, все під контролем.",
-            f"Все зроблено: {action} виконано на всі сто."
+            f"{action} виконано.",
+            f"{action} завершено успішно.",
+            f"{action} готово, статус ОК.",
+            f"Крок {action} пройшов.",
+            f"Готово: {action}.",
+            f"{action} без помилок.",
+            f"{action} виконано, рухаємось далі.",
         ]
         return random.choice(templates)
 
     def get_failure_speech(self, action: str, error: str) -> str:
         import random
         templates = [
-            f"Не вдалося виконати {action} через помилку: {error}.",
-            f"Виникла помилка під час {action}. Деталі такі: {error}.",
-            f"Запуск {action} завершився невдачею. Повідомлення системи: {error}.",
-            f"На жаль, крок {action} провалився. Помилка: {error}.",
-            f"Щось пішло не так із {action}. Маємо збій: {error}.",
-            f"Зафіксовано помилку під час {action}: {error}.",
-            f"Виникли проблеми з {action}. Опис збою: {error}.",
-            f"Не вдалося завершити {action}. Помилка в системі: {error}.",
-            f"Операція {action} впала з помилкою: {error}.",
-            f"Збій на кроці {action}. Причина помилки: {error}.",
-            f"Крок {action} не виконано. Отримали виняток: {error}.",
-            f"Маємо невдалий запуск {action}. Деталі збою: {error}.",
-            f"Виникла критична помилка в {action}: {error}.",
-            f"Не вдалося виконати {action}. Помилка: {error}.",
-            f"Операція {action} завершилась аварійно. Опис: {error}.",
-            f"Крок {action} завершився з помилкою. Повідомлення: {error}.",
-            f"Завдання {action} провалилося. Система каже: {error}.",
-            f"Маємо збій у виконанні {action}. Помилка: {error}.",
-            f"Звіт про помилку на кроці {action}: {error}.",
-            f"Не вдалося опрацювати {action}. Деталі помилки: {error}.",
-            f"Помилка при виконанні {action}. Опис помилки: {error}.",
-            f"Крок {action} не пройшов. Причина збою: {error}.",
-            f"Спроба запустити {action} завершилася помилкою: {error}.",
-            f"Операція {action} заблокована через помилку: {error}.",
-            f"Помилка під час кроку {action}. Код або опис: {error}.",
-            f"Крок {action} закінчився збоєм. Деталі помилки: {error}.",
-            f"Не змогли завершити {action} через виняток: {error}.",
-            f"Виникла помилка в процесі {action}. Повідомлення: {error}.",
-            f"Процес {action} перервано через помилку: {error}.",
-            f"Запуск {action} провалився. Помилка виконання: {error}."
+            f"{action} впало: {error}.",
+            f"Збій {action}: {error}.",
+            f"Помилка в {action}: {error}.",
+            f"Не вдалося {action}: {error}.",
+            f"{action} провалилось: {error}.",
+            f"Крок {action} не пройшов: {error}.",
+            f"Аварія {action}: {error}.",
         ]
         return random.choice(templates)
     def get_tool_verdict_speech(self, tool_name: str, action_desc: str, is_error: bool, output_val: str) -> str:
@@ -552,9 +517,9 @@ class VoicePlayer:
             
             # Map narrator agents to Edge-TTS voices with distinct rate/pitch settings
             voice_settings = {
-                "tetiana": ("uk-UA-PolinaNeural", "+3%", "+5Hz"),
-                "atlas":   ("uk-UA-OstapNeural", "+5%", "+3Hz"),
-                "grisha":  ("uk-UA-OstapNeural", "-8%", "-15Hz"),
+                "tetiana": ("uk-UA-PolinaNeural", "+12%", "+5Hz"),
+                "atlas":   ("uk-UA-OstapNeural", "+15%", "+3Hz"),
+                "grisha":  ("uk-UA-OstapNeural", "+5%", "-15Hz"),
             }
             # Allow overriding the voice settings via environment variables (e.g. CLAW_TTS_ATLAS_VOICE="tetiana")
             voice_override = os.environ.get(f"CLAW_TTS_{voice.upper()}_VOICE", voice)
@@ -563,9 +528,9 @@ class VoicePlayer:
             # Prepare text for TTS (transcribe English terms, clean up formatting)
             speech_text = prepare_text_for_tts(natural_text_ua)
             
-            # Allow up to 3000 characters for full analysis/summaries to be read in full
-            if len(speech_text) > 3000:
-                speech_text = speech_text[:3000]
+            # Allow up to 1500 characters for concise narration
+            if len(speech_text) > 1500:
+                speech_text = speech_text[:1500]
 
             # Cache check by generating md5 hash of the voice and speech text
             hash_key = hashlib.md5(f"{voice}:{speech_text}".encode("utf-8")).hexdigest()
@@ -1152,7 +1117,7 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str]:
         env_var_name = "OPENAI_API_KEY"
         if "silicon" in model.lower():
             env_var_name = "SILICONFLOW_API_KEY"
-            base_url = os.environ.get("SILICONFLOW_BASE_URL", "https://api.siliconflow.cn/v1").rstrip('/')
+            base_url = os.environ.get("SILICONFLOW_BASE_URL", "https://api.siliconflow.com/v1").rstrip('/')
         elif "anthropic" in model.lower() or "claude" in model.lower():
             env_var_name = "ANTHROPIC_API_KEY"
             base_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1").rstrip('/')
@@ -1206,13 +1171,12 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
     }
     
     prompt_system = (
-        "You are Grisha, a male Ukrainian software engineer and security/operations specialist. "
-        "Your role is to verify the result of the action executed by Atlas and report the verdict to Tetiana and Atlas. "
-        "Summarize the outcome of the tool execution in a single, short, natural, highly conversational sentence in Ukrainian (UA). "
-        "RULES: 1. Always use masculine verbs and forms when referring to yourself (e.g. 'я перевірив', 'я не знайшов'). "
-        "Speak naturally and concisely without starting every sentence with 'Тетяно, Атласе' or other names unless essential. "
-        "2. Do NOT use English words or Latin letters at all. Translate every English term/file/variable name into its phonetic Ukrainian equivalent. "
-        "3. Keep it under 25 words. Do NOT include ellipses ('...') or conversational tail questions (like 'окей?'). Output ONLY the Ukrainian sentence."
+        "You are a male Ukrainian security/operations specialist reporting tool execution results. "
+        "Summarize the outcome in a single, short sentence in Ukrainian (UA). "
+        "RULES: 1. NEVER use agent names (Атлас, Атласе, Тетяна, Тетяно, Гріша, Грішо). Just state the fact directly. "
+        "2. Always use masculine verbs (e.g. 'перевірив', 'не знайшов'). "
+        "3. Do NOT use English words or Latin letters. Translate every English term into its phonetic Ukrainian equivalent. "
+        "4. Keep it under 15 words. No ellipses, no trailing questions. Output ONLY the Ukrainian sentence."
     )
     
     error_context = "CRITICAL: The tool failed with an ERROR." if is_error else "The tool executed normally."
@@ -1244,7 +1208,7 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
             res_data = json.loads(response.read().decode('utf-8'))
             summary_text = res_data['choices'][0]['message']['content'].strip()
             if summary_text:
-                return summary_text
+                return strip_agent_names(summary_text)
     except Exception as e:
         print(f"\n⚠️ Помилка автоозвучки результату інструменту через {model}: {e}")
         
@@ -1272,15 +1236,14 @@ def translate_and_summarize_thinking(text: str) -> str:
             {
                 "role": "system",
                 "content": (
-                    "You are Tetiana, a software coordinator. Analyze the upcoming steps/thinking of the AI agent, "
-                    "and explain the next planned action in Ukrainian. "
+                    "You are a female software coordinator. Analyze the AI agent's thinking and explain the next action in Ukrainian. "
                     "RULES: "
-                    "1. Speak directly and strictly to the point. "
-                    "2. Do NOT use conversational prefixes like 'Атласе, я проаналізувала задачу', 'Схоже, наступний крок', 'Я вирішила' etc. "
-                    "3. Do NOT address the agent as 'Атлас' or 'Атласе' in your speech. "
-                    "4. Explain ONLY the concrete plan/action concisely. Keep it under 12 words if possible. "
-                    "E.g., instead of 'Атласе, я проаналізувала код і пропоную запустити тести, виконуй' write 'Планую запустити тести для перевірки змін.' "
-                    "Output ONLY the Ukrainian plan description."
+                    "1. NEVER mention any agent names (Атлас, Атласе, Тетяна, Гріша, Грішо). Start with the action verb directly. "
+                    "2. Use feminine verbs (e.g. 'проаналізувала', 'запланувала'). "
+                    "3. Explain ONLY the concrete action. Keep it under 10 words. "
+                    "4. No conversational prefixes, no ellipses, no trailing questions. "
+                    "E.g., 'Запускаю тести для перевірки змін.' "
+                    "Output ONLY the Ukrainian action description."
                 )
             },
             {
@@ -1303,7 +1266,7 @@ def translate_and_summarize_thinking(text: str) -> str:
                 res_data = json.loads(response.read().decode('utf-8'))
                 summary_text = res_data['choices'][0]['message']['content'].strip()
                 if summary_text:
-                    return summary_text
+                    return strip_agent_names(summary_text)
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt < 2:
                 if model == "gemini-lite":
@@ -1437,49 +1400,42 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
             "IMPORTANT: Translate the user's request directly and literally into Ukrainian. "
             "Do NOT rewrite the request as actions you have already taken. "
             "Do NOT write in the first person (do NOT use 'я зробив', 'я знайшов' etc.). "
+            "NEVER include agent names (Атлас, Тетяна, Гріша). "
             "Just translate what the user is asking to be done directly. Do NOT add any prefixes or introductory phrases."
         )
     elif voice == "tetiana":
         gender_rules = (
-            "IMPORTANT: You are Tetiana, a female coordinator and analyst. "
-            "Always use feminine verbs and forms when referring to yourself (e.g., 'я зробила', 'я знайшла'). "
-            "Your role is to coordinate and tell Atlas what the plan is. "
-            "Speak naturally without constantly repeating the name 'Атлас' or 'Атласе'. "
-            "Use a warm, natural, friendly teammate tone. "
-            "Do NOT include ellipses ('...') or conversational additions at the end (such as 'окей?', 'так?', 'чи ні?'). "
-            "Make the translation clear, natural, and direct."
+            "IMPORTANT: You are a female coordinator and analyst. "
+            "Always use feminine verbs (e.g., 'зробила', 'знайшла'). "
+            "NEVER start with or include agent names like 'Атласе', 'Гріша', 'Тетяна'. "
+            "Start directly with the action or fact. Keep it under 15 words. "
+            "No ellipses, no trailing questions ('окей?', 'так?'). Direct and concise."
         )
     elif voice == "atlas":
         if title == "Результат":
             gender_rules = (
-                "IMPORTANT: You are Atlas, a male developer and the executor of tasks. "
-                "Always use masculine verbs and forms when referring to yourself (e.g., 'я зробив', 'я знайшов', 'я запустив'). "
-                "Your role is to report the final result of your work. "
-                "Summarize your findings/actions very concisely and briefly. "
-                "Make the text shorter, clear, and direct. Skip minor details or redundant explanations. "
-                "Do NOT acknowledge plans, and do NOT say things like 'мені подобається твій план', 'згоден' or 'чудовий план'. "
-                "Use a natural, direct, friendly teammate tone. Keep the message under 30 words if possible."
+                "IMPORTANT: You are a male developer reporting results. "
+                "Always use masculine verbs ('зробив', 'знайшов', 'запустив'). "
+                "NEVER include agent names like 'Тетяно', 'Гріша', 'Атлас'. "
+                "Summarize concisely. Skip minor details. "
+                "No plan acknowledgements ('згоден', 'чудовий план'). "
+                "Keep under 20 words. Direct and factual."
             )
         else:
             gender_rules = (
-                "IMPORTANT: You are Atlas, a male developer and the executor of tasks. "
-                "Always use masculine verbs and forms when referring to yourself (e.g., 'я зробив', 'я знайшов', 'я запустив'). "
-                "Your role is to perform actions. Speak naturally without constantly repeating the name 'Тетяна' or 'Тетяно'. "
-                "State only the action you are taking. Do NOT acknowledge plans, and do NOT say things like 'мені подобається твій план', 'згоден' or 'чудовий план'. "
-                "Keep it extremely concise, short, and under 15 words. "
-                "Use a natural, direct, friendly teammate tone. "
-                "Do NOT include ellipses ('...') or conversational additions at the end (such as 'окей?', 'так?', 'чи ні?'). "
-                "Make the translation clear, natural, and direct."
+                "IMPORTANT: You are a male developer performing actions. "
+                "Always use masculine verbs ('зробив', 'знайшов', 'запустив'). "
+                "NEVER include agent names like 'Тетяно', 'Гріша', 'Атлас'. "
+                "State only the action. No plan acknowledgements ('згоден', 'чудовий план'). "
+                "Keep under 10 words. No ellipses, no trailing questions."
             )
     else:
         gender_rules = (
-            "IMPORTANT: You are Grisha, a male operations and security specialist. "
-            "Always use masculine verbs and forms when referring to yourself (e.g., 'я перевірив', 'я виявив'). "
-            "Your role is to verify the results of Atlas's actions. "
-            "Speak naturally and concisely without constantly repeating the names 'Тетяно' or 'Атласе'. "
-            "Use a warm, natural, friendly teammate tone. "
-            "Do NOT include ellipses ('...') or conversational additions at the end (such as 'окей?', 'так?', 'чи ні?'). "
-            "Make the translation clear, natural, and direct."
+            "IMPORTANT: You are a male security/operations specialist verifying results. "
+            "Always use masculine verbs ('перевірив', 'виявив'). "
+            "NEVER include agent names like 'Тетяно', 'Атласе', 'Гріша'. "
+            "State the verification result directly. Keep under 15 words. "
+            "No ellipses, no trailing questions. Direct and factual."
         )
 
     payload = {
@@ -1509,7 +1465,7 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
                 res_data = json.loads(response.read().decode('utf-8'))
                 translated_text = res_data['choices'][0]['message']['content'].strip()
                 if translated_text:
-                    return translated_text
+                    return strip_agent_names(translated_text)
         except urllib.error.HTTPError as e:
             if e.code == 429 and attempt < 2:
                 if model == "gemini-lite":
@@ -1608,6 +1564,23 @@ def clean_assistant_phrases(text: str) -> str:
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'^\s*[,.;!?]\s*', '', text) # Strip leading punctuation
     text = text.strip()
+    return text
+
+def strip_agent_names(text: str) -> str:
+    """Remove agent name addressing from narration text."""
+    if not text:
+        return text
+    patterns = [
+        r"(?i)\bАтласе?,?\s*",
+        r"(?i)\bТетяно?,?\s*",
+        r"(?i)\bГрішо?,?\s*",
+        r"(?i)\bГріша?,?\s*",
+    ]
+    for p in patterns:
+        text = re.sub(p, "", text).strip()
+    # Clean up leading punctuation left behind
+    text = re.sub(r"^\s*[,.:;!?]\s*", "", text)
+    text = re.sub(r"\s+", " ", text).strip()
     return text
 
 def process_session_entry(data: dict, player: VoicePlayer):
