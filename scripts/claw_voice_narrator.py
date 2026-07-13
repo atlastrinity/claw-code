@@ -492,7 +492,7 @@ class VoicePlayer:
 
         # Translate English/mixed natural text to Ukrainian for BOTH display and TTS!
         # This ensures the printed text on the screen matches the spoken voice perfectly.
-        natural_text_ua = translate_to_ukrainian(natural_text, voice=voice)
+        natural_text_ua = translate_to_ukrainian(natural_text, voice=voice, title=title)
 
         # 1. Print beautifully to terminal
         color = COLORS.get(voice, "")
@@ -1349,17 +1349,15 @@ def summarize_thinking_ua(thinking_text: str) -> str:
         
     return brief
 
-def translate_to_ukrainian(text: str, voice: str = "tetiana") -> str:
+def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -> str:
     if not text.strip():
         return text
 
     # Check if text needs translation or cleaning for TTS.
-    # 1. Contains Latin characters (files, commands, emails, keys)
-    # 2. Contains Russian characters (ы, э, ъ, ё)
-    # 3. Contains markdown structures (headers, tables, bold list items, horizontal lines)
-    # 4. Contains paths or numbers/tokens
     needs_processing = False
-    if re.search(r'[a-zA-Z]', text):
+    if voice == "atlas" and title == "Результат" and len(text) > 120:
+        needs_processing = True
+    elif re.search(r'[a-zA-Z]', text):
         needs_processing = True
     elif re.search(r'[ыЫэЭъЪёЁ]', text):
         needs_processing = True
@@ -1392,7 +1390,14 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana") -> str:
         "Authorization": f"Bearer {api_key}"
     }
     
-    if voice == "tetiana":
+    if title == "Запит":
+        gender_rules = (
+            "IMPORTANT: Translate the user's request directly and literally into Ukrainian. "
+            "Do NOT rewrite the request as actions you have already taken. "
+            "Do NOT write in the first person (do NOT use 'я зробив', 'я знайшов' etc.). "
+            "Just translate what the user is asking to be done, prefixing it with 'Отримано запит: '."
+        )
+    elif voice == "tetiana":
         gender_rules = (
             "IMPORTANT: You are Tetiana, a female coordinator and analyst. "
             "Always use feminine verbs and forms when referring to yourself (e.g., 'я зробила', 'я знайшла'). "
@@ -1403,16 +1408,27 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana") -> str:
             "Make the translation clear, natural, and direct."
         )
     elif voice == "atlas":
-        gender_rules = (
-            "IMPORTANT: You are Atlas, a male developer and the executor of tasks. "
-            "Always use masculine verbs and forms when referring to yourself (e.g., 'я зробив', 'я знайшов', 'я запустив'). "
-            "Your role is to perform actions. Speak naturally without constantly repeating the name 'Тетяна' or 'Тетяно'. "
-            "State only the action you are taking. Do NOT acknowledge plans, and do NOT say things like 'мені подобається твій план', 'згоден' or 'чудовий план'. "
-            "Keep it extremely concise, short, and under 15 words. "
-            "Use a natural, direct, friendly teammate tone. "
-            "Do NOT include ellipses ('...') or conversational additions at the end (such as 'окей?', 'так?', 'чи ні?'). "
-            "Make the translation clear, natural, and direct."
-        )
+        if title == "Результат":
+            gender_rules = (
+                "IMPORTANT: You are Atlas, a male developer and the executor of tasks. "
+                "Always use masculine verbs and forms when referring to yourself (e.g., 'я зробив', 'я знайшов', 'я запустив'). "
+                "Your role is to report the final result of your work. "
+                "Summarize your findings/actions very concisely and briefly. "
+                "Make the text shorter, clear, and direct. Skip minor details or redundant explanations. "
+                "Do NOT acknowledge plans, and do NOT say things like 'мені подобається твій план', 'згоден' or 'чудовий план'. "
+                "Use a natural, direct, friendly teammate tone. Keep the message under 30 words if possible."
+            )
+        else:
+            gender_rules = (
+                "IMPORTANT: You are Atlas, a male developer and the executor of tasks. "
+                "Always use masculine verbs and forms when referring to yourself (e.g., 'я зробив', 'я знайшов', 'я запустив'). "
+                "Your role is to perform actions. Speak naturally without constantly repeating the name 'Тетяна' or 'Тетяно'. "
+                "State only the action you are taking. Do NOT acknowledge plans, and do NOT say things like 'мені подобається твій план', 'згоден' or 'чудовий план'. "
+                "Keep it extremely concise, short, and under 15 words. "
+                "Use a natural, direct, friendly teammate tone. "
+                "Do NOT include ellipses ('...') or conversational additions at the end (such as 'окей?', 'так?', 'чи ні?'). "
+                "Make the translation clear, natural, and direct."
+            )
     else:
         gender_rules = (
             "IMPORTANT: You are Grisha, a male operations and security specialist. "
@@ -1526,6 +1542,32 @@ def is_tool_call_text(text: str) -> bool:
         "викликав інструмент" in text_lower
     )
 
+def clean_assistant_phrases(text: str) -> str:
+    if not text:
+        return text
+    phrases = [
+        r"(?i)\bмені подобається (?:твій|ваш) план\b[.!?]*\s*",
+        r"(?i)\bчудовий план\b[.!?]*\s*",
+        r"(?i)\bзгоден з (?:цим|твоїм|вашим) планом\b[.!?]*\s*",
+        r"(?i)\bзгоден, (?:я|почну)\b",
+        r"(?i)\bя згоден\b[.!?]*\s*",
+        r"(?i)\bi agree (?:with the plan|with your plan)?[.!?]*\s*",
+        r"(?i)\bi like (?:the|your|this) plan\b[.!?]*\s*",
+        r"(?i)\bgreat plan\b[.!?]*\s*",
+        r"(?i)\bthat (?:sounds like a|is a) good plan\b[.!?]*\s*",
+        r"(?i)\bзгоден\b[.!?]*\s*",
+        r"(?i)\bзгода\b[.!?]*\s*",
+        r"(?i)\bдобре, я згоден\b[.!?]*\s*",
+    ]
+    for pattern in phrases:
+        text = re.sub(pattern, "", text)
+    
+    # Clean up double spaces or leading/trailing punctuation left behind
+    text = re.sub(r'\s+', ' ', text)
+    text = re.sub(r'^\s*[,.;!?]\s*', '', text) # Strip leading punctuation
+    text = text.strip()
+    return text
+
 def process_session_entry(data: dict, player: VoicePlayer):
     entry_type = data.get("type")
     if entry_type == "session_meta":
@@ -1567,7 +1609,9 @@ def process_session_entry(data: dict, player: VoicePlayer):
                         if taskgraph_pending_speech:
                             text_content = f"{taskgraph_pending_speech}. {text_content}"
                             taskgraph_pending_speech = None
-                        player.speak("atlas", "Результат", text_content)
+                        text_content = clean_assistant_phrases(text_content)
+                        if text_content.strip():
+                            player.speak("atlas", "Результат", text_content)
                 elif block_type == "tool_use":
                     tool_name = block.get("name", "")
                     input_str = block.get("input", "")
@@ -1623,59 +1667,84 @@ def process_session_entry(data: dict, player: VoicePlayer):
                     player.speak("grisha", "Результат інструменту", speech)
 
 def tail_session_loop():
-    caller_cwd = os.environ.get("CLAW_CALLER_CWD")
-    if caller_cwd:
-        sessions_dir = Path(caller_cwd) / ".claw" / "sessions"
-    else:
-        sessions_dir = original_cwd / ".claw" / "sessions"
-        
-    if not sessions_dir.exists():
-        sessions_dir = project_root / ".claw" / "sessions"
-
-    print(f"{COLORS['bold']}{COLORS['system']}🎙️ Режим реального часу (Tailing Mode) запущено.{COLORS['reset']}")
-    print(f"{COLORS['system']}Очікування нових записів у сесіях...{COLORS['reset']}\n")
-    
-    latest_file = None
-    while not latest_file:
-        latest_file = find_latest_session_file(sessions_dir)
-        if not latest_file:
-            time.sleep(1.0)
-            
-    print(f"{COLORS['system']}👀 Стеження за файлом сесії: {latest_file}{COLORS['reset']}\n")
-    
-    audio_dir = project_root / "audio_output"
-    player = VoicePlayer(audio_dir)
-    
-    with open(latest_file, "r") as f:
-        # Seek to the end of the file immediately to only process new entries
-        f.seek(0, 2)
-            
+    pid_file = Path.home() / ".claw" / "voice_narrator.pid"
+    pid_file.parent.mkdir(parents=True, exist_ok=True)
+    if pid_file.exists():
         try:
-            while True:
-                line = f.readline()
-                if not line:
-                    # Перевіряємо чи не з'явився новий файл сесії
-                    current_latest = find_latest_session_file(sessions_dir)
-                    if current_latest and current_latest != latest_file:
-                        print(f"\n{COLORS['system']}🔄 Виявлено нову активну сесію: {current_latest}{COLORS['reset']}")
-                        latest_file = current_latest
-                        f.close()
-                        f = open(latest_file, "r")
+            with open(pid_file, "r") as pf:
+                old_pid = int(pf.read().strip())
+            os.kill(old_pid, 0)
+            print(f"\n{COLORS['system']}🎙️  Синхронізатор озвучки вже запущено (PID: {old_pid}). Вихід.{COLORS['reset']}\n")
+            sys.exit(0)
+        except (ValueError, OSError):
+            pass
+            
+    try:
+        pid_file.write_text(str(os.getpid()))
+    except Exception:
+        pass
+
+    try:
+        caller_cwd = os.environ.get("CLAW_CALLER_CWD")
+        if caller_cwd:
+            sessions_dir = Path(caller_cwd) / ".claw" / "sessions"
+        else:
+            sessions_dir = original_cwd / ".claw" / "sessions"
+            
+        if not sessions_dir.exists():
+            sessions_dir = project_root / ".claw" / "sessions"
+
+        print(f"{COLORS['bold']}{COLORS['system']}🎙️ Режим реального часу (Tailing Mode) запущено.{COLORS['reset']}")
+        print(f"{COLORS['system']}Очікування нових записів у сесіях...{COLORS['reset']}\n")
+        
+        latest_file = None
+        while not latest_file:
+            latest_file = find_latest_session_file(sessions_dir)
+            if not latest_file:
+                time.sleep(1.0)
+                
+        print(f"{COLORS['system']}👀 Стеження за файлом сесії: {latest_file}{COLORS['reset']}\n")
+        
+        audio_dir = project_root / "audio_output"
+        player = VoicePlayer(audio_dir)
+        
+        with open(latest_file, "r") as f:
+            # Seek to the end of the file immediately to only process new entries
+            f.seek(0, 2)
+                
+            try:
+                while True:
+                    line = f.readline()
+                    if not line:
+                        # Перевіряємо чи не з'явився новий файл сесії
+                        current_latest = find_latest_session_file(sessions_dir)
+                        if current_latest and current_latest != latest_file:
+                            print(f"\n{COLORS['system']}🔄 Виявлено нову активну сесію: {current_latest}{COLORS['reset']}")
+                            latest_file = current_latest
+                            f.close()
+                            f = open(latest_file, "r")
+                            continue
+                        
+                        time.sleep(0.5)
+                        # Скидаємо EOF прапор для зчитування нових рядків
+                        f.seek(f.tell())
                         continue
                     
-                    time.sleep(0.5)
-                    # Скидаємо EOF прапор для зчитування нових рядків
-                    f.seek(f.tell())
-                    continue
-                
-                try:
-                    data = json.loads(line)
-                    process_session_entry(data, player)
-                except Exception:
-                    pass
-        except KeyboardInterrupt:
-            print(f"\n{COLORS['system']}🛑 Озвучку в реальному часі зупинено.{COLORS['reset']}")
-            player.finalize()
+                    try:
+                        data = json.loads(line)
+                        process_session_entry(data, player)
+                    except Exception:
+                        pass
+            except KeyboardInterrupt:
+                print(f"\n{COLORS['system']}🛑 Озвучку в реальному часі зупинено.{COLORS['reset']}")
+                player.finalize()
+    finally:
+        if pid_file.exists():
+            try:
+                pid_file.unlink()
+            except Exception:
+                pass
+
 
 
 # ──────────────────────────── Main Entry Point ──────────────────────────
