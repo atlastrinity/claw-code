@@ -28,7 +28,7 @@ verify_command() {
     
     echo -e "Checking ${BOLD}$name${NC}..."
     
-    if eval "$check_cmd" >/dev/null 2>&1; then
+    if eval "$check_cmd" </dev/null >/dev/null 2>&1; then
         echo -e "  -> Status: ${GREEN}✅ Installed & Verified${NC}"
         return 0
     else
@@ -37,7 +37,7 @@ verify_command() {
             echo -e "  -> Running: $install_cmd"
             if eval "$install_cmd" >/dev/null 2>&1; then
                 # Re-verify
-                if eval "$check_cmd" >/dev/null 2>&1; then
+                if eval "$check_cmd" </dev/null >/dev/null 2>&1; then
                     echo -e "  -> Status: ${GREEN}✅ Installed & Verified successfully${NC}"
                     return 0
                 fi
@@ -93,6 +93,11 @@ verify_command "Notebooks Proxy Extension" \
 verify_command "Visualization Proxy Extension" \
     "[ -f /Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.6.1-universal/mcp_servers/cli/mcp_proxy_bundle.js ]" \
     "echo 'Please verify the Google Cloud Tools extension is installed in your IDE.'"
+
+# 10. pyscn-mcp
+verify_command "PyScn MCP (pyscn-mcp)" \
+    "uvx pyscn-mcp --help" \
+    "uv tool install pyscn-mcp"
 
 echo ""
 echo -e "${BOLD}${CYAN}========================================================================${NC}"

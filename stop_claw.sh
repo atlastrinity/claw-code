@@ -66,6 +66,9 @@ kill_process "mcp_proxy_bundle.js" false
 kill_process "chrome-devtools-mcp" false
 kill_process "swiftlens" false
 kill_process "uv tool uvx.*swiftlens" false
+kill_process "pyscn-mcp" false
+kill_process "uv tool uvx.*pyscn-mcp" false
+
 
 # Kill iOS simulator auxiliary daemon processes
 kill_process "idb_companion" false

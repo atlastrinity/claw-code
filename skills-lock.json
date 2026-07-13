@@ -1,0 +1,239 @@
+{
+  "version": 1,
+  "skills": {
+    "asc-app-clips": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-app-clips/SKILL.md",
+      "computedHash": "37ef59a00561b018c623bbf2082c7b4e4194cd582b34cb624a25550b1ebe36df"
+    },
+    "asc-app-infos": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-app-infos/SKILL.md",
+      "computedHash": "ca197f1c6677f22e9389cdb13b3d15df7d52095132ae8ff75885c7a57fc5db38"
+    },
+    "asc-app-previews": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-app-previews/SKILL.md",
+      "computedHash": "7ab81f4729e630c2f37d27e2c710e467e034ccbbbbe28fb75e5e0970d5f7d44f"
+    },
+    "asc-app-shots": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-app-shots/SKILL.md",
+      "computedHash": "54650bbf18aecbb1bfef9974dc693b47a57b6f9b3b44132d9826ecac674bea5a"
+    },
+    "asc-app-shots-prompt": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-app-shots-prompt/SKILL.md",
+      "computedHash": "382d3e05f947ddcda83a57c24e6d1d0f2a40733d7df3636909fe323f540c92e2"
+    },
+    "asc-app-wall": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-app-wall/SKILL.md",
+      "computedHash": "7ae54bb3e561ddbee52d984541263d9ba6a3e26c4d862eb4c7e14fefbffbfa54"
+    },
+    "asc-appstore-release": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-appstore-release/SKILL.md",
+      "computedHash": "1347bff44e5c4244f0ffc13dca9eb30676ad31900c17586b840bb139e4f58b4e"
+    },
+    "asc-auth": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-auth/SKILL.md",
+      "computedHash": "b3581c0d429c2c25c33692270f8f7080145eb09da5fdda615cb86b770bc423fa"
+    },
+    "asc-availability": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-availability/SKILL.md",
+      "computedHash": "dc06c4e85fe5610eb5562403590cd8be3e2253d6b8e9f34447eda72f2bb2374c"
+    },
+    "asc-beta-review": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-beta-review/SKILL.md",
+      "computedHash": "affc4a683be697cc22bad6cd73e5bedeecd1216d9378588af3d6de3491ad8116"
+    },
+    "asc-builds-archive": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-builds-archive/SKILL.md",
+      "computedHash": "04adafa98f6a51189ddcb81dc417073b9948394f985588328f544bc3f5330c00"
+    },
+    "asc-builds-upload": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-builds-upload/SKILL.md",
+      "computedHash": "13f7187e48ab5a2105cb9c765154b43fc401e1ff62cc3eabbdcfc6bac364b90b"
+    },
+    "asc-check-readiness": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-check-readiness/SKILL.md",
+      "computedHash": "e7e1d806e5ffd0f79b2f357f23af80e01a72749ed5a4be1eb37181c7f0f7fa40"
+    },
+    "asc-cli": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-cli/SKILL.md",
+      "computedHash": "bb0895f83e93cf1fd39557dec7ace0f9521729ed33f243a2669db25f9875ca10"
+    },
+    "asc-code-signing": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-code-signing/SKILL.md",
+      "computedHash": "20d82ee60fdc0e64786a70bee0d58934f24418a2914e61918612a99a42afb9be"
+    },
+    "asc-customer-reviews": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-customer-reviews/SKILL.md",
+      "computedHash": "e72f43bd7a6fe5d3fdc16a3d07df3bf735285080b007899c167f19098f82ada8"
+    },
+    "asc-game-center": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-game-center/SKILL.md",
+      "computedHash": "cdced37f292cd35f05594d2a04410417bf1b637c3c8b8b7403d112de0bbec0fe"
+    },
+    "asc-iap": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-iap/SKILL.md",
+      "computedHash": "b98204f1aaa7b219c56086feb15239d6f41eaa36256d584a9246f120cfaac0d2"
+    },
+    "asc-init": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-init/SKILL.md",
+      "computedHash": "855c8db36a99794cec113dd9652836705881471a75e9a61f8a6d4d75a63d5187"
+    },
+    "asc-iris": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-iris/SKILL.md",
+      "computedHash": "4e4da7501babe76f0d5a4378ae7564947e92dc0f8070591ab0c29b12e31425df"
+    },
+    "asc-new-app-release": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-new-app-release/SKILL.md",
+      "computedHash": "601ad74e426af580d7e18ccd7236f5d9c57e6af12f38dc46201cd441c3fb1169"
+    },
+    "asc-performance": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-performance/SKILL.md",
+      "computedHash": "d04eac897fb2322feb0ae47754c0b3333c66bc681117602372312810682ee034"
+    },
+    "asc-plugin-release": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-plugin-release/SKILL.md",
+      "computedHash": "e9565b2ad11d1322a3ffa7d65f128ed26af24b985acb3c393c32b82847bf04fd"
+    },
+    "asc-plugins": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-plugins/SKILL.md",
+      "computedHash": "0d4ba57b6da5b5e1a8c4f2bd67822ba57ea44fe80b723ab65f33b846e104af6e"
+    },
+    "asc-promoted-purchases": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-promoted-purchases/SKILL.md",
+      "computedHash": "c2a523c1a8f2db97b6d378a0395494df1e9aa08b3ce243273ba77624e6f071af"
+    },
+    "asc-release-workflow": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-appstore-release-local/SKILL.md",
+      "computedHash": "9fd945218b0762858f3b290b7cfc6e83fab4bf2a4386fa6c0f1519d1fd28c020"
+    },
+    "asc-reports": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-reports/SKILL.md",
+      "computedHash": "098bb3607b56328f885e11bbf6ea80ed04b95198729d817e37582fa7f4e5ecfc"
+    },
+    "asc-review-detail": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-review-detail/SKILL.md",
+      "computedHash": "8f2ed85d393e6414dd35bbcaa3742328382dbf2da2c95361e020c127decc7d71"
+    },
+    "asc-skills": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-skills/SKILL.md",
+      "computedHash": "a0a2f4ce12e2d7e1fd408ce7a4b78f94c68e90f873826a2cbdb779decc82e1aa"
+    },
+    "asc-subscriptions": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-subscriptions/SKILL.md",
+      "computedHash": "e6b0200854f4072813c6345306507e31db67c4b8670657d971a657624cde9a19"
+    },
+    "asc-testflight": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-testflight/SKILL.md",
+      "computedHash": "0414396e30c713d23562744f62e9119f53b2847953ebfcd1233c1776339c57ac"
+    },
+    "asc-users": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-users/SKILL.md",
+      "computedHash": "65a5dc7af7741a4a795d424e5a178be93a97849f395dcc65688fe8da954beca8"
+    },
+    "asc-xcode-cloud": {
+      "source": "tddworks/asc-cli-skills",
+      "sourceType": "github",
+      "skillPath": "asc-xcode-cloud/SKILL.md",
+      "computedHash": "15c863fedaa52c62c7f65e3ddb2ff2f7e23df87914983908e312127f2d8b5b97"
+    },
+    "spm-build-analysis": {
+      "source": "avdlee/xcode-build-optimization-agent-skill",
+      "sourceType": "github",
+      "skillPath": "skills/spm-build-analysis/SKILL.md",
+      "computedHash": "9785f2113e45cd29aedc4c1e7e5763735157ff1e4c99a4ca4a65d4f625814c55"
+    },
+    "xcode-build-benchmark": {
+      "source": "avdlee/xcode-build-optimization-agent-skill",
+      "sourceType": "github",
+      "skillPath": "skills/xcode-build-benchmark/SKILL.md",
+      "computedHash": "e132c38adbb8a74e3e0474c0e34566b209fa3bf29532604af97d715b8c721ec8"
+    },
+    "xcode-build-fixer": {
+      "source": "avdlee/xcode-build-optimization-agent-skill",
+      "sourceType": "github",
+      "skillPath": "skills/xcode-build-fixer/SKILL.md",
+      "computedHash": "7d1c68154af030a24b7420c9f9c7805e6009e0012da34b9a16c0cfef3396b608"
+    },
+    "xcode-build-orchestrator": {
+      "source": "avdlee/xcode-build-optimization-agent-skill",
+      "sourceType": "github",
+      "skillPath": "skills/xcode-build-orchestrator/SKILL.md",
+      "computedHash": "d03e65e314a8fbe0ae0cf7469fa1a4280b5d335a7f163fdc7a7a91dbb0fd1b2b"
+    },
+    "xcode-compilation-analyzer": {
+      "source": "avdlee/xcode-build-optimization-agent-skill",
+      "sourceType": "github",
+      "skillPath": "skills/xcode-compilation-analyzer/SKILL.md",
+      "computedHash": "9857f081cf044a06f93f382ea1a53c3fe9699ac0d0686abbabea67696c2eff6a"
+    },
+    "xcode-project-analyzer": {
+      "source": "avdlee/xcode-build-optimization-agent-skill",
+      "sourceType": "github",
+      "skillPath": "skills/xcode-project-analyzer/SKILL.md",
+      "computedHash": "dfe1901df149b68d8869a48143508444605ed8ba20b448d1faec1d6218d58859"
+    }
+  }
+}

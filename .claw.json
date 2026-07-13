@@ -15,7 +15,12 @@
     "gemini-lite": "gemini-3.1-flash-lite",
     "gemini-pro": "gemini-3.1-pro-preview",
     "silicon": "Qwen/Qwen3-8B",
-    "siliconflow": "Qwen/Qwen3-8B"
+    "siliconflow": "Qwen/Qwen3-8B",
+    "qwen-7b": "Qwen/Qwen2.5-7B-Instruct",
+    "qwen-14b": "Qwen/Qwen2.5-14B-Instruct",
+    "qwen-coder-7b": "Qwen/Qwen2.5-Coder-7B-Instruct",
+    "llama-8b": "meta-llama/Meta-Llama-3.1-8B-Instruct",
+    "deepseek-qwen-7b": "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B"
   },
   "injectedTools": [
     "bash",
@@ -79,6 +84,10 @@
     "visualization": {
       "command": "node",
       "args": ["/Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.6.1-universal/mcp_servers/cli/mcp_proxy_bundle.js"]
+    },
+    "pyscn-mcp": {
+      "command": "uvx",
+      "args": ["pyscn-mcp"]
     }
   },
   "sandbox": {
