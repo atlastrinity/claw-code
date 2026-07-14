@@ -2729,10 +2729,10 @@ pub fn slash_command_completion_candidates_with_sessions(
 
 const DISPLAY_TRUNCATION_NOTICE: &str =
     "\x1b[2m… output truncated for display; full result preserved in session.\x1b[0m";
-pub const READ_DISPLAY_MAX_LINES: usize = 80;
-pub const READ_DISPLAY_MAX_CHARS: usize = 6_000;
-pub const TOOL_OUTPUT_DISPLAY_MAX_LINES: usize = 60;
-pub const TOOL_OUTPUT_DISPLAY_MAX_CHARS: usize = 4_000;
+pub const READ_DISPLAY_MAX_LINES: usize = 1000;
+pub const READ_DISPLAY_MAX_CHARS: usize = 100_000;
+pub const TOOL_OUTPUT_DISPLAY_MAX_LINES: usize = 1000;
+pub const TOOL_OUTPUT_DISPLAY_MAX_CHARS: usize = 100_000;
 
 pub fn extract_tool_path(parsed: &serde_json::Value) -> String {
     parsed
