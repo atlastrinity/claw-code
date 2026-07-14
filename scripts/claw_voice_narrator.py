@@ -927,13 +927,30 @@ def get_command_description_ua(cmd: str, desc: str) -> str:
         "check memory usage statistics": "аналізу використання оперативної пам'яті",
         "check top cpu processes": "виявлення найбільш активних процесів процесора",
         "count source files in project": "підрахунку кількості вихідних файлів коду",
-        "count mcp-related processes": "перевірки запущених mcp серверів",def resolve_narration_api_config(model: str) -> tuple[str, str, str, str]:
+        "count mcp-related processes": "перевірки запущених mcp серверів",
+    }
+    
+    for eng, ua in translations.items():
+        if eng in desc.lower():
+            return ua
+            
+    return "виконання команди"
+
+_key_indices = {}
+
+def rotate_api_key_index(env_var_name: str):
+    global _key_indices
+    idx = _key_indices.get(env_var_name, 0)
+    _key_indices[env_var_name] = idx + 1
+
+def resolve_narration_api_config(model: str) -> tuple[str, str, str, str]:
     api_key = ""
     base_url = ""
     model_id = ""
     target_env = ""
     
     def parse_env_keys(env_var_name: str) -> list[str]:
+        import os
         raw_val = os.environ.get(env_var_name, "")
         keys = []
         if raw_val:
@@ -951,41 +968,31 @@ def get_command_description_ua(cmd: str, desc: str) -> str:
         keys = parse_env_keys(env_var_name)
         if not keys:
             return ""
-        
-        state_file = os.path.expanduser("~/.claw_key_state.json")
-        idx = 0
-        if os.path.exists(state_file):
-            try:
-                with open(state_file, "r") as f:
-                    state = json.load(f)
-                idx = state.get(env_var_name, 0)
-            except Exception:
-                pass
-        
+        global _key_indices
+        idx = _key_indices.get(env_var_name, 0)
         selected = keys[idx % len(keys)]
         return selected
 
     if model == "gemini-lite":
         base_url = os.environ.get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/").rstrip('/')
         target_env = "GEMINI_API_KEY"
-        api_key = get_current_key("GEMINI_API_KEY")
+        api_key = get_current_key(target_env)
         model_id = "gemini-3.1-flash-lite"
     elif model in ("glm", "glm2", "glm3"):
         base_url = os.environ.get("GLM_BASE_URL", "https://api.z.ai/api/paas/v4").rstrip('/')
-        target_env = "GLM_API_KEY"
         keys = parse_env_keys("GLM_API_KEY")
+        target_env = "GLM_API_KEY"
         if keys:
             if model == "glm2" and len(keys) >= 2:
                 api_key = keys[1]
             elif model == "glm3" and len(keys) >= 3:
                 api_key = keys[2]
             else:
-                api_key = get_current_key("GLM_API_KEY")
+                api_key = get_current_key(target_env)
         else:
             api_key = ""
         model_id = "glm-4-flash"
     else:
-        # Sniff base URL and API key var name for other providers
         env_var_name = "OPENAI_API_KEY"
         if "silicon" in model.lower():
             env_var_name = "SILICONFLOW_API_KEY"
@@ -997,15 +1004,85 @@ def get_command_description_ua(cmd: str, desc: str) -> str:
             base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1").rstrip('/')
             
         target_env = env_var_name
-        api_key = get_current_key(env_var_name)
+        api_key = get_current_key(target_env)
         model_id = model
 
-    # Fallback на ключі за замовчуванням
     if not api_key:
         target_env = "OPENAI_API_KEY"
-        api_key = get_current_key("OPENAI_API_KEY")
+        api_key = get_current_key(target_env)
             
     return base_url, api_key, model_id, target_env
+
+def translate_and_summarize_thinking(text: str) -> str:
+    if not text.strip():
+        return ""
+
+    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+        if not base_url or not api_key:
+            return ""
+
+        url = f"{base_url}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        payload = {
+            "model": model_id,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Tetiana, a female software coordinator and strategist. Your role is to voice the agent's internal reasoning and strategy (WHY we are doing something) in Ukrainian based on the thinking block. "
+                        "RULES: "
+                        "1. NEVER mention any agent names (Атлас, Тетяна, Гріша). "
+                        "2. Use feminine verbs (e.g. 'думаю', 'вирішила', 'перевіряю', 'бачу'). "
+                        "3. Focus on the THOUGHT PROCESS and STRATEGY, not the exact tool action. (e.g. 'Щоб зрозуміти архітектуру, мені потрібно поглянути на основні файли', або 'Схоже, тут є проблема з підключенням, зараз перевірю логи'). "
+                        "4. Keep it under 15 words. "
+                        "5. No conversational prefixes, no ellipses, no trailing questions. "
+                        "Output ONLY the Ukrainian reasoning text."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": text
+                }
+            ],
+            "temperature": 0.5
+        }
+        
+        try:
+            import urllib.request, urllib.error
+            req = urllib.request.Request(
+                url, 
+                data=json.dumps(payload).encode('utf-8'), 
+                headers=headers,
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                summary_text = res_data['choices'][0]['message']['content'].strip()
+                if summary_text:
+                    return strip_agent_names(summary_text)
+                return ""
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 401, 403, 500, 502, 503, 504):
+                rotate_api_key_index(target_env)
+                import time
+                time.sleep(1.0)
+            else:
+                print(f"\n⚠️ Помилка автоперекладу та підсумку думок через {model} (HTTP {e.code}): {e}")
+                break
+        except Exception as e:
+            rotate_api_key_index(target_env)
+            import time
+            time.sleep(1.0)
+        
+    return "", target_env
 
 def rotate_api_key_index(env_var_name: str):
     if not env_var_name:
@@ -1209,20 +1286,7 @@ def translate_and_summarize_thinking(text: str) -> str:
             rotate_api_key_index(target_env)
             time.sleep(1.0)
         
-    return ""):
-            env_var_name = "ANTHROPIC_API_KEY"
-            base_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1").rstrip('/')
-        else:
-            base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1").rstrip('/')
-            
-        api_key = get_next_key(env_var_name)
-        model_id = model
 
-    # Fallback на ключі за замовчуванням
-    if not api_key:
-        api_key = get_next_key("OPENAI_API_KEY")
-            
-    return base_url, api_key, model_id
 
 def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool, output_val: str) -> str:
     if not output_val.strip() and not is_error:
