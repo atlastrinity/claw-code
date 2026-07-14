@@ -927,151 +927,11 @@ def get_command_description_ua(cmd: str, desc: str) -> str:
         "check memory usage statistics": "аналізу використання оперативної пам'яті",
         "check top cpu processes": "виявлення найбільш активних процесів процесора",
         "count source files in project": "підрахунку кількості вихідних файлів коду",
-        "count mcp-related processes": "перевірки запущених mcp серверів",
-        "check claw directory structure": "аналізу структури папок проекту",
-        "list available skills": "перегляду доступних навичок",
-        "count skill documentation files": "підрахунку файлів інструкцій для навичок",
-        "check workspace size": "визначення обсягу папки проекту",
-        "stop all claw-related processes": "зупинки всіх фонових процесів агента",
-        "check if the build has completed": "перевірки результатів компіляції проекту",
-        "check the task status and log file location": "перевірки стану запущених завдань",
-        "get list of all connected disks and drives": "отримання списку всіх підключених дисків та накопичувачів",
-    }
-    
-    desc_lower = desc.lower()
-    for eng, ua in translations.items():
-        if eng in desc_lower:
-            return ua
-            
-    # Try general clean up of description
-    desc_clean = desc.strip()
-    if desc_clean:
-        # Convert first word to noun if it is a common Ukrainian verb or noun in wrong case
-        words = desc_clean.split()
-        first_word = words[0].lower().rstrip(":,.") if words else ""
-        
-        verb_to_noun = {
-            "перевірити": "перевірки",
-            "перевірка": "перевірки",
-            "переглянути": "перегляду",
-            "перегляд": "перегляду",
-            "знайти": "пошуку",
-            "пошук": "пошуку",
-            "пошукати": "пошуку",
-            "запустити": "запуску",
-            "запуск": "запуску",
-            "створити": "створення",
-            "створення": "створення",
-            "записати": "запису",
-            "запис": "запису",
-            "редагувати": "редагування",
-            "відредагувати": "редагування",
-            "редагування": "редагування",
-            "видалити": "видалення",
-            "видалення": "видалення",
-            "отримати": "отримання",
-            "отримання": "отримання",
-            "зчитати": "зчитування",
-            "зчитування": "зчитування",
-            "виконати": "виконання",
-            "виконання": "виконання",
-            "зупинити": "зупинки",
-            "зупинка": "зупинки",
-        }
-        
-        if first_word in verb_to_noun:
-            words[0] = verb_to_noun[first_word]
-            # Ensure the rest of the string has appropriate case/formatting
-            return " ".join(words)
-
-        if desc_clean.lower().startswith("check "):
-            return "перевірки " + desc_clean[6:]
-        elif desc_clean.lower().startswith("run "):
-            return "запуску " + desc_clean[4:]
-        elif desc_clean.lower().startswith("list "):
-            return "отримання списку " + desc_clean[5:]
-        elif desc_clean.lower().startswith("find "):
-            return "пошуку " + desc_clean[5:]
-        return desc_clean
-
-    return "виконання системної операції"
-
-def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
-    try:
-        params = json.loads(input_str)
-    except Exception:
-        params = {}
-        
-    cmd = params.get("command", params.get("CommandLine", ""))
-    desc = params.get("description", params.get("Description", params.get("toolSummary", params.get("toolAction", ""))))
-    
-    action_desc = ""
-    spoken_text = f"Tool: {tool_name}. "
-    if desc:
-        spoken_text += f"Context: {desc}. "
-    
-    if tool_name in ("bash", "run_command"):
-        cmd_str = str(cmd).strip()
-        desc_str = str(desc).strip()
-        action_desc = get_command_description_ua(cmd_str, desc_str)
-        spoken_text += f"Command: {cmd_str}"
-        
-    elif tool_name in ("read_file", "view_file"):
-        path = params.get("AbsolutePath", params.get("path", ""))
-        filename = Path(path).name if path else "файлу"
-        action_desc = f"читання файлу {filename}"
-        spoken_text += f"Target: {filename}"
-        
-    elif tool_name in ("write_to_file", "write_file", "create_file"):
-        path = params.get("TargetFile", params.get("path", ""))
-        filename = Path(path).name if path else "файлу"
-        action_desc = f"запису у файл {filename}"
-        spoken_text += f"Target: {filename}"
-        
-    elif tool_name in ("replace_file_content", "multi_replace_file_content", "edit_file"):
-        path = params.get("TargetFile", params.get("path", ""))
-        filename = Path(path).name if path else "файлу"
-        action_desc = f"редагування файлу {filename}"
-        spoken_text += f"Target: {filename}"
-        
-    elif tool_name == "grep_search":
-        query = params.get("Query", params.get("query", ""))
-        action_desc = f"пошуку тексту '{query}' у коді"
-        spoken_text += f"Query: '{query}'"
-        
-    elif tool_name == "glob_search":
-        pattern = params.get("Pattern", params.get("pattern", ""))
-        action_desc = f"пошуку файлів за шаблоном '{pattern}'"
-        spoken_text += f"Pattern: '{pattern}'"
-        
-    elif tool_name == "list_dir":
-        path = params.get("DirectoryPath", params.get("path", ""))
-        dirname = Path(path).name if path else "директорії"
-        action_desc = f"перегляду вмісту папки {dirname}"
-        spoken_text += f"Target: {dirname}"
-        
-    elif tool_name == "TaskGraph":
-        op = params.get("operation", "")
-        if op == "update_status":
-            action_desc = "оновлення статусу завдань"
-            spoken_text = "Оновлюю статус завдань."
-        else:
-            action_desc = "оновлення планування"
-            spoken_text = "Оновлюю планування завдань."
-            
-    else:
-        tool_name_ua = TOOL_NAMES_UA.get(tool_name, tool_name)
-        action_desc = f"виконання інструменту {tool_name_ua}"
-        spoken_text += f"Executing {tool_name}."
-        
-    return spoken_text, action_desc
-        
-_key_indices = {}
-        
-def resolve_narration_api_config(model: str) -> tuple[str, str, str]:
+        "count mcp-related processes": "перевірки запущених mcp серверів",def resolve_narration_api_config(model: str) -> tuple[str, str, str, str]:
     api_key = ""
     base_url = ""
     model_id = ""
+    target_env = ""
     
     def parse_env_keys(env_var_name: str) -> list[str]:
         raw_val = os.environ.get(env_var_name, "")
@@ -1087,22 +947,32 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str]:
                 keys.append(k.strip())
         return keys
 
-    def get_next_key(env_var_name: str) -> str:
+    def get_current_key(env_var_name: str) -> str:
         keys = parse_env_keys(env_var_name)
         if not keys:
             return ""
-        global _key_indices
-        idx = _key_indices.get(env_var_name, 0)
+        
+        state_file = os.path.expanduser("~/.claw_key_state.json")
+        idx = 0
+        if os.path.exists(state_file):
+            try:
+                with open(state_file, "r") as f:
+                    state = json.load(f)
+                idx = state.get(env_var_name, 0)
+            except Exception:
+                pass
+        
         selected = keys[idx % len(keys)]
-        _key_indices[env_var_name] = (idx + 1) % len(keys)
         return selected
 
     if model == "gemini-lite":
         base_url = os.environ.get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/").rstrip('/')
-        api_key = get_next_key("GEMINI_API_KEY")
+        target_env = "GEMINI_API_KEY"
+        api_key = get_current_key("GEMINI_API_KEY")
         model_id = "gemini-3.1-flash-lite"
     elif model in ("glm", "glm2", "glm3"):
         base_url = os.environ.get("GLM_BASE_URL", "https://api.z.ai/api/paas/v4").rstrip('/')
+        target_env = "GLM_API_KEY"
         keys = parse_env_keys("GLM_API_KEY")
         if keys:
             if model == "glm2" and len(keys) >= 2:
@@ -1110,7 +980,7 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str]:
             elif model == "glm3" and len(keys) >= 3:
                 api_key = keys[2]
             else:
-                api_key = get_next_key("GLM_API_KEY")
+                api_key = get_current_key("GLM_API_KEY")
         else:
             api_key = ""
         model_id = "glm-4-flash"
@@ -1121,6 +991,225 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str]:
             env_var_name = "SILICONFLOW_API_KEY"
             base_url = os.environ.get("SILICONFLOW_BASE_URL", "https://api.siliconflow.com/v1").rstrip('/')
         elif "anthropic" in model.lower() or "claude" in model.lower():
+            env_var_name = "ANTHROPIC_API_KEY"
+            base_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1").rstrip('/')
+        else:
+            base_url = os.environ.get("OPENAI_BASE_URL", "https://openrouter.ai/api/v1").rstrip('/')
+            
+        target_env = env_var_name
+        api_key = get_current_key(env_var_name)
+        model_id = model
+
+    # Fallback на ключі за замовчуванням
+    if not api_key:
+        target_env = "OPENAI_API_KEY"
+        api_key = get_current_key("OPENAI_API_KEY")
+            
+    return base_url, api_key, model_id, target_env
+
+def rotate_api_key_index(env_var_name: str):
+    if not env_var_name:
+        return
+        
+    def parse_env_keys(env_var_name: str) -> list[str]:
+        raw_val = os.environ.get(env_var_name, "")
+        keys = []
+        if raw_val:
+            if "," in raw_val:
+                keys.extend([k.strip() for k in raw_val.split(",") if k.strip()])
+            else:
+                keys.append(raw_val.strip())
+        for i in range(2, 21):
+            k = os.environ.get(f"{env_var_name}{i}", "")
+            if k and k.strip() not in keys:
+                keys.append(k.strip())
+        return keys
+        
+    keys = parse_env_keys(env_var_name)
+    if not keys or len(keys) <= 1:
+        return
+        
+    state_file = os.path.expanduser("~/.claw_key_state.json")
+    state = {}
+    if os.path.exists(state_file):
+        try:
+            with open(state_file, "r") as f:
+                state = json.load(f)
+        except Exception:
+            pass
+            
+    idx = state.get(env_var_name, 0)
+    state[env_var_name] = (idx + 1) % len(keys)
+    
+    try:
+        with open(state_file, "w") as f:
+            json.dump(state, f)
+    except Exception:
+        pass
+
+def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool, output_val: str) -> str:
+    if not output_val.strip() and not is_error:
+        return ""
+
+    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
+    
+    # Limit output length to prevent payload bloat
+    output_summary = output_val.strip()
+    
+    # Спробуємо розпарсити вивід як JSON, щоб дістати чистий stdout/stderr
+    try:
+        parsed_out = json.loads(output_val)
+        if isinstance(parsed_out, dict):
+            stdout = parsed_out.get("stdout", "")
+            stderr = parsed_out.get("stderr", "")
+            if stdout or stderr:
+                output_summary = f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}".strip()
+            elif "nodes_updated" in parsed_out:
+                output_summary = f"TaskGraph updated nodes: {parsed_out['nodes_updated']}"
+            elif "output" in parsed_out:
+                output_summary = str(parsed_out["output"]).strip()
+    except Exception:
+        pass
+
+    if len(output_summary) > 4000:
+        output_summary = output_summary[:4000] + "... [вивід скорочено]"
+
+    prompt_system = (
+        "You are a male Ukrainian security/operations specialist reporting tool execution results. "
+        "Summarize the outcome in a single, short sentence in Ukrainian (UA). "
+        "RULES: 1. NEVER use agent names (Атлас, Атласе, Тетяна, Тетяно, Гріша, Грішо). Just state the fact directly. "
+        "2. Always use masculine verbs (e.g. 'перевірив', 'не знайшов'). "
+        "3. Do NOT use English words or Latin letters. Translate every English term into its phonetic Ukrainian equivalent. "
+        "4. Keep it under 15 words. No ellipses, no trailing questions. Output ONLY the Ukrainian sentence."
+    )
+    
+    if is_error:
+        error_context = "CRITICAL: The tool failed with an ERROR."
+    else:
+        error_context = "The tool executed normally and SUCCESSFULLY. DO NOT report any errors, even if the raw output contains source code with 'error' or 'exception'."
+        
+    prompt_user = f"The tool was run for: '{action_desc}'. {error_context} The raw output was: '{output_summary}'."
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+        if not base_url or not api_key:
+            return ""
+
+        url = f"{base_url}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        payload = {
+            "model": model_id,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": prompt_system
+                },
+                {
+                    "role": "user",
+                    "content": prompt_user
+                }
+            ],
+            "temperature": 0.5
+        }
+        
+        try:
+            req = urllib.request.Request(
+                url, 
+                data=json.dumps(payload).encode('utf-8'), 
+                headers=headers,
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                summary_text = res_data['choices'][0]['message']['content'].strip()
+                if summary_text:
+                    return strip_agent_names(summary_text)
+                return ""
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 401, 403, 500, 502, 503, 504):
+                rotate_api_key_index(target_env)
+                time.sleep(1)
+            else:
+                print(f"\n⚠️ Помилка автоозвучки результату інструменту через {model} (HTTP {e.code}): {e}")
+                break
+        except Exception as e:
+            rotate_api_key_index(target_env)
+            time.sleep(1)
+            
+    return ""
+
+def translate_and_summarize_thinking(text: str) -> str:
+    if not text.strip():
+        return ""
+
+    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+        if not base_url or not api_key:
+            return ""
+
+        url = f"{base_url}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+        
+        payload = {
+            "model": model_id,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are Tetiana, a female software coordinator and strategist. Your role is to voice the agent's internal reasoning and strategy (WHY we are doing something) in Ukrainian based on the thinking block. "
+                        "RULES: "
+                        "1. NEVER mention any agent names (Атлас, Тетяна, Гріша). "
+                        "2. Use feminine verbs (e.g. 'думаю', 'вирішила', 'перевіряю', 'бачу'). "
+                        "3. Focus on the THOUGHT PROCESS and STRATEGY, not the exact tool action. (e.g. 'Щоб зрозуміти архітектуру, мені потрібно поглянути на основні файли', або 'Схоже, тут є проблема з підключенням, зараз перевірю логи'). "
+                        "4. Keep it under 15 words. "
+                        "5. No conversational prefixes, no ellipses, no trailing questions. "
+                        "Output ONLY the Ukrainian reasoning text."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": text
+                }
+            ],
+            "temperature": 0.5
+        }
+        
+        try:
+            req = urllib.request.Request(
+                url, 
+                data=json.dumps(payload).encode('utf-8'), 
+                headers=headers,
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                summary_text = res_data['choices'][0]['message']['content'].strip()
+                if summary_text:
+                    return strip_agent_names(summary_text)
+                return ""
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 401, 403, 500, 502, 503, 504):
+                rotate_api_key_index(target_env)
+                time.sleep(1.0)
+            else:
+                print(f"\n⚠️ Помилка автоперекладу та підсумку думок через {model} (HTTP {e.code}): {e}")
+                break
+        except Exception as e:
+            rotate_api_key_index(target_env)
+            time.sleep(1.0)
+        
+    return ""):
             env_var_name = "ANTHROPIC_API_KEY"
             base_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1").rstrip('/')
         else:
@@ -1680,29 +1769,18 @@ def process_session_entry(data: dict, player: VoicePlayer):
                 block_type = block.get("type")
                 if block_type == "tool_result":
                     tool_name = block.get("tool_name", "")
-                    if tool_name == "TaskGraph":
-                        # Skip TaskGraph results to avoid extra narration turns
-                        continue
-                        
                     is_error = block.get("is_error", False)
                     output_val = block.get("output", "")
+                    
+                    if not is_error:
+                        # Skip successful tool results to keep narration clean and fast
+                        continue
                     
                     action_desc = getattr(player, "last_action_desc", "")
                     if not action_desc or getattr(player, "last_action_tool", "") != tool_name:
                         action_desc = TOOL_NAMES_UA.get(tool_name, tool_name)
                         
-                    has_error_traces = False
-                    if not is_error and output_val:
-                        lower_out = output_val.lower()
-                        # Detect hidden failures (e.g. script errors reported as success)
-                        if any(term in lower_out for term in ("traceback (most", "error:", "❌ помилка", "no such option:", "exception:", "command not found")):
-                            has_error_traces = True
-                            
-                    if not is_error and not has_error_traces:
-                        # Skip successful tool results to keep narration clean and fast
-                        continue
-                        
-                    speech = player.get_tool_verdict_speech(tool_name, action_desc, is_error or has_error_traces, output_val)
+                    speech = player.get_tool_verdict_speech(tool_name, action_desc, True, output_val)
                     player.speak("grisha", "Результат інструменту", speech)
 
 def tail_session_loop():
