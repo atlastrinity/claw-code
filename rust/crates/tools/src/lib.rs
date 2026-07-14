@@ -4541,6 +4541,7 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
 
     match input.operation {
         TaskGraphOperation::Add => {
+            let was_empty = current_nodes.is_empty();
             for node in input.nodes {
                 if let Some(existing) = current_nodes.iter_mut().find(|n| n.id == node.id) {
                     if let Some(content) = node.content {
@@ -4556,7 +4557,7 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
                     }
                     updated_count += 1;
                 } else {
-                    if !current_nodes.is_empty() && node.parent_id.is_none() {
+                    if !was_empty && node.parent_id.is_none() {
                         return Err(String::from("Error: You cannot create new root-level tasks when a project structure already exists. All new plans must be attached as sub-tasks (`parent_id`) to the relevant existing task in the hierarchy. Review the current graph and set the correct `parent_id`."));
                     }
                     if node.content.is_none() || node.content.as_ref().unwrap().trim().is_empty() {
