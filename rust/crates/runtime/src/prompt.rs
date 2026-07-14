@@ -228,6 +228,7 @@ impl SystemPromptBuilder {
         }
         sections.push(get_simple_system_section());
         sections.push(get_simple_doing_tasks_section());
+        sections.push(get_language_policy_section());
         sections.push(get_actions_section());
         
         sections.push(SYSTEM_PROMPT_DYNAMIC_BOUNDARY.to_string());
@@ -771,6 +772,15 @@ fn get_simple_doing_tasks_section() -> String {
         .chain(items)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+fn get_language_policy_section() -> String {
+    [
+        "# Language Policy",
+        "1. **Internal State (English ONLY):** All tool calls (including `description`), internal reasoning, `task.md` updates, and `.clawd-task-graph.json` definitions MUST be written in English. This is required for strict exact-word matching.",
+        "2. **User Facing (Ukrainian ONLY):** All direct communication with the user (chat messages, text-to-speech output, explanations, conversational text) MUST be in Ukrainian.",
+    ]
+    .join("\n")
 }
 
 fn get_actions_section() -> String {

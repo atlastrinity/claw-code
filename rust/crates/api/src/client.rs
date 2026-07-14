@@ -431,6 +431,7 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                 
                 let mut fallback_request = request.clone();
                 fallback_request.model = model.clone();
+                fallback_request.inject_taskgraph_description();
                 
                 let client_res = if key_index == 1 && model == &request.model {
                     match self {
@@ -517,6 +518,7 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                 
                 let mut fallback_request = request.clone();
                 fallback_request.model = model.clone();
+                fallback_request.inject_taskgraph_description();
                 
                 let client_res = if key_index == 1 && model == &request.model {
                     match self {

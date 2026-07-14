@@ -761,7 +761,7 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "TaskGraph",
-            description: "Manage the structured task map. Add nodes to form a hierarchy, or update their status. The roadmap is stored globally and NEVER deleted. Use 'failed' status to abandon a branch of execution. IMPORTANT: The 'id' and 'parent_id' fields MUST be strings (e.g. \"1\", \"1.1\"), NOT integers. Every node MUST have a string 'id'.",
+            description: "Manage the structured task map. Add nodes to form a hierarchy, or update their status. The roadmap is stored globally and NEVER deleted. Use 'failed' status to abandon a branch of execution. IMPORTANT: The 'id' and 'parent_id' fields MUST be strings (e.g. \"1\", \"1.1\"), NOT integers. Every node MUST have a string 'id'. RULE: Never create new root tasks (`parent_id: null`) if a graph already exists. When expanding a plan, you MUST find the most relevant existing task and add your new steps as sub-tasks under it.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -4556,6 +4556,9 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
                     }
                     updated_count += 1;
                 } else {
+                    if !current_nodes.is_empty() && node.parent_id.is_none() {
+                        return Err(String::from("Error: You cannot create new root-level tasks when a project structure already exists. All new plans must be attached as sub-tasks (`parent_id`) to the relevant existing task in the hierarchy. Review the current graph and set the correct `parent_id`."));
+                    }
                     if node.content.is_none() || node.content.as_ref().unwrap().trim().is_empty() {
                         return Err(String::from("Node content must not be empty on add."));
                     }
@@ -7784,7 +7787,9 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .expect("time")
             .as_nanos();
-        std::env::temp_dir().join(format!("clawd-tools-{unique}-{name}"))
+        let dir = std::env::temp_dir().join(format!("clawd-tools-dir-{unique}"));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir.join(name)
     }
 
     fn run_git(cwd: &Path, args: &[&str]) {
@@ -9110,8 +9115,8 @@ mod tests {
                 "operation": "add",
                 "nodes": [
                     {"id": "1", "content": "Parent Task"},
-                    {"id": "1.1", "content": "Sub Task 1"},
-                    {"id": "1.2", "content": "Sub Task 2"}
+                    {"id": "1.1", "parent_id": "1", "content": "Sub Task 1"},
+                    {"id": "1.2", "parent_id": "1", "content": "Sub Task 2"}
                 ]
             }),
         )

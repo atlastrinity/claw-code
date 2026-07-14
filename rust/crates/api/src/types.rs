@@ -49,6 +49,43 @@ impl MessageRequest {
         self.stream = true;
         self
     }
+
+    /// Injects the `description` parameter into the input schema of all tools
+    /// to ensure the LLM always provides a description for TaskGraph enforcement.
+    pub fn inject_taskgraph_description(&mut self) {
+        if let Some(tools) = &mut self.tools {
+            for tool in tools.iter_mut() {
+                if let serde_json::Value::Object(ref mut schema_map) = tool.input_schema {
+                    // Ensure `properties` exists
+                    let properties = schema_map
+                        .entry("properties")
+                        .or_insert_with(|| serde_json::json!({}));
+                    
+                    if let serde_json::Value::Object(ref mut props_map) = properties {
+                        props_map.insert(
+                            "description".to_string(),
+                            serde_json::json!({
+                                "type": "string",
+                                "description": "MANDATORY: A brief explanation of what this tool call does to match the active TaskGraph node. MUST be in English."
+                            }),
+                        );
+                    }
+
+                    // Ensure `description` is in the `required` array
+                    let required = schema_map
+                        .entry("required")
+                        .or_insert_with(|| serde_json::json!([]));
+                    
+                    if let serde_json::Value::Array(ref mut req_arr) = required {
+                        let desc_val = serde_json::json!("description");
+                        if !req_arr.contains(&desc_val) {
+                            req_arr.push(desc_val);
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
