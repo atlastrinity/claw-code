@@ -517,9 +517,9 @@ class VoicePlayer:
             
             # Map narrator agents to Edge-TTS voices with distinct rate/pitch settings
             voice_settings = {
-                "tetiana": ("uk-UA-PolinaNeural", "+12%", "+5Hz"),
-                "atlas":   ("uk-UA-OstapNeural", "+15%", "+3Hz"),
-                "grisha":  ("uk-UA-OstapNeural", "+5%", "-15Hz"),
+                "tetiana": ("uk-UA-PolinaNeural", "+5%", "+5Hz"),
+                "atlas":   ("uk-UA-OstapNeural", "+6%", "+3Hz"),
+                "grisha":  ("uk-UA-OstapNeural", "+0%", "-15Hz"),
             }
             # Allow overriding the voice settings via environment variables (e.g. CLAW_TTS_ATLAS_VOICE="tetiana")
             voice_override = os.environ.get(f"CLAW_TTS_{voice.upper()}_VOICE", voice)
@@ -1611,6 +1611,20 @@ def process_session_entry(data: dict, player: VoicePlayer):
             has_real_text = len(real_text_blocks) > 0
             taskgraph_pending_speech = None
             
+            # Generate synthetic thinking for non-reasoning models (so Tetiana previews upcoming actions)
+            has_thinking = any(b.get("type") == "thinking" and b.get("thinking", "").strip() for b in blocks)
+            if not has_thinking:
+                for b in blocks:
+                    if b.get("type") == "tool_use":
+                        t_name = b.get("name", "")
+                        t_in = b.get("input", "")
+                        if t_name:
+                            _, act_desc = make_natural_tool_use(t_name, t_in)
+                            if act_desc:
+                                preview_msg = f"Планую наступний крок: {act_desc[0].lower()}{act_desc[1:]}."
+                                player.speak("tetiana", "Аналіз", preview_msg)
+                                break
+            
             for block in blocks:
                 block_type = block.get("type")
                 if block_type == "thinking":
@@ -1745,8 +1759,11 @@ def tail_session_loop():
                             continue
                         
                         time.sleep(0.5)
-                        # Скидаємо EOF прапор для зчитування нових рядків
-                        f.seek(f.tell())
+                        # Закриваємо та відкриваємо файл знову для скидання EOF прапора та очищення буфера в macOS
+                        pos = f.tell()
+                        f.close()
+                        f = open(latest_file, "r", encoding="utf-8")
+                        f.seek(pos)
                         continue
                     
                     try:
