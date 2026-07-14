@@ -406,10 +406,27 @@ class VoicePlayer:
             wav_path = item
             try:
                 time.sleep(0.1)  # Give system time to sync file to disk
-                self.current_proc = subprocess.Popen(["afplay", str(wav_path)])
-                self.current_proc.wait()
+                self.current_proc = subprocess.Popen(
+                    ["afplay", str(wav_path)],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True
+                )
+                try:
+                    stdout, stderr = self.current_proc.communicate(timeout=20.0)  # Timeout after 20 seconds
+                    if self.current_proc.returncode != 0:
+                        print(f"\n{COLORS['grisha']}⚠️ afplay повернув код {self.current_proc.returncode}{COLORS['reset']}")
+                        if stderr:
+                            print(f"  Помилка: {stderr.strip()}")
+                except subprocess.TimeoutExpired:
+                    print(f"\n{COLORS['grisha']}⚠️ afplay перевищив ліміт часу (20 с), завершення процесу.{COLORS['reset']}")
+                    self.current_proc.terminate()
+                    try:
+                        self.current_proc.wait(timeout=1.0)
+                    except Exception:
+                        pass
             except Exception as e:
-                print(f"\n⚠️ Помилка відтворення аудіо: {e}")
+                print(f"\n{COLORS['grisha']}⚠️ Помилка відтворення аудіо: {e}{COLORS['reset']}")
             finally:
                 self.current_proc = None
                 self.play_queue.task_done()
@@ -1086,47 +1103,9 @@ def translate_and_summarize_thinking(text: str) -> str:
             import time
             time.sleep(1.0)
         
-    return "", target_env
+    return ""
 
-def rotate_api_key_index(env_var_name: str):
-    if not env_var_name:
-        return
-        
-    def parse_env_keys(env_var_name: str) -> list[str]:
-        raw_val = os.environ.get(env_var_name, "")
-        keys = []
-        if raw_val:
-            if "," in raw_val:
-                keys.extend([k.strip() for k in raw_val.split(",") if k.strip()])
-            else:
-                keys.append(raw_val.strip())
-        for i in range(2, 21):
-            k = os.environ.get(f"{env_var_name}{i}", "")
-            if k and k.strip() not in keys:
-                keys.append(k.strip())
-        return keys
-        
-    keys = parse_env_keys(env_var_name)
-    if not keys or len(keys) <= 1:
-        return
-        
-    state_file = os.path.expanduser("~/.claw_key_state.json")
-    state = {}
-    if os.path.exists(state_file):
-        try:
-            with open(state_file, "r") as f:
-                state = json.load(f)
-        except Exception:
-            pass
-            
-    idx = state.get(env_var_name, 0)
-    state[env_var_name] = (idx + 1) % len(keys)
-    
-    try:
-        with open(state_file, "w") as f:
-            json.dump(state, f)
-    except Exception:
-        pass
+
 
 def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool, output_val: str) -> str:
     if not output_val.strip() and not is_error:
@@ -1228,248 +1207,11 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
             
     return ""
 
-def translate_and_summarize_thinking(text: str) -> str:
-    if not text.strip():
-        return ""
 
-    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
-    
-    base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
-    max_retries = max(1, len(parse_env_keys(target_env)))
-    
-    for attempt in range(max_retries):
-        if attempt > 0:
-            base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
-            
-        if not base_url or not api_key:
-            return ""
-
-        url = f"{base_url}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        
-        payload = {
-            "model": model_id,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are Tetiana, a female software coordinator and strategist. Your role is to voice the agent's internal reasoning and strategy (WHY we are doing something) in Ukrainian based on the thinking block. "
-                        "RULES: "
-                        "1. NEVER mention any agent names (Атлас, Тетяна, Гріша). "
-                        "2. Use feminine verbs (e.g. 'думаю', 'вирішила', 'перевіряю', 'бачу'). "
-                        "3. Focus on the THOUGHT PROCESS and STRATEGY, not the exact tool action. (e.g. 'Щоб зрозуміти архітектуру, мені потрібно поглянути на основні файли', або 'Схоже, тут є проблема з підключенням, зараз перевірю логи'). "
-                        "4. Keep it under 15 words. "
-                        "5. No conversational prefixes, no ellipses, no trailing questions. "
-                        "Output ONLY the Ukrainian reasoning text."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": text
-                }
-            ],
-            "temperature": 0.5
-        }
-        
-        try:
-            req = urllib.request.Request(
-                url, 
-                data=json.dumps(payload).encode('utf-8'), 
-                headers=headers,
-                method='POST'
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                res_data = json.loads(response.read().decode('utf-8'))
-                summary_text = res_data['choices'][0]['message']['content'].strip()
-                if summary_text:
-                    return strip_agent_names(summary_text)
-                return ""
-        except urllib.error.HTTPError as e:
-            if e.code in (429, 401, 403, 500, 502, 503, 504):
-                rotate_api_key_index(target_env)
-                time.sleep(1.0)
-            else:
-                print(f"\n⚠️ Помилка автоперекладу та підсумку думок через {model} (HTTP {e.code}): {e}")
-                break
-        except Exception as e:
-            rotate_api_key_index(target_env)
-            time.sleep(1.0)
         
 
 
-def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool, output_val: str) -> str:
-    if not output_val.strip() and not is_error:
-        return ""
 
-    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
-    
-    # Limit output length to prevent payload bloat
-    output_summary = output_val.strip()
-    
-    # Спробуємо розпарсити вивід як JSON, щоб дістати чистий stdout/stderr
-    try:
-        parsed_out = json.loads(output_val)
-        if isinstance(parsed_out, dict):
-            stdout = parsed_out.get("stdout", "")
-            stderr = parsed_out.get("stderr", "")
-            if stdout or stderr:
-                output_summary = f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}".strip()
-            elif "nodes_updated" in parsed_out:
-                output_summary = f"TaskGraph updated nodes: {parsed_out['nodes_updated']}"
-            elif "output" in parsed_out:
-                output_summary = str(parsed_out["output"]).strip()
-    except Exception:
-        pass
-
-    if len(output_summary) > 4000:
-        output_summary = output_summary[:4000] + "... [вивід скорочено]"
-
-    if is_error:
-        error_context = "CRITICAL: The tool failed with an ERROR."
-    else:
-        error_context = "The tool executed normally and SUCCESSFULLY. DO NOT report any errors, even if the raw output contains source code with 'error' or 'exception'."
-        
-    prompt_user = f"The tool was run for: '{action_desc}'. {error_context} The raw output was: '{output_summary}'."
-    
-    prompt_system = (
-        "You are a male Ukrainian security/operations specialist reporting tool execution results. "
-        "Summarize the outcome in a single, short sentence in Ukrainian (UA). "
-        "RULES: 1. NEVER use agent names (Атлас, Атласе, Тетяна, Тетяно, Гріша, Грішо). Just state the fact directly. "
-        "2. Always use masculine verbs (e.g. 'перевірив', 'не знайшов'). "
-        "3. Do NOT use English words or Latin letters. Translate every English term into its phonetic Ukrainian equivalent. "
-        "4. Keep it under 15 words. No ellipses, no trailing questions. Output ONLY the Ukrainian sentence."
-    )
-    
-    base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
-    max_retries = max(1, len(parse_env_keys(target_env)))
-    
-    for attempt in range(max_retries):
-        if attempt > 0:
-            base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
-
-        if not base_url or not api_key:
-            return ""
-
-        url = f"{base_url}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        
-        payload = {
-            "model": model_id,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": prompt_system
-                },
-                {
-                    "role": "user",
-                    "content": prompt_user
-                }
-            ],
-            "temperature": 0.5
-        }
-        
-        try:
-            import urllib.request, urllib.error
-            req = urllib.request.Request(
-                url, 
-                data=json.dumps(payload).encode('utf-8'), 
-                headers=headers,
-                method='POST'
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                res_data = json.loads(response.read().decode('utf-8'))
-                summary_text = res_data['choices'][0]['message']['content'].strip()
-                if summary_text:
-                    return strip_agent_names(summary_text)
-                return ""
-        except urllib.error.HTTPError as e:
-            if e.code in (429, 401, 403, 500, 502, 503, 504):
-                rotate_api_key_index(target_env)
-                import time
-                time.sleep(1.0)
-            else:
-                print(f"\n⚠️ Помилка автоозвучки результату інструменту через {model} (HTTP {e.code}): {e}")
-                break
-        except Exception as e:
-            rotate_api_key_index(target_env)
-            import time
-            time.sleep(1.0)
-        
-    return ""
-
-def translate_and_summarize_thinking(text: str) -> str:
-    if not text.strip():
-        return ""
-
-    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
-    base_url, api_key, model_id = resolve_narration_api_config(model)
-
-    if not base_url or not api_key:
-        return ""
-
-    url = f"{base_url}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
-    
-    payload = {
-        "model": model_id,
-        "messages": [
-            {
-                "role": "system",
-                "content": (
-                    "You are Tetiana, a female software coordinator and strategist. Your role is to voice the agent's internal reasoning and strategy (WHY we are doing something) in Ukrainian based on the thinking block. "
-                    "RULES: "
-                    "1. NEVER mention any agent names (Атлас, Тетяна, Гріша). "
-                    "2. Use feminine verbs (e.g. 'думаю', 'вирішила', 'перевіряю', 'бачу'). "
-                    "3. Focus on the THOUGHT PROCESS and STRATEGY, not the exact tool action. (e.g. 'Щоб зрозуміти архітектуру, мені потрібно поглянути на основні файли', або 'Схоже, тут є проблема з підключенням, зараз перевірю логи'). "
-                    "4. Keep it under 15 words. "
-                    "5. No conversational prefixes, no ellipses, no trailing questions. "
-                    "Output ONLY the Ukrainian reasoning text."
-                )
-            },
-            {
-                "role": "user",
-                "content": text
-            }
-        ],
-        "temperature": 0.5
-    }
-    
-    for attempt in range(3):
-        try:
-            req = urllib.request.Request(
-                url, 
-                data=json.dumps(payload).encode('utf-8'), 
-                headers=headers,
-                method='POST'
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                res_data = json.loads(response.read().decode('utf-8'))
-                summary_text = res_data['choices'][0]['message']['content'].strip()
-                if summary_text:
-                    return strip_agent_names(summary_text)
-        except urllib.error.HTTPError as e:
-            if e.code == 429 and attempt < 2:
-                if model == "gemini-lite":
-                    base_url, api_key, model_id = resolve_narration_api_config(model)
-                    headers["Authorization"] = f"Bearer {api_key}"
-                time.sleep(1.0)
-                continue
-            print(f"\\n⚠️ Помилка автоперекладу та підсумку думок через {model} (спроба {attempt+1}): {e}")
-            break
-        except Exception as e:
-            print(f"\\n⚠️ Помилка автоперекладу та підсумку думок через {model} (спроба {attempt+1}): {e}")
-            break
-        
-    return ""
 
 def summarize_thinking_ua(thinking_text: str) -> str:
     import random
@@ -1573,16 +1315,10 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
                 return text
 
     model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
-    base_url, api_key, model_id = resolve_narration_api_config(model)
-
-    if not base_url or not api_key:
-        return text
+    base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+    max_retries = max(1, len(parse_env_keys(target_env)))
 
     url = f"{base_url}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
     
     if title == "Запит":
         gender_rules = (
@@ -1642,7 +1378,18 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
         "temperature": 0.3
     }
     
-    for attempt in range(3):
+    for attempt in range(max_retries):
+        if attempt > 0:
+            base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+            
+        if not base_url or not api_key:
+            return text
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+
         try:
             req = urllib.request.Request(
                 url, 
@@ -1656,17 +1403,16 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
                 if translated_text:
                     return strip_agent_names(translated_text)
         except urllib.error.HTTPError as e:
-            if e.code == 429 and attempt < 2:
-                if model == "gemini-lite":
-                    base_url, api_key, model_id = resolve_narration_api_config(model)
-                    headers["Authorization"] = f"Bearer {api_key}"
+            if e.code in (429, 401, 403, 500, 502, 503, 504):
+                rotate_api_key_index(target_env)
                 time.sleep(1.0)
                 continue
-            print(f"\\n⚠️ Помилка автоперекладу через {model} (спроба {attempt+1}): {e}")
+            print(f"\n⚠️ Помилка автоперекладу через {model} (HTTP {e.code}): {e}")
             break
         except Exception as e:
-            print(f"\\n⚠️ Помилка автоперекладу через {model} (спроба {attempt+1}): {e}")
-            break
+            rotate_api_key_index(target_env)
+            time.sleep(1.0)
+            continue
         
     return text
 
@@ -1675,16 +1421,10 @@ def translate_to_english(text: str) -> str:
         return text
 
     model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
-    base_url, api_key, model_id = resolve_narration_api_config(model)
-
-    if not base_url or not api_key:
-        return text
+    base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+    max_retries = max(1, len(parse_env_keys(target_env)))
 
     url = f"{base_url}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
 
     payload = {
         "model": model_id,
@@ -1701,7 +1441,18 @@ def translate_to_english(text: str) -> str:
         "temperature": 0.3
     }
 
-    for attempt in range(3):
+    for attempt in range(max_retries):
+        if attempt > 0:
+            base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+            
+        if not base_url or not api_key:
+            return text
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
+
         try:
             req = urllib.request.Request(
                 url, 
@@ -1714,7 +1465,14 @@ def translate_to_english(text: str) -> str:
                 translated_text = res_data['choices'][0]['message']['content'].strip()
                 if translated_text:
                     return translated_text
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 401, 403, 500, 502, 503, 504):
+                rotate_api_key_index(target_env)
+                time.sleep(1.0)
+                continue
+            break
         except Exception:
+            rotate_api_key_index(target_env)
             time.sleep(1.0)
             continue
         

@@ -4520,11 +4520,29 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
     let store_path = task_graph_store_path()?;
     let mut current_nodes = Vec::new();
     let mut loaded = false;
+
+    let mut stored_nodes: Vec<TaskNode> = Vec::new();
+    if store_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&store_path) {
+            if let Ok(nodes) = serde_json::from_str::<Vec<TaskNode>>(&content) {
+                stored_nodes = nodes;
+            }
+        }
+    }
+
     if let Some(parent) = store_path.parent() {
         let task_md_path = parent.join("task.md");
         if task_md_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&task_md_path) {
                 current_nodes = parse_task_md_to_nodes(&content);
+                // Restore any nodes that were deleted from task.md as failed
+                for stored in stored_nodes {
+                    if !current_nodes.iter().any(|n| n.id == stored.id) {
+                        let mut failed_node = stored.clone();
+                        failed_node.status = Some(TaskStatus::Failed);
+                        current_nodes.push(failed_node);
+                    }
+                }
                 loaded = true;
             }
         }
@@ -4585,6 +4603,32 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
                 }
             }
         }
+    }
+
+    // Auto-create missing parent nodes based on the ID structure of existing nodes
+    let mut missing_parents = Vec::new();
+    for node in &current_nodes {
+        let parts: Vec<&str> = node.id.split('.').collect();
+        for i in 1..parts.len() {
+            let parent_id = parts[..i].join(".");
+            if !current_nodes.iter().any(|n| n.id == parent_id) && !missing_parents.iter().any(|n: &TaskNode| n.id == parent_id) {
+                let content = if parent_id.split('.').count() == 1 {
+                    format!("Phase {}", parent_id)
+                } else {
+                    format!("Task {}", parent_id)
+                };
+                missing_parents.push(TaskNode {
+                    id: parent_id.clone(),
+                    parent_id: if i > 1 { Some(parts[..i-1].join(".")) } else { None },
+                    content: Some(content),
+                    status: Some(TaskStatus::Pending),
+                });
+            }
+        }
+    }
+    if !missing_parents.is_empty() {
+        updated_count += missing_parents.len();
+        current_nodes.extend(missing_parents);
     }
 
     // Auto-repair parent_ids based on id structure
@@ -9169,6 +9213,75 @@ mod tests {
 
         std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
         let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn task_graph_auto_create_parents_and_failed_restoration() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("parents_and_failed.json");
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        // 1. Add a deeply nested node "1.1.1" without adding its parents
+        let add_res = execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "add",
+                "nodes": [
+                    {"id": "1.1.1", "content": "Deep Subtask"}
+                ]
+            }),
+        )
+        .expect("Adding task should succeed");
+        
+        let add_output: serde_json::Value = serde_json::from_str(&add_res).expect("valid json");
+        // It should update/create 1.1.1, and auto-create parent nodes 1.1 and 1
+        assert_eq!(add_output["nodes_updated"].as_i64().expect("int"), 3);
+
+        // Verify the store has all 3 nodes
+        let store_content = std::fs::read_to_string(&path).expect("read store");
+        let nodes: serde_json::Value = serde_json::from_str(&store_content).expect("parse store");
+        let arr = nodes.as_array().unwrap();
+        assert_eq!(arr.len(), 3);
+        assert!(arr.iter().any(|n| n["id"] == "1" && n["content"] == "Phase 1"));
+        assert!(arr.iter().any(|n| n["id"] == "1.1" && n["content"] == "Task 1.1"));
+        assert!(arr.iter().any(|n| n["id"] == "1.1.1" && n["content"] == "Deep Subtask"));
+
+        // 2. Simulate deletion from task.md by calling execute_task_graph after modifying task.md to omit 1.1.1
+        // Create the task.md file manually omitting 1.1.1
+        let parent_dir = path.parent().unwrap();
+        let task_md_path = parent_dir.join("task.md");
+        std::fs::write(
+            &task_md_path,
+            "> [!IMPORTANT]\n> INSTRUCTIONS\n\n# Task List\n\n- [ ] **1**: Phase 1\n- [ ] **1.1**: Task 1.1\n",
+        )
+        .expect("write task.md");
+
+        // Execute a tool call which reads from task.md. The deleted 1.1.1 should be restored as failed
+        let res2 = execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "update_status",
+                "nodes": [
+                    {"id": "1.1", "status": "completed"}
+                ]
+            }),
+        )
+        .expect("Update status should succeed");
+        let res2_output: serde_json::Value = serde_json::from_str(&res2).expect("valid json");
+        assert!(res2_output["nodes_updated"].as_i64().is_some());
+
+        // Read stored JSON again and check status of 1.1.1
+        let store_content2 = std::fs::read_to_string(&path).expect("read store");
+        let nodes2: serde_json::Value = serde_json::from_str(&store_content2).expect("parse store");
+        let arr2 = nodes2.as_array().unwrap();
+        let restored_node = arr2.iter().find(|n| n["id"] == "1.1.1").expect("restored node");
+        assert_eq!(restored_node["status"].as_str().unwrap(), "failed");
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+        let _ = std::fs::remove_file(path);
+        let _ = std::fs::remove_file(task_md_path);
     }
 
     #[test]
