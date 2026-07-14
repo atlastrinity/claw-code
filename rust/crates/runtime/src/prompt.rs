@@ -766,6 +766,7 @@ fn get_simple_doing_tasks_section() -> String {
         "Report outcomes faithfully: if verification fails or was not run, say so explicitly. Do not hallucinate successful outcomes without proof.".to_string(),
         "RAG CONTEXT RESCUE RULE: The system automatically saves conversation summaries to `.claw/summaries/` whenever context compaction occurs. If you notice a context compaction event, or if you feel you have lost track of the detailed conversation history, you MUST immediately call `retrieve_context` with queries matching your Active Session ID (which is provided in your Environment context) or keywords of the current task. Since RAG search results only return snippets of chunks, the search will return a path (e.g. `.claw/summaries/summary-{session_id}.md`). You MUST then use the `view_file` tool to read the entire summary file at that path. This will restore the exact task list, timestamp, and detailed discussion timeline, fully reconstructing your chain-of-thought without missing any details. Never hesitate to query the RAG index or read the summary files to restore your context.".to_string(),
         "VOLUNTARY RAG USAGE RULE: You are equipped with the `retrieve_context` (RAG) tool. Since the system does not automatically inject RAG results on every tool call (to save context tokens and prevent rate limit errors), you are encouraged to actively use `retrieve_context` whenever you need to search the codebase semantically, look up prior execution logs, or find relevant context instead of doing broad wildcard searches or reading too many files.".to_string(),
+        "MISSING TOOLS, MCP & SKILLS DISCOVERY RULE: If you require tools or capabilities that are not currently available (for example, if they are not found via `ToolSearch`), you must use the `McpSearch` tool to discover relevant MCP servers and the `Skill` tool to search for specialized skills. Once you identify a useful MCP server or skill, trigger its startup or load it to obtain the necessary tools, and then proceed to call them to complete your task.".to_string(),
     ]);
 
     std::iter::once("# Doing tasks & Planning Mode".to_string())
@@ -775,10 +776,18 @@ fn get_simple_doing_tasks_section() -> String {
 }
 
 fn get_language_policy_section() -> String {
+    let user_lang = std::env::var("CLAW_USER_LANGUAGE").unwrap_or_else(|_| "Ukrainian".to_string());
+    
+    let user_facing_rule = if user_lang.eq_ignore_ascii_case("auto") {
+        "2. **User Facing (Auto-Detect):** All direct communication with the user (chat messages, text-to-speech output, explanations, conversational text) MUST be in the same language that the user is currently speaking.".to_string()
+    } else {
+        format!("2. **User Facing ({} ONLY):** All direct communication with the user (chat messages, text-to-speech output, explanations, conversational text) MUST be in {}.", user_lang, user_lang)
+    };
+
     [
-        "# Language Policy",
-        "1. **Internal State (English ONLY):** All tool calls (including `description`), internal reasoning, `task.md` updates, and `.clawd-task-graph.json` definitions MUST be written in English. This is required for strict exact-word matching.",
-        "2. **User Facing (Ukrainian ONLY):** All direct communication with the user (chat messages, text-to-speech output, explanations, conversational text) MUST be in Ukrainian.",
+        "# Language Policy".to_string(),
+        "1. **Internal State (English ONLY):** All tool calls (including `description`), internal reasoning, `task.md` updates, and `.clawd-task-graph.json` definitions MUST be written in English. This is required for strict exact-word matching.".to_string(),
+        user_facing_rule,
     ]
     .join("\n")
 }

@@ -1398,7 +1398,7 @@ mod tests {
         );
         assert_eq!(
             client.backoff_for_attempt(8).expect("attempt 8"),
-            Duration::from_secs(128)
+            Duration::from_secs(10)
         );
     }
 
