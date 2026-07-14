@@ -1161,8 +1161,8 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
     except Exception:
         pass
 
-    if len(output_summary) > 1000:
-        output_summary = output_summary[:1000] + "... [вивід скорочено]"
+    if len(output_summary) > 4000:
+        output_summary = output_summary[:4000] + "... [вивід скорочено]"
 
     url = f"{base_url}/chat/completions"
     headers = {
@@ -1179,7 +1179,11 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
         "4. Keep it under 15 words. No ellipses, no trailing questions. Output ONLY the Ukrainian sentence."
     )
     
-    error_context = "CRITICAL: The tool failed with an ERROR." if is_error else "The tool executed normally."
+    if is_error:
+        error_context = "CRITICAL: The tool failed with an ERROR."
+    else:
+        error_context = "The tool executed normally and SUCCESSFULLY. DO NOT report any errors, even if the raw output contains source code with 'error' or 'exception'."
+        
     prompt_user = f"The tool was run for: '{action_desc}'. {error_context} The raw output was: '{output_summary}'."
     
     payload = {
