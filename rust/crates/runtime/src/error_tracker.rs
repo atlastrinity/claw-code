@@ -638,46 +638,69 @@ mod tests {
         assert!(md.contains("## Solution"));
     }
 
+    fn run_isolated_test<F: FnOnce()>(test_fn: F) {
+        let _guard = crate::test_env_lock();
+        let temp = tempfile::tempdir().unwrap();
+        let original_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", temp.path());
+
+        test_fn();
+
+        if let Some(home) = original_home {
+            std::env::set_var("HOME", home);
+        } else {
+            std::env::remove_var("HOME");
+        }
+    }
+
     #[test]
     fn get_skill_hint_returns_none_when_no_skill() {
-        let tracker = ErrorTracker::new();
-        assert!(tracker.get_skill_hint("bash", "permission denied").is_none());
+        run_isolated_test(|| {
+            let tracker = ErrorTracker::new();
+            assert!(tracker.get_skill_hint("bash", "permission denied").is_none());
+        });
     }
 
     #[test]
     fn get_skill_hint_returns_hint_for_matching_tool_and_error() {
-        let mut tracker = ErrorTracker::new();
-        tracker.record_error("bash", "permission denied: /root/x", "{}");
-        tracker.record_error("bash", "permission denied: /root/y", "{}");
-        tracker.record_success("bash", "{\"cmd\": \"sudo ...\"}", "ok");
+        run_isolated_test(|| {
+            let mut tracker = ErrorTracker::new();
+            tracker.record_error("bash", "permission denied: /root/x", "{}");
+            tracker.record_error("bash", "permission denied: /root/y", "{}");
+            tracker.record_success("bash", "{\"cmd\": \"sudo ...\"}", "ok");
 
-        let hint = tracker.get_skill_hint("bash", "access denied for /etc/shadow");
-        assert!(hint.is_some());
-        let text = hint.unwrap();
-        assert!(text.contains("AUTO-LEARNED FIX"));
-        assert!(text.contains("bash"));
+            let hint = tracker.get_skill_hint("bash", "access denied for /etc/shadow");
+            assert!(hint.is_some());
+            let text = hint.unwrap();
+            assert!(text.contains("AUTO-LEARNED FIX"));
+            assert!(text.contains("bash"));
+        });
     }
 
     #[test]
     fn get_skill_hint_does_not_match_different_tool() {
-        let mut tracker = ErrorTracker::new();
-        tracker.record_error("bash", "permission denied", "{}");
-        tracker.record_error("bash", "permission denied", "{}");
-        tracker.record_success("bash", "{}", "ok");
+        run_isolated_test(|| {
+            let mut tracker = ErrorTracker::new();
+            tracker.record_error("bash", "permission denied", "{}");
+            tracker.record_error("bash", "permission denied", "{}");
+            tracker.record_success("bash", "{}", "ok");
 
-        // Different tool.
-        assert!(tracker.get_skill_hint("write_file", "permission denied").is_none());
+            // Different tool.
+            assert!(tracker.get_skill_hint("write_file", "permission denied").is_none());
+        });
     }
 
     #[test]
     fn get_skill_hint_does_not_match_different_error_category() {
-        let mut tracker = ErrorTracker::new();
-        tracker.record_error("bash", "permission denied", "{}");
-        tracker.record_error("bash", "permission denied", "{}");
-        tracker.record_success("bash", "{}", "ok");
+        run_isolated_test(|| {
+            let mut tracker = ErrorTracker::new();
+            tracker.record_error("bash", "permission denied", "{}");
+            tracker.record_error("bash", "permission denied", "{}");
+            tracker.record_success("bash", "{}", "ok");
 
-        // Different error category.
-        assert!(tracker.get_skill_hint("bash", "connection refused on port 80").is_none());
+            // Different error category.
+            assert!(tracker.get_skill_hint("bash", "connection refused on port 80").is_none());
+        });
     }
 
     #[test]
@@ -696,27 +719,27 @@ mod tests {
 
     #[test]
     fn get_skill_hint_finds_persisted_skill_from_omc_learned() {
-        let temp = tempfile::tempdir().unwrap();
-        std::env::set_var("HOME", temp.path());
+        run_isolated_test(|| {
+            let home = std::env::var("HOME").map(PathBuf::from).unwrap();
+            let skill_dir = home
+                .join(".claude")
+                .join("skills")
+                .join("omc-learned")
+                .join("autolearn-bash-permission_denied");
+            std::fs::create_dir_all(&skill_dir).unwrap();
+            std::fs::write(
+                skill_dir.join("SKILL.md"),
+                "---\nname: autolearn-bash-permission_denied\ndescription: Fix for bash permission errors\n---\n\n## Problem\npermission denied\n\n## Solution\nUse /tmp/ instead of /root/.\n",
+            ).unwrap();
 
-        let skill_dir = temp.path()
-            .join(".claude")
-            .join("skills")
-            .join("omc-learned")
-            .join("autolearn-bash-permission_denied");
-        std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(
-            skill_dir.join("SKILL.md"),
-            "---\nname: autolearn-bash-permission_denied\ndescription: Fix for bash permission errors\n---\n\n## Problem\npermission denied\n\n## Solution\nUse /tmp/ instead of /root/.\n",
-        ).unwrap();
-
-        let tracker = ErrorTracker::new();
-        // No dynamic skills — but persisted skill exists.
-        let hint = tracker.get_skill_hint("bash", "permission denied: /root/x");
-        assert!(hint.is_some(), "Should find persisted skill");
-        let text = hint.unwrap();
-        assert!(text.contains("LEARNED FIX"));
-        assert!(text.contains("Use /tmp/ instead of /root/"));
+            let tracker = ErrorTracker::new();
+            // No dynamic skills — but persisted skill exists.
+            let hint = tracker.get_skill_hint("bash", "permission denied: /root/x");
+            assert!(hint.is_some(), "Should find persisted skill");
+            let text = hint.unwrap();
+            assert!(text.contains("LEARNED FIX"));
+            assert!(text.contains("Use /tmp/ instead of /root/"));
+        });
     }
 
     #[test]

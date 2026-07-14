@@ -7714,34 +7714,34 @@ UU conflicted.rs",
 
     #[test]
     fn tool_rendering_truncates_large_read_output_for_display_only() {
-        let content = (0..200)
-            .map(|index| format!("line {index:03}"))
+        let content = (0..2500)
+            .map(|index| format!("line {index:04}"))
             .collect::<Vec<_>>()
             .join("\n");
         let output = json!({
             "file": {
                 "filePath": "src/main.rs",
                 "content": content,
-                "numLines": 200,
+                "numLines": 2500,
                 "startLine": 1,
-                "totalLines": 200
+                "totalLines": 2500
             }
         })
         .to_string();
 
         let rendered = format_tool_result("read_file", &output, false);
 
-        assert!(rendered.contains("line 000"));
-        assert!(rendered.contains("line 079"));
-        assert!(!rendered.contains("line 199"));
+        assert!(rendered.contains("line 0000"));
+        assert!(rendered.contains("line 0999"));
+        assert!(!rendered.contains("line 2499"));
         assert!(rendered.contains("full result preserved in session"));
-        assert!(output.contains("line 199"));
+        assert!(output.contains("line 2499"));
     }
 
     #[test]
     fn tool_rendering_truncates_large_bash_output_for_display_only() {
-        let stdout = (0..120)
-            .map(|index| format!("stdout {index:03}"))
+        let stdout = (0..1500)
+            .map(|index| format!("stdout {index:04}"))
             .collect::<Vec<_>>()
             .join("\n");
         let output = json!({
@@ -7753,17 +7753,17 @@ UU conflicted.rs",
 
         let rendered = format_tool_result("bash", &output, false);
 
-        assert!(rendered.contains("stdout 000"));
-        assert!(rendered.contains("stdout 059"));
-        assert!(!rendered.contains("stdout 119"));
+        assert!(rendered.contains("stdout 0000"));
+        assert!(rendered.contains("stdout 0999"));
+        assert!(!rendered.contains("stdout 1499"));
         assert!(rendered.contains("full result preserved in session"));
-        assert!(output.contains("stdout 119"));
+        assert!(output.contains("stdout 1499"));
     }
 
     #[test]
     fn tool_rendering_truncates_generic_long_output_for_display_only() {
-        let items = (0..120)
-            .map(|index| format!("payload {index:03}"))
+        let items = (0..1500)
+            .map(|index| format!("payload {index:04}"))
             .collect::<Vec<_>>();
         let output = json!({
             "summary": "plugin payload",
@@ -7774,29 +7774,29 @@ UU conflicted.rs",
         let rendered = format_tool_result("plugin_echo", &output, false);
 
         assert!(rendered.contains("plugin_echo"));
-        assert!(rendered.contains("payload 000"));
-        assert!(rendered.contains("payload 040"));
-        assert!(!rendered.contains("payload 080"));
-        assert!(!rendered.contains("payload 119"));
+        assert!(rendered.contains("payload 0000"));
+        assert!(rendered.contains("payload 0900"));
+        assert!(!rendered.contains("payload 1200"));
+        assert!(!rendered.contains("payload 1499"));
         assert!(rendered.contains("full result preserved in session"));
-        assert!(output.contains("payload 119"));
+        assert!(output.contains("payload 1499"));
     }
 
     #[test]
     fn tool_rendering_truncates_raw_generic_output_for_display_only() {
-        let output = (0..120)
-            .map(|index| format!("raw {index:03}"))
+        let output = (0..1500)
+            .map(|index| format!("raw {index:04}"))
             .collect::<Vec<_>>()
             .join("\n");
 
         let rendered = format_tool_result("plugin_echo", &output, false);
 
         assert!(rendered.contains("plugin_echo"));
-        assert!(rendered.contains("raw 000"));
-        assert!(rendered.contains("raw 059"));
-        assert!(!rendered.contains("raw 119"));
+        assert!(rendered.contains("raw 0000"));
+        assert!(rendered.contains("raw 0999"));
+        assert!(!rendered.contains("raw 1499"));
         assert!(rendered.contains("full result preserved in session"));
-        assert!(output.contains("raw 119"));
+        assert!(output.contains("raw 1499"));
     }
 
     #[test]
