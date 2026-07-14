@@ -326,17 +326,18 @@ where
                         ),
                     };
                     // Track errors and successes for auto-learning.
+                    let effective_name = crate::error_tracker::resolve_effective_tool_name(&req.tool_name, &req.input);
                     let output = if is_error {
                         let mut tracker = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                        tracker.record_error(&req.tool_name, &output, &req.input);
+                        tracker.record_error(&effective_name, &output, &req.input);
                         // Per-tool skill hint: append fix directly to error output.
-                        if let Some(hint) = tracker.get_skill_hint(&req.tool_name, &output) {
+                        if let Some(hint) = tracker.get_skill_hint(&effective_name, &output) {
                             format!("{output}{hint}")
                         } else {
                             output
                         }
                     } else {
-                        if let Some(skill) = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_success(&req.tool_name, &req.input, &output) {
+                        if let Some(skill) = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_success(&effective_name, &req.input, &output) {
                             tracing::info!(
                                 skill = %skill.name,
                                 tool = %skill.tool_name,
@@ -363,18 +364,19 @@ where
                                 ),
                             };
                             // Track errors and successes for auto-learning.
+                            let effective_name = crate::error_tracker::resolve_effective_tool_name(tool_name, input);
                             let (output, is_error) = if result.1 {
                                 let mut tracker = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                                tracker.record_error(tool_name, &result.0, input);
+                                tracker.record_error(&effective_name, &result.0, input);
                                 // Per-tool skill hint: append fix directly to error output.
-                                let output = if let Some(hint) = tracker.get_skill_hint(tool_name, &result.0) {
+                                let output = if let Some(hint) = tracker.get_skill_hint(&effective_name, &result.0) {
                                     format!("{}{hint}", result.0)
                                 } else {
                                     result.0
                                 };
                                 (output, true)
                             } else {
-                                let _ = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_success(tool_name, input, &result.0);
+                                let _ = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_success(&effective_name, input, &result.0);
                                 result
                             };
                             (output, is_error)

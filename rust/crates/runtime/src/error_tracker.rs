@@ -107,6 +107,25 @@ fn now_ms() -> u64 {
         .unwrap_or(0)
 }
 
+/// Resolves the effective tool name for ErrorTracker tracking.
+///
+/// For generic MCP tool wrappers (`MCPTool`, `McpSearch`), extracts the
+/// `qualifiedName` or `tool` field from the input JSON so we track errors
+/// per-actual-MCP-tool, not under the generic wrapper name.
+#[must_use]
+pub fn resolve_effective_tool_name<'a>(tool_name: &'a str, input: &'a str) -> std::borrow::Cow<'a, str> {
+    if tool_name == "MCPTool" {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
+            if let Some(name) = v.get("qualifiedName").and_then(|v| v.as_str())
+                .or_else(|| v.get("tool").and_then(|v| v.as_str()))
+            {
+                return std::borrow::Cow::Owned(format!("mcp:{name}"));
+            }
+        }
+    }
+    std::borrow::Cow::Borrowed(tool_name)
+}
+
 /// Maximum number of dynamic skills allowed at once.
 const MAX_DYNAMIC_SKILLS: usize = 10;
 
@@ -698,5 +717,44 @@ mod tests {
         let text = hint.unwrap();
         assert!(text.contains("LEARNED FIX"));
         assert!(text.contains("Use /tmp/ instead of /root/"));
+    }
+
+    #[test]
+    fn resolve_effective_tool_name_passes_through_normal_tools() {
+        assert_eq!(
+            super::resolve_effective_tool_name("bash", "{}").as_ref(),
+            "bash"
+        );
+        assert_eq!(
+            super::resolve_effective_tool_name("write_file", "{\"path\": \"/tmp/x\"}").as_ref(),
+            "write_file"
+        );
+    }
+
+    #[test]
+    fn resolve_effective_tool_name_extracts_qualified_name_from_mcp_tool() {
+        let input = r#"{"qualifiedName": "xcode-bridge/BuildProject", "arguments": {}}"#;
+        assert_eq!(
+            super::resolve_effective_tool_name("MCPTool", input).as_ref(),
+            "mcp:xcode-bridge/BuildProject"
+        );
+    }
+
+    #[test]
+    fn resolve_effective_tool_name_extracts_tool_field_from_mcp_tool() {
+        let input = r#"{"tool": "firebase/deploy", "arguments": {}}"#;
+        assert_eq!(
+            super::resolve_effective_tool_name("MCPTool", input).as_ref(),
+            "mcp:firebase/deploy"
+        );
+    }
+
+    #[test]
+    fn resolve_effective_tool_name_falls_back_for_mcp_without_name() {
+        let input = r#"{"arguments": {}}"#;
+        assert_eq!(
+            super::resolve_effective_tool_name("MCPTool", input).as_ref(),
+            "MCPTool"
+        );
     }
 }
