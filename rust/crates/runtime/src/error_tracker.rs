@@ -295,23 +295,43 @@ impl ErrorTracker {
     }
 
     /// Returns a per-tool skill hint if a dynamic skill exists for this
-    /// tool+error combination. This hint is appended directly to the tool's
-    /// error output so the AI sees the fix right where it needs it.
+    /// tool+error combination — either from the current session or from
+    /// persisted skills in `omc-learned/`. This hint is appended directly
+    /// to the tool's error output so the AI sees the fix right where it needs it.
     #[must_use]
     pub fn get_skill_hint(&self, tool_name: &str, error_msg: &str) -> Option<String> {
         let category = normalize_error_category(error_msg);
-        self.dynamic_skills
-            .iter()
-            .find(|s| {
-                s.tool_name == tool_name
-                    && normalize_error_category(&s.error_pattern) == category
-            })
-            .map(|skill| {
-                format!(
-                    "\n\n💡 AUTO-LEARNED FIX (from previous errors on `{}`):\n{}\n",
-                    tool_name, skill.solution,
-                )
-            })
+
+        // 1. Check dynamic skills from the current session.
+        if let Some(skill) = self.dynamic_skills.iter().find(|s| {
+            s.tool_name == tool_name
+                && normalize_error_category(&s.error_pattern) == category
+        }) {
+            return Some(format!(
+                "\n\n💡 AUTO-LEARNED FIX (from session errors on `{}`):\n{}\n",
+                tool_name, skill.solution,
+            ));
+        }
+
+        // 2. Check persisted skills from omc-learned/ (cross-session memory).
+        let expected_name = format!(
+            "autolearn-{}-{}",
+            tool_name.to_lowercase().replace(' ', "-"),
+            &category,
+        );
+        let persisted_path = learned_skills_dir().join(&expected_name).join("SKILL.md");
+        if persisted_path.is_file() {
+            if let Ok(content) = std::fs::read_to_string(&persisted_path) {
+                // Extract the Solution section from the SKILL.md.
+                let solution = extract_solution_from_skill_md(&content);
+                return Some(format!(
+                    "\n\n💡 LEARNED FIX (from `{}`, persisted skill):\n{}\n",
+                    expected_name, solution,
+                ));
+            }
+        }
+
+        None
     }
 
     /// Evaluates which dynamic skills were effective and returns them.
@@ -341,6 +361,37 @@ fn truncate(s: &str, max: usize) -> String {
         s.to_string()
     } else {
         format!("{}…", &s[..max])
+    }
+}
+
+/// Extracts the "## Solution" section from a SKILL.md file content.
+fn extract_solution_from_skill_md(content: &str) -> String {
+    let mut in_solution = false;
+    let mut lines = Vec::new();
+
+    for line in content.lines() {
+        if line.starts_with("## Solution") {
+            in_solution = true;
+            continue;
+        }
+        if in_solution && line.starts_with("## ") {
+            break; // Next section starts.
+        }
+        if in_solution {
+            lines.push(line);
+        }
+    }
+
+    let result = lines.join("\n").trim().to_string();
+    if result.is_empty() {
+        // Fallback: return everything after the frontmatter.
+        content
+            .find("---\n")
+            .and_then(|first| content[first + 4..].find("---\n").map(|second| first + 4 + second + 4))
+            .map(|body_start| content[body_start..].trim().to_string())
+            .unwrap_or_else(|| content.to_string())
+    } else {
+        result
     }
 }
 
@@ -608,5 +659,44 @@ mod tests {
 
         // Different error category.
         assert!(tracker.get_skill_hint("bash", "connection refused on port 80").is_none());
+    }
+
+    #[test]
+    fn extract_solution_from_skill_md_finds_section() {
+        let content = "---\nname: test\n---\n\n## Problem\nSome problem\n\n## Solution\nUse sudo or /tmp/ path.\n\n## Details\nMore info\n";
+        let solution = super::extract_solution_from_skill_md(content);
+        assert_eq!(solution, "Use sudo or /tmp/ path.");
+    }
+
+    #[test]
+    fn extract_solution_falls_back_to_body_when_no_section() {
+        let content = "---\nname: test\n---\n\nJust some body text without sections.\n";
+        let solution = super::extract_solution_from_skill_md(content);
+        assert!(solution.contains("Just some body text"));
+    }
+
+    #[test]
+    fn get_skill_hint_finds_persisted_skill_from_omc_learned() {
+        let temp = tempfile::tempdir().unwrap();
+        std::env::set_var("HOME", temp.path());
+
+        let skill_dir = temp.path()
+            .join(".claude")
+            .join("skills")
+            .join("omc-learned")
+            .join("autolearn-bash-permission_denied");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: autolearn-bash-permission_denied\ndescription: Fix for bash permission errors\n---\n\n## Problem\npermission denied\n\n## Solution\nUse /tmp/ instead of /root/.\n",
+        ).unwrap();
+
+        let tracker = ErrorTracker::new();
+        // No dynamic skills — but persisted skill exists.
+        let hint = tracker.get_skill_hint("bash", "permission denied: /root/x");
+        assert!(hint.is_some(), "Should find persisted skill");
+        let text = hint.unwrap();
+        assert!(text.contains("LEARNED FIX"));
+        assert!(text.contains("Use /tmp/ instead of /root/"));
     }
 }
