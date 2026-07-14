@@ -1626,6 +1626,76 @@ def translate_to_english(text: str) -> str:
         
     return text
 
+def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
+    try:
+        params = json.loads(input_str)
+    except Exception:
+        params = {}
+        
+    cmd = params.get("command", params.get("CommandLine", ""))
+    desc = params.get("description", params.get("Description", params.get("toolSummary", params.get("toolAction", ""))))
+    
+    action_desc = ""
+    spoken_text = f"Tool: {tool_name}. "
+    if desc:
+        spoken_text += f"Context: {desc}. "
+    
+    if tool_name in ("bash", "run_command"):
+        cmd_str = str(cmd).strip()
+        desc_str = str(desc).strip()
+        action_desc = get_command_description_ua(cmd_str, desc_str)
+        spoken_text += f"Command: {cmd_str}"
+        
+    elif tool_name in ("read_file", "view_file"):
+        path = params.get("AbsolutePath", params.get("path", ""))
+        filename = Path(path).name if path else "файлу"
+        action_desc = f"читання файлу {filename}"
+        spoken_text += f"Target: {filename}"
+        
+    elif tool_name in ("write_to_file", "write_file", "create_file"):
+        path = params.get("TargetFile", params.get("path", ""))
+        filename = Path(path).name if path else "файлу"
+        action_desc = f"запису у файл {filename}"
+        spoken_text += f"Target: {filename}"
+        
+    elif tool_name in ("replace_file_content", "multi_replace_file_content", "edit_file"):
+        path = params.get("TargetFile", params.get("path", ""))
+        filename = Path(path).name if path else "файлу"
+        action_desc = f"редагування файлу {filename}"
+        spoken_text += f"Target: {filename}"
+        
+    elif tool_name == "grep_search":
+        query = params.get("Query", params.get("query", ""))
+        action_desc = f"пошуку тексту '{query}' у коді"
+        spoken_text += f"Query: '{query}'"
+        
+    elif tool_name == "glob_search":
+        pattern = params.get("Pattern", params.get("pattern", ""))
+        action_desc = f"пошуку файлів за шаблоном '{pattern}'"
+        spoken_text += f"Pattern: '{pattern}'"
+        
+    elif tool_name == "list_dir":
+        path = params.get("DirectoryPath", params.get("path", ""))
+        dirname = Path(path).name if path else "директорії"
+        action_desc = f"перегляду вмісту папки {dirname}"
+        spoken_text += f"Target: {dirname}"
+        
+    elif tool_name == "TaskGraph":
+        op = params.get("operation", "")
+        if op == "update_status":
+            action_desc = "оновлення статусу завдань"
+            spoken_text = "Оновлюю статус завдань."
+        else:
+            action_desc = "оновлення планування"
+            spoken_text = "Оновлюю планування завдань."
+            
+    else:
+        tool_name_ua = TOOL_NAMES_UA.get(tool_name, tool_name)
+        action_desc = f"виконання інструменту {tool_name_ua}"
+        spoken_text += f"Executing {tool_name}."
+        
+    return spoken_text, action_desc
+
 def is_tool_call_text(text: str) -> bool:
     text_lower = text.lower().strip()
     return (
