@@ -263,6 +263,17 @@ impl RuntimeMcpState {
         let Some(config) = self.available_servers.get(name).cloned() else {
             return Err(format!("Server '{}' is not defined in availableMcpServers", name));
         };
+
+        // If the server is already loaded with tools, return the existing tools
+        // instead of restarting the process. Prevents unnecessary restarts when
+        // AI calls McpSearch(load_server) multiple times.
+        if self.manager.server_names().contains(&name.to_string()) {
+            let existing_tools = self.manager.tools_for_server(name);
+            if !existing_tools.is_empty() {
+                return Ok(existing_tools);
+            }
+        }
+
         self.runtime.block_on(async {
             self.manager.load_and_discover_server(name.to_string(), config).await
                 .map_err(|e| e.to_string())

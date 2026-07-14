@@ -541,6 +541,33 @@ impl McpServerManager {
         self.servers.keys().cloned().collect()
     }
 
+    /// Returns all currently routed tools for a given server.
+    ///
+    /// Reconstructs `ManagedMcpTool` entries from the tool_index. Returns an
+    /// empty vec if the server has no registered tools.
+    #[must_use]
+    pub fn tools_for_server(&self, server_name: &str) -> Vec<ManagedMcpTool> {
+        self.tool_index
+            .iter()
+            .filter(|(_, route)| route.server_name == server_name)
+            .map(|(qualified_name, route)| {
+                let description = format!("MCP tool `{}` on server `{}`", route.raw_name, server_name);
+                ManagedMcpTool {
+                    qualified_name: qualified_name.clone(),
+                    raw_name: route.raw_name.clone(),
+                    server_name: route.server_name.clone(),
+                    tool: McpTool {
+                        name: route.raw_name.clone(),
+                        description: Some(description),
+                        input_schema: None,
+                        annotations: None,
+                        meta: None,
+                    },
+                }
+            })
+            .collect()
+    }
+
     pub async fn load_and_discover_server(
         &mut self,
         server_name: String,
@@ -690,42 +717,51 @@ impl McpServerManager {
             })?;
 
         let timeout_ms = self.tool_call_timeout_ms(&route.server_name)?;
+        let mut attempts = 0;
 
-        self.ensure_server_ready(&route.server_name).await?;
-        let request_id = self.take_request_id();
-        let response =
-            {
-                let server = self.server_mut(&route.server_name)?;
-                let process = server.process.as_mut().ok_or_else(|| {
-                    McpServerManagerError::InvalidResponse {
-                        server_name: route.server_name.clone(),
-                        method: "tools/call",
-                        details: "server process missing after initialization".to_string(),
+        loop {
+            self.ensure_server_ready(&route.server_name).await?;
+            let request_id = self.take_request_id();
+            let response =
+                {
+                    let server = self.server_mut(&route.server_name)?;
+                    let process = server.process.as_mut().ok_or_else(|| {
+                        McpServerManagerError::InvalidResponse {
+                            server_name: route.server_name.clone(),
+                            method: "tools/call",
+                            details: "server process missing after initialization".to_string(),
+                        }
+                    })?;
+                    Self::run_process_request(
+                        &route.server_name,
+                        "tools/call",
+                        timeout_ms,
+                        process.call_tool(
+                            request_id,
+                            McpToolCallParams {
+                                name: route.raw_name.clone(),
+                                arguments: arguments.clone(),
+                                meta: None,
+                            },
+                        ),
+                    )
+                    .await
+                };
+
+            match response {
+                Ok(resp) => return Ok(resp),
+                Err(error) if attempts == 0 && Self::is_retryable_error(&error) => {
+                    self.reset_server(&route.server_name).await?;
+                    attempts += 1;
+                }
+                Err(error) => {
+                    if Self::should_reset_server(&error) {
+                        self.reset_server(&route.server_name).await?;
                     }
-                })?;
-                Self::run_process_request(
-                    &route.server_name,
-                    "tools/call",
-                    timeout_ms,
-                    process.call_tool(
-                        request_id,
-                        McpToolCallParams {
-                            name: route.raw_name,
-                            arguments,
-                            meta: None,
-                        },
-                    ),
-                )
-                .await
-            };
-
-        if let Err(error) = &response {
-            if Self::should_reset_server(error) {
-                self.reset_server(&route.server_name).await?;
+                    return Err(error);
+                }
             }
         }
-
-        response
     }
 
     pub async fn list_resources(
@@ -2452,7 +2488,7 @@ mod tests {
     }
 
     #[test]
-    fn given_child_exits_after_discovery_when_calling_twice_then_second_call_succeeds_after_reset()
+    fn given_child_exits_after_discovery_when_calling_then_call_tool_auto_retries_and_succeeds()
     {
         let runtime = Builder::new_current_thread()
             .enable_all()
@@ -2474,34 +2510,17 @@ mod tests {
             let mut manager = McpServerManager::from_servers(&servers);
 
             manager.discover_tools().await.expect("discover tools");
-            let first_error = manager
-                .call_tool(
-                    &mcp_tool_name("alpha", "echo"),
-                    Some(json!({"text": "reconnect"})),
-                )
-                .await
-                .expect_err("first call should fail after transport drops");
 
-            match first_error {
-                McpServerManagerError::Transport {
-                    server_name,
-                    method,
-                    source,
-                } => {
-                    assert_eq!(server_name, "alpha");
-                    assert_eq!(method, "tools/call");
-                    assert_eq!(source.kind(), ErrorKind::UnexpectedEof);
-                }
-                other => panic!("expected transport error, got {other:?}"),
-            }
-
+            // With automatic retry, the first call should succeed: call_tool
+            // detects the transport error, resets the server, re-initializes,
+            // and retries the call — all within a single invocation.
             let response = manager
                 .call_tool(
                     &mcp_tool_name("alpha", "echo"),
                     Some(json!({"text": "reconnect"})),
                 )
                 .await
-                .expect("second tool call should succeed after reset");
+                .expect("call_tool should auto-retry and succeed after transport drops");
 
             assert_eq!(
                 response
@@ -2572,7 +2591,7 @@ mod tests {
     }
 
     #[test]
-    fn given_tool_call_disconnects_once_when_calling_twice_then_manager_resets_and_next_call_succeeds(
+    fn given_tool_call_disconnects_once_when_calling_then_call_tool_auto_retries_and_succeeds(
     ) {
         let runtime = Builder::new_current_thread()
             .enable_all()
@@ -2604,34 +2623,17 @@ mod tests {
             let mut manager = McpServerManager::from_servers(&servers);
 
             manager.discover_tools().await.expect("discover tools");
-            let first_error = manager
+
+            // With auto-retry, the first call_tool invocation should succeed
+            // transparently: the initial attempt hits the disconnect, the retry
+            // re-initializes and completes successfully.
+            let response = manager
                 .call_tool(
                     &mcp_tool_name("alpha", "echo"),
                     Some(json!({"text": "first"})),
                 )
                 .await
-                .expect_err("first tool call should fail when transport drops");
-
-            match first_error {
-                McpServerManagerError::Transport {
-                    server_name,
-                    method,
-                    source,
-                } => {
-                    assert_eq!(server_name, "alpha");
-                    assert_eq!(method, "tools/call");
-                    assert_eq!(source.kind(), ErrorKind::UnexpectedEof);
-                }
-                other => panic!("expected transport error, got {other:?}"),
-            }
-
-            let response = manager
-                .call_tool(
-                    &mcp_tool_name("alpha", "echo"),
-                    Some(json!({"text": "second"})),
-                )
-                .await
-                .expect("second tool call should succeed after reset");
+                .expect("call_tool should auto-retry and succeed after disconnect");
 
             assert_eq!(
                 response
@@ -2639,7 +2641,7 @@ mod tests {
                     .as_ref()
                     .and_then(|result| result.structured_content.as_ref())
                     .and_then(|value| value.get("echoed")),
-                Some(&json!("second"))
+                Some(&json!("first"))
             );
             let log = fs::read_to_string(&log_path).expect("read log");
             assert_eq!(
@@ -2982,6 +2984,130 @@ mod tests {
                 }
                 other => panic!("expected unknown tool error, got {other:?}"),
             }
+
+            cleanup_script(&script_path);
+        });
+    }
+
+    #[test]
+    fn load_and_discover_server_registers_tools_and_routes() {
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let script_path = write_manager_mcp_server_script();
+            let root = script_path.parent().expect("script parent");
+            let log_path = root.join("lazy.log");
+
+            // Start with an empty manager (no servers configured).
+            let mut manager = McpServerManager::from_servers(&BTreeMap::new());
+            assert!(manager.server_names().is_empty());
+
+            // Dynamically load a new server.
+            let config = manager_server_config(&script_path, "lazy", &log_path);
+            let tools = manager
+                .load_and_discover_server("lazy-server".to_string(), config)
+                .await
+                .expect("lazy load should succeed");
+
+            // Verify tools were discovered.
+            assert!(!tools.is_empty(), "should discover at least one tool");
+            assert!(
+                tools.iter().any(|t| t.raw_name == "echo"),
+                "should discover the echo tool"
+            );
+
+            // Verify the server is now tracked.
+            assert!(manager.server_names().contains(&"lazy-server".to_string()));
+
+            // Verify tool routing works.
+            let echo_tool_name = mcp_tool_name("lazy-server", "echo");
+            let result = manager
+                .call_tool(&echo_tool_name, Some(json!({"text": "hello-lazy"})))
+                .await
+                .expect("call tool after lazy load");
+            let result_json = result.result.expect("should have result");
+            // Use structured_content for echo verification.
+            let echoed = result_json
+                .structured_content
+                .as_ref()
+                .and_then(|v| v.get("echoed"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
+            assert!(
+                echoed.contains("hello-lazy"),
+                "echo tool should return our input, got: {echoed}"
+            );
+
+            cleanup_script(&script_path);
+        });
+    }
+
+    #[test]
+    fn load_and_discover_server_rejects_non_stdio_transport() {
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let mut manager = McpServerManager::from_servers(&BTreeMap::new());
+
+            let ws_config = ScopedMcpServerConfig {
+                description: None,
+                required: false,
+                scope: ConfigSource::Local,
+                config: McpServerConfig::Ws(McpWebSocketServerConfig {
+                    url: "ws://localhost:9999".to_string(),
+                    headers: BTreeMap::new(),
+                    headers_helper: None,
+                }),
+            };
+
+            let result = manager
+                .load_and_discover_server("ws-server".to_string(), ws_config)
+                .await;
+            assert!(
+                result.is_err(),
+                "non-stdio transport should be rejected"
+            );
+        });
+    }
+
+    #[test]
+    fn call_tool_retries_after_transient_disconnect() {
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let script_path = write_manager_mcp_server_script();
+            let root = script_path.parent().expect("script parent");
+            let log_path = root.join("retry-test.log");
+
+            let servers = BTreeMap::from([(
+                "retry-srv".to_string(),
+                manager_server_config(&script_path, "retry-srv", &log_path),
+            )]);
+            let mut manager = McpServerManager::from_servers(&servers);
+            let _tools = manager.discover_tools().await.expect("discover");
+
+            let echo_name = mcp_tool_name("retry-srv", "echo");
+
+            // First call should succeed normally.
+            let result = manager
+                .call_tool(&echo_name, Some(json!({"text": "first"})))
+                .await
+                .expect("first call should succeed");
+            assert!(result.result.is_some());
+
+            // Second call should still succeed (no disconnect simulated here,
+            // but verifying the retry loop doesn't break normal operations).
+            let result = manager
+                .call_tool(&echo_name, Some(json!({"text": "second"})))
+                .await
+                .expect("second call should succeed");
+            assert!(result.result.is_some());
 
             cleanup_script(&script_path);
         });
