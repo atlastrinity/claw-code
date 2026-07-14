@@ -4672,6 +4672,7 @@ r#"> [!IMPORTANT]
 > 3. To update an existing task, use `operation: "update_status"`. CRITICAL: ONLY send the nodes whose status is changing (provide only `id` and `status`). Do NOT send the entire graph, unchanged nodes, or the `content`/`parent_id` fields.
 > 4. **RIGOROUS EXECUTION**: Formulate the task graph clearly and logically. There are no restrictions on nesting depth if complex sub-steps are needed. Constantly review, improve, and strictly execute the graph step-by-step. Read-only diagnostic commands or exploration do NOT need to be recorded as separate tasks.
 > 5. Node IDs MUST be strings (e.g. "1.1").
+> 6. Do NOT prefix the `content` field with the node ID (e.g., write "Analyze data", NOT "1.1: Analyze data"). Ensure parent nodes exist before creating deep children (e.g., create 1.1 before 1.1.1).
 
 # Task List
 
