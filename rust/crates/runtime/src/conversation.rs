@@ -1,5 +1,6 @@
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
+use std::sync::Mutex;
 
 use serde_json::{Map, Value};
 use telemetry::SessionTracer;
@@ -8,6 +9,7 @@ use crate::compact::{
     compact_session, estimate_session_tokens, CompactionConfig, CompactionResult,
 };
 use crate::config::RuntimeFeatureConfig;
+use crate::error_tracker::ErrorTracker;
 use crate::hooks::{HookAbortSignal, HookProgressReporter, HookRunner};
 use crate::permissions::{PermissionPolicy, PermissionPrompter};
 use crate::session::{ContentBlock, ConversationMessage, Session};
@@ -139,6 +141,7 @@ pub struct ConversationRuntime<C, T> {
     hook_abort_signal: HookAbortSignal,
     hook_progress_reporter: Option<Box<dyn HookProgressReporter>>,
     session_tracer: Option<SessionTracer>,
+    error_tracker: Mutex<ErrorTracker>,
 }
 
 impl<C, T> ConversationRuntime<C, T>
@@ -188,6 +191,7 @@ where
             hook_abort_signal: HookAbortSignal::default(),
             hook_progress_reporter: None,
             session_tracer: None,
+            error_tracker: Mutex::new(ErrorTracker::new()),
         }
     }
 
@@ -296,6 +300,7 @@ where
 
             let mut prompter_ref = prompter.as_deref_mut();
             let executor = &self.tool_executor;
+            let error_tracker = &self.error_tracker;
 
             let outcome = chain.process(ctx, &mut prompter_ref, |ctx, _| {
                 let mut terminal_messages = Vec::new();
@@ -320,6 +325,26 @@ where
                             true
                         ),
                     };
+                    // Track errors and successes for auto-learning.
+                    let output = if is_error {
+                        let mut tracker = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        tracker.record_error(&req.tool_name, &output, &req.input);
+                        // Per-tool skill hint: append fix directly to error output.
+                        if let Some(hint) = tracker.get_skill_hint(&req.tool_name, &output) {
+                            format!("{output}{hint}")
+                        } else {
+                            output
+                        }
+                    } else {
+                        if let Some(skill) = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_success(&req.tool_name, &req.input, &output) {
+                            tracing::info!(
+                                skill = %skill.name,
+                                tool = %skill.tool_name,
+                                "Dynamic skill created from recurring error pattern"
+                            );
+                        }
+                        output
+                    };
                     terminal_messages.push(ConversationMessage::tool_result(
                         req.tool_use_id,
                         req.tool_name,
@@ -329,12 +354,30 @@ where
                 } else {
                     let execution_results = execute_parallel_batch(
                         &calls_to_execute,
-                        |tool_name, input| match executor.execute(tool_name, input) {
-                            Ok(output) => (output, false),
-                            Err(error) => (
-                                serde_json::to_string(&serde_json::json!({ "error": error.to_string() })).unwrap_or_else(|_| error.to_string()),
-                                true
-                            ),
+                        |tool_name, input| {
+                            let result = match executor.execute(tool_name, input) {
+                                Ok(output) => (output, false),
+                                Err(error) => (
+                                    serde_json::to_string(&serde_json::json!({ "error": error.to_string() })).unwrap_or_else(|_| error.to_string()),
+                                    true
+                                ),
+                            };
+                            // Track errors and successes for auto-learning.
+                            let (output, is_error) = if result.1 {
+                                let mut tracker = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                                tracker.record_error(tool_name, &result.0, input);
+                                // Per-tool skill hint: append fix directly to error output.
+                                let output = if let Some(hint) = tracker.get_skill_hint(tool_name, &result.0) {
+                                    format!("{}{hint}", result.0)
+                                } else {
+                                    result.0
+                                };
+                                (output, true)
+                            } else {
+                                let _ = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_success(tool_name, input, &result.0);
+                                result
+                            };
+                            (output, is_error)
                         },
                     );
 
@@ -426,7 +469,13 @@ where
                 return Err(error);
             }
 
-            let system_prompt = self.system_prompt.clone();
+            let mut system_prompt = self.system_prompt.clone();
+            // Inject dynamic learned skills into the system prompt.
+            if let Ok(tracker) = self.error_tracker.lock() {
+                if let Some(skills_section) = tracker.prompt_section() {
+                    system_prompt.push(skills_section);
+                }
+            }
             // Disabled automatic RAG context querying on initial user input to save tokens.
             // if iterations == 1 {
             //     if let Some(rag_context) = fetch_rag_context(&user_input) {
@@ -554,6 +603,12 @@ where
 
     pub fn session_mut(&mut self) -> &mut Session {
         &mut self.session
+    }
+
+    /// Returns a reference to the error tracker for shutdown processing.
+    #[must_use]
+    pub fn error_tracker(&self) -> std::sync::MutexGuard<'_, ErrorTracker> {
+        self.error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     #[must_use]

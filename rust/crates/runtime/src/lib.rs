@@ -14,6 +14,7 @@ mod config;
 pub mod config_validate;
 pub mod context_budget;
 mod conversation;
+pub mod error_tracker;
 mod file_ops;
 pub mod g004_conformance;
 mod git_context;
@@ -89,6 +90,11 @@ pub use conversation::{
     ToolExecutor, TurnSummary,
 };
 pub use context_budget::ContextBudget;
+pub use error_tracker::{
+    clear_temp_skills, learned_skills_dir, load_temp_skills, normalize_error_category,
+    persist_skill_to_learned, temp_skills_dir, write_temp_skill, DynamicSkill, ErrorTracker,
+    ToolErrorRecord,
+};
 pub use file_ops::{
     edit_file, edit_file_in_workspace, glob_search, glob_search_in_workspace, grep_search,
     grep_search_in_workspace, read_file, read_file_in_workspace, write_file,

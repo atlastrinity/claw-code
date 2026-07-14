@@ -218,6 +218,43 @@ impl BuiltRuntime {
 
 impl Drop for BuiltRuntime {
     fn drop(&mut self) {
+        // Auto-learning: persist effective dynamic skills before shutdown.
+        if let Some(runtime) = &self.runtime {
+            let tracker = runtime.error_tracker();
+            let effective = tracker.effective_skills();
+            if !effective.is_empty() {
+                let mut persisted = 0usize;
+                for skill in &effective {
+                    match runtime::persist_skill_to_learned(skill) {
+                        Ok(path) => {
+                            tracing::info!(
+                                skill = %skill.name,
+                                path = %path.display(),
+                                "Persisted effective auto-learned skill"
+                            );
+                            persisted += 1;
+                        }
+                        Err(e) => {
+                            tracing::error!(
+                                skill = %skill.name,
+                                error = %e,
+                                "Failed to persist auto-learned skill"
+                            );
+                        }
+                    }
+                }
+                if persisted > 0 {
+                    eprintln!(
+                        "🧠 Auto-learning: збережено {persisted} навичок з {} помилок сесії",
+                        tracker.error_summary().iter().map(|(_, _, c)| c).sum::<usize>()
+                    );
+                }
+            }
+            drop(tracker);
+            // Clean up temporary skills directory.
+            runtime::clear_temp_skills();
+        }
+
         let _ = self.shutdown_mcp();
         let _ = self.shutdown_plugins();
     }
