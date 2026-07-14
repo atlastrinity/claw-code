@@ -819,7 +819,7 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "ToolSearch",
-            description: "Search for deferred or specialized tools by exact name or keywords.",
+            description: "Search for deferred or specialized tools by exact name or keywords. IMPORTANT: To pull in MCP tools, you MUST first identify and load the appropriate MCP server using the McpSearch tool. Once loaded, its paired skills and tools will become available.",
             input_schema: json!({
                 "type": "object",
                 "properties": {

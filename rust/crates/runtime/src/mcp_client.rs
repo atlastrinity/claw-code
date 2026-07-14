@@ -142,7 +142,7 @@ mod tests {
 
     #[test]
     fn bootstraps_stdio_servers_into_transport_targets() {
-        let config = ScopedMcpServerConfig {
+        let config = ScopedMcpServerConfig { description: None,
             required: false,
             scope: ConfigSource::User,
             config: McpServerConfig::Stdio(McpStdioServerConfig {
@@ -176,7 +176,7 @@ mod tests {
 
     #[test]
     fn bootstraps_remote_servers_with_oauth_auth() {
-        let config = ScopedMcpServerConfig {
+        let config = ScopedMcpServerConfig { description: None,
             required: false,
             scope: ConfigSource::Project,
             config: McpServerConfig::Http(McpRemoteServerConfig {
@@ -214,7 +214,7 @@ mod tests {
 
     #[test]
     fn bootstraps_websocket_and_sdk_transports_without_oauth() {
-        let ws = ScopedMcpServerConfig {
+        let ws = ScopedMcpServerConfig { description: None,
             required: false,
             scope: ConfigSource::Local,
             config: McpServerConfig::Ws(McpWebSocketServerConfig {
@@ -223,7 +223,7 @@ mod tests {
                 headers_helper: None,
             }),
         };
-        let sdk = ScopedMcpServerConfig {
+        let sdk = ScopedMcpServerConfig { description: None,
             required: false,
             scope: ConfigSource::Local,
             config: McpServerConfig::Sdk(McpSdkServerConfig {

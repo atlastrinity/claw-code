@@ -293,6 +293,7 @@ pub struct McpInvalidServerConfig {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ScopedMcpServerConfig {
     pub required: bool,
+    pub description: Option<String>,
     pub scope: ConfigSource,
     pub config: McpServerConfig,
 }
@@ -998,18 +999,6 @@ impl RuntimeConfig {
         merge_trusted_roots(self.trusted_roots(), per_call_roots)
     }
 
-    /// Merge dynamically detected MCP servers from matched skills.
-    pub fn merge_dynamic_mcp_servers(
-        &mut self,
-        mcp_servers_json: &str,
-        path: &Path,
-    ) -> Result<(), ConfigError> {
-        let parsed = JsonValue::parse(mcp_servers_json)
-            .map_err(|e| ConfigError::Parse(e.to_string()))?;
-        let mut root = BTreeMap::new();
-        root.insert("mcpServers".to_string(), parsed);
-        merge_mcp_servers(&mut self.feature_config.mcp, ConfigSource::Project, &root, path)
-    }
 }
 
 impl RuntimeFeatureConfig {
@@ -1701,10 +1690,21 @@ fn merge_mcp_servers_with_key(
                 continue;
             }
         };
+        let description = match optional_string(object, "description", &context) {
+            Ok(desc) => desc.map(String::from),
+            Err(error) => {
+                target.servers.remove(name);
+                target
+                    .invalid_servers
+                    .push(mcp_invalid_server(name, source, path, &context, &error));
+                continue;
+            }
+        };
         target.servers.insert(
             name.clone(),
             ScopedMcpServerConfig {
                 required,
+                description,
                 scope: source,
                 config: parsed,
             },
@@ -1797,7 +1797,7 @@ fn validate_mcp_server_keys(
             )));
         }
     };
-    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str())) {
+    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str()) && *key != "description") {
         return Err(ConfigError::Parse(format!(
             "{context}: unknown MCP server field {key}"
         )));

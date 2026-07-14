@@ -2127,43 +2127,6 @@ pub fn build_runtime_plugin_state_with_loader(
     loader: &ConfigLoader,
     runtime_config: &mut runtime::RuntimeConfig,
 ) -> Result<RuntimePluginState, Box<dyn std::error::Error>> {
-    // Dynamic MCP server discovery via skills
-    if let Ok(matched_paths) = auto_match_skills(cwd, "") {
-        for path in matched_paths {
-            if let Some(skill_dir) = path.parent() {
-                let mcp_json_path = skill_dir.join("mcp.json");
-                if mcp_json_path.is_file() {
-                    if let Ok(mcp_json_str) = std::fs::read_to_string(&mcp_json_path) {
-                        let skill_name = skill_dir.file_name()
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| "unknown".to_string());
-
-                        tracing::info!(
-                            skill = %skill_name,
-                            path = %mcp_json_path.display(),
-                            "Found dynamic MCP configurations in matched skill. Merging..."
-                        );
-
-                        match runtime_config.merge_dynamic_mcp_servers(&mcp_json_str, &mcp_json_path) {
-                            Ok(_) => {
-                                tracing::info!(
-                                    skill = %skill_name,
-                                    "Successfully merged dynamic MCP servers from skill"
-                                );
-                            }
-                            Err(err) => {
-                                tracing::error!(
-                                    skill = %skill_name,
-                                    error = %err,
-                                    "Failed to merge dynamic MCP servers from skill"
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 
     let plugin_manager = build_plugin_manager(cwd, loader, runtime_config);
     let plugin_registry = plugin_manager.plugin_registry()?;

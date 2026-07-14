@@ -274,12 +274,12 @@ mod tests {
             headers_helper: Some("helper.sh".to_string()),
             oauth: None,
         });
-        let user = ScopedMcpServerConfig {
+        let user = ScopedMcpServerConfig { description: None,
             required: false,
             scope: ConfigSource::User,
             config: base_config.clone(),
         };
-        let local = ScopedMcpServerConfig {
+        let local = ScopedMcpServerConfig { description: None,
             required: false,
             scope: ConfigSource::Local,
             config: base_config,
@@ -289,7 +289,7 @@ mod tests {
             scoped_mcp_config_hash(&local)
         );
 
-        let changed = ScopedMcpServerConfig {
+        let changed = ScopedMcpServerConfig { description: None,
             required: false,
             scope: ConfigSource::Local,
             config: McpServerConfig::Http(McpRemoteServerConfig {

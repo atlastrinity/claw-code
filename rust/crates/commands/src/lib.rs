@@ -5326,6 +5326,7 @@ fn redact_url(url: &str) -> String {
 fn mcp_server_json(name: &str, server: &ScopedMcpServerConfig) -> Value {
     json!({
         "name": name,
+        "description": server.description.clone(),
         "valid": true,
         "required": server.required,
         "scope": config_source_json(server.scope),

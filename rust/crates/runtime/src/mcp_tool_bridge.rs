@@ -433,7 +433,7 @@ mod tests {
         server_name: &str,
         log_path: &Path,
     ) -> ScopedMcpServerConfig {
-        ScopedMcpServerConfig {
+        ScopedMcpServerConfig { description: None,
             required: false,
             scope: ConfigSource::Local,
             config: McpServerConfig::Stdio(McpStdioServerConfig {

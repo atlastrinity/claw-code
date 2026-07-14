@@ -114,7 +114,7 @@ impl CliToolExecutor {
             let tool_names = tools.iter().map(|t| t.qualified_name.clone()).collect::<Vec<_>>();
             return serde_json::to_string_pretty(&serde_json::json!({
                 "status": "success",
-                "message": format!("Successfully loaded MCP server '{}' with {} tools.", server_name, tools.len()),
+                "message": format!("Successfully loaded MCP server '{}' with {} tools. You can now use the 'Skill' tool to load any paired instructions or documentation for this MCP server.", server_name, tools.len()),
                 "tools": tool_names
             })).map_err(|error| ToolError::new(error.to_string()));
         }
@@ -129,6 +129,7 @@ impl CliToolExecutor {
                 let is_loaded = loaded.contains(name);
                 results.push(serde_json::json!({
                     "name": name,
+                    "description": config.description.clone(),
                     "loaded": is_loaded,
                     "required": config.required,
                     "transport": format!("{:?}", config.transport())

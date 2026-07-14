@@ -1803,7 +1803,7 @@ mod tests {
     }
 
     fn sample_bootstrap(script_path: &Path) -> McpClientBootstrap {
-        let config = ScopedMcpServerConfig {
+        let config = ScopedMcpServerConfig { description: None,
             required: false,
             scope: ConfigSource::Local,
             config: McpServerConfig::Stdio(McpStdioServerConfig {
@@ -1871,7 +1871,7 @@ mod tests {
             ),
         ]);
         env.extend(extra_env);
-        ScopedMcpServerConfig {
+        ScopedMcpServerConfig { description: None,
             required: false,
             scope: ConfigSource::Local,
             config: McpServerConfig::Stdio(McpStdioServerConfig {
@@ -1914,7 +1914,7 @@ mod tests {
 
     #[test]
     fn rejects_non_stdio_bootstrap() {
-        let config = ScopedMcpServerConfig {
+        let config = ScopedMcpServerConfig { description: None,
             required: false,
             scope: ConfigSource::Local,
             config: McpServerConfig::Sdk(crate::config::McpSdkServerConfig {
@@ -2351,7 +2351,7 @@ mod tests {
             let log_path = root.join("timeout.log");
             let servers = BTreeMap::from([(
                 "slow".to_string(),
-                ScopedMcpServerConfig {
+                ScopedMcpServerConfig { description: None,
                     required: false,
                     scope: ConfigSource::Local,
                     config: McpServerConfig::Stdio(McpStdioServerConfig {
@@ -2405,7 +2405,7 @@ mod tests {
             let script_path = write_mcp_server_script();
             let servers = BTreeMap::from([(
                 "broken".to_string(),
-                ScopedMcpServerConfig {
+                ScopedMcpServerConfig { description: None,
                     required: false,
                     scope: ConfigSource::Local,
                     config: McpServerConfig::Stdio(McpStdioServerConfig {
@@ -2745,7 +2745,7 @@ mod tests {
                 ),
                 (
                     "broken".to_string(),
-                    ScopedMcpServerConfig {
+                    ScopedMcpServerConfig { description: None,
                         required: true,
                         scope: ConfigSource::Local,
                         config: McpServerConfig::Stdio(McpStdioServerConfig {
@@ -2831,7 +2831,7 @@ mod tests {
         let servers = BTreeMap::from([
             (
                 "http".to_string(),
-                ScopedMcpServerConfig {
+                ScopedMcpServerConfig { description: None,
                     required: true,
                     scope: ConfigSource::Local,
                     config: McpServerConfig::Http(McpRemoteServerConfig {
@@ -2844,7 +2844,7 @@ mod tests {
             ),
             (
                 "sdk".to_string(),
-                ScopedMcpServerConfig {
+                ScopedMcpServerConfig { description: None,
                     required: false,
                     scope: ConfigSource::Local,
                     config: McpServerConfig::Sdk(McpSdkServerConfig {
@@ -2854,7 +2854,7 @@ mod tests {
             ),
             (
                 "ws".to_string(),
-                ScopedMcpServerConfig {
+                ScopedMcpServerConfig { description: None,
                     required: false,
                     scope: ConfigSource::Local,
                     config: McpServerConfig::Ws(McpWebSocketServerConfig {
