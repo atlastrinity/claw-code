@@ -1,4 +1,5 @@
-use std::sync::{Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock, RwLock};
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use crate::error::ApiError;
 use crate::key_rotation;
@@ -7,6 +8,25 @@ use crate::providers::anthropic::{self, AnthropicClient, AuthSource};
 use crate::providers::openai_compat::{self, OpenAiCompatClient, OpenAiCompatConfig};
 use crate::providers::{self, ProviderKind};
 use crate::types::{MessageRequest, MessageResponse, StreamEvent};
+
+fn get_active_key_index(model: &str) -> usize {
+    static ACTIVE_KEYS: OnceLock<RwLock<HashMap<String, usize>>> = OnceLock::new();
+    let map = ACTIVE_KEYS.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Ok(guard) = map.read() {
+        if let Some(&idx) = guard.get(model) {
+            return idx;
+        }
+    }
+    1
+}
+
+fn set_active_key_index(model: &str, index: usize) {
+    static ACTIVE_KEYS: OnceLock<RwLock<HashMap<String, usize>>> = OnceLock::new();
+    let map = ACTIVE_KEYS.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Ok(mut guard) = map.write() {
+        guard.insert(model.to_string(), index);
+    }
+}
 
 struct TpmRateLimiter {
     window: Mutex<Vec<(Instant, usize)>>,
@@ -395,8 +415,13 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
         let mut last_error = None;
         
         for model in &models_to_try {
-            let mut key_index = 1;
-            while Self::has_key_for_index(model, key_index) {
+            let mut key_index = get_active_key_index(model);
+            if !Self::has_key_for_index(model, key_index) {
+                key_index = 1;
+            }
+            let start_index = key_index;
+            
+            loop {
                 if key_index > 1 || model != &request.model {
                     eprintln!(
                         "\n⚠️ Switching to model '{}' with API key index {}...",
@@ -422,7 +447,10 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                 };
                 
                 match client_res {
-                    Ok(response) => return Ok(response),
+                    Ok(response) => {
+                        set_active_key_index(model, key_index);
+                        return Ok(response);
+                    }
                     Err(err) => {
                         eprintln!(
                             "⚠️ Model '{}' with API key index {} returned error: {}.",
@@ -436,13 +464,24 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                             || err_str.contains("Too Many Requests")
                             || err_str.contains("overloaded");
                         
+                        last_error = Some(err);
+                        
                         if is_rate_limit {
                             eprintln!("⏳ Rate limit or server overload detected. Pausing for 2 seconds before retry...");
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            
+                            key_index += 1;
+                            if !Self::has_key_for_index(model, key_index) {
+                                key_index = 1;
+                            }
+                            set_active_key_index(model, key_index);
+                            
+                            if key_index == start_index {
+                                break;
+                            }
+                            continue;
                         }
-                        
-                        last_error = Some(err);
-                        key_index += 1;
+                        break;
                     }
                 }
             }
@@ -461,10 +500,14 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
         let models_to_try = vec![request.model.clone()];
         
         let mut last_error = None;
-        
         for model in &models_to_try {
-            let mut key_index = 1;
-            while Self::has_key_for_index(model, key_index) {
+            let mut key_index = get_active_key_index(model);
+            if !Self::has_key_for_index(model, key_index) {
+                key_index = 1;
+            }
+            let start_index = key_index;
+            
+            loop {
                 if key_index > 1 || model != &request.model {
                     eprintln!(
                         "\n⚠️ Switching to model '{}' with API key index {}...",
@@ -502,10 +545,13 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                 };
                 
                 match client_res {
-                    Ok(stream) => return Ok(stream),
+                    Ok(response) => {
+                        set_active_key_index(model, key_index);
+                        return Ok(response);
+                    }
                     Err(err) => {
                         eprintln!(
-                            "⚠️ Model '{}' with API key index {} returned error: {}.",
+                            "⚠️ Model '{}' with API key index {} returned error in streaming: {}.",
                             model, key_index, err
                         );
                         
@@ -516,13 +562,24 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                             || err_str.contains("Too Many Requests")
                             || err_str.contains("overloaded");
                         
+                        last_error = Some(err);
+                        
                         if is_rate_limit {
                             eprintln!("⏳ Rate limit or server overload detected. Pausing for 2 seconds before retry...");
                             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            
+                            key_index += 1;
+                            if !Self::has_key_for_index(model, key_index) {
+                                key_index = 1;
+                            }
+                            set_active_key_index(model, key_index);
+                            
+                            if key_index == start_index {
+                                break;
+                            }
+                            continue;
                         }
-                        
-                        last_error = Some(err);
-                        key_index += 1;
+                        break;
                     }
                 }
             }
