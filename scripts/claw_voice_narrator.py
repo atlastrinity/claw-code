@@ -1003,50 +1003,52 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         params = {}
         
     cmd = params.get("command", params.get("CommandLine", ""))
-    desc = params.get("description", params.get("Description", ""))
+    desc = params.get("description", params.get("Description", params.get("toolSummary", params.get("toolAction", ""))))
     
     action_desc = ""
-    spoken_text = ""
+    spoken_text = f"Tool: {tool_name}. "
+    if desc:
+        spoken_text += f"Context: {desc}. "
     
     if tool_name in ("bash", "run_command"):
         cmd_str = str(cmd).strip()
         desc_str = str(desc).strip()
         action_desc = get_command_description_ua(cmd_str, desc_str)
-        spoken_text = f"Запуск: {action_desc}."
+        spoken_text += f"Command: {cmd_str}"
         
     elif tool_name in ("read_file", "view_file"):
         path = params.get("AbsolutePath", params.get("path", ""))
         filename = Path(path).name if path else "файлу"
         action_desc = f"читання файлу {filename}"
-        spoken_text = f"Зчитую {filename}."
+        spoken_text += f"Target: {filename}"
         
     elif tool_name in ("write_to_file", "write_file", "create_file"):
         path = params.get("TargetFile", params.get("path", ""))
         filename = Path(path).name if path else "файлу"
         action_desc = f"запису у файл {filename}"
-        spoken_text = f"Записую {filename}."
+        spoken_text += f"Target: {filename}"
         
     elif tool_name in ("replace_file_content", "multi_replace_file_content", "edit_file"):
         path = params.get("TargetFile", params.get("path", ""))
         filename = Path(path).name if path else "файлу"
         action_desc = f"редагування файлу {filename}"
-        spoken_text = f"Редагую {filename}."
+        spoken_text += f"Target: {filename}"
         
     elif tool_name == "grep_search":
         query = params.get("Query", params.get("query", ""))
         action_desc = f"пошуку тексту '{query}' у коді"
-        spoken_text = f"Пошук '{query}'."
+        spoken_text += f"Query: '{query}'"
         
     elif tool_name == "glob_search":
         pattern = params.get("Pattern", params.get("pattern", ""))
         action_desc = f"пошуку файлів за шаблоном '{pattern}'"
-        spoken_text = f"Пошук файлів '{pattern}'."
+        spoken_text += f"Pattern: '{pattern}'"
         
     elif tool_name == "list_dir":
         path = params.get("DirectoryPath", params.get("path", ""))
         dirname = Path(path).name if path else "директорії"
         action_desc = f"перегляду вмісту папки {dirname}"
-        spoken_text = f"Список файлів {dirname}."
+        spoken_text += f"Target: {dirname}"
         
     elif tool_name == "TaskGraph":
         op = params.get("operation", "")
@@ -1055,12 +1057,12 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
             spoken_text = "Оновлюю статус завдань."
         else:
             action_desc = "оновлення планування"
-            spoken_text = "Оновлюю планування."
+            spoken_text = "Оновлюю планування завдань."
             
     else:
         tool_name_ua = TOOL_NAMES_UA.get(tool_name, tool_name)
         action_desc = f"виконання інструменту {tool_name_ua}"
-        spoken_text = f"Запуск {tool_name_ua}."
+        spoken_text += f"Executing {tool_name}."
         
     return spoken_text, action_desc
         
@@ -1240,14 +1242,14 @@ def translate_and_summarize_thinking(text: str) -> str:
             {
                 "role": "system",
                 "content": (
-                    "You are a female software coordinator. Analyze the AI agent's thinking and explain the next action in Ukrainian. "
+                    "You are Tetiana, a female software coordinator and strategist. Your role is to voice the agent's internal reasoning and strategy (WHY we are doing something) in Ukrainian based on the thinking block. "
                     "RULES: "
-                    "1. NEVER mention any agent names (Атлас, Атласе, Тетяна, Гріша, Грішо). Start with the action verb directly. "
-                    "2. Use feminine verbs (e.g. 'проаналізувала', 'запланувала'). "
-                    "3. Explain ONLY the concrete action. Keep it under 10 words. "
-                    "4. No conversational prefixes, no ellipses, no trailing questions. "
-                    "E.g., 'Запускаю тести для перевірки змін.' "
-                    "Output ONLY the Ukrainian action description."
+                    "1. NEVER mention any agent names (Атлас, Тетяна, Гріша). "
+                    "2. Use feminine verbs (e.g. 'думаю', 'вирішила', 'перевіряю', 'бачу'). "
+                    "3. Focus on the THOUGHT PROCESS and STRATEGY, not the exact tool action. (e.g. 'Щоб зрозуміти архітектуру, мені потрібно поглянути на основні файли', або 'Схоже, тут є проблема з підключенням, зараз перевірю логи'). "
+                    "4. Keep it under 15 words. "
+                    "5. No conversational prefixes, no ellipses, no trailing questions. "
+                    "Output ONLY the Ukrainian reasoning text."
                 )
             },
             {
@@ -1427,11 +1429,11 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
             )
         else:
             gender_rules = (
-                "IMPORTANT: You are a male developer performing actions. "
-                "Always use masculine verbs ('зробив', 'знайшов', 'запустив'). "
-                "NEVER include agent names like 'Тетяно', 'Гріша', 'Атлас'. "
-                "State only the action. No plan acknowledgements ('згоден', 'чудовий план'). "
-                "Keep under 10 words. No ellipses, no trailing questions."
+                "IMPORTANT: You are Atlas, a male senior developer executing actions. "
+                "Always use masculine verbs ('запустив', 'відкрив', 'редагую'). "
+                "NEVER include agent names. "
+                "Describe the action you are taking in a natural, professional way WITH context about WHAT you are doing and WHY, based on the provided input. Don't just repeat a tool name, explain its purpose. "
+                "Keep it around 15-20 words. No trailing questions."
             )
     else:
         gender_rules = (
