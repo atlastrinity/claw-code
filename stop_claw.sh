@@ -82,7 +82,20 @@ kill_process "bin/idb " false
 rm -f ~/.claw/api.lock ~/.claw/narration.lock ~/.claw/voice_narrator.pid
 
 # Restore .claw.json from backup if stop was called before cleanup trap
-for bak_file in $(find "$HOME" -maxdepth 4 -name ".claw.json.bak" 2>/dev/null); do
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+search_dirs="."
+
+# Додаємо папку, де лежить сам скрипт (корінь проекту)
+if [ -d "$SCRIPT_DIR" ]; then
+    search_dirs="$search_dirs $SCRIPT_DIR"
+fi
+
+# Додаємо глобальну папку ~/.claw
+if [ -d "$HOME/.claw" ]; then
+    search_dirs="$search_dirs $HOME/.claw"
+fi
+
+for bak_file in $(find $search_dirs -maxdepth 3 -name ".claw.json.bak" 2>/dev/null); do
     original="${bak_file%.bak}"
     if [ -f "$bak_file" ]; then
         echo "🔄 Відновлення $original з бекапу..."
