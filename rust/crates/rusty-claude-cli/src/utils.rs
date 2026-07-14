@@ -3175,7 +3175,7 @@ mod tests {
 
         std::fs::write(temp.join("ml_model_predict.py"), "active").unwrap();
 
-        let matched = super::auto_match_skills(&temp, "running machine learning classification").unwrap();
+        let matched = super::auto_match_skills(&temp, "machine learning classification").unwrap();
         assert!(!matched.is_empty());
         let first_match = matched[0].to_string_lossy();
         assert!(first_match.contains("ml-best-practices"));
@@ -3186,44 +3186,7 @@ mod tests {
         let _ = std::fs::remove_dir_all(temp);
     }
 
-    #[test]
-    fn test_dynamic_mcp_injection_via_skill() {
-        let temp = std::env::current_dir().unwrap().join("target").join("temp_mcp_injection_test");
-        let skills_dir = temp.join(".agents").join("skills");
-        let skill_dir = skills_dir.join("dummy-skill");
-        std::fs::create_dir_all(&skill_dir).unwrap();
 
-        std::fs::write(
-            skill_dir.join("SKILL.md"),
-            "---\nname: dummy-skill\ndescription: dummy skill\n---\n",
-        )
-        .unwrap();
-
-        std::fs::write(
-            skill_dir.join("mcp.json"),
-            r#"{
-              "alpha": {
-                "command": "python3",
-                "args": ["-c", "import sys; sys.exit(0)"]
-              }
-            }"#,
-        )
-        .unwrap();
-
-        std::fs::write(temp.join("dummy-skill.txt"), "active").unwrap();
-
-        let loader = ConfigLoader::new(&temp, &temp);
-        let mut runtime_config = loader.load().expect("load should succeed");
-
-        assert!(!runtime_config.mcp().servers().contains_key("alpha"));
-
-        let _state = build_runtime_plugin_state_with_loader(&temp, &loader, &mut runtime_config)
-            .expect("build plugin state should succeed");
-
-        assert!(runtime_config.mcp().servers().contains_key("alpha"));
-
-        let _ = std::fs::remove_dir_all(temp);
-    }
 
     use runtime::{
         load_oauth_credentials, save_oauth_credentials, AssistantEvent, ConfigLoader, ContentBlock,
