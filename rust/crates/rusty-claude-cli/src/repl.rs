@@ -30,8 +30,12 @@ fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
                 }
                 return (false, String::new());
             }
+            let uncompleted_tasks = content.lines()
+                .filter(|l| l.contains("- [ ]") || l.contains("- [/]"))
+                .collect::<Vec<_>>()
+                .join("\n");
             
-            let prompt = "<system-reminder>CRITICAL: You stopped generating tool calls, but the TaskGraph still contains uncompleted or in-progress tasks in task.md. If you have finished the work, you MUST immediately call the TaskGraph tool with operation 'update_status' to mark all remaining tasks as 'completed'. DO NOT output final text or call other tools without updating the TaskGraph first. If you are not finished, continue working on the tasks using the appropriate tools.</system-reminder>".to_string();
+            let prompt = format!("<system-reminder>CRITICAL: You stopped generating tool calls, but the TaskGraph still contains uncompleted or in-progress tasks in task.md:\n{}\n\nIf you have finished the work, you MUST immediately call the TaskGraph tool with operation 'update_status' to mark all remaining tasks as 'completed'. DO NOT output final text or call other tools without updating the TaskGraph first. If you are not finished, continue working on the tasks using the appropriate tools.</system-reminder>", uncompleted_tasks);
             return (true, prompt);
         }
     }
