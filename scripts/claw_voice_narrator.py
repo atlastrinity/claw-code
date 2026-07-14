@@ -943,26 +943,26 @@ def rotate_api_key_index(env_var_name: str):
     idx = _key_indices.get(env_var_name, 0)
     _key_indices[env_var_name] = idx + 1
 
+def parse_env_keys(env_var_name: str) -> list[str]:
+    import os
+    raw_val = os.environ.get(env_var_name, "")
+    keys = []
+    if raw_val:
+        if "," in raw_val:
+            keys.extend([k.strip() for k in raw_val.split(",") if k.strip()])
+        else:
+            keys.append(raw_val.strip())
+    for i in range(2, 21):
+        k = os.environ.get(f"{env_var_name}{i}", "")
+        if k and k.strip() not in keys:
+            keys.append(k.strip())
+    return keys
+
 def resolve_narration_api_config(model: str) -> tuple[str, str, str, str]:
     api_key = ""
     base_url = ""
     model_id = ""
     target_env = ""
-    
-    def parse_env_keys(env_var_name: str) -> list[str]:
-        import os
-        raw_val = os.environ.get(env_var_name, "")
-        keys = []
-        if raw_val:
-            if "," in raw_val:
-                keys.extend([k.strip() for k in raw_val.split(",") if k.strip()])
-            else:
-                keys.append(raw_val.strip())
-        for i in range(2, 21):
-            k = os.environ.get(f"{env_var_name}{i}", "")
-            if k and k.strip() not in keys:
-                keys.append(k.strip())
-        return keys
 
     def get_current_key(env_var_name: str) -> str:
         keys = parse_env_keys(env_var_name)
@@ -1019,9 +1019,13 @@ def translate_and_summarize_thinking(text: str) -> str:
 
     model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
     
-    max_retries = 3
+    base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+    max_retries = max(1, len(parse_env_keys(target_env)))
+    
     for attempt in range(max_retries):
-        base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+        if attempt > 0:
+            base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+            
         if not base_url or not api_key:
             return ""
 
@@ -1167,9 +1171,13 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
         
     prompt_user = f"The tool was run for: '{action_desc}'. {error_context} The raw output was: '{output_summary}'."
     
-    max_retries = 3
+    base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+    max_retries = max(1, len(parse_env_keys(target_env)))
+    
     for attempt in range(max_retries):
-        base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+        if attempt > 0:
+            base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+            
         if not base_url or not api_key:
             return ""
 
@@ -1226,9 +1234,13 @@ def translate_and_summarize_thinking(text: str) -> str:
 
     model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
     
-    max_retries = 3
+    base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+    max_retries = max(1, len(parse_env_keys(target_env)))
+    
     for attempt in range(max_retries):
-        base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+        if attempt > 0:
+            base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+            
         if not base_url or not api_key:
             return ""
 
@@ -1293,11 +1305,7 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
         return ""
 
     model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
-    base_url, api_key, model_id = resolve_narration_api_config(model)
-
-    if not base_url or not api_key:
-        return ""
-
+    
     # Limit output length to prevent payload bloat
     output_summary = output_val.strip()
     
@@ -1319,11 +1327,12 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
     if len(output_summary) > 4000:
         output_summary = output_summary[:4000] + "... [вивід скорочено]"
 
-    url = f"{base_url}/chat/completions"
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
+    if is_error:
+        error_context = "CRITICAL: The tool failed with an ERROR."
+    else:
+        error_context = "The tool executed normally and SUCCESSFULLY. DO NOT report any errors, even if the raw output contains source code with 'error' or 'exception'."
+        
+    prompt_user = f"The tool was run for: '{action_desc}'. {error_context} The raw output was: '{output_summary}'."
     
     prompt_system = (
         "You are a male Ukrainian security/operations specialist reporting tool execution results. "
@@ -1334,42 +1343,63 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
         "4. Keep it under 15 words. No ellipses, no trailing questions. Output ONLY the Ukrainian sentence."
     )
     
-    if is_error:
-        error_context = "CRITICAL: The tool failed with an ERROR."
-    else:
-        error_context = "The tool executed normally and SUCCESSFULLY. DO NOT report any errors, even if the raw output contains source code with 'error' or 'exception'."
+    base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+    max_retries = max(1, len(parse_env_keys(target_env)))
+    
+    for attempt in range(max_retries):
+        if attempt > 0:
+            base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
+
+        if not base_url or not api_key:
+            return ""
+
+        url = f"{base_url}/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}"
+        }
         
-    prompt_user = f"The tool was run for: '{action_desc}'. {error_context} The raw output was: '{output_summary}'."
-    
-    payload = {
-        "model": model_id,
-        "messages": [
-            {
-                "role": "system",
-                "content": prompt_system
-            },
-            {
-                "role": "user",
-                "content": prompt_user
-            }
-        ],
-        "temperature": 0.5
-    }
-    
-    try:
-        req = urllib.request.Request(
-            url, 
-            data=json.dumps(payload).encode('utf-8'), 
-            headers=headers,
-            method='POST'
-        )
-        with urllib.request.urlopen(req, timeout=10) as response:
-            res_data = json.loads(response.read().decode('utf-8'))
-            summary_text = res_data['choices'][0]['message']['content'].strip()
-            if summary_text:
-                return strip_agent_names(summary_text)
-    except Exception as e:
-        print(f"\n⚠️ Помилка автоозвучки результату інструменту через {model}: {e}")
+        payload = {
+            "model": model_id,
+            "messages": [
+                {
+                    "role": "system",
+                    "content": prompt_system
+                },
+                {
+                    "role": "user",
+                    "content": prompt_user
+                }
+            ],
+            "temperature": 0.5
+        }
+        
+        try:
+            import urllib.request, urllib.error
+            req = urllib.request.Request(
+                url, 
+                data=json.dumps(payload).encode('utf-8'), 
+                headers=headers,
+                method='POST'
+            )
+            with urllib.request.urlopen(req, timeout=10) as response:
+                res_data = json.loads(response.read().decode('utf-8'))
+                summary_text = res_data['choices'][0]['message']['content'].strip()
+                if summary_text:
+                    return strip_agent_names(summary_text)
+                return ""
+        except urllib.error.HTTPError as e:
+            if e.code in (429, 401, 403, 500, 502, 503, 504):
+                rotate_api_key_index(target_env)
+                import time
+                time.sleep(1.0)
+            else:
+                print(f"\n⚠️ Помилка автоозвучки результату інструменту через {model} (HTTP {e.code}): {e}")
+                break
+        except Exception as e:
+            rotate_api_key_index(target_env)
+            import time
+            time.sleep(1.0)
         
     return ""
 
