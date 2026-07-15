@@ -1842,7 +1842,7 @@ def process_session_entry(data: dict, player: VoicePlayer):
                     if not action_desc or getattr(player, "last_action_tool", "") != tool_name:
                         action_desc = TOOL_NAMES_UA.get(tool_name, tool_name)
                         
-                    speech = player.get_tool_verdict_speech(tool_name, action_desc, True, output_val)
+                    speech = player.get_tool_verdict_speech(tool_name, action_desc, is_error, output_val)
                     player.speak("grisha", "Результат інструменту", speech)
 
 def tail_session_loop():
