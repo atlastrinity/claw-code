@@ -72,11 +72,26 @@ elif [ -f "$LOCAL_CLAW" ] && [ -f "$GLOBAL_CLAW" ]; then
     fi
 fi
 
-# Синхронізуємо скіли з глобальною папкою перед запуском
-if [ -d "$SCRIPT_DIR/.claw/skills" ]; then
-    mkdir -p "$GLOBAL_DIR/skills"
-    rsync -a --exclude=".build" --exclude=".git" "$SCRIPT_DIR/.claw/skills/" "$GLOBAL_DIR/skills/"
+LOCAL_ENV="$SCRIPT_DIR/.env"
+GLOBAL_ENV="$GLOBAL_DIR/.env"
+
+if [ -f "$LOCAL_ENV" ] && [ ! -f "$GLOBAL_ENV" ]; then
+    cp "$LOCAL_ENV" "$GLOBAL_ENV"
+elif [ ! -f "$LOCAL_ENV" ] && [ -f "$GLOBAL_ENV" ]; then
+    cp "$GLOBAL_ENV" "$LOCAL_ENV"
+elif [ -f "$LOCAL_ENV" ] && [ -f "$GLOBAL_ENV" ]; then
+    if [ "$LOCAL_ENV" -nt "$GLOBAL_ENV" ]; then
+        cp "$LOCAL_ENV" "$GLOBAL_ENV"
+    elif [ "$GLOBAL_ENV" -nt "$LOCAL_ENV" ]; then
+        cp "$GLOBAL_ENV" "$LOCAL_ENV"
+    fi
 fi
+
+# Синхронізуємо скіли з глобальною папкою перед запуском (двостороння синхронізація)
+mkdir -p "$SCRIPT_DIR/.claw/skills"
+mkdir -p "$GLOBAL_DIR/skills"
+rsync -au --exclude=".build" --exclude=".git" "$SCRIPT_DIR/.claw/skills/" "$GLOBAL_DIR/skills/"
+rsync -au --exclude=".build" --exclude=".git" "$GLOBAL_DIR/skills/" "$SCRIPT_DIR/.claw/skills/"
 
 # Очищаємо файли планування та завдань для нової сесії, якщо встановлено CLAW_NEW_SESSION
 if [ "$CLAW_NEW_SESSION" = "true" ]; then
@@ -200,7 +215,7 @@ if [ $? -eq 0 ] && [ -n "$ALIASES_OUTPUT" ]; then
     export CLAW_NARRATION_MODEL=$SELECTED_NARRATION_MODEL
 
     echo "============================================================================"
-    echo " Натисніть Enter для вибору '$DEFAULT_GRISHA' за замовчуванням для верифікатора Гріші"
+    echo " Натисніть Enter для вибору '$DEFAULT_GRISHA' за замовчуванням для контролера Гріші"
     read -p " Введіть номер моделі для Гріші: " choice_grisha
     SELECTED_GRISHA_MODEL="$DEFAULT_GRISHA"
     if [ -n "$choice_grisha" ] && [ -n "${MODEL_KEYS[$choice_grisha]}" ]; then

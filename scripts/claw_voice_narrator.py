@@ -3,9 +3,9 @@
 🎙️ CLAW Voice Narrator — Природна озвучка виводу claw-code українськими голосами
 
 Кожна секція виводу програми озвучується відповідним «агентом»:
-  ⚙️ Атлас (Основний)     — запуск, контекст, налаштування, маршрути та команди
-  🎙️ Тетяна (Координатор) — аналіз ходу, результати, потокові події та історія
-  🛡️ Гріша (Безпека)      — відмови доступу, критичні попередження
+  ⚙️ Атлас (Виконавець)   — дії, виконання команд та інструментів
+  🎙️ Тетяна (Координатор) — аналіз ходу, координування плану та стратегія
+  🛡️ Гріша (Контроль)     — верифікація результатів, критичні попередження
 
 Якщо процес не завершився повністю, озвучка продовжується у наступних ходах.
 """
@@ -98,8 +98,8 @@ AGENT_EMOJI = {
 
 AGENT_NAME_UA = {
     "tetiana": "Тетяна · Координатор",
-    "atlas":   "Атлас · Основний",
-    "grisha":  "Гріша · Безпека",
+    "atlas":   "Атлас · Виконавець",
+    "grisha":  "Гріша · Контроль",
 }
 
 # ──────────────────────────── Translation Helpers ────────────────────────
@@ -1227,6 +1227,72 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
     return ""
 
 
+def load_task_descriptions() -> dict[str, str]:
+    descriptions = {}
+    store_var = os.environ.get("CLAWD_TASK_GRAPH_STORE")
+    paths = []
+    if store_var:
+        paths.append(Path(store_var))
+    paths.extend([
+        Path(".clawd-task-graph.json"),
+        Path.home() / ".claw/task_graph.json",
+        project_root / ".clawd-task-graph.json"
+    ])
+    
+    for path in paths:
+        if path.exists():
+            try:
+                with open(path, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list):
+                        for node in data:
+                            nid = node.get("id")
+                            content = node.get("content")
+                            if nid and content:
+                                descriptions[str(nid)] = content
+            except Exception:
+                pass
+    return descriptions
+
+OFFSET_FILE = Path.home() / ".claw" / "narration_offsets.json"
+
+def save_narration_offset(file_path: Path, offset: int):
+    try:
+        OFFSET_FILE.parent.mkdir(parents=True, exist_ok=True)
+        offsets = {}
+        if OFFSET_FILE.exists():
+            try:
+                with open(OFFSET_FILE, "r", encoding="utf-8") as f:
+                    offsets = json.load(f)
+            except Exception:
+                pass
+        offsets[str(file_path.resolve())] = offset
+        if len(offsets) > 20:
+            sorted_keys = sorted(offsets.keys(), key=lambda k: Path(k).stat().st_mtime if Path(k).exists() else 0)
+            for old_key in sorted_keys[:-10]:
+                offsets.pop(old_key, None)
+        with open(OFFSET_FILE, "w", encoding="utf-8") as f:
+            json.dump(offsets, f)
+    except Exception:
+        pass
+
+def get_narration_offset(file_path: Path) -> int:
+    try:
+        if OFFSET_FILE.exists():
+            with open(OFFSET_FILE, "r", encoding="utf-8") as f:
+                offsets = json.load(f)
+                return offsets.get(str(file_path.resolve()), 0)
+    except Exception:
+        pass
+    return 0
+
+def kill_all_narration_processes():
+    try:
+        subprocess.run(["killall", "afplay"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+
         
 
 
@@ -1349,37 +1415,37 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
         )
     elif voice == "tetiana":
         gender_rules = (
-            "IMPORTANT: You are a female coordinator and analyst. "
-            "Always use feminine verbs (e.g., 'зробила', 'знайшла'). "
-            "NEVER start with or include agent names like 'Атласе', 'Гріша', 'Тетяна'. "
-            "Start directly with the action or fact. Keep it under 15 words. "
-            "No ellipses, no trailing questions ('окей?', 'так?'). Direct and concise."
+            "IMPORTANT: You are Tetiana, a female coordinator and workflow analyst. "
+            "Your role is to coordinate the workflow, analyze plans, set directions, and track progress. "
+            "Always speak constructively as a coordinator. Use feminine verbs (e.g., 'координую', 'запланувала', 'проаналізувала'). "
+            "NEVER include agent names like 'Атласе', 'Гріша', 'Тетяна'. "
+            "Start directly with the coordination or planning context. Keep it under 15 words, constructive and direct."
         )
     elif voice == "atlas":
         if title == "Результат":
             gender_rules = (
-                "IMPORTANT: You are a male developer reporting results. "
-                "Always use masculine verbs ('зробив', 'знайшов', 'запустив'). "
+                "IMPORTANT: You are Atlas, a male action executor. "
+                "Your role is to perform tasks, run commands, and implement solutions. "
+                "Report the result of your execution concisely. "
+                "Always use masculine verbs (e.g., 'виконав', 'завершив', 'запустив', 'завантажив'). "
                 "NEVER include agent names like 'Тетяно', 'Гріша', 'Атлас'. "
-                "Summarize concisely. Skip minor details. "
-                "No plan acknowledgements ('згоден', 'чудовий план'). "
-                "Keep under 20 words. Direct and factual."
+                "No plan acknowledgements ('згоден', 'чудовий план'). Keep under 20 words, constructive and factual."
             )
         else:
             gender_rules = (
-                "IMPORTANT: You are Atlas, a male senior developer executing actions. "
-                "Always use masculine verbs ('запустив', 'відкрив', 'редагую'). "
-                "NEVER include agent names. "
-                "Describe the action you are taking in a natural, professional way WITH context about WHAT you are doing and WHY, based on the provided input. Don't just repeat a tool name, explain its purpose. "
-                "Keep it around 15-20 words. No trailing questions."
+                "IMPORTANT: You are Atlas, a male action executor. "
+                "Your role is to perform tasks, run commands, and implement solutions. "
+                "Describe the action you are taking and why. "
+                "Always use masculine verbs (e.g., 'виконую', 'запускаю', 'завантажую', 'редагую'). "
+                "NEVER include agent names. Keep under 20 words, highly constructive and direct."
             )
     else:
         gender_rules = (
-            "IMPORTANT: You are a male security/operations specialist verifying results. "
-            "Always use masculine verbs ('перевірив', 'виявив'). "
-            "NEVER include agent names like 'Тетяно', 'Атласе', 'Гріша'. "
-            "State the verification result directly. Keep under 15 words. "
-            "No ellipses, no trailing questions. Direct and factual."
+            "IMPORTANT: You are Grisha, a male operations, quality control, and verification specialist. "
+            "Your role is to verify tool execution results, inspect outputs, check for errors, and ensure everything went well. "
+            "State the outcome of your quality or safety verification directly. "
+            "Always use masculine verbs (e.g., 'перевірив', 'підтвердив', 'виявив'). "
+            "NEVER include agent names. Keep under 15 words, highly constructive and professional."
         )
 
     payload = {
@@ -1553,12 +1619,67 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         
     elif tool_name == "TaskGraph":
         op = params.get("operation", "")
+        nodes = params.get("nodes", [])
+        
+        # Load task descriptions for lookup
+        descriptions = load_task_descriptions()
+        
+        # Determine updated or added task descriptions
+        details = []
+        for n in nodes:
+            nid = n.get("id")
+            content = n.get("content")
+            # If not in params, lookup from JSON
+            if not content and nid:
+                content = descriptions.get(str(nid))
+            
+            status = n.get("status")
+            status_str = ""
+            if status:
+                status_val = str(status).lower()
+                if "in_progress" in status_val or "inprogress" in status_val:
+                    status_str = "у процесі"
+                elif "completed" in status_val:
+                    status_str = "виконано"
+                elif "failed" in status_val:
+                    status_str = "провалено"
+                elif "pending" in status_val:
+                    status_str = "в очікуванні"
+            
+            if content:
+                cleaned_desc = clean_for_speech(content)
+                if len(cleaned_desc) > 60:
+                    cleaned_desc = cleaned_desc[:60].strip() + "..."
+                if status_str:
+                    details.append(f"'{cleaned_desc}' ({status_str})")
+                else:
+                    details.append(f"'{cleaned_desc}'")
+            elif nid:
+                if status_str:
+                    details.append(f"завдання {nid} ({status_str})")
+                else:
+                    details.append(f"завдання {nid}")
+        
         if op == "update_status":
             action_desc = "оновлення статусу завдань"
-            spoken_text = "Оновлюю статус завдань."
+            if details:
+                if len(details) > 3:
+                    details_summary = ", ".join(details[:2]) + f" та ще {len(details) - 2} завдань"
+                else:
+                    details_summary = ", ".join(details)
+                spoken_text = f"Оновлюю статус завдань: {details_summary}."
+            else:
+                spoken_text = "Оновлюю статус завдань у списку."
         else:
             action_desc = "оновлення планування"
-            spoken_text = "Оновлюю планування завдань."
+            if details:
+                if len(details) > 3:
+                    details_summary = ", ".join(details[:2]) + f" та ще {len(details) - 2} завдань"
+                else:
+                    details_summary = ", ".join(details)
+                spoken_text = f"Додаю нові завдання до плану: {details_summary}."
+            else:
+                spoken_text = "Оновлюю планування завдань."
             
     else:
         tool_name_ua = TOOL_NAMES_UA.get(tool_name, tool_name)
@@ -1713,8 +1834,8 @@ def process_session_entry(data: dict, player: VoicePlayer):
                     is_error = block.get("is_error", False)
                     output_val = block.get("output", "")
                     
-                    if not is_error:
-                        # Skip successful tool results to keep narration clean and fast
+                    # Skip successful read-only tool results to keep narration clean and fast
+                    if not is_error and tool_name in ("read_file", "view_file", "grep_search", "glob_search", "list_dir"):
                         continue
                     
                     action_desc = getattr(player, "last_action_desc", "")
@@ -1725,6 +1846,11 @@ def process_session_entry(data: dict, player: VoicePlayer):
                     player.speak("grisha", "Результат інструменту", speech)
 
 def tail_session_loop():
+    import signal
+    
+    # 0. Kill any pre-existing afplay processes on startup to clean up leftover audio
+    kill_all_narration_processes()
+    
     pid_file = Path.home() / ".claw" / "voice_narrator.pid"
     pid_file.parent.mkdir(parents=True, exist_ok=True)
     if pid_file.exists():
@@ -1741,6 +1867,25 @@ def tail_session_loop():
         pid_file.write_text(str(os.getpid()))
     except Exception:
         pass
+
+    audio_dir = project_root / "audio_output"
+    player = VoicePlayer(audio_dir)
+    player_ref = [player]
+
+    def handle_signal(signum, frame):
+        print(f"\n{COLORS['system']}🛑 Озвучку зупинено користувачем (Ctrl+C). Вбиваємо процеси відтворення...{COLORS['reset']}")
+        kill_all_narration_processes()
+        if player_ref[0]:
+            player_ref[0].finalize()
+        if pid_file.exists():
+            try:
+                pid_file.unlink()
+            except Exception:
+                pass
+        sys.exit(0)
+
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
 
     try:
         caller_cwd = os.environ.get("CLAW_CALLER_CWD")
@@ -1763,42 +1908,51 @@ def tail_session_loop():
                 
         print(f"{COLORS['system']}👀 Стеження за файлом сесії: {latest_file}{COLORS['reset']}\n")
         
-        audio_dir = project_root / "audio_output"
-        player = VoicePlayer(audio_dir)
-        
-        with open(latest_file, "r") as f:
-            # Seek to the end of the file immediately to only process new entries
+        # Open file and restore offset if present
+        f = open(latest_file, "r", encoding="utf-8")
+        start_offset = get_narration_offset(latest_file)
+        if start_offset > 0:
+            print(f"{COLORS['system']}↩️ Відновлюємо озвучку з позиції {start_offset} у файлі сесії.{COLORS['reset']}")
+            f.seek(start_offset)
+        else:
             f.seek(0, 2)
+            save_narration_offset(latest_file, f.tell())
                 
-            try:
-                while True:
-                    line = f.readline()
-                    if not line:
-                        # Перевіряємо чи не з'явився новий файл сесії
-                        current_latest = find_latest_session_file(sessions_dir)
-                        if current_latest and current_latest != latest_file:
-                            print(f"\n{COLORS['system']}🔄 Виявлено нову активну сесію: {current_latest}{COLORS['reset']}")
-                            latest_file = current_latest
-                            f.close()
-                            f = open(latest_file, "r")
-                            continue
-                        
-                        time.sleep(0.5)
-                        # Закриваємо та відкриваємо файл знову для скидання EOF прапора та очищення буфера в macOS
-                        pos = f.tell()
+        try:
+            while True:
+                line = f.readline()
+                if not line:
+                    # Check if a new session file has appeared
+                    current_latest = find_latest_session_file(sessions_dir)
+                    if current_latest and current_latest != latest_file:
+                        print(f"\n{COLORS['system']}🔄 Виявлено нову активну сесію: {current_latest}{COLORS['reset']}")
+                        latest_file = current_latest
                         f.close()
                         f = open(latest_file, "r", encoding="utf-8")
-                        f.seek(pos)
+                        start_offset = get_narration_offset(latest_file)
+                        if start_offset > 0:
+                            f.seek(start_offset)
+                        else:
+                            f.seek(0, 2)
+                            save_narration_offset(latest_file, f.tell())
                         continue
                     
-                    try:
-                        data = json.loads(line)
-                        process_session_entry(data, player)
-                    except Exception:
-                        pass
-            except KeyboardInterrupt:
-                print(f"\n{COLORS['system']}🛑 Озвучку в реальному часі зупинено.{COLORS['reset']}")
-                player.finalize()
+                    time.sleep(0.5)
+                    # Close and reopen the file to reset the EOF flag and clear buffer on macOS
+                    pos = f.tell()
+                    f.close()
+                    f = open(latest_file, "r", encoding="utf-8")
+                    f.seek(pos)
+                    continue
+                
+                try:
+                    data = json.loads(line)
+                    process_session_entry(data, player)
+                    save_narration_offset(latest_file, f.tell())
+                except Exception:
+                    pass
+        except KeyboardInterrupt:
+            handle_signal(signal.SIGINT, None)
     finally:
         if pid_file.exists():
             try:
