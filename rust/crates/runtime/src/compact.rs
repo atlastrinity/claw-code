@@ -396,7 +396,7 @@ fn summarize_block(block: &ContentBlock) -> String {
             if *is_error { "error " } else { "" }
         ),
     };
-    truncate_summary(&raw, 160)
+    truncate_summary(&raw, 4096)
 }
 
 fn collect_recent_role_summaries(
@@ -410,7 +410,7 @@ fn collect_recent_role_summaries(
         .rev()
         .filter_map(|message| first_text_block(message))
         .take(limit)
-        .map(|text| truncate_summary(text, 160))
+        .map(|text| truncate_summary(text, 2048))
         .collect::<Vec<_>>()
         .into_iter()
         .rev()
@@ -431,7 +431,7 @@ fn infer_pending_work(messages: &[ConversationMessage]) -> Vec<String> {
                 || lowered.contains("remaining")
         })
         .take(3)
-        .map(|text| truncate_summary(text, 160))
+        .map(|text| truncate_summary(text, 2048))
         .collect::<Vec<_>>()
         .into_iter()
         .rev()
@@ -799,10 +799,10 @@ mod tests {
     #[test]
     fn truncates_long_blocks_in_summary() {
         let summary = super::summarize_block(&ContentBlock::Text {
-            text: "x".repeat(400),
+            text: "x".repeat(4500),
         });
         assert!(summary.ends_with('…'));
-        assert!(summary.chars().count() <= 161);
+        assert!(summary.chars().count() <= 4097);
     }
 
     #[test]

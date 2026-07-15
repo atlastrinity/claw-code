@@ -2009,7 +2009,7 @@ pub fn parse_titled_body(value: &str) -> Option<(String, String)> {
     Some((title.to_string(), body.to_string()))
 }
 
-const SESSION_MARKDOWN_TOOL_SUMMARY_LIMIT: usize = 280;
+const SESSION_MARKDOWN_TOOL_SUMMARY_LIMIT: usize = 4096;
 
 pub fn summarize_tool_payload_for_markdown(payload: &str) -> String {
     let compact = match serde_json::from_str::<serde_json::Value>(payload) {
@@ -2755,7 +2755,7 @@ pub fn summarize_tool_payload(payload: &str) -> String {
         Ok(value) => value.to_string(),
         Err(_) => payload.trim().to_string(),
     };
-    truncate_for_summary(&compact, 300)
+    truncate_for_summary(&compact, 4096)
 }
 
 pub fn truncate_for_summary(value: &str, limit: usize) -> String {
@@ -5599,7 +5599,7 @@ mod tests {
             "command":   "ls -la",
             "cwd": "/tmp"
         }"#;
-        let long_payload = "a".repeat(600);
+        let long_payload = "a".repeat(4500);
 
         // when
         let compacted = summarize_tool_payload_for_markdown(json_payload);
@@ -5608,7 +5608,7 @@ mod tests {
         // then
         assert_eq!(compacted, r#"{"command":"ls -la","cwd":"/tmp"}"#);
         assert!(truncated.ends_with('…'));
-        assert!(truncated.chars().count() <= 281);
+        assert!(truncated.chars().count() <= 4097);
     }
 
     #[test]

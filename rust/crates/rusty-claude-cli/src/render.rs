@@ -2831,7 +2831,7 @@ pub fn format_tool_result(name: &str, output: &str, is_error: bool) -> String {
         "\x1b[1;32m✓\x1b[0m"
     };
     if is_error {
-        let summary = truncate_for_summary(output.trim(), 160);
+        let summary = truncate_for_summary(output.trim(), 4096);
         return if summary.is_empty() {
             format!("{icon} \x1b[38;5;245m{name}\x1b[0m")
         } else {
@@ -2885,7 +2885,7 @@ pub fn format_bash_call(parsed: &serde_json::Value) -> String {
     } else {
         format!(
             "\x1b[48;5;236;38;5;255m $ {} \x1b[0m",
-            truncate_for_summary(command, 160)
+            truncate_for_summary(command, 2048)
         )
     }
 }

@@ -1733,6 +1733,11 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
             .map_err(|error| format!("Failed to parse task graph: {error}"))?;
     }
 
+    // Ensure the task graph itself is consistent and valid
+    validate_task_graph(&nodes).map_err(|err| {
+        format!("Error: TaskGraph is in an inconsistent state. Please resolve task graph validation errors using the TaskGraph tool before executing this action. Validation error: {}", err)
+    })?;
+
     // Check if there is at least one task in progress
     let has_in_progress = nodes.iter().any(|node| node.status == Some(TaskStatus::InProgress));
     if !has_in_progress {
@@ -4698,7 +4703,74 @@ fn dedupe_hits(hits: &mut Vec<SearchHit>) {
 }
 
 
-fn validate_task_graph(_current_nodes: &[TaskNode]) -> Result<(), String> {
+fn validate_task_graph(nodes: &[TaskNode]) -> Result<(), String> {
+    // 1. Parent-child state checks:
+    for node in nodes {
+        let children: Vec<&TaskNode> = nodes
+            .iter()
+            .filter(|n| n.parent_id.as_ref() == Some(&node.id))
+            .collect();
+
+        if !children.is_empty() {
+            if node.status == Some(TaskStatus::Completed) {
+                for child in &children {
+                    if child.status != Some(TaskStatus::Completed) && child.status != Some(TaskStatus::Failed) {
+                        return Err(format!(
+                            "Error: TaskGraph Inconsistency. Parent task '{}' is marked as Completed, but its sub-task '{}' is currently '{:?}'. All sub-tasks must be Completed or Failed before the parent task can be Completed.",
+                            node.id, child.id, child.status.as_ref().unwrap_or(&TaskStatus::Pending)
+                        ));
+                    }
+                }
+            } else if node.status == Some(TaskStatus::Pending) {
+                for child in &children {
+                    if child.status != Some(TaskStatus::Pending) {
+                        return Err(format!(
+                            "Error: TaskGraph Inconsistency. Parent task '{}' is marked as Pending, but its sub-task '{}' is currently '{:?}'. Sub-tasks cannot be InProgress or Completed while the parent task is Pending.",
+                            node.id, child.id, child.status.as_ref().unwrap_or(&TaskStatus::Pending)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
+    // 2. Sequential sibling progression:
+    let mut parent_ids: std::collections::HashSet<Option<String>> = std::collections::HashSet::new();
+    for node in nodes {
+        parent_ids.insert(node.parent_id.clone());
+    }
+
+    for pid in parent_ids {
+        let mut siblings: Vec<&TaskNode> = nodes
+            .iter()
+            .filter(|n| n.parent_id == pid)
+            .collect();
+
+        siblings.sort_by(|a, b| {
+            let a_parts: Vec<u32> = a.id.split('.').filter_map(|s| s.parse().ok()).collect();
+            let b_parts: Vec<u32> = b.id.split('.').filter_map(|s| s.parse().ok()).collect();
+            let cmp = a_parts.cmp(&b_parts);
+            if cmp == std::cmp::Ordering::Equal {
+                a.id.cmp(&b.id)
+            } else {
+                cmp
+            }
+        });
+
+        for (idx, sibling) in siblings.iter().enumerate() {
+            if sibling.status == Some(TaskStatus::InProgress) || sibling.status == Some(TaskStatus::Completed) {
+                for prev_sibling in siblings.iter().take(idx) {
+                    if prev_sibling.status != Some(TaskStatus::Completed) && prev_sibling.status != Some(TaskStatus::Failed) {
+                        return Err(format!(
+                            "Error: Sequential Control Enforcement. You cannot start or complete task '{}' because a preceding sibling task '{}' is currently '{:?}'. You must complete preceding tasks in sequential order.",
+                            sibling.id, prev_sibling.id, prev_sibling.status.as_ref().unwrap_or(&TaskStatus::Pending)
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     Ok(())
 }
 
@@ -9306,7 +9378,7 @@ mod tests {
                 "operation": "add",
                 "nodes": [
                     {"id": "t1", "content": "Root task"},
-                    {"id": "t2", "parent_id": "t1", "content": "Sub task"}
+                    {"id": "t1.1", "parent_id": "t1", "content": "Sub task"}
                 ]
             }),
         )
@@ -9319,15 +9391,40 @@ mod tests {
             &json!({
                 "operation": "update_status",
                 "nodes": [
-                    {"id": "t2", "status": "completed"}
+                    {"id": "t1.1", "status": "in_progress"}
                 ]
             }),
         )
-        .expect("TaskGraph update should succeed");
-        
+        .expect("TaskGraph update t1.1 in_progress should succeed");
         let second_output: serde_json::Value = serde_json::from_str(&second).expect("valid json");
         assert_eq!(second_output["nodes_updated"].as_i64().expect("int"), 1);
-        
+
+        let third = execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "update_status",
+                "nodes": [
+                    {"id": "t1.1", "status": "completed"}
+                ]
+            }),
+        )
+        .expect("TaskGraph update t1.1 completed should succeed");
+        let third_output: serde_json::Value = serde_json::from_str(&third).expect("valid json");
+        assert_eq!(third_output["nodes_updated"].as_i64().expect("int"), 1);
+
+        let fourth = execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "update_status",
+                "nodes": [
+                    {"id": "t1", "status": "completed"}
+                ]
+            }),
+        )
+        .expect("TaskGraph update t1 completed should succeed");
+        let fourth_output: serde_json::Value = serde_json::from_str(&fourth).expect("valid json");
+        assert_eq!(fourth_output["nodes_updated"].as_i64().expect("int"), 1);
+
         std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
         let _ = std::fs::remove_file(path);
     }
@@ -9356,8 +9453,8 @@ mod tests {
         let first_output: serde_json::Value = serde_json::from_str(&first).expect("valid json");
         assert_eq!(first_output["nodes_updated"].as_i64().expect("int"), 3);
 
-        // 2. Setting "1.2" to in_progress directly should succeed now because sibling order checks are disabled
-        let success_res = execute_tool(
+        // 2. Setting "1.2" to in_progress directly should FAIL because sibling "1.1" is pending
+        let err_res = execute_tool(
             "TaskGraph",
             &json!({
                 "operation": "update_status",
@@ -9366,7 +9463,8 @@ mod tests {
                 ]
             }),
         );
-        assert!(success_res.is_ok());
+        assert!(err_res.is_err());
+        assert!(err_res.unwrap_err().contains("preceding sibling task '1.1' is currently 'Pending'"));
 
         // 3. Mark "1.1" as in_progress. This should automatically propagate in_progress to its parent "1"
         let _update_1 = execute_tool(
@@ -9386,8 +9484,8 @@ mod tests {
         let parent_node = nodes.as_array().unwrap().iter().find(|n| n["id"] == "1").unwrap();
         assert_eq!(parent_node["status"].as_str().unwrap(), "in_progress");
 
-        // 4. Completing parent task "1" directly while child "1.1" is in_progress should succeed now because parent completion check is disabled
-        let success_parent_complete = execute_tool(
+        // 4. Completing parent task "1" directly while child "1.1" is in_progress should FAIL because parent completion requires all children to be completed/failed
+        let err_parent_complete = execute_tool(
             "TaskGraph",
             &json!({
                 "operation": "update_status",
@@ -9396,7 +9494,8 @@ mod tests {
                 ]
             }),
         );
-        assert!(success_parent_complete.is_ok());
+        assert!(err_parent_complete.is_err());
+        assert!(err_parent_complete.unwrap_err().contains("Parent task '1' is marked as Completed, but its sub-task '1.1' is currently 'InProgress'"));
 
         std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
         let _ = std::fs::remove_file(path);
@@ -9757,6 +9856,160 @@ mod tests {
         let _ = std::fs::remove_file(path);
     }
 
+    #[test]
+    fn task_graph_validation_rules() {
+        use super::{TaskNode, TaskStatus, validate_task_graph};
+
+        // 1. Valid configuration
+        let valid_nodes = vec![
+            TaskNode {
+                id: "1".to_string(),
+                parent_id: None,
+                content: Some("Parent 1".to_string()),
+                status: Some(TaskStatus::Completed),
+            },
+            TaskNode {
+                id: "1.1".to_string(),
+                parent_id: Some("1".to_string()),
+                content: Some("Child 1.1".to_string()),
+                status: Some(TaskStatus::Completed),
+            },
+            TaskNode {
+                id: "1.2".to_string(),
+                parent_id: Some("1".to_string()),
+                content: Some("Child 1.2".to_string()),
+                status: Some(TaskStatus::Failed),
+            },
+            TaskNode {
+                id: "2".to_string(),
+                parent_id: None,
+                content: Some("Parent 2".to_string()),
+                status: Some(TaskStatus::InProgress),
+            },
+            TaskNode {
+                id: "2.1".to_string(),
+                parent_id: Some("2".to_string()),
+                content: Some("Child 2.1".to_string()),
+                status: Some(TaskStatus::Completed),
+            },
+            TaskNode {
+                id: "2.2".to_string(),
+                parent_id: Some("2".to_string()),
+                content: Some("Child 2.2".to_string()),
+                status: Some(TaskStatus::InProgress),
+            },
+            TaskNode {
+                id: "2.3".to_string(),
+                parent_id: Some("2".to_string()),
+                content: Some("Child 2.3".to_string()),
+                status: Some(TaskStatus::Pending),
+            },
+        ];
+        assert!(validate_task_graph(&valid_nodes).is_ok());
+
+        // 2. Parent-child consistency violation: parent Completed, but child InProgress
+        let invalid_parent_completed = vec![
+            TaskNode {
+                id: "1".to_string(),
+                parent_id: None,
+                content: Some("Parent 1".to_string()),
+                status: Some(TaskStatus::Completed),
+            },
+            TaskNode {
+                id: "1.1".to_string(),
+                parent_id: Some("1".to_string()),
+                content: Some("Child 1.1".to_string()),
+                status: Some(TaskStatus::InProgress),
+            },
+        ];
+        let res_err = validate_task_graph(&invalid_parent_completed).unwrap_err();
+        assert!(res_err.contains("Parent task '1' is marked as Completed, but its sub-task '1.1' is currently 'InProgress'"));
+
+        // 3. Parent-child consistency violation: parent Pending, but child Completed
+        let invalid_parent_pending = vec![
+            TaskNode {
+                id: "1".to_string(),
+                parent_id: None,
+                content: Some("Parent 1".to_string()),
+                status: Some(TaskStatus::Pending),
+            },
+            TaskNode {
+                id: "1.1".to_string(),
+                parent_id: Some("1".to_string()),
+                content: Some("Child 1.1".to_string()),
+                status: Some(TaskStatus::Completed),
+            },
+        ];
+        let res_err2 = validate_task_graph(&invalid_parent_pending).unwrap_err();
+        assert!(res_err2.contains("Parent task '1' is marked as Pending, but its sub-task '1.1' is currently 'Completed'"));
+
+        // 4. Sequential sibling control violation: sibling 1.2 is InProgress while sibling 1.1 is Pending
+        let invalid_sequential = vec![
+            TaskNode {
+                id: "1".to_string(),
+                parent_id: None,
+                content: Some("Parent 1".to_string()),
+                status: Some(TaskStatus::InProgress),
+            },
+            TaskNode {
+                id: "1.1".to_string(),
+                parent_id: Some("1".to_string()),
+                content: Some("Child 1.1".to_string()),
+                status: Some(TaskStatus::Pending),
+            },
+            TaskNode {
+                id: "1.2".to_string(),
+                parent_id: Some("1".to_string()),
+                content: Some("Child 1.2".to_string()),
+                status: Some(TaskStatus::InProgress),
+            },
+        ];
+        let res_err3 = validate_task_graph(&invalid_sequential).unwrap_err();
+        assert!(res_err3.contains("You cannot start or complete task '1.2' because a preceding sibling task '1.1' is currently 'Pending'"));
+    }
+
+    #[test]
+    fn task_graph_active_task_inconsistent_graph_blocked() {
+        use super::{validate_active_task_for_tool, TaskNode, TaskStatus};
+
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let dir = temp_path("inconsistent_graph_dir");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("inconsistent_graph.json");
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        // Create an inconsistent task graph on disk (parent is Completed, but child is InProgress)
+        let nodes = vec![
+            TaskNode {
+                id: "1".to_string(),
+                parent_id: None,
+                content: Some("Parent 1".to_string()),
+                status: Some(TaskStatus::Completed),
+            },
+            TaskNode {
+                id: "1.1".to_string(),
+                parent_id: Some("1".to_string()),
+                content: Some("Child 1.1".to_string()),
+                status: Some(TaskStatus::InProgress),
+            },
+        ];
+        std::fs::write(&path, serde_json::to_string_pretty(&nodes).unwrap()).expect("write json");
+
+        // Try to run a mutating tool. It should be blocked due to the inconsistent graph state.
+        let result = validate_active_task_for_tool("bash", &json!({
+            "command": "rm -rf /tmp/dummy",
+            "description": "Clean up build artifacts"
+        }));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("TaskGraph is in an inconsistent state"));
+        assert!(err.contains("Parent task '1' is marked as Completed, but its sub-task '1.1' is currently 'InProgress'"));
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     fn skill_loads_local_skill_prompt() {
