@@ -1834,8 +1834,8 @@ def process_session_entry(data: dict, player: VoicePlayer):
                     is_error = block.get("is_error", False)
                     output_val = block.get("output", "")
                     
-                    # Skip successful read-only tool results to keep narration clean and fast
-                    if not is_error and tool_name in ("read_file", "view_file", "grep_search", "glob_search", "list_dir"):
+                    if not is_error:
+                        # Skip successful tool results to keep narration clean and fast
                         continue
                     
                     action_desc = getattr(player, "last_action_desc", "")
