@@ -432,13 +432,13 @@ class VoicePlayer:
                     text=True
                 )
                 try:
-                    stdout, stderr = self.current_proc.communicate(timeout=20.0)  # Timeout after 20 seconds
+                    stdout, stderr = self.current_proc.communicate(timeout=120.0)  # Timeout after 120 seconds
                     if self.current_proc.returncode != 0:
                         print(f"\n{COLORS['grisha']}⚠️ afplay повернув код {self.current_proc.returncode}{COLORS['reset']}")
                         if stderr:
                             print(f"  Помилка: {stderr.strip()}")
                 except subprocess.TimeoutExpired:
-                    print(f"\n{COLORS['grisha']}⚠️ afplay перевищив ліміт часу (20 с), завершення процесу.{COLORS['reset']}")
+                    print(f"\n{COLORS['grisha']}⚠️ afplay перевищив ліміт часу (120 с), завершення процесу.{COLORS['reset']}")
                     self.current_proc.terminate()
                     try:
                         self.current_proc.wait(timeout=1.0)
