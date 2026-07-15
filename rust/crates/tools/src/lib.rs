@@ -1598,6 +1598,8 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
         "TaskGraph",       // TaskGraph itself manages tasks, not work
         "web_search",
         "web_fetch",
+        "WebSearch",
+        "WebFetch",
         "Sleep",
         "ask_user",
         "AskUser",
@@ -1610,6 +1612,15 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
         "git_log",
         "git_show",
         "git_diff",
+        "WorkerCreate",
+        "WorkerObserve",
+        "WorkerResolveTrust",
+        "WorkerAwaitReady",
+        "WorkerSendPrompt",
+        "WorkerObserveCompletion",
+        "WorkerTerminate",
+        "WorkerRestart",
+        "WorkerGet",
     ];
 
     if READ_ONLY_TOOLS.iter().any(|&ro| ro.eq_ignore_ascii_case(name)) {
@@ -1744,19 +1755,24 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
         return Err("Error: Strict TaskGraph Enforcement. There are no tasks currently marked as 'in_progress' in your task.md. You MUST call the TaskGraph tool to set at least one task to 'in_progress' before you can execute this action.".to_string());
     }
 
+    // Since matches_any is true, we now perform TaskGraph enforcement checks on the matched node
+    let mut matched_node_id: Option<String> = None;
+
     // ── Layer 0: Explicit active_task_id (agent provides it directly) ──
     if let Some(active_task_id) = input.get("active_task_id").and_then(|v| v.as_str()) {
         let has_matching = nodes.iter().any(|node| {
             node.id == active_task_id && node.status == Some(TaskStatus::InProgress)
         });
-        if has_matching {
-            return Ok(());
+        if !has_matching {
+            return Err(format!(
+                "Error: Strict TaskGraph Enforcement. Task ID '{}' was provided but it is not currently 'in_progress'.",
+                active_task_id
+            ));
         }
-        return Err(format!(
-            "Error: Strict TaskGraph Enforcement. Task ID '{}' was provided but it is not currently 'in_progress'.",
-            active_task_id
-        ));
+        matched_node_id = Some(active_task_id.to_string());
     }
+
+    let mut matches_any = matched_node_id.is_some();
 
     // ── Build context string from all tool input fields ──
     // Instead of relying only on "description", we extract meaningful text from
@@ -1786,14 +1802,27 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
     }
 
     let context_str = context_parts.join(" ");
-    if context_str.trim().is_empty() {
+    if context_str.trim().is_empty() && !matches_any {
         return Err("Error: Action description is missing. Every tool call must include a 'description' parameter detailing what it does.".to_string());
     }
 
     let context_lower = context_str.to_lowercase();
 
-    // ── Collect in-progress tasks and their full ancestor chain ──
+    // ── Collect in-progress leaf tasks and their full ancestor chain ──
     let mut in_progress_tasks: Vec<String> = Vec::new();
+    let mut leaf_nodes: Vec<&TaskNode> = Vec::new();
+    for node in &nodes {
+        if node.status == Some(TaskStatus::InProgress) {
+            let has_children = nodes.iter().any(|n| n.parent_id.as_ref() == Some(&node.id));
+            if !has_children {
+                leaf_nodes.push(node);
+                if let Some(content) = &node.content {
+                    in_progress_tasks.push(content.clone());
+                }
+            }
+        }
+    }
+
     let mut all_active_words: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // Common stop-words that cause false positives
@@ -1809,93 +1838,91 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
     ].iter().copied().collect();
 
     // ── Layer 1: Direct substring matching + word overlap (with stop-words) ──
-    let mut matches_any = false;
     let context_words: std::collections::HashSet<&str> = context_lower
         .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '.' && c != '/')
         .filter(|s| s.len() >= 3 && !stop_words.contains(s))
         .collect();
 
-    for node in &nodes {
-        if node.status == Some(TaskStatus::InProgress) {
+    if !matches_any {
+        for node in &leaf_nodes {
             if let Some(node_content) = &node.content {
-                in_progress_tasks.push(node_content.clone());
                 let node_content_lower = node_content.to_lowercase();
 
-                // Direct substring matching (bidirectional)
-                if context_lower.contains(&node_content_lower)
-                    || node_content_lower.contains(&context_lower)
-                {
-                    matches_any = true;
-                    break;
-                }
-
-                // Build word set from this task and its parent chain
-                let mut task_words: std::collections::HashSet<String> = std::collections::HashSet::new();
-                for word in node_content_lower.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '.' && c != '/') {
-                    if word.len() >= 3 && !stop_words.contains(word) {
-                        task_words.insert(word.to_string());
-                        all_active_words.insert(word.to_string());
-                    }
-                }
-
-                // Walk up the parent chain
-                let mut current_parent_id = node.parent_id.clone();
-                while let Some(pid) = current_parent_id {
-                    if let Some(parent_node) = nodes.iter().find(|n| n.id == pid) {
-                        if let Some(parent_content) = &parent_node.content {
-                            let parent_lower = parent_content.to_lowercase();
-                            if context_lower.contains(&parent_lower) || parent_lower.contains(&context_lower) {
-                                matches_any = true;
-                                break;
-                            }
-                            for word in parent_lower.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '.' && c != '/') {
-                                if word.len() >= 3 && !stop_words.contains(word) {
-                                    task_words.insert(word.to_string());
-                                    all_active_words.insert(word.to_string());
-                                }
-                            }
-                        }
-                        current_parent_id = parent_node.parent_id.clone();
-                    } else {
+                    // Direct substring matching (bidirectional)
+                    if context_lower.contains(&node_content_lower)
+                        || node_content_lower.contains(&context_lower)
+                    {
+                        matches_any = true;
                         break;
                     }
-                }
 
-                if matches_any {
-                    break;
-                }
+                    // Build word set from this task and its parent chain
+                    let mut task_words: std::collections::HashSet<String> = std::collections::HashSet::new();
+                    for word in node_content_lower.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '.' && c != '/') {
+                        if word.len() >= 3 && !stop_words.contains(word) {
+                            task_words.insert(word.to_string());
+                            all_active_words.insert(word.to_string());
+                        }
+                    }
 
-                // Require at least 2 meaningful overlapping words (was 1 — too weak)
-                let overlap_count = context_words
-                    .iter()
-                    .filter(|&&w| task_words.contains(w))
-                    .count();
-                if overlap_count >= 2 {
-                    matches_any = true;
-                    break;
-                }
-
-                // Also check if any file path in context matches a word in task
-                // e.g. task says "error_tracker" and command touches "error_tracker.rs"
-                for &cw in &context_words {
-                    if cw.contains('/') || cw.contains('.') {
-                        // Extract filename/segments
-                        let segments: Vec<&str> = cw.split(|c: char| c == '/' || c == '.')
-                            .filter(|s| s.len() >= 3 && !stop_words.contains(s))
-                            .collect();
-                        let path_overlap = segments.iter().any(|seg| task_words.contains(*seg));
-                        if path_overlap {
-                            matches_any = true;
+                    // Walk up the parent chain
+                    let mut current_parent_id = node.parent_id.clone();
+                    while let Some(pid) = current_parent_id {
+                        if let Some(parent_node) = nodes.iter().find(|n| n.id == pid) {
+                            if let Some(parent_content) = &parent_node.content {
+                                let parent_lower = parent_content.to_lowercase();
+                                if context_lower.contains(&parent_lower) || parent_lower.contains(&context_lower) {
+                                    matches_any = true;
+                                    break;
+                                }
+                                for word in parent_lower.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '.' && c != '/') {
+                                    if word.len() >= 3 && !stop_words.contains(word) {
+                                        task_words.insert(word.to_string());
+                                        all_active_words.insert(word.to_string());
+                                    }
+                                }
+                            }
+                            current_parent_id = parent_node.parent_id.clone();
+                        } else {
                             break;
                         }
                     }
-                }
-                if matches_any {
-                    break;
+
+                    if matches_any {
+                        break;
+                    }
+
+                    // Require at least 2 meaningful overlapping words (was 1 — too weak)
+                    let overlap_count = context_words
+                        .iter()
+                        .filter(|&&w| task_words.contains(w))
+                        .count();
+                    if overlap_count >= 2 {
+                        matches_any = true;
+                        break;
+                    }
+
+                    // Also check if any file path in context matches a word in task
+                    // e.g. task says "error_tracker" and command touches "error_tracker.rs"
+                    for &cw in &context_words {
+                        if cw.contains('/') || cw.contains('.') {
+                            // Extract filename/segments
+                            let segments: Vec<&str> = cw.split(|c: char| c == '/' || c == '.')
+                                .filter(|s| s.len() >= 3 && !stop_words.contains(s))
+                                .collect();
+                            let path_overlap = segments.iter().any(|seg| task_words.contains(*seg));
+                            if path_overlap {
+                                matches_any = true;
+                                break;
+                            }
+                        }
+                    }
+                    if matches_any {
+                        break;
+                    }
                 }
             }
         }
-    }
 
     // ── Layer 2: Semantic RAG matching (embeddings + cosine similarity) ──
     if !matches_any && !in_progress_tasks.is_empty() {
@@ -1940,6 +1967,191 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
                 in_progress_tasks.iter().map(|t| format!("- {}", t)).collect::<Vec<_>>().join("\n")
             }
         ));
+    }
+
+    // If matches_any is true, find the matching node ID (if not already resolved by Layer 0)
+    if matched_node_id.is_none() {
+        for node in &leaf_nodes {
+            if let Some(node_content) = &node.content {
+                let node_content_lower = node_content.to_lowercase();
+                    
+                    if context_lower.contains(&node_content_lower)
+                        || node_content_lower.contains(&context_lower)
+                    {
+                        matched_node_id = Some(node.id.clone());
+                        break;
+                    }
+                    
+                    let mut task_words: std::collections::HashSet<String> = std::collections::HashSet::new();
+                    for word in node_content_lower.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '.' && c != '/') {
+                        if word.len() >= 3 && !stop_words.contains(word) {
+                            task_words.insert(word.to_string());
+                        }
+                    }
+                    
+                    let mut current_parent_id = node.parent_id.clone();
+                    let mut parent_matched = false;
+                    while let Some(pid) = current_parent_id {
+                        if let Some(parent_node) = nodes.iter().find(|n| n.id == pid) {
+                            if let Some(parent_content) = &parent_node.content {
+                                let parent_lower = parent_content.to_lowercase();
+                                if context_lower.contains(&parent_lower) || parent_lower.contains(&context_lower) {
+                                    matched_node_id = Some(node.id.clone());
+                                    parent_matched = true;
+                                    break;
+                                }
+                                for word in parent_lower.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '.' && c != '/') {
+                                    if word.len() >= 3 && !stop_words.contains(word) {
+                                        task_words.insert(word.to_string());
+                                    }
+                                }
+                            }
+                            current_parent_id = parent_node.parent_id.clone();
+                        } else {
+                            break;
+                        }
+                    }
+                    
+                    if parent_matched {
+                        break;
+                    }
+
+                    let overlap_count = context_words
+                        .iter()
+                        .filter(|&&w| task_words.contains(w))
+                        .count();
+                    if overlap_count >= 2 {
+                        matched_node_id = Some(node.id.clone());
+                        break;
+                    }
+
+                    let mut path_overlap = false;
+                    for &cw in &context_words {
+                        if cw.contains('/') || cw.contains('.') {
+                            let segments: Vec<&str> = cw.split(|c: char| c == '/' || c == '.')
+                                .filter(|s| s.len() >= 3 && !stop_words.contains(s))
+                                .collect();
+                            if segments.iter().any(|seg| task_words.contains(*seg)) {
+                                path_overlap = true;
+                                break;
+                            }
+                        }
+                    }
+                    if path_overlap {
+                        matched_node_id = Some(node.id.clone());
+                        break;
+                    }
+                }
+            }
+        
+        // Fallback: match via RAG
+        if matched_node_id.is_none() && !in_progress_tasks.is_empty() {
+            if let Ok(cfg) = claw_rag_service::EmbedConfig::from_env() {
+                if let Ok(rt) = tokio::runtime::Runtime::new() {
+                    let client = reqwest::Client::builder()
+                        .timeout(std::time::Duration::from_secs(5))
+                        .build()
+                        .unwrap_or_else(|_| reqwest::Client::new());
+                    let mut texts_to_embed = vec![context_str.clone()];
+                    for content in &in_progress_tasks {
+                        texts_to_embed.push(content.clone());
+                    }
+
+                    if let Ok(embeddings) = rt.block_on(claw_rag_service::embed_batch(&client, &cfg, &texts_to_embed)) {
+                        if embeddings.len() == texts_to_embed.len() && !embeddings.is_empty() {
+                            let desc_emb = &embeddings[0];
+                            let mut idx = 0;
+                            for emb in embeddings.iter().skip(1) {
+                                let sim = claw_rag_service::cosine_similarity(desc_emb, emb);
+                                if sim >= 0.55 {
+                                    if let Some(task_content) = in_progress_tasks.get(idx) {
+                                        if let Some(matching_node) = nodes.iter().find(|n| n.content.as_ref() == Some(task_content)) {
+                                            matched_node_id = Some(matching_node.id.clone());
+                                        }
+                                    }
+                                    break;
+                                }
+                                idx += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(matched_id) = matched_node_id {
+        // Rule 1: Task must be a leaf node (i.e. cannot have children)
+        let has_children = nodes.iter().any(|n| n.parent_id.as_ref() == Some(&matched_id));
+        if has_children {
+            return Err(format!(
+                "Error: TaskGraph Enforcement. Task '{}' has sub-tasks. You are NOT allowed to execute mutating actions directly under a parent task. You MUST set one of its leaf sub-tasks (e.g. child nodes) to 'in_progress' and run the action under it.",
+                matched_id
+            ));
+        }
+
+        // Rule 2: Single Action per task node - prevent multiple fragmented actions under a single node
+        if let Some(parent) = store_path.parent() {
+            let history_file = parent.join(".clawd-action-history.json");
+            let mut history: std::collections::HashMap<String, Vec<Value>> = std::collections::HashMap::new();
+            if history_file.exists() {
+                if let Ok(content) = std::fs::read_to_string(&history_file) {
+                    if let Ok(parsed) = serde_json::from_str(&content) {
+                        history = parsed;
+                    }
+                }
+            }
+
+            let current_desc = context_str.clone();
+            let current_tool = name.to_string();
+            let current_path = input.get("path").and_then(|v| v.as_str()).map(String::from);
+
+            let records = history.entry(matched_id.clone()).or_insert_with(Vec::new);
+            if !records.is_empty() {
+                let first_record = &records[0];
+                let first_desc = first_record.get("description").and_then(|v| v.as_str()).unwrap_or("");
+                let first_tool = first_record.get("tool_name").and_then(|v| v.as_str()).unwrap_or("");
+                let first_path = first_record.get("path").and_then(|v| v.as_str());
+
+                let is_different = first_desc != current_desc 
+                    || first_tool != current_tool 
+                    || first_path.map(String::from) != current_path;
+
+                if is_different {
+                    return Err(format!(
+                        "Error: Strict TaskGraph Enforcement.\n\
+                         Task ID '{}' has already been matched to a different action in this session.\n\
+                         First action: '{}' (using tool '{}' on path '{:?}')\n\
+                         Current action: '{}' (using tool '{}' on path '{:?}')\n\n\
+                         You are NOT allowed to perform multiple distinct/fragmented actions under the same task node. You MUST create granular, fragmented sub-tasks for each distinct action (e.g. '2.2.1', '2.2.2') and update their status to 'in_progress' before executing this action.",
+                        matched_id, first_desc, first_tool, first_path, current_desc, current_tool, current_path
+                    ));
+                }
+            }
+
+            // Record action to history
+            let mut new_record = serde_json::Map::new();
+            new_record.insert("tool_name".to_string(), Value::String(current_tool));
+            new_record.insert("description".to_string(), Value::String(current_desc));
+            if let Some(ref p) = current_path {
+                new_record.insert("path".to_string(), Value::String(p.clone()));
+            }
+            records.push(Value::Object(new_record));
+
+            if let Ok(serialized) = serde_json::to_string_pretty(&history) {
+                let _ = std::fs::write(&history_file, serialized);
+            }
+        }
+
+        // Rule 3: Task must have a parent (i.e. cannot be a top-level task with no parent)
+        if !matched_id.contains('.') {
+            return Err(format!(
+                "Error: Strict TaskGraph Enforcement.\n\
+                 Task '{}' is a top-level task (Level 1) and has no parent task to act as the main goal.\n\
+                 Any mutating action must be planned under a sub-task. You MUST create a sub-task (e.g. '1.1' or '2.1') and set it to 'in_progress' before executing this action.",
+                matched_id
+            ));
+        }
     }
 
     Ok(())
@@ -9703,7 +9915,8 @@ mod tests {
         execute_tool("TaskGraph", &json!({
             "operation": "add",
             "nodes": [
-                {"id": "1", "content": "Fix error_tracker module", "status": "in_progress"}
+                {"id": "1", "content": "Fix everything"},
+                {"id": "1.1", "parent_id": "1", "content": "Fix error_tracker module", "status": "in_progress"}
             ]
         })).expect("TaskGraph add should succeed");
 
@@ -9737,7 +9950,8 @@ mod tests {
         execute_tool("TaskGraph", &json!({
             "operation": "add",
             "nodes": [
-                {"id": "1", "content": "Add new authentication feature", "status": "in_progress"}
+                {"id": "1", "content": "Implement module features"},
+                {"id": "1.1", "parent_id": "1", "content": "Add new authentication feature", "status": "in_progress"}
             ]
         })).expect("TaskGraph add should succeed");
 
@@ -10006,6 +10220,91 @@ mod tests {
         let err = result.unwrap_err();
         assert!(err.contains("TaskGraph is in an inconsistent state"));
         assert!(err.contains("Parent task '1' is marked as Completed, but its sub-task '1.1' is currently 'InProgress'"));
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn task_graph_strict_enforcement_rules() {
+        use super::validate_active_task_for_tool;
+
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let dir = temp_path("strict_enforcement_rules_dir");
+        let _ = std::fs::create_dir_all(&dir);
+        let path = dir.join("strict_enforcement.json");
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        // --- Part 1: Test Rule 3 (no parent for Level 1 task) ---
+        execute_tool("TaskGraph", &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Refactor codebase", "status": "in_progress"}
+            ]
+        })).expect("TaskGraph add should succeed");
+
+        let result_rule3 = validate_active_task_for_tool("write_file", &json!({
+            "path": "/tmp/a.txt",
+            "content": "test",
+            "description": "Refactor codebase",
+            "active_task_id": "1"
+        }));
+        assert!(result_rule3.is_err(), "Should reject Level 1 task execution");
+        assert!(result_rule3.unwrap_err().contains("is a top-level task (Level 1) and has no parent task"));
+
+        // --- Part 2: Test Rule 1 and Rule 2 (using a hierarchical graph) ---
+        // Clean up the first graph file to start fresh
+        let _ = std::fs::remove_file(&path);
+
+        execute_tool("TaskGraph", &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Refactor codebase"},
+                {"id": "1.1", "parent_id": "1", "content": "Write unit tests"},
+                {"id": "1.1.1", "parent_id": "1.1", "content": "Test database logic", "status": "in_progress"}
+            ]
+        })).expect("TaskGraph add should succeed");
+
+        // Rule 1 test: "1.1" has sub-task "1.1.1". Running an action matching "1.1" directly should fail.
+        let result_rule1 = validate_active_task_for_tool("write_file", &json!({
+            "path": "/tmp/a.txt",
+            "content": "test",
+            "description": "Write unit tests",
+            "active_task_id": "1.1"
+        }));
+        assert!(result_rule1.is_err(), "Should reject action on parent task '1.1'");
+        assert!(result_rule1.unwrap_err().contains("has sub-tasks. You are NOT allowed to execute mutating actions directly under a parent task"));
+
+        // Now test Rule 2: Single Action per task node.
+        // Let's run a successful action under leaf task "1.1.1".
+        let result_action1 = validate_active_task_for_tool("write_file", &json!({
+            "path": "/tmp/a.txt",
+            "content": "test",
+            "description": "Test database logic",
+            "active_task_id": "1.1.1"
+        }));
+        assert!(result_action1.is_ok(), "First action under '1.1.1' should succeed: {:?}", result_action1);
+
+        // Running the EXACT SAME action description + tool + path should succeed (idempotency/continuation)
+        let result_action_same = validate_active_task_for_tool("write_file", &json!({
+            "path": "/tmp/a.txt",
+            "content": "test",
+            "description": "Test database logic",
+            "active_task_id": "1.1.1"
+        }));
+        assert!(result_action_same.is_ok(), "Same action should succeed");
+
+        // Running a DIFFERENT action (different tool, path, or description) under the same leaf node "1.1.1" should fail
+        let result_action_diff = validate_active_task_for_tool("write_file", &json!({
+            "path": "/tmp/b.txt",
+            "content": "test",
+            "description": "Test other database logic",
+            "active_task_id": "1.1.1"
+        }));
+        assert!(result_action_diff.is_err(), "Different action under same node should fail");
+        assert!(result_action_diff.unwrap_err().contains("has already been matched to a different action in this session"));
 
         std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
         let _ = std::fs::remove_dir_all(dir);
