@@ -93,10 +93,10 @@ pub fn normalize_error_category(error_msg: &str) -> String {
 /// Truncates tool input JSON to a short summary for storage.
 #[must_use]
 fn summarize_input(input: &str) -> String {
-    if input.len() <= 120 {
-        input.to_string()
+    if let Some((idx, _)) = input.char_indices().nth(1024) {
+        format!("{}…", &input[..idx])
     } else {
-        format!("{}…", &input[..120])
+        input.to_string()
     }
 }
 
@@ -231,11 +231,7 @@ impl ErrorTracker {
             .map(|r| r.error_message.clone())
             .unwrap_or_default();
 
-        let solution_summary = if output.len() > 300 {
-            format!("{}…", &output[..300])
-        } else {
-            output.to_string()
-        };
+        let solution_summary = truncate(output, 1024);
 
         let name = format!(
             "autolearn-{}-{}",
@@ -376,10 +372,10 @@ impl ErrorTracker {
 }
 
 fn truncate(s: &str, max: usize) -> String {
-    if s.len() <= max {
-        s.to_string()
+    if let Some((idx, _)) = s.char_indices().nth(max) {
+        format!("{}…", &s[..idx])
     } else {
-        format!("{}…", &s[..max])
+        s.to_string()
     }
 }
 

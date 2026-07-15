@@ -2755,7 +2755,7 @@ pub fn summarize_tool_payload(payload: &str) -> String {
         Ok(value) => value.to_string(),
         Err(_) => payload.trim().to_string(),
     };
-    truncate_for_summary(&compact, 96)
+    truncate_for_summary(&compact, 300)
 }
 
 pub fn truncate_for_summary(value: &str, limit: usize) -> String {
