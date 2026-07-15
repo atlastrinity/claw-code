@@ -776,4 +776,28 @@ mod tests {
             "MCPTool"
         );
     }
+
+    #[test]
+    fn summarize_input_truncates_safely() {
+        let long_input = "a".repeat(2000);
+        let summary = super::summarize_input(&long_input);
+        assert!(summary.ends_with('…'));
+        assert_eq!(summary.chars().count(), 1025); // 1024 + 1 for '…'
+    }
+
+    #[test]
+    fn summarize_input_handles_multibyte_chars_safely() {
+        let long_input = "в".repeat(2000); // Cyrillic 'в' is 2 bytes
+        let summary = super::summarize_input(&long_input);
+        assert!(summary.ends_with('…'));
+        assert_eq!(summary.chars().count(), 1025); // 1024 + 1 for '…'
+    }
+
+    #[test]
+    fn truncate_handles_multibyte_chars_safely() {
+        let long_input = "в".repeat(2000);
+        let truncated = super::truncate(&long_input, 1024);
+        assert!(truncated.ends_with('…'));
+        assert_eq!(truncated.chars().count(), 1025); // 1024 + 1 for '…'
+    }
 }
