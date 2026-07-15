@@ -29,7 +29,7 @@ class EdgeTTSHelper:
                 f"--rate={rate}",
                 f"--pitch={pitch}",
                 "--write-media", temp_mp3_path
-            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15.0)
             
             # 2. Convert mp3 to WAV using ffmpeg
             subprocess.run([
@@ -38,7 +38,7 @@ class EdgeTTSHelper:
                 "-ac", "1",
                 "-ar", str(self.sample_rate),
                 output_wav_path
-            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15.0)
             
         finally:
             if os.path.exists(temp_mp3_path):

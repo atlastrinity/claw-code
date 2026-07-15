@@ -30,6 +30,25 @@ sys.path.insert(0, str(project_root))
 original_cwd = Path.cwd()
 os.chdir(project_root)
 
+# Prepend typical macOS tool paths to PATH (Homebrew and user local python bin)
+_extra_paths = [
+    "/opt/homebrew/bin",
+    "/usr/local/bin",
+    str(Path.home() / "Library/Python/3.9/bin"),
+]
+# Dynamically add any other user python bin folders to cover different Python versions
+_user_py_dir = Path.home() / "Library/Python"
+if _user_py_dir.exists():
+    for _p in _user_py_dir.glob("*/bin"):
+        _extra_paths.append(str(_p))
+
+_current_path = os.environ.get("PATH", "")
+_paths = _current_path.split(os.pathsep)
+for _p in _extra_paths:
+    if _p not in _paths:
+        _paths.insert(0, _p)
+os.environ["PATH"] = os.pathsep.join(_paths)
+
 # Load .env files automatically to ensure API keys are populated even if run in raw shell
 for env_dir in (project_root, Path.home() / ".claw"):
     env_file = env_dir / ".env"
