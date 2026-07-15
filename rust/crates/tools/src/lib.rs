@@ -1583,8 +1583,36 @@ fn parse_task_md_to_nodes(content: &str) -> Vec<TaskNode> {
 }
 
 fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String> {
-    // Only check action-related tools
-    if name != "bash" && name != "write_file" && name != "edit_file" {
+    // ── Read-only tools whitelist: these NEVER need TaskGraph validation ──
+    // All tools NOT in this list are considered mutating and MUST match an
+    // active in_progress task. This covers built-in tools, MCP tools, plugins,
+    // and any future dynamic tools by default.
+    const READ_ONLY_TOOLS: &[&str] = &[
+        "read_file",
+        "glob_search",
+        "grep_search",
+        "list_dir",
+        "ToolSearch",
+        "McpSearch",
+        "Skill",
+        "TaskGraph",       // TaskGraph itself manages tasks, not work
+        "web_search",
+        "web_fetch",
+        "Sleep",
+        "ask_user",
+        "AskUser",
+        "structured_output",
+        "StructuredOutput",
+        "notebook_read",
+        "NotebookRead",
+        "repl",            // REPL for exploration
+        "git_status",
+        "git_log",
+        "git_show",
+        "git_diff",
+    ];
+
+    if READ_ONLY_TOOLS.iter().any(|&ro| ro.eq_ignore_ascii_case(name)) {
         return Ok(());
     }
 
@@ -1593,31 +1621,64 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
         if let Some(cmd_val) = input.get("command").or_else(|| input.get("Command")) {
             if let Some(cmd) = cmd_val.as_str() {
                 let trimmed = cmd.trim().to_lowercase();
-                let is_read_only = trimmed.starts_with("cat ") 
-                    || trimmed.starts_with("ls ") 
-                    || trimmed.starts_with("grep ") 
-                    || trimmed.starts_with("find ") 
-                    || trimmed.starts_with("file ") 
-                    || trimmed.starts_with("stat ") 
-                    || trimmed.starts_with("head ") 
-                    || trimmed.starts_with("tail ") 
+                let is_read_only = trimmed.starts_with("cat ")
+                    || trimmed.starts_with("ls ")
+                    || trimmed.starts_with("grep ")
+                    || trimmed.starts_with("find ")
+                    || trimmed.starts_with("file ")
+                    || trimmed.starts_with("stat ")
+                    || trimmed.starts_with("head ")
+                    || trimmed.starts_with("tail ")
                     || trimmed.starts_with("wc ")
                     || trimmed.starts_with("echo ")
                     || trimmed.starts_with("sleep ")
+                    || trimmed.starts_with("which ")
+                    || trimmed.starts_with("type ")
+                    || trimmed.starts_with("pwd")
+                    || trimmed.starts_with("env ")
+                    || trimmed.starts_with("printenv")
+                    || trimmed.starts_with("date")
+                    || trimmed.starts_with("whoami")
+                    || trimmed.starts_with("id ")
+                    || trimmed.starts_with("df ")
+                    || trimmed.starts_with("du ")
+                    || trimmed.starts_with("free ")
+                    || trimmed.starts_with("uname ")
+                    || trimmed.starts_with("uptime")
+                    || trimmed.starts_with("ps ")
+                    || trimmed.starts_with("top ")
+                    || trimmed.starts_with("htop")
+                    || trimmed.starts_with("cargo check")
+                    || trimmed.starts_with("cargo test")
+                    || trimmed.starts_with("cargo clippy")
+                    || trimmed.starts_with("cargo build")
+                    || trimmed.starts_with("git status")
+                    || trimmed.starts_with("git log")
+                    || trimmed.starts_with("git diff")
+                    || trimmed.starts_with("git show")
+                    || trimmed.starts_with("git branch")
                     || trimmed.contains("status")
                     || trimmed.contains("overview")
                     || trimmed.contains("--help")
+                    || trimmed.contains("--version")
                     || trimmed.contains("-h")
                     || (trimmed.starts_with("ssh ") && (
-                        trimmed.contains("cat ") || 
-                        trimmed.contains("ls ") || 
-                        trimmed.contains("grep ") || 
-                        trimmed.contains("find ") || 
-                        trimmed.contains("head ") || 
-                        trimmed.contains("tail ") ||
-                        trimmed.contains("status") ||
-                        trimmed.contains("overview") ||
-                        trimmed.contains("--help")
+                        trimmed.contains("cat ")
+                        || trimmed.contains("ls ")
+                        || trimmed.contains("grep ")
+                        || trimmed.contains("find ")
+                        || trimmed.contains("head ")
+                        || trimmed.contains("tail ")
+                        || trimmed.contains("status")
+                        || trimmed.contains("overview")
+                        || trimmed.contains("--help")
+                        || trimmed.contains("df ")
+                        || trimmed.contains("du ")
+                        || trimmed.contains("free ")
+                        || trimmed.contains("docker ps")
+                        || trimmed.contains("docker images")
+                        || trimmed.contains("docker system df")
+                        || trimmed.contains("docker volume ls")
                     ));
                 if is_read_only {
                     return Ok(());
@@ -1626,6 +1687,10 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
         }
     }
 
+    // Resolve the store path. If CLAWD_TASK_GRAPH_STORE is not set, check
+    // if the workspace default path exists. If neither is available, TaskGraph
+    // enforcement is not active — allow the action.
+    let explicit_store = std::env::var("CLAWD_TASK_GRAPH_STORE").ok();
     let store_path = match task_graph_store_path() {
         Ok(p) => p,
         Err(_) => return Ok(()),
@@ -1645,7 +1710,22 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
 
     if !loaded {
         if !store_path.exists() {
-            return Ok(()); // If no task graph initialized yet, allow
+            if explicit_store.is_some() {
+                // CLAWD_TASK_GRAPH_STORE is explicitly set but no graph file exists yet
+                // → enforce Plan-First: agent MUST create a plan before any mutating action
+                return Err(
+                    "Error: Plan-First Enforcement.\n\
+                     No TaskGraph has been created yet. Before executing any mutating action, you MUST:\n\
+                     1. Analyze the user's request and break it into logical phases and steps.\n\
+                     2. Call the `TaskGraph` tool with `operation: \"add\"` to create a structured plan.\n\
+                     3. Set the first task to `in_progress` using `operation: \"update_status\"`.\n\
+                     4. Only THEN execute your first action.\n\n\
+                     You may also create an `implementation_plan.md` artifact for complex tasks before building the TaskGraph.".to_string()
+                );
+            }
+            // No explicit store configured and default file doesn't exist
+            // → TaskGraph feature is not active, allow the action
+            return Ok(());
         }
         let file_content = std::fs::read_to_string(&store_path)
             .map_err(|error| format!("Failed to read task graph: {error}"))?;
@@ -1659,25 +1739,75 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
         return Err("Error: Strict TaskGraph Enforcement. There are no tasks currently marked as 'in_progress' in your task.md. You MUST call the TaskGraph tool to set at least one task to 'in_progress' before you can execute this action.".to_string());
     }
 
-    // Extract description
-    let desc = input.get("description")
+    // ── Layer 0: Explicit active_task_id (agent provides it directly) ──
+    if let Some(active_task_id) = input.get("active_task_id").and_then(|v| v.as_str()) {
+        let has_matching = nodes.iter().any(|node| {
+            node.id == active_task_id && node.status == Some(TaskStatus::InProgress)
+        });
+        if has_matching {
+            return Ok(());
+        }
+        return Err(format!(
+            "Error: Strict TaskGraph Enforcement. Task ID '{}' was provided but it is not currently 'in_progress'.",
+            active_task_id
+        ));
+    }
+
+    // ── Build context string from all tool input fields ──
+    // Instead of relying only on "description", we extract meaningful text from
+    // ALL input fields (command, path, content, old_string, new_string) to build
+    // a rich context string for matching.
+    let mut context_parts: Vec<String> = Vec::new();
+
+    if let Some(desc) = input.get("description")
         .or_else(|| input.get("Description"))
         .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim();
+    {
+        let trimmed = desc.trim();
+        if !trimmed.is_empty() {
+            context_parts.push(trimmed.to_string());
+        }
+    }
 
-    if desc.is_empty() {
+    if let Some(cmd) = input.get("command")
+        .or_else(|| input.get("Command"))
+        .and_then(|v| v.as_str())
+    {
+        context_parts.push(cmd.to_string());
+    }
+
+    if let Some(path) = input.get("path").and_then(|v| v.as_str()) {
+        context_parts.push(path.to_string());
+    }
+
+    let context_str = context_parts.join(" ");
+    if context_str.trim().is_empty() {
         return Err("Error: Action description is missing. Every tool call must include a 'description' parameter detailing what it does.".to_string());
     }
 
-    let desc_lower = desc.to_lowercase();
-    let mut matches_any = false;
-    let mut in_progress_tasks = Vec::new();
+    let context_lower = context_str.to_lowercase();
 
-    // Split description into words of length >= 3
-    let desc_words: std::collections::HashSet<&str> = desc_lower
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|s| s.len() >= 3)
+    // ── Collect in-progress tasks and their full ancestor chain ──
+    let mut in_progress_tasks: Vec<String> = Vec::new();
+    let mut all_active_words: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+    // Common stop-words that cause false positives
+    let stop_words: std::collections::HashSet<&str> = [
+        "the", "and", "for", "with", "from", "this", "that", "into", "when",
+        "then", "will", "can", "not", "all", "use", "run", "add", "get",
+        "set", "new", "old", "any", "has", "had", "its", "are", "was",
+        "were", "been", "have", "does", "did", "but", "also", "each",
+        "make", "like", "just", "over", "such", "take", "only", "some",
+        "other", "than", "them", "very", "after", "before", "should",
+        "would", "could", "under", "between", "through", "during",
+        "about", "which", "their", "there", "these", "those", "more",
+    ].iter().copied().collect();
+
+    // ── Layer 1: Direct substring matching + word overlap (with stop-words) ──
+    let mut matches_any = false;
+    let context_words: std::collections::HashSet<&str> = context_lower
+        .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '.' && c != '/')
+        .filter(|s| s.len() >= 3 && !stop_words.contains(s))
         .collect();
 
     for node in &nodes {
@@ -1685,33 +1815,38 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
             if let Some(node_content) = &node.content {
                 in_progress_tasks.push(node_content.clone());
                 let node_content_lower = node_content.to_lowercase();
-                
-                // Direct substring matching
-                if desc_lower.contains(&node_content_lower) || node_content_lower.contains(&desc_lower) {
+
+                // Direct substring matching (bidirectional)
+                if context_lower.contains(&node_content_lower)
+                    || node_content_lower.contains(&context_lower)
+                {
                     matches_any = true;
                     break;
                 }
 
-                // Build a set of all words from this task and its parent chain
-                let mut active_words = std::collections::HashSet::new();
-                for word in node_content_lower.split(|c: char| !c.is_alphanumeric()) {
-                    if word.len() >= 3 {
-                        active_words.insert(word.to_string());
+                // Build word set from this task and its parent chain
+                let mut task_words: std::collections::HashSet<String> = std::collections::HashSet::new();
+                for word in node_content_lower.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '.' && c != '/') {
+                    if word.len() >= 3 && !stop_words.contains(word) {
+                        task_words.insert(word.to_string());
+                        all_active_words.insert(word.to_string());
                     }
                 }
 
+                // Walk up the parent chain
                 let mut current_parent_id = node.parent_id.clone();
                 while let Some(pid) = current_parent_id {
                     if let Some(parent_node) = nodes.iter().find(|n| n.id == pid) {
                         if let Some(parent_content) = &parent_node.content {
-                            let parent_content_lower = parent_content.to_lowercase();
-                            if desc_lower.contains(&parent_content_lower) || parent_content_lower.contains(&desc_lower) {
+                            let parent_lower = parent_content.to_lowercase();
+                            if context_lower.contains(&parent_lower) || parent_lower.contains(&context_lower) {
                                 matches_any = true;
                                 break;
                             }
-                            for word in parent_content_lower.split(|c: char| !c.is_alphanumeric()) {
-                                if word.len() >= 3 {
-                                    active_words.insert(word.to_string());
+                            for word in parent_lower.split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-' && c != '.' && c != '/') {
+                                if word.len() >= 3 && !stop_words.contains(word) {
+                                    task_words.insert(word.to_string());
+                                    all_active_words.insert(word.to_string());
                                 }
                             }
                         }
@@ -1725,11 +1860,62 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
                     break;
                 }
 
-                // Check for at least 1 overlapping word of length >= 3
-                let overlap = desc_words.iter().any(|&w| active_words.contains(w));
-                if overlap {
+                // Require at least 2 meaningful overlapping words (was 1 — too weak)
+                let overlap_count = context_words
+                    .iter()
+                    .filter(|&&w| task_words.contains(w))
+                    .count();
+                if overlap_count >= 2 {
                     matches_any = true;
                     break;
+                }
+
+                // Also check if any file path in context matches a word in task
+                // e.g. task says "error_tracker" and command touches "error_tracker.rs"
+                for &cw in &context_words {
+                    if cw.contains('/') || cw.contains('.') {
+                        // Extract filename/segments
+                        let segments: Vec<&str> = cw.split(|c: char| c == '/' || c == '.')
+                            .filter(|s| s.len() >= 3 && !stop_words.contains(s))
+                            .collect();
+                        let path_overlap = segments.iter().any(|seg| task_words.contains(*seg));
+                        if path_overlap {
+                            matches_any = true;
+                            break;
+                        }
+                    }
+                }
+                if matches_any {
+                    break;
+                }
+            }
+        }
+    }
+
+    // ── Layer 2: Semantic RAG matching (embeddings + cosine similarity) ──
+    if !matches_any && !in_progress_tasks.is_empty() {
+        if let Ok(cfg) = claw_rag_service::EmbedConfig::from_env() {
+            if let Ok(rt) = tokio::runtime::Runtime::new() {
+                let client = reqwest::Client::builder()
+                    .timeout(std::time::Duration::from_secs(5))
+                    .build()
+                    .unwrap_or_else(|_| reqwest::Client::new());
+                let mut texts_to_embed = vec![context_str.clone()];
+                for content in &in_progress_tasks {
+                    texts_to_embed.push(content.clone());
+                }
+
+                if let Ok(embeddings) = rt.block_on(claw_rag_service::embed_batch(&client, &cfg, &texts_to_embed)) {
+                    if embeddings.len() == texts_to_embed.len() && !embeddings.is_empty() {
+                        let desc_emb = &embeddings[0];
+                        for emb in embeddings.iter().skip(1) {
+                            let sim = claw_rag_service::cosine_similarity(desc_emb, emb);
+                            if sim >= 0.55 {
+                                matches_any = true;
+                                break;
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1742,7 +1928,7 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
              Active 'in_progress' tasks:\n\
              {}\n\n\
              You MUST call the TaskGraph tool to 'add' a matching sub-task or 'update_status' of the appropriate task to 'in_progress' BEFORE you can execute this action.",
-            desc,
+            context_str,
             if in_progress_tasks.is_empty() {
                 "- (None)".to_string()
             } else {
@@ -7793,8 +7979,9 @@ mod tests {
         derive_agent_state, execute_agent_with_spawn, execute_tool, extract_recovery_outcome,
         final_assistant_text, global_cron_registry, maybe_commit_provenance, mvp_tool_specs,
         permission_mode_from_plugin, persist_agent_terminal_state, push_output_block,
-        run_task_packet, tools_for_subagent, AgentInput, AgentJob, GlobalToolRegistry,
-        LaneEventName, LaneFailureClass, ProviderRuntimeClient, SubagentToolExecutor,
+        run_task_packet, tools_for_subagent, validate_active_task_for_tool, AgentInput, AgentJob,
+        GlobalToolRegistry, LaneEventName, LaneFailureClass, ProviderRuntimeClient,
+        SubagentToolExecutor,
     };
     use api::OutputContentBlock;
     use runtime::ProviderFallbackConfig;
@@ -9283,6 +9470,293 @@ mod tests {
         let _ = std::fs::remove_file(path);
         let _ = std::fs::remove_file(task_md_path);
     }
+
+    #[test]
+    fn task_graph_plan_first_blocks_without_graph() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("plan_first_no_graph.json");
+        // Ensure the file does NOT exist
+        let _ = std::fs::remove_file(&path);
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        // Any mutating tool call should fail with Plan-First error
+        // NOTE: echo is read-only bypass, so use a mutating command
+        let result = validate_active_task_for_tool("bash", &json!({
+            "command": "rm -rf /tmp/old_build",
+            "description": "Clean up build artifacts"
+        }));
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("Plan-First Enforcement"), "Expected Plan-First error, got: {}", err);
+
+        // write_file should also be blocked
+        let result2 = validate_active_task_for_tool("write_file", &json!({
+            "path": "/tmp/test.txt",
+            "content": "hello",
+            "description": "Write test file"
+        }));
+        assert!(result2.is_err());
+        assert!(result2.unwrap_err().contains("Plan-First Enforcement"));
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    }
+
+    #[test]
+    fn task_graph_read_only_whitelist_passes_without_graph() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("whitelist_no_graph.json");
+        let _ = std::fs::remove_file(&path);
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        // Read-only tools should always pass, even without a graph
+        assert!(validate_active_task_for_tool("read_file", &json!({"path": "/tmp/test.txt"})).is_ok());
+        assert!(validate_active_task_for_tool("glob_search", &json!({"pattern": "*.rs"})).is_ok());
+        assert!(validate_active_task_for_tool("grep_search", &json!({"query": "test"})).is_ok());
+        assert!(validate_active_task_for_tool("ToolSearch", &json!({"query": "build"})).is_ok());
+        assert!(validate_active_task_for_tool("TaskGraph", &json!({"operation": "add", "nodes": []})).is_ok());
+        assert!(validate_active_task_for_tool("Skill", &json!({"skill": "test"})).is_ok());
+        assert!(validate_active_task_for_tool("web_search", &json!({"query": "rust"})).is_ok());
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    }
+
+    #[test]
+    fn task_graph_mcp_tools_are_enforced() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("mcp_enforce.json");
+        let _ = std::fs::remove_file(&path);
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        // Unknown/MCP tools should be blocked without a graph (Plan-First)
+        let result = validate_active_task_for_tool("XcodeWrite", &json!({
+            "description": "Write to Xcode project"
+        }));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("Plan-First Enforcement"));
+
+        let result2 = validate_active_task_for_tool("BuildProject", &json!({
+            "description": "Build the iOS app"
+        }));
+        assert!(result2.is_err());
+
+        let result3 = validate_active_task_for_tool("SomeFuturePlugin", &json!({
+            "description": "Deploy to production"
+        }));
+        assert!(result3.is_err());
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    }
+
+    #[test]
+    fn task_graph_active_task_id_routing() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("active_id_routing.json");
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        // Create a graph with a task in_progress
+        execute_tool("TaskGraph", &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Implement authentication module", "status": "in_progress"},
+                {"id": "1.1", "parent_id": "1", "content": "Add login endpoint", "status": "in_progress"}
+            ]
+        })).expect("TaskGraph add should succeed");
+
+        // With correct active_task_id, any description should pass (even nonsense)
+        // NOTE: cargo build is read-only bypass, so use a mutating command
+        let result = validate_active_task_for_tool("bash", &json!({
+            "command": "rm -rf /tmp/nonsense",
+            "description": "Completely unrelated text in another language здвыадывоат",
+            "active_task_id": "1.1"
+        }));
+        assert!(result.is_ok(), "active_task_id routing should bypass text matching");
+
+        // With wrong active_task_id (not in graph at all), it should fail
+        let result2 = validate_active_task_for_tool("write_file", &json!({
+            "path": "/tmp/xyz.txt",
+            "content": "test",
+            "description": "Totally unrelated gibberish xyzzy42",
+            "active_task_id": "99.99"
+        }));
+        assert!(result2.is_err());
+        assert!(result2.unwrap_err().contains("not currently 'in_progress'"));
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn task_graph_context_extraction_from_all_fields() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("context_extraction.json");
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        execute_tool("TaskGraph", &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Fix error_tracker module", "status": "in_progress"}
+            ]
+        })).expect("TaskGraph add should succeed");
+
+        // Match via command field (not description) — path contains error_tracker
+        let result = validate_active_task_for_tool("bash", &json!({
+            "command": "cargo test -p runtime -- error_tracker",
+            "description": "Run unit tests"
+        }));
+        assert!(result.is_ok(), "Should match 'error_tracker' from command field: {:?}", result);
+
+        // Match via path field on write_file
+        let result2 = validate_active_task_for_tool("write_file", &json!({
+            "path": "/project/crates/runtime/src/error_tracker.rs",
+            "content": "// fixed",
+            "description": "Update source file"
+        }));
+        assert!(result2.is_ok(), "Should match 'error_tracker' from path field: {:?}", result2);
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn task_graph_stop_words_prevent_false_positives() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("stop_words.json");
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        execute_tool("TaskGraph", &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Add new authentication feature", "status": "in_progress"}
+            ]
+        })).expect("TaskGraph add should succeed");
+
+        // Should NOT match just because both use stop words like "add", "new"
+        // The description talks about something completely unrelated
+        let result = validate_active_task_for_tool("bash", &json!({
+            "command": "docker compose down",
+            "description": "Remove old containers and add new volumes for database migration"
+        }));
+        // "add" and "new" are stop words, so they won't count
+        // Only meaningful overlap words would match — here "containers", "volumes", "database", "migration"
+        // don't overlap with "authentication", "feature"
+        assert!(result.is_err(), "Stop words should not cause false positive match");
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn task_graph_bash_read_only_commands_bypass() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("readonly_bash.json");
+        let _ = std::fs::remove_file(&path);
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        // Read-only bash commands should pass even without a graph
+        let read_only_cmds = vec![
+            "cat /etc/hosts",
+            "ls -la /tmp",
+            "grep -r pattern src/",
+            "find . -name '*.rs'",
+            "head -20 file.txt",
+            "cargo check -p tools",
+            "cargo test --lib",
+            "git status",
+            "git log -5",
+            "git diff HEAD~1",
+            "ssh server 'docker ps'",
+            "ssh server 'df -h'",
+            "which cargo",
+            "pwd",
+            "date",
+            "whoami",
+        ];
+
+        for cmd in read_only_cmds {
+            let result = validate_active_task_for_tool("bash", &json!({
+                "command": cmd,
+                "description": "Read-only exploration"
+            }));
+            assert!(result.is_ok(), "Read-only command '{}' should pass", cmd);
+        }
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    }
+
+    #[test]
+    fn task_graph_no_in_progress_blocks_action() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("no_in_progress.json");
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        // Create a graph with only pending tasks (none in_progress)
+        execute_tool("TaskGraph", &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Pending task", "status": "pending"},
+                {"id": "1.1", "parent_id": "1", "content": "Also pending"}
+            ]
+        })).expect("TaskGraph add should succeed");
+
+        // Should fail because no task is in_progress
+        let result = validate_active_task_for_tool("edit_file", &json!({
+            "path": "/tmp/test.rs",
+            "old_string": "old",
+            "new_string": "new",
+            "description": "Edit pending task file"
+        }));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("no tasks currently marked as 'in_progress'"));
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn task_graph_parent_chain_matching() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("parent_chain.json");
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        // Create a deep hierarchy
+        execute_tool("TaskGraph", &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Refactor database layer"},
+                {"id": "1.1", "parent_id": "1", "content": "Update connection pool"},
+                {"id": "1.1.1", "parent_id": "1.1", "content": "Write migration script", "status": "in_progress"}
+            ]
+        })).expect("TaskGraph add should succeed");
+
+        // Should match via parent chain — "database" is in grandparent "1"
+        let result = validate_active_task_for_tool("bash", &json!({
+            "command": "psql -c 'SELECT 1'",
+            "description": "Test database connection pool availability"
+        }));
+        assert!(result.is_ok(), "Should match 'database' + 'connection' via parent chain: {:?}", result);
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+        let _ = std::fs::remove_file(path);
+    }
+
 
     #[test]
     fn skill_loads_local_skill_prompt() {

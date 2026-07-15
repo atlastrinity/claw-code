@@ -10,7 +10,7 @@ mod qdrant_index;
 mod search;
 
 pub use db::{chunk_count, open_db};
-pub use embed::EmbedConfig;
+pub use embed::{EmbedConfig, embed_batch, cosine_similarity};
 pub use ingest::{chunk_and_embed_single, run_ingest, IngestStats, SingleIngestStats};
 pub use search::query_index;
 

@@ -3257,6 +3257,7 @@ dependencies = [
  "aspect-core",
  "aspect-macros",
  "aspect-std",
+ "claw-rag-service",
  "commands",
  "flate2",
  "log",
