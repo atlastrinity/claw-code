@@ -1230,9 +1230,14 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
 def load_task_descriptions() -> dict[str, str]:
     descriptions = {}
     store_var = os.environ.get("CLAWD_TASK_GRAPH_STORE")
+    caller_cwd = os.environ.get("CLAW_CALLER_CWD")
     paths = []
     if store_var:
         paths.append(Path(store_var))
+    if caller_cwd:
+        paths.append(Path(caller_cwd) / ".clawd-task-graph.json")
+    if "original_cwd" in globals():
+        paths.append(original_cwd / ".clawd-task-graph.json")
     paths.extend([
         Path(".clawd-task-graph.json"),
         Path.home() / ".claw/task_graph.json",
