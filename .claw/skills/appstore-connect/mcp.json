@@ -1,0 +1,6 @@
+{
+  "appstore-connect": {
+    "command": "npx",
+    "args": ["-y", "@pofky/asc-mcp"]
+  }
+}

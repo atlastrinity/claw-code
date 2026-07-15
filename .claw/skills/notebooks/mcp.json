@@ -1,0 +1,9 @@
+{
+  "notebooks": {
+    "command": "node",
+    "args": [
+      "/Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.6.1-universal/mcp_servers/cli/mcp_proxy_bundle.js",
+      "notebooks-antigravityide"
+    ]
+  }
+}
