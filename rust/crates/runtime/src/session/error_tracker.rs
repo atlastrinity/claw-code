@@ -272,10 +272,15 @@ impl ErrorTracker {
             return None;
         }
 
+        // Persist immediately to permanent learned storage so stopping the agent never loses data
+        if let Err(e) = persist_skill_to_learned(&skill) {
+            tracing::warn!(error = %e, "Failed to immediately persist dynamic skill");
+        }
+
         tracing::info!(
             skill_name = %skill.name,
             tool = %tool_name,
-            "Generated dynamic skill from recurring error pattern"
+            "Generated and immediately persisted dynamic skill from recurring error pattern"
         );
 
         self.dynamic_skills.push(skill.clone());
