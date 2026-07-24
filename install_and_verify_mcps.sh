@@ -86,12 +86,12 @@ verify_command "SwiftLens (uvx swiftlens)" \
 
 # 8. notebooks
 verify_command "Notebooks Proxy Extension" \
-    "[ -f /Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.6.1-universal/mcp_servers/cli/mcp_proxy_bundle.js ]" \
+    "[ -f \"$HOME/.antigravity-ide/extensions/googlecloudtools.datacloud-\"*\"/mcp_servers/cli/mcp_proxy_bundle.js\" ]" \
     "echo 'Please verify the Google Cloud Tools extension is installed in your IDE.'"
 
 # 9. visualization
 verify_command "Visualization Proxy Extension" \
-    "[ -f /Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.6.1-universal/mcp_servers/cli/mcp_proxy_bundle.js ]" \
+    "[ -f \"$HOME/.antigravity-ide/extensions/googlecloudtools.datacloud-\"*\"/mcp_servers/cli/mcp_proxy_bundle.js\" ]" \
     "echo 'Please verify the Google Cloud Tools extension is installed in your IDE.'"
 
 # 10. pyscn-mcp
