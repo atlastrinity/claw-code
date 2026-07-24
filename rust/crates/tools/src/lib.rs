@@ -12484,7 +12484,7 @@ printf 'pwsh:%s' "$1"
     }
 
     fn read_only_registry() -> super::GlobalToolRegistry {
-        use runtime::security::security::permission_enforcer::PermissionEnforcer;
+        use runtime::security::permission_enforcer::PermissionEnforcer;
         use runtime::PermissionPolicy;
 
         let policy = mvp_tool_specs().into_iter().fold(
@@ -12497,7 +12497,7 @@ printf 'pwsh:%s' "$1"
     }
 
     fn workspace_write_registry() -> super::GlobalToolRegistry {
-        use runtime::security::security::permission_enforcer::PermissionEnforcer;
+        use runtime::security::permission_enforcer::PermissionEnforcer;
         use runtime::PermissionPolicy;
 
         let policy = mvp_tool_specs().into_iter().fold(

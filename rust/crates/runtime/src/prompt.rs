@@ -42,7 +42,8 @@ pub const SYSTEM_PROMPT_DYNAMIC_BOUNDARY: &str = "__SYSTEM_PROMPT_DYNAMIC_BOUNDA
 pub const FRONTIER_MODEL_NAME: &str = "Claude Opus 4.6";
 const MAX_INSTRUCTION_FILE_CHARS: usize = 4_000;
 const MAX_TOTAL_INSTRUCTION_CHARS: usize = 12_000;
-const MAX_GIT_DIFF_CHARS: usize = 50_000;
+const MAX_GIT_DIFF_CHARS: usize = 12_000;
+
 
 /// Neutral identity for the model family line in generated prompts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -453,7 +454,7 @@ fn truncate_diff(mut diff: String) -> String {
             end -= 1;
         }
         diff.truncate(end);
-        diff.push_str("\n\n... [diff truncated — too large for system prompt]");
+        diff.push_str("\n\n... [diff truncated — oversized diff capped for system prompt. Use git tools/file reading tools to view detailed changes]");
     }
     diff
 }
@@ -469,6 +470,8 @@ fn read_git_output(cwd: &Path, args: &[&str]) -> Option<String> {
     }
     String::from_utf8(output.stdout).ok()
 }
+
+const MAX_PROJECT_CONTEXT_CHARS: usize = 24_000;
 
 fn render_project_context(project_context: &ProjectContext) -> String {
     let mut lines = vec!["# Project context".to_string()];
@@ -516,7 +519,17 @@ fn render_project_context(project_context: &ProjectContext) -> String {
             lines.push(rendered);
         }
     }
-    lines.join("\n")
+
+    let mut result = lines.join("\n");
+    if result.len() > MAX_PROJECT_CONTEXT_CHARS {
+        let mut end = MAX_PROJECT_CONTEXT_CHARS;
+        while !result.is_char_boundary(end) {
+            end -= 1;
+        }
+        result.truncate(end);
+        result.push_str("\n\n... [project context capped to fit model context window budget]");
+    }
+    result
 }
 
 fn render_instruction_files(files: &[ContextFile]) -> String {
@@ -1275,9 +1288,9 @@ mod tests {
     fn truncate_diff_caps_oversized_content() {
         let large = "x".repeat(MAX_GIT_DIFF_CHARS + 5_000);
         let result = truncate_diff(large);
-        assert!(result.contains("... [diff truncated — too large for system prompt]"));
+        assert!(result.contains("... [diff truncated — oversized diff capped for system prompt. Use git tools/file reading tools to view detailed changes]"));
         // The body before the marker must be at most MAX_GIT_DIFF_CHARS bytes
-        let marker = "\n\n... [diff truncated — too large for system prompt]";
+        let marker = "\n\n... [diff truncated — oversized diff capped for system prompt. Use git tools/file reading tools to view detailed changes]";
         let body_len = result.len() - marker.len();
         assert!(body_len <= MAX_GIT_DIFF_CHARS);
     }
@@ -1299,7 +1312,7 @@ mod tests {
         assert!(result.contains("[diff truncated"));
         // The body (before marker) should end before the emoji since cutting
         // inside it would be invalid UTF-8.
-        let marker = "\n\n... [diff truncated — too large for system prompt]";
+        let marker = "\n\n... [diff truncated — oversized diff capped for system prompt. Use git tools/file reading tools to view detailed changes]";
         let body = &result[..result.len() - marker.len()];
         assert!(body.len() <= MAX_GIT_DIFF_CHARS);
         assert!(body.is_char_boundary(body.len()));
