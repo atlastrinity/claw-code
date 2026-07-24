@@ -233,11 +233,19 @@ impl ErrorTracker {
 
         let solution_summary = truncate(output, 1024);
 
-        let name = format!(
-            "autolearn-{}-{}",
-            tool_name.to_lowercase().replace(' ', "-"),
-            &category
-        );
+        let safe_tool = tool_name.to_lowercase().replace(' ', "-");
+        let safe_category: String = category
+            .chars()
+            .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+            .take(30)
+            .collect();
+
+        let raw_name = format!("autolearn-{safe_tool}-{safe_category}");
+        let name = if raw_name.len() > 50 {
+            raw_name[..50].trim_end_matches('-').to_string()
+        } else {
+            raw_name
+        };
 
         let temp_dir = temp_skills_dir();
         let skill_dir = temp_dir.join(&name);
