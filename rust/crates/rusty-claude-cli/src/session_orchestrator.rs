@@ -214,13 +214,13 @@ pub fn run_resume_command(
             ),
         }),
         SlashCommand::Compact => {
-            let result = runtime::trident::trident_compact_session(
+            let result = runtime::session::trident::trident_compact_session(
                 session,
                 CompactionConfig {
                     max_estimated_tokens: 0,
                     ..CompactionConfig::default()
                 },
-                &runtime::trident::TridentConfig::default(),
+                &runtime::session::trident::TridentConfig::default(),
             );
             let removed = result.removed_message_count;
             let kept = result.compacted_session.messages.len();

@@ -359,6 +359,30 @@ impl OpenAiCompatClient {
         preflight_message_request(&streaming_request)?;
         let response = self.send_with_retry(&streaming_request).await?;
 
+        eprintln!("DEBUG ZHIPU RESPONSE: status={} headers={:?}", response.status(), response.headers());
+
+        // Catch proxies (like api.z.ai) that occasionally return 200 OK with a JSON error body instead of SSE when streaming
+        if let Some(content_type) = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|h| h.to_str().ok()) {
+            if content_type.starts_with("application/json") {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                
+                // If it's a rate limit error inside 200 OK JSON, we shouldn't retry it infinitely, 
+                // but setting retryable to false will at least bubble it up to the user instead of hanging on empty stream!
+                let is_quota = body.to_ascii_lowercase().contains("quota") || body.contains("rate limit");
+                return Err(ApiError::Api(Box::new(crate::error::ApiErrorInfo {
+                    status,
+                    error_type: None,
+                    message: Some(format!("Expected stream but got JSON: {}", body)),
+                    request_id: None,
+                    body,
+                    retryable: !is_quota,
+                    suggested_action: None,
+                    retry_after: None,
+                })));
+            }
+        }
+
         Ok(MessageStream {
             request_id: request_id_from_headers(response.headers()),
             response,
@@ -416,15 +440,17 @@ impl OpenAiCompatClient {
         check_request_body_size_for_base_url(request, self.config(), &self.base_url)?;
 
         let request_url = chat_completions_endpoint(&self.base_url);
+        let payload = build_chat_completion_request_for_base_url(
+            request,
+            self.config(),
+            &self.base_url,
+        );
+        let _ = std::fs::write("payload.json", serde_json::to_string_pretty(&payload).unwrap());
         self.http
             .post(&request_url)
             .header("content-type", "application/json")
             .bearer_auth(&self.api_key)
-            .json(&build_chat_completion_request_for_base_url(
-                request,
-                self.config(),
-                &self.base_url,
-            ))
+            .json(&payload)
             .send()
             .await
             .map_err(ApiError::from)

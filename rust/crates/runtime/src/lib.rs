@@ -13,8 +13,6 @@ mod compact;
 mod config;
 pub mod config_validate;
 pub mod context_budget;
-mod conversation;
-pub mod error_tracker;
 mod file_ops;
 pub mod g004_conformance;
 mod git_context;
@@ -24,26 +22,18 @@ mod json;
 mod lane_events;
 pub mod loop_detection;
 pub mod lsp_client;
-mod mcp;
-mod mcp_client;
-pub mod mcp_lifecycle_hardened;
-pub mod mcp_server;
-mod mcp_stdio;
-pub mod mcp_tool_bridge;
+pub mod mcp;
+pub mod security;
+pub mod session;
 pub mod middleware;
 mod oauth;
-pub mod permission_enforcer;
-mod permissions;
 pub mod plugin_lifecycle;
 mod policy_engine;
 mod prompt;
 pub mod recovery_recipes;
 mod remote;
 mod report_schema;
-pub mod sandbox;
-mod session;
 pub mod session_control;
-pub mod trident;
 pub use session_control::SessionStore;
 mod sse;
 pub mod stale_base;
@@ -53,9 +43,7 @@ pub mod task_packet;
 pub mod task_registry;
 pub mod team_cron_registry;
 pub mod tool_dispatch;
-#[cfg(test)]
-mod trust_resolver;
-mod usage;
+
 pub mod worker_boot;
 
 pub use approval_tokens::{
@@ -84,13 +72,13 @@ pub use config_validate::{
     check_unsupported_format, format_diagnostics, validate_config_file, ConfigDiagnostic,
     DiagnosticKind, ValidationResult,
 };
-pub use conversation::{
+pub use crate::session::conversation::{
     auto_compaction_threshold_from_env, ApiClient, ApiRequest, AssistantEvent, AutoCompactionEvent,
     ConversationRuntime, PromptCacheEvent, RuntimeError, StaticToolExecutor, ToolError,
     ToolExecutor, TurnSummary,
 };
 pub use context_budget::ContextBudget;
-pub use error_tracker::{
+pub use crate::session::error_tracker::{
     clear_temp_skills, learned_skills_dir, load_temp_skills, normalize_error_category,
     persist_skill_to_learned, temp_skills_dir, write_temp_skill, DynamicSkill, ErrorTracker,
     ToolErrorRecord,
@@ -113,20 +101,20 @@ pub use lane_events::{
     WatcherAction,
 };
 pub use loop_detection::LoopDetectionMiddleware;
-pub use mcp::{
+pub use mcp::mcp::{
     mcp_server_signature, mcp_tool_name, mcp_tool_prefix, normalize_name_for_mcp,
     scoped_mcp_config_hash, unwrap_ccr_proxy_url,
 };
-pub use mcp_client::{
+pub use mcp::mcp_client::{
     McpClientAuth, McpClientBootstrap, McpClientTransport, McpManagedProxyTransport,
     McpRemoteTransport, McpSdkTransport, McpStdioTransport,
 };
-pub use mcp_lifecycle_hardened::{
+pub use mcp::mcp_lifecycle_hardened::{
     McpDegradedReport, McpErrorSurface, McpFailedServer, McpLifecyclePhase, McpLifecycleState,
     McpLifecycleValidator, McpPhaseResult,
 };
-pub use mcp_server::{McpServer, McpServerSpec, ToolCallHandler, MCP_SERVER_PROTOCOL_VERSION};
-pub use mcp_stdio::{
+pub use mcp::mcp_server::{McpServer, McpServerSpec, ToolCallHandler, MCP_SERVER_PROTOCOL_VERSION};
+pub use mcp::mcp_stdio::{
     spawn_mcp_stdio_process, JsonRpcError, JsonRpcId, JsonRpcRequest, JsonRpcResponse,
     ManagedMcpTool, McpDiscoveryFailure, McpInitializeClientInfo, McpInitializeParams,
     McpInitializeResult, McpInitializeServerInfo, McpListResourcesParams, McpListResourcesResult,
@@ -142,7 +130,7 @@ pub use oauth::{
     OAuthCallbackParams, OAuthRefreshRequest, OAuthTokenExchangeRequest, OAuthTokenSet,
     PkceChallengeMethod, PkceCodePair,
 };
-pub use permissions::{
+pub use security::permissions::{
     PermissionContext, PermissionMode, PermissionOutcome, PermissionOverride, PermissionPolicy,
     PermissionPromptDecision, PermissionPrompter, PermissionRequest,
 };
@@ -178,13 +166,13 @@ pub use report_schema::{
     ReportClaim, ReportConfidence, ReportIdentity, ReportProjectionV1, ReportSchemaField,
     ReportSchemaRegistry, SensitivityClass, DEFAULT_PROJECTION_POLICY_V1, REPORT_SCHEMA_V1,
 };
-pub use sandbox::{
+pub use security::sandbox::{
     build_linux_sandbox_command, detect_container_environment, detect_container_environment_from,
     resolve_sandbox_status, resolve_sandbox_status_for_request, ContainerEnvironment,
     FilesystemIsolationMode, LinuxSandboxCommand, SandboxConfig, SandboxDetectionInputs,
     SandboxRequest, SandboxStatus,
 };
-pub use session::{
+pub use session::session::{
     ContentBlock, ConversationMessage, MessageRole, Session, SessionCompaction, SessionError,
     SessionFork, SessionHeartbeat, SessionLiveness, SessionPromptEntry,
 };
@@ -205,15 +193,16 @@ pub use tool_dispatch::{
     batch_tool_calls, dispatch_report, execute_parallel_batch, is_parallelizable, DispatchReport,
     ParallelToolConfig, ToolBatch, ToolCallRequest, ToolCallResult,
 };
-#[cfg(test)]
-pub use trust_resolver::{TrustConfig, TrustDecision, TrustEvent, TrustPolicy, TrustResolver};
-pub use usage::{
+
+pub use security::trust_resolver::{TrustConfig, TrustDecision, TrustEvent, TrustPolicy, TrustResolver};
+pub use session::usage::{
     format_usd, pricing_for_model, ModelPricing, TokenUsage, UsageCostEstimate, UsageTracker,
 };
 pub use worker_boot::{
     Worker, WorkerEvent, WorkerEventKind, WorkerEventPayload, WorkerFailure, WorkerFailureKind,
     WorkerPromptTarget, WorkerReadySnapshot, WorkerRegistry, WorkerStatus, WorkerTrustResolution,
 };
+
 
 #[cfg(test)]
 pub(crate) fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {

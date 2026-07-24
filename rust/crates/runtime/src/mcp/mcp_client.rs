@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use crate::config::{McpOAuthConfig, McpServerConfig, ScopedMcpServerConfig};
-use crate::mcp::{mcp_server_signature, mcp_tool_prefix, normalize_name_for_mcp};
+use crate::mcp::mcp::{mcp_server_signature, mcp_tool_prefix, normalize_name_for_mcp};
 
 pub const DEFAULT_MCP_TOOL_CALL_TIMEOUT_MS: u64 = 60_000;
 

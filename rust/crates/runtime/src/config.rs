@@ -34,7 +34,7 @@ fn emit_config_warning_once(warning: &str) {
 }
 
 use crate::json::JsonValue;
-use crate::sandbox::{FilesystemIsolationMode, SandboxConfig};
+use crate::security::sandbox::{FilesystemIsolationMode, SandboxConfig};
 
 /// Schema name advertised by generated settings files.
 pub const CLAW_SETTINGS_SCHEMA_NAME: &str = "SettingsSchema";
@@ -2684,7 +2684,7 @@ mod tests {
         RuntimeHookCommand, RuntimeHookConfig, RuntimePluginConfig, CLAW_SETTINGS_SCHEMA_NAME,
     };
     use crate::json::JsonValue;
-    use crate::sandbox::FilesystemIsolationMode;
+    use crate::security::sandbox::FilesystemIsolationMode;
     use std::fs;
     use std::time::{SystemTime, UNIX_EPOCH};
 

@@ -6,7 +6,7 @@
 //! Permission enforcement layer that gates tool execution based on the
 //! active `PermissionPolicy`.
 
-use crate::permissions::{PermissionMode, PermissionOutcome, PermissionPolicy};
+use crate::security::permissions::{PermissionMode, PermissionOutcome, PermissionPolicy};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

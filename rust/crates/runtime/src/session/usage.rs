@@ -1,4 +1,4 @@
-use crate::session::Session;
+use crate::session::session::Session;
 
 const DEFAULT_INPUT_COST_PER_MILLION: f64 = 15.0;
 const DEFAULT_OUTPUT_COST_PER_MILLION: f64 = 75.0;
@@ -217,7 +217,7 @@ impl UsageTracker {
 #[cfg(test)]
 mod tests {
     use super::{format_usd, pricing_for_model, TokenUsage, UsageTracker};
-    use crate::session::{ContentBlock, ConversationMessage, MessageRole, Session};
+    use crate::session::session::{ContentBlock, ConversationMessage, MessageRole, Session};
 
     #[test]
     fn tracks_true_cumulative_usage() {

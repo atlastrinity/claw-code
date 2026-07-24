@@ -16,7 +16,7 @@ use api::{
 };
 use globset::{Glob, GlobSet, GlobSetBuilder};
 use ignore::WalkBuilder;
-use runtime::permission_enforcer::{EnforcementResult, PermissionEnforcer};
+use runtime::security::permission_enforcer::{EnforcementResult, PermissionEnforcer};
 pub use runtime::PermissionMode;
 use runtime::PermissionPolicy;
 use serde_json::{json, Value};

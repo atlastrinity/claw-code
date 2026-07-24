@@ -10,7 +10,7 @@
 
 use std::path::Path;
 
-use crate::permissions::PermissionMode;
+use crate::security::permissions::PermissionMode;
 
 /// Result of validating a bash command before execution.
 #[derive(Debug, Clone, PartialEq, Eq)]

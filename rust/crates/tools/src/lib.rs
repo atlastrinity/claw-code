@@ -17,8 +17,8 @@ use runtime::{
     check_freshness, dedupe_superseded_commit_events, edit_file_in_workspace, execute_bash,
     glob_search_in_workspace, grep_search_in_workspace, load_system_prompt,
     lsp_client::LspRegistry,
-    mcp_tool_bridge::McpToolRegistry,
-    permission_enforcer::{EnforcementResult, PermissionEnforcer},
+    mcp::mcp_tool_bridge::McpToolRegistry,
+    security::permission_enforcer::{EnforcementResult, PermissionEnforcer},
     read_file_in_workspace,
     summary_compression::compress_summary_text,
     task_registry::TaskRegistry,
@@ -6649,6 +6649,7 @@ async fn stream_with_provider(
     let mut pending_tools: BTreeMap<u32, (String, String, String, Option<String>)> = BTreeMap::new();
     let mut pending_thinking: BTreeMap<u32, (String, Option<String>)> = BTreeMap::new();
     let mut saw_stop = false;
+    let mut token_limit_exceeded = false;
 
     while let Some(event) = stream.next_event().await? {
         match event {
@@ -6715,6 +6716,11 @@ async fn stream_with_provider(
             }
             ApiStreamEvent::MessageDelta(delta) => {
                 events.push(AssistantEvent::Usage(delta.usage.token_usage()));
+                if let Some(reason) = delta.delta.stop_reason.as_deref() {
+                    if reason == "length" || reason == "model_context_window_exceeded" || reason == "max_tokens" {
+                        token_limit_exceeded = true;
+                    }
+                }
             }
             ApiStreamEvent::MessageStop(_) => {
                 saw_stop = true;
@@ -6732,6 +6738,25 @@ async fn stream_with_provider(
         })
     {
         events.push(AssistantEvent::MessageStop);
+    }
+
+    if token_limit_exceeded {
+        let has_content = events.iter().any(|event| {
+            matches!(event, AssistantEvent::TextDelta(text) if !text.is_empty())
+                || matches!(event, AssistantEvent::ToolUse { .. })
+        });
+        if !has_content {
+            return Err(ApiError::Api(Box::new(api::ApiErrorInfo {
+                status: reqwest::StatusCode::BAD_REQUEST,
+                error_type: Some("context_window_exceeded".to_string()),
+                message: Some("token limit exceeded: the payload size of this request exceeds the available context size".to_string()),
+                request_id: None,
+                body: String::new(),
+                retryable: false,
+                suggested_action: None,
+                retry_after: None,
+            })));
+        }
     }
 
     if events
@@ -8270,7 +8295,7 @@ mod tests {
     use api::OutputContentBlock;
     use runtime::ProviderFallbackConfig;
     use runtime::{
-        permission_enforcer::PermissionEnforcer, ApiRequest, AssistantEvent, ConversationRuntime,
+        security::permission_enforcer::PermissionEnforcer, ApiRequest, AssistantEvent, ConversationRuntime,
         PermissionMode, PermissionPolicy, RuntimeError, Session, TaskPacket, ToolExecutor,
     };
     use serde_json::json;
@@ -12459,7 +12484,7 @@ printf 'pwsh:%s' "$1"
     }
 
     fn read_only_registry() -> super::GlobalToolRegistry {
-        use runtime::permission_enforcer::PermissionEnforcer;
+        use runtime::security::security::permission_enforcer::PermissionEnforcer;
         use runtime::PermissionPolicy;
 
         let policy = mvp_tool_specs().into_iter().fold(
@@ -12472,7 +12497,7 @@ printf 'pwsh:%s' "$1"
     }
 
     fn workspace_write_registry() -> super::GlobalToolRegistry {
-        use runtime::permission_enforcer::PermissionEnforcer;
+        use runtime::security::security::permission_enforcer::PermissionEnforcer;
         use runtime::PermissionPolicy;
 
         let policy = mvp_tool_specs().into_iter().fold(

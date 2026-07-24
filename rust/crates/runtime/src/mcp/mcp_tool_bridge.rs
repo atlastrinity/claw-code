@@ -15,8 +15,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::mcp::mcp_tool_name;
-use crate::mcp_stdio::McpServerManager;
+use crate::mcp_tool_name;
+use crate::mcp::mcp_stdio::McpServerManager;
 use serde::{Deserialize, Serialize};
 
 /// Status of a managed MCP server connection.

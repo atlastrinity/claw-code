@@ -811,7 +811,7 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
             max_output_tokens: 8_192,
             context_window_tokens: 131_072,
         }),
-        "glm-4" | "glm-4-flash" | "glm-4v-flash" | "glm-4-plus" => Some(ModelTokenLimit {
+        "glm-4" | "glm-4-flash" | "glm-4v-flash" | "glm-4-plus" | "glm-4.5" | "glm-4.5-air" | "glm-4.6" | "glm-4.7" | "glm-4.7-flash" => Some(ModelTokenLimit {
             max_output_tokens: 4_096,
             context_window_tokens: 128_000,
         }),

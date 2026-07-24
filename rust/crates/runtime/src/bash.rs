@@ -11,7 +11,7 @@ use tokio::runtime::Builder;
 use tokio::time::timeout;
 
 use crate::lane_events::{LaneEvent, ShipMergeMethod, ShipProvenance};
-use crate::sandbox::{
+use crate::security::sandbox::{
     build_linux_sandbox_command, resolve_sandbox_status_for_request, FilesystemIsolationMode,
     SandboxConfig, SandboxStatus,
 };
@@ -481,7 +481,7 @@ fn prepare_sandbox_dirs(cwd: &Path) {
 #[cfg(test)]
 mod tests {
     use super::{execute_bash, rewrite_sudo_command_with_env, BashCommandInput};
-    use crate::sandbox::FilesystemIsolationMode;
+    use crate::security::sandbox::FilesystemIsolationMode;
 
     #[test]
     fn executes_simple_command() {

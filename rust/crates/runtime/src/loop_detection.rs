@@ -1,6 +1,6 @@
 use crate::middleware::{ToolCallContext, ToolCallOutcome, TurnMiddleware};
-use crate::permissions::PermissionPrompter;
-use crate::session::{ContentBlock, ConversationMessage, MessageRole, Session};
+use crate::security::permissions::PermissionPrompter;
+use crate::session::session::{ContentBlock, ConversationMessage, MessageRole, Session};
 
 pub struct LoopDetectionMiddleware<'a> {
     pub session: &'a Session,

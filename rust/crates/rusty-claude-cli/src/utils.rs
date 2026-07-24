@@ -3046,6 +3046,12 @@ pub fn auto_match_skills(cwd: &std::path::Path, prompt: &str) -> Result<Vec<std:
     };
 
     let mut context_keywords = clean_tokens(prompt);
+    
+    // If the prompt itself has no keywords (e.g. empty or non-English/greeting),
+    // do not auto-match any skills to avoid leaking workspace file names into unrelated queries.
+    if context_keywords.is_empty() {
+        return Ok(Vec::new());
+    }
 
     if cwd.is_dir() {
         if let Ok(entries) = std::fs::read_dir(cwd) {
@@ -3105,7 +3111,8 @@ pub fn auto_match_skills(cwd: &std::path::Path, prompt: &str) -> Result<Vec<std:
     }
 
     matched.sort_by(|a, b| b.1.cmp(&a.1));
-    let matched_paths: Vec<_> = matched.into_iter().map(|(path, _)| path).collect();
+    // Limit to top 3 to prevent token bloat
+    let matched_paths: Vec<_> = matched.into_iter().take(3).map(|(path, _)| path).collect();
     Ok(matched_paths)
 }
 

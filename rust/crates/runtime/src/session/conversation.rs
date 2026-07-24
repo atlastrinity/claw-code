@@ -9,11 +9,11 @@ use crate::compact::{
     compact_session, estimate_session_tokens, CompactionConfig, CompactionResult,
 };
 use crate::config::RuntimeFeatureConfig;
-use crate::error_tracker::ErrorTracker;
+use crate::session::error_tracker::ErrorTracker;
 use crate::hooks::{HookAbortSignal, HookProgressReporter, HookRunner};
-use crate::permissions::{PermissionPolicy, PermissionPrompter};
-use crate::session::{ContentBlock, ConversationMessage, Session};
-use crate::usage::{TokenUsage, UsageTracker};
+use crate::security::permissions::{PermissionPolicy, PermissionPrompter};
+use crate::session::session::{ContentBlock, ConversationMessage, Session};
+use crate::session::usage::{TokenUsage, UsageTracker};
 
 const DEFAULT_AUTO_COMPACTION_INPUT_TOKENS_THRESHOLD: u32 = 100_000;
 const AUTO_COMPACTION_THRESHOLD_ENV_VAR: &str = "CLAUDE_CODE_AUTO_COMPACT_INPUT_TOKENS";
@@ -248,7 +248,7 @@ where
             RagClient, RagContextMiddleware, ToolCallContext, ToolCallOutcome, ToolCallState,
             TracingMiddleware,
         };
-        use crate::permissions::PermissionContext;
+        use crate::security::permissions::PermissionContext;
         use crate::tool_dispatch::{
             batch_tool_calls, execute_parallel_batch, ToolBatch, ToolCallRequest,
         };
@@ -326,7 +326,7 @@ where
                         ),
                     };
                     // Track errors and successes for auto-learning.
-                    let effective_name = crate::error_tracker::resolve_effective_tool_name(&req.tool_name, &req.input);
+                    let effective_name = crate::session::error_tracker::resolve_effective_tool_name(&req.tool_name, &req.input);
                     let output = if is_error {
                         let mut tracker = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                         tracker.record_error(&effective_name, &output, &req.input);
@@ -364,7 +364,7 @@ where
                                 ),
                             };
                             // Track errors and successes for auto-learning.
-                            let effective_name = crate::error_tracker::resolve_effective_tool_name(tool_name, input);
+                            let effective_name = crate::session::error_tracker::resolve_effective_tool_name(tool_name, input);
                             let (output, is_error) = if result.1 {
                                 let mut tracker = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                                 tracker.record_error(&effective_name, &result.0, input);
@@ -912,13 +912,13 @@ mod tests {
     };
     use crate::compact::CompactionConfig;
     use crate::config::{RuntimeFeatureConfig, RuntimeHookConfig};
-    use crate::permissions::{
+    use crate::security::permissions::{
         PermissionMode, PermissionPolicy, PermissionPromptDecision, PermissionPrompter,
         PermissionRequest,
     };
     use crate::prompt::{ProjectContext, SystemPromptBuilder};
-    use crate::session::{ContentBlock, MessageRole, Session};
-    use crate::usage::TokenUsage;
+    use crate::session::session::{ContentBlock, MessageRole, Session};
+    use crate::session::usage::TokenUsage;
     use crate::ToolError;
     use std::fs;
     use std::path::PathBuf;
@@ -1442,7 +1442,7 @@ mod tests {
         let mut session = Session::new();
         session
             .messages
-            .push(crate::session::ConversationMessage::assistant_with_usage(
+            .push(crate::session::session::ConversationMessage::assistant_with_usage(
                 vec![ContentBlock::Text {
                     text: "earlier".to_string(),
                 }],
@@ -1616,12 +1616,12 @@ mod tests {
 
         let mut session = Session::new();
         session.messages = vec![
-            crate::session::ConversationMessage::user_text("one"),
-            crate::session::ConversationMessage::assistant(vec![ContentBlock::Text {
+            crate::session::session::ConversationMessage::user_text("one"),
+            crate::session::session::ConversationMessage::assistant(vec![ContentBlock::Text {
                 text: "two".to_string(),
             }]),
-            crate::session::ConversationMessage::user_text("three"),
-            crate::session::ConversationMessage::assistant(vec![ContentBlock::Text {
+            crate::session::session::ConversationMessage::user_text("three"),
+            crate::session::session::ConversationMessage::assistant(vec![ContentBlock::Text {
                 text: "four".to_string(),
             }]),
         ];

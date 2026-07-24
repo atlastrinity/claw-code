@@ -7,7 +7,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::json::{JsonError, JsonValue};
-use crate::usage::TokenUsage;
+use crate::session::usage::TokenUsage;
 use serde::{Deserialize, Serialize};
 
 const SESSION_VERSION: u32 = 1;
@@ -1447,7 +1447,7 @@ mod tests {
         SessionFork,
     };
     use crate::json::JsonValue;
-    use crate::usage::TokenUsage;
+    use crate::session::usage::TokenUsage;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{SystemTime, UNIX_EPOCH};

@@ -12,9 +12,9 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::time::timeout;
 
 use crate::config::{McpTransport, RuntimeConfig, ScopedMcpServerConfig};
-use crate::mcp::mcp_tool_name;
-use crate::mcp_client::{McpClientBootstrap, McpClientTransport, McpStdioTransport};
-use crate::mcp_lifecycle_hardened::{
+use crate::mcp_tool_name;
+use crate::mcp::mcp_client::{McpClientBootstrap, McpClientTransport, McpStdioTransport};
+use crate::mcp::mcp_lifecycle_hardened::{
     McpDegradedReport, McpErrorSurface, McpFailedServer, McpLifecyclePhase,
 };
 
@@ -1522,8 +1522,8 @@ mod tests {
         ConfigSource, McpRemoteServerConfig, McpSdkServerConfig, McpServerConfig,
         McpStdioServerConfig, McpWebSocketServerConfig, ScopedMcpServerConfig,
     };
-    use crate::mcp::mcp_tool_name;
-    use crate::mcp_client::McpClientBootstrap;
+    use crate::mcp_tool_name;
+    use crate::mcp::mcp_client::McpClientBootstrap;
 
     use super::{
         spawn_mcp_stdio_process, unsupported_server_failed_server, JsonRpcId, JsonRpcRequest,
@@ -1852,15 +1852,15 @@ mod tests {
         McpClientBootstrap::from_scoped_config("stdio server", &config)
     }
 
-    fn script_transport(script_path: &Path) -> crate::mcp_client::McpStdioTransport {
+    fn script_transport(script_path: &Path) -> crate::mcp::mcp_client::McpStdioTransport {
         script_transport_with_env(script_path, BTreeMap::new())
     }
 
     fn script_transport_with_env(
         script_path: &Path,
         env: BTreeMap<String, String>,
-    ) -> crate::mcp_client::McpStdioTransport {
-        crate::mcp_client::McpStdioTransport {
+    ) -> crate::mcp::mcp_client::McpStdioTransport {
+        crate::mcp::mcp_client::McpStdioTransport {
             command: "python3".to_string(),
             args: vec![script_path.to_string_lossy().into_owned()],
             env,
@@ -2130,7 +2130,7 @@ mod tests {
             .expect("runtime");
         runtime.block_on(async {
             let script_path = write_echo_script();
-            let transport = crate::mcp_client::McpStdioTransport {
+            let transport = crate::mcp::mcp_client::McpStdioTransport {
                 command: "/bin/sh".to_string(),
                 args: vec![script_path.to_string_lossy().into_owned()],
                 env: BTreeMap::from([("MCP_TEST_TOKEN".to_string(), "direct-secret".to_string())]),

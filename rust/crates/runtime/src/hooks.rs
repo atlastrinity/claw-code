@@ -12,7 +12,7 @@ use std::time::Duration;
 use serde_json::{json, Value};
 
 use crate::config::{RuntimeFeatureConfig, RuntimeHookCommand, RuntimeHookConfig};
-use crate::permissions::PermissionOverride;
+use crate::security::permissions::PermissionOverride;
 
 const HOOK_PREVIEW_CHAR_LIMIT: usize = 160;
 
@@ -830,7 +830,7 @@ mod tests {
         HookRunner,
     };
     use crate::config::{RuntimeFeatureConfig, RuntimeHookCommand, RuntimeHookConfig};
-    use crate::permissions::PermissionOverride;
+    use crate::security::permissions::PermissionOverride;
 
     struct RecordingReporter {
         events: Vec<HookProgressEvent>,

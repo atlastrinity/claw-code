@@ -570,13 +570,13 @@ impl LiveCli {
                         );
 
                         // Run Trident pipeline then summary-based compaction
-                        let result = runtime::trident::trident_compact_session(
+                        let result = runtime::session::trident::trident_compact_session(
                             runtime.session(),
                             CompactionConfig {
                                 preserve_recent_messages: preserve,
                                 max_estimated_tokens: 0,
                             },
-                            &runtime::trident::TridentConfig::default(),
+                            &runtime::session::trident::TridentConfig::default(),
                         );
                         let removed = result.removed_message_count;
 

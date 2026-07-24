@@ -1,4 +1,4 @@
-use crate::session::{ContentBlock, ConversationMessage, MessageRole, Session};
+use crate::session::session::{ContentBlock, ConversationMessage, MessageRole, Session};
 
 const COMPACT_CONTINUATION_PREAMBLE: &str =
     "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\n";
@@ -631,7 +631,7 @@ mod tests {
         collect_key_files, compact_session, format_compact_summary,
         get_compact_continuation_message, infer_pending_work, should_compact, CompactionConfig,
     };
-    use crate::session::{ContentBlock, ConversationMessage, MessageRole, Session};
+    use crate::session::session::{ContentBlock, ConversationMessage, MessageRole, Session};
 
     #[test]
     fn formats_compact_summary_like_upstream() {
@@ -820,7 +820,7 @@ mod tests {
     /// OpenAI-compat path (gaebal-gajae repro 2026-04-09).
     #[test]
     fn compaction_does_not_split_tool_use_tool_result_pair() {
-        use crate::session::{ContentBlock, Session};
+        use crate::session::session::{ContentBlock, Session};
 
         let tool_id = "call_abc";
         let mut session = Session::default();

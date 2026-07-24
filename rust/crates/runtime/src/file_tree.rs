@@ -66,6 +66,12 @@ fn is_not_ignored(entry: &walkdir::DirEntry) -> bool {
             | ".idea"
             | ".vscode"
             | "__pycache__"
+            | ".sandbox-tmp"
+            | ".sandbox-home"
+            | ".claw"
+            | ".port_sessions"
+            | "vendor"
+            | ".omx"
         ) == false
     } else {
         true

@@ -11,7 +11,7 @@
 //! handler. Tool execution itself lives in the `tools` crate; this module is
 //! purely the transport + dispatch loop.
 //!
-//! [`McpTool`]: crate::mcp_stdio::McpTool
+//! [`McpTool`]: crate::mcp::mcp_stdio::McpTool
 
 use std::io;
 
@@ -20,7 +20,7 @@ use tokio::io::{
     stdin, stdout, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, Stdin, Stdout,
 };
 
-use crate::mcp_stdio::{
+use crate::mcp::mcp_stdio::{
     JsonRpcError, JsonRpcId, JsonRpcRequest, JsonRpcResponse, McpInitializeResult,
     McpInitializeServerInfo, McpListToolsResult, McpTool, McpToolCallContent, McpToolCallParams,
     McpToolCallResult,
@@ -245,7 +245,7 @@ fn invalid_params_response(id: JsonRpcId, message: &str) -> JsonRpcResponse<Json
 /// Reads a single LSP-framed JSON-RPC payload from `reader`.
 ///
 /// Returns `Ok(None)` on clean EOF before any header bytes have been read,
-/// matching how [`crate::mcp_stdio::McpStdioProcess`] treats stream closure.
+/// matching how [`crate::mcp::mcp_stdio::McpStdioProcess`] treats stream closure.
 async fn read_frame(reader: &mut BufReader<Stdin>) -> io::Result<Option<Vec<u8>>> {
     let mut content_length: Option<usize> = None;
     let mut first_header = true;

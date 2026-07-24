@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
-use crate::session::{parse_created_at_ms_from_session_id, Session, SessionError};
+use crate::session::session::{parse_created_at_ms_from_session_id, Session, SessionError};
 
 /// Per-worktree session store that namespaces on-disk session files by
 /// workspace fingerprint so that parallel `opencode serve` instances never
@@ -824,7 +824,7 @@ mod tests {
         managed_session_exists_for, resolve_session_reference_for, workspace_fingerprint,
         ManagedSessionSummary, SessionControlError, SessionStore, LATEST_SESSION_REFERENCE,
     };
-    use crate::session::Session;
+    use crate::session::session::Session;
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicU64, Ordering};
