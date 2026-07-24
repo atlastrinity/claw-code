@@ -1,0 +1,140 @@
+{
+  "aliases": {
+    "stable": "local/nvidia/nemotron-3-super-120b-a12b:free",
+    "quick": "local/google/gemma-4-31b-it:free",
+    "reasoner": "local/nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "mega": "local/meta-llama/llama-3.3-70b-instruct:free",
+    "gpt": "local/openai/gpt-oss-120b:free",
+    "glm": "glm-4.7-flash",
+    "glm2": "glm-4.7-flash",
+    "glm3": "glm-4.7-flash",
+    "qwen": "local/qwen/qwen-2.5-coder-32b-instruct:free",
+    "kimi": "cloudflare/@cf/moonshotai/kimi-k2.6",
+    "nvidia": "nvidia/meta/llama3-70b-instruct",
+    "gemini": "gemini-3.5-flash",
+    "gemini-lite": "gemini-3.1-flash-lite",
+    "gemini-pro": "gemini-3.1-pro-preview",
+    "silicon": "Qwen/Qwen3-8B",
+    "siliconflow": "Qwen/Qwen3-8B",
+    "qwen-7b": "Qwen/Qwen2.5-7B-Instruct",
+    "qwen-14b": "Qwen/Qwen3-14B",
+    "qwen-coder-7b": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
+    "llama-8b": "deepseek-ai/DeepSeek-V3",
+    "deepseek-qwen-7b": "deepseek-ai/DeepSeek-R1"
+  },
+  "injectedTools": [
+    "bash",
+    "read_file",
+    "write_file",
+    "edit_file",
+    "glob_search",
+    "grep_search",
+    "TaskGraph",
+    "Skill",
+    "retrieve_context",
+    "ingest_context",
+    "ToolSearch",
+    "McpSearch",
+    "WebSearch",
+    "WebFetch"
+  ],
+  "allowedTools": [
+    "*"
+  ],
+  "mcpServers": {},
+  "availableMcpServers": {
+    "appstore-connect": {
+      "description": "Server for interacting with the App Store Connect API (e.g. uploading builds, managing metadata, testflight).",
+      "command": "npx",
+      "args": [
+        "--prefer-offline",
+        "--package",
+        "@pofky/asc-mcp",
+        "asc-mcp"
+      ]
+    },
+    "firebase-mcp-server": {
+      "description": "Server for managing Firebase projects, deploying hosting, and interacting with Firebase CLI tools.",
+      "command": "npx",
+      "args": [
+        "--prefer-offline",
+        "--package",
+        "firebase-tools",
+        "firebase",
+        "mcp"
+      ],
+      "env": {
+        "FIREBASE_CLI_NO_PROMPT": "1"
+      }
+    },
+    "github": {
+      "description": "Server for interacting with GitHub (e.g. creating PRs, managing issues, reading repositories).",
+      "command": "npx",
+      "args": [
+        "--prefer-offline",
+        "--package",
+        "@modelcontextprotocol/server-github",
+        "mcp-server-github"
+      ]
+    },
+    "ios-simulator": {
+      "description": "Server for interacting with the iOS simulator, testing apps, and simulating user interactions.",
+      "command": "npx",
+      "args": [
+        "--prefer-offline",
+        "--package",
+        "ios-simulator-mcp",
+        "ios-simulator-mcp"
+      ]
+    },
+    "render": {
+      "description": "Server for interacting with Render infrastructure, managing services, databases, and cron jobs.",
+      "command": "npx",
+      "args": [
+        "--prefer-offline",
+        "--package",
+        "mcp-remote",
+        "mcp-remote"
+      ]
+    },
+    "xcode-bridge": {
+      "description": "Server for controlling Xcode projects, building targets, running tests, and managing workflows.",
+      "command": "/Applications/Xcode.app/Contents/Developer/usr/bin/mcpbridge",
+      "args": []
+    },
+    "swiftlens": {
+      "description": "Server for analyzing Swift source code, understanding project structure, and generating module insights.",
+      "command": "uvx",
+      "args": [
+        "--python",
+        "3.13",
+        "swiftlens"
+      ]
+    },
+    "notebooks": {
+      "description": "Server for reading, editing, and managing Jupyter notebooks.",
+      "command": "node",
+      "args": [
+        "/Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.6.1-universal/mcp_servers/cli/mcp_proxy_bundle.js"
+      ]
+    },
+    "visualization": {
+      "description": "Server for generating visual charts and graphs from structured data.",
+      "command": "node",
+      "args": [
+        "/Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.6.1-universal/mcp_servers/cli/mcp_proxy_bundle.js"
+      ]
+    },
+    "pyscn-mcp": {
+      "description": "Server for analyzing Python source code complexity, cohesion, and potential structural issues.",
+      "command": "uvx",
+      "args": [
+        "pyscn-mcp"
+      ]
+    }
+  },
+  "sandbox": {
+    "enabled": false,
+    "filesystemMode": "off"
+  }
+}
