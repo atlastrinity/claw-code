@@ -24,6 +24,9 @@ pub mod loop_detection;
 pub mod lsp_client;
 pub mod mcp;
 pub mod security;
+pub use security::permission_enforcer;
+pub use security::permissions;
+
 pub mod session;
 pub mod middleware;
 mod oauth;
