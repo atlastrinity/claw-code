@@ -18,6 +18,9 @@
 set -euo pipefail
 
 ROADMAP="ROADMAP.md"
+if [[ ! -f "$ROADMAP" && -f "docs/ROADMAP.md" ]]; then
+  ROADMAP="docs/ROADMAP.md"
+fi
 ROADMAP_PATH_SEEN=0
 
 while [[ $# -gt 0 ]]; do
