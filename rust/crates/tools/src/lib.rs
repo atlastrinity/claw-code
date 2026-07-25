@@ -2135,7 +2135,8 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
             ));
         }
 
-        // Rule 2: Single Action per task node - prevent multiple fragmented actions under a single node
+        // Rule 2: Single Action per task node - prevent truly distinct actions (different mutating tools on different paths)
+        // Multiple bash commands or read_file calls under the same node are fine for diagnostic workflows
         if let Some(parent) = store_path.parent() {
             let history_file = parent.join(".clawd-action-history.json");
             let mut history: std::collections::HashMap<String, Vec<Value>> = std::collections::HashMap::new();
@@ -2151,24 +2152,27 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
             let current_tool = name.to_string();
             let current_path = input.get("path").and_then(|v| v.as_str()).map(String::from);
 
+            // Only enforce for mutating file tools (write_file, edit_file), not bash/read_file
+            let is_mutating_file_tool = matches!(name, "write_file" | "edit_file" | "multi_edit_file");
+
             let records = history.entry(matched_id.clone()).or_insert_with(Vec::new);
-            if !records.is_empty() {
+            if is_mutating_file_tool && !records.is_empty() {
                 let first_record = &records[0];
-                let first_desc = first_record.get("description").and_then(|v| v.as_str()).unwrap_or("");
                 let first_tool = first_record.get("tool_name").and_then(|v| v.as_str()).unwrap_or("");
                 let first_path = first_record.get("path").and_then(|v| v.as_str());
 
-                let is_different = first_desc != current_desc 
-                    || first_tool != current_tool 
-                    || first_path.map(String::from) != current_path;
+                // Block only when a different mutating file tool targets a different path
+                let is_different_mutating = matches!(first_tool, "write_file" | "edit_file" | "multi_edit_file")
+                    && first_path.map(String::from) != current_path;
 
-                if is_different {
+                if is_different_mutating {
+                    let first_desc = first_record.get("description").and_then(|v| v.as_str()).unwrap_or("");
                     return Err(format!(
                         "Error: Strict TaskGraph Enforcement.\n\
-                         Task ID '{}' has already been matched to a different action in this session.\n\
+                         Task ID '{}' has already been matched to a different file-mutating action in this session.\n\
                          First action: '{}' (using tool '{}' on path '{:?}')\n\
                          Current action: '{}' (using tool '{}' on path '{:?}')\n\n\
-                         You are NOT allowed to perform multiple distinct actions under the same task node. You MUST create granular sub-tasks for each distinct action (e.g. '{}.1', '{}.2') using TaskGraph operation: \"add\" (with parent_id: \"{}\") and set '{}.1' to 'in_progress' before executing this action.",
+                         You MUST create granular sub-tasks for each distinct file mutation (e.g. '{}.1', '{}.2') using TaskGraph operation: \"add\" (with parent_id: \"{}\") and set '{}.1' to 'in_progress' before executing this action.",
                         matched_id, first_desc, first_tool, first_path, current_desc, current_tool, current_path, matched_id, matched_id, matched_id, matched_id
                     ));
                 }
@@ -5077,19 +5081,21 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
         TaskGraphOperation::Add => {
             let was_empty = current_nodes.is_empty();
 
-            // Guard: prevent bulk graph rewrite via add (when >60% of submitted nodes already exist)
+            // Guard: if graph already has nodes, block add when too many submitted nodes already exist
             if !was_empty && !input.nodes.is_empty() {
-                let existing_count = input.nodes.iter()
+                let existing_ids: Vec<String> = input.nodes.iter()
                     .filter(|n| current_nodes.iter().any(|cn| cn.id == n.id))
-                    .count();
-                let ratio = existing_count as f64 / input.nodes.len() as f64;
-                if ratio > 0.6 && input.nodes.len() > 5 {
+                    .map(|n| n.id.clone())
+                    .collect();
+                // If more than 3 of the submitted nodes already exist, this is a bulk rewrite attempt
+                if existing_ids.len() > 3 {
                     return Err(format!(
-                        "Error: TaskGraph bulk rewrite detected. {} out of {} submitted nodes already exist ({:.0}%). \
-                         You are trying to rewrite the entire graph via 'add'. \
-                         To update statuses, use operation: \"update_status\" with ONLY the nodes whose status changed. \
-                         To add new sub-tasks, submit ONLY the new nodes.",
-                        existing_count, input.nodes.len(), ratio * 100.0
+                        "Error: TaskGraph bulk rewrite detected. {} of your submitted nodes already exist: [{}]. \
+                         Do NOT re-add existing nodes. \
+                         To update statuses, use operation: \"update_status\". \
+                         To add new sub-tasks, submit ONLY the genuinely NEW nodes.",
+                        existing_ids.len(),
+                        existing_ids.iter().take(5).cloned().collect::<Vec<_>>().join(", ")
                     ));
                 }
             }
@@ -5146,10 +5152,9 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
             }
         }
         TaskGraphOperation::UpdateStatus => {
-            // Guard: block bulk status updates (models should send only changed nodes)
-            let total_existing = current_nodes.len();
+            // Guard: block bulk status updates — send only the 1-3 nodes that actually changed
             let submitted_count = input.nodes.len();
-            if total_existing > 3 && submitted_count > 5 && submitted_count as f64 / total_existing as f64 > 0.6 {
+            if submitted_count > 5 {
                 return Err(format!(
                     "Error: Bulk update_status detected. You submitted {} nodes but only status CHANGES should be sent. \
                     Do NOT resend the entire graph. Send ONLY the 1-3 nodes whose status is actually changing. \
@@ -10827,7 +10832,7 @@ mod tests {
             "active_task_id": "1.1.1"
         }));
         assert!(result_action_diff.is_err(), "Different action under same node should fail");
-        assert!(result_action_diff.unwrap_err().contains("has already been matched to a different action in this session"));
+        assert!(result_action_diff.unwrap_err().contains("has already been matched to a different file-mutating action"));
 
         std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
         let _ = std::fs::remove_dir_all(dir);

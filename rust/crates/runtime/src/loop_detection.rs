@@ -53,6 +53,11 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for LoopDetectionMiddleware<'a> {
                             if name == tool_name && past_input == input {
                                 identical_count += 1;
                             }
+                            // Reset counter if a successful TaskGraph call happened between attempts
+                            // This means the agent changed the graph state, so retrying is legitimate
+                            if name == "TaskGraph" {
+                                identical_count = 0;
+                            }
                         }
                     }
                 }
