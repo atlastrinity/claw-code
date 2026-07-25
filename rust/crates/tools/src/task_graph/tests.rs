@@ -1125,3 +1125,46 @@ fn task_graph_downward_in_progress_propagation() {
 
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn task_graph_update_status_auto_upserts_missing_nodes() {
+    let _guard = env_guard();
+    let path = temp_path("auto_upsert.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Phase 1"}
+            ]
+        }),
+    )
+    .expect("TaskGraph add should succeed");
+
+    // Call update_status directly for non-existent node 1.1.1 — should auto-create it without error!
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [
+                {"id": "1.1.1", "status": "in_progress"}
+            ]
+        }),
+    )
+    .expect("update_status on missing node should auto-create node");
+
+    let graph_content = std::fs::read_to_string(&path).expect("read graph store");
+    let nodes: serde_json::Value =
+        serde_json::from_str(&graph_content).expect("parse store json");
+    let node_1_1_1 = nodes
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == "1.1.1")
+        .unwrap();
+    assert_eq!(node_1_1_1["status"], "in_progress");
+
+    let _ = std::fs::remove_file(&path);
+}
