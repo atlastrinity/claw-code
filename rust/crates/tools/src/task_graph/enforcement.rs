@@ -308,7 +308,7 @@ fn extract_meaningful_words(text: &str) -> HashSet<String> {
                 let has_overlap = input_words.iter().any(|w| task_words.contains(w));
                 if !has_overlap {
                     return Err(format!(
-                        "Error: Strict TaskGraph Enforcement. Your action ('{}') does not match the active task '{}' (\"{}\"). Please work on the active task or set a matching task to 'in_progress'.",
+                        "Error: Strict TaskGraph Enforcement. Your action ('{}') does not match the active task '{}' (\"{}\"). Ensure your tool description or parameters match the task in task.md, write task titles and descriptions in English ONLY, or set a matching task to 'in_progress'.",
                         input_text.trim(), active_node.id, active_node.content.as_deref().unwrap_or("")
                     ));
                 }
