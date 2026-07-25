@@ -245,10 +245,17 @@ if ! kill -0 $RAG_PID 2>/dev/null; then
   echo "❌ УВАГА: claw-rag-service відразу завершився помилкою! Див. ~/.claw/logs/claw-rag-startup.err"
 fi
 
-# 4. Налаштовуємо автоматичне очищення при виході з claw
+# 4. Запускаємо фоновий процес диктора озвучки (CLAW Voice Narrator)
+echo "🎙️ Запуск CLAW Voice Narrator (озвучка у фоні)..."
+mkdir -p "$HOME/.claw/logs"
+"$PYTHON_BIN" "${SCRIPT_DIR}/scripts/claw_voice_narrator.py" --tail >> "$HOME/.claw/logs/voice-narrator.log" 2>&1 &
+NARRATOR_PID=$!
+
+# 5. Налаштовуємо автоматичне очищення при виході з claw
 cleanup() {
-  echo "🛑 Зупинка claw-rag-service..."
+  echo "🛑 Зупинка claw-rag-service та Voice Narrator..."
   kill $RAG_PID 2>/dev/null
+  kill $NARRATOR_PID 2>/dev/null
 
   # Зупинка озвучки якщо працює
   pkill -f "claw_voice_narrator.py" 2>/dev/null
