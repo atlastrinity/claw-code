@@ -89,7 +89,7 @@ EOF
 # Argument parsing
 # ---------------------------------------------------------------------------
 
-BUILD_PROFILE="${CLAW_BUILD_PROFILE:-debug}"
+BUILD_PROFILE="${CLAW_BUILD_PROFILE:-release}"
 SKIP_VERIFY="${CLAW_SKIP_VERIFY:-0}"
 
 while [ "$#" -gt 0 ]; do

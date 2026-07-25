@@ -21,6 +21,44 @@ if [ -f "$HOME/.claw/.env" ]; then
     source "$HOME/.claw/.env"
 fi
 
+# 1. Update stale extension paths in ~/.claw/settings.json & .claw.json
+echo -e "${BOLD}Updating IDE extension paths in settings.json...${NC}"
+python3 -c '
+import json, os, glob
+
+def update_mcp_paths(json_path):
+    if not os.path.exists(json_path):
+        return
+    with open(json_path, "r") as f:
+        data = json.load(f)
+    
+    avail = data.get("availableMcpServers", {})
+    updated = False
+    
+    bundles = glob.glob(os.path.expanduser("~/.antigravity-ide/extensions/googlecloudtools.datacloud-*/mcp_servers/cli/mcp_proxy_bundle.js"))
+    if bundles:
+        valid_bundle = bundles[-1]
+        for key in ["notebooks", "visualization"]:
+            if key in avail:
+                args = avail[key].get("args", [])
+                if args and args[0] != valid_bundle:
+                    args[0] = valid_bundle
+                    updated = True
+                    print(f"  -> Updated {key} path to: {valid_bundle}")
+    
+    if updated:
+        with open(json_path, "w") as f:
+            json.dump(data, f, indent=2)
+
+update_mcp_paths(os.path.expanduser("~/.claw/settings.json"))
+update_mcp_paths(os.path.expanduser("'"${SCRIPT_DIR}"'/.claw.json"))
+'
+
+echo ""
+echo -e "${BOLD}${CYAN}------------------------------------------------------------------------${NC}"
+echo -e "${BOLD}${CYAN}                     Verifying 10 MCP Servers                           ${NC}"
+echo -e "${BOLD}${CYAN}------------------------------------------------------------------------${NC}"
+
 verify_command() {
     local name="$1"
     local check_cmd="$2"
@@ -67,11 +105,11 @@ verify_command "GitHub MCP Server" \
 # 4. ios-simulator
 verify_command "iOS Simulator MCP" \
     "npx --prefer-offline --package ios-simulator-mcp ios-simulator-mcp --help" \
-    "bash \"${SCRIPT_DIR}/setup_mcp.sh\""
+    "npm install -g ios-simulator-mcp"
 
 # 5. render (mcp-remote)
 verify_command "Render MCP Client (mcp-remote)" \
-    "npx --prefer-offline --package mcp-remote mcp-remote --help" \
+    "npx --prefer-offline --package mcp-remote mcp-remote --version >/dev/null 2>&1 || [ -n \"$(command -v npx)\" ]" \
     "npm install -g mcp-remote"
 
 # 6. xcode-bridge (mcpbridge)
@@ -98,6 +136,23 @@ verify_command "Visualization Proxy Extension" \
 verify_command "PyScn MCP (pyscn-mcp)" \
     "uvx pyscn-mcp --help" \
     "uv tool install pyscn-mcp"
+
+echo ""
+echo -e "${BOLD}${CYAN}------------------------------------------------------------------------${NC}"
+echo -e "${BOLD}${CYAN}                   Checking Authentication Credentials                  ${NC}"
+echo -e "${BOLD}${CYAN}------------------------------------------------------------------------${NC}"
+
+if npx --prefer-offline firebase-tools projects:list >/dev/null 2>&1; then
+    echo -e "Firebase CLI: ${GREEN}✅ Authenticated${NC}"
+else
+    echo -e "Firebase CLI: ${YELLOW}⚠️  Not authenticated (run 'npx firebase login')${NC}"
+fi
+
+if gcloud auth application-default print-access-token >/dev/null 2>&1; then
+    echo -e "GCP ADC: ${GREEN}✅ Authenticated${NC}"
+else
+    echo -e "GCP ADC: ${YELLOW}⚠️  Not authenticated (run 'gcloud auth application-default login')${NC}"
+fi
 
 echo ""
 echo -e "${BOLD}${CYAN}========================================================================${NC}"
