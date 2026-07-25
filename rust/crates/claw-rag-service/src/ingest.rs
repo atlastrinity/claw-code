@@ -167,9 +167,7 @@ pub async fn run_ingest(
                 .git_ignore(false)
                 .build();
             for e in walker_summaries.flatten() {
-                
-                    let _ = process_entry(e);
-                }
+                let _ = process_entry(e);
             }
         }
     }

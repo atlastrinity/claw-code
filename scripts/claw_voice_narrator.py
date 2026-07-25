@@ -493,10 +493,6 @@ class VoicePlayer:
 
         # Локальні правила (fallback)
         is_actually_error = is_error
-        if not is_actually_error and clean_out:
-            if any(term in lower_out for term in ("traceback (most", "error:", "❌ помилка", "no such option:", "exception:", "command not found")):
-                is_actually_error = True
-
         if is_actually_error:
             error_msg = clean_error_message(output_val)
             if "not found" in lower_out or "no such file" in lower_out:

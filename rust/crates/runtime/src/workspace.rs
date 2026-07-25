@@ -21,7 +21,15 @@ pub fn workspace_root() -> PathBuf {
         }
     }
 
-    // 2. Fall back to cwd
+    // 2. Caller CWD env var (set by launcher scripts like run_claw.sh)
+    if let Ok(caller_cwd) = std::env::var("CLAW_CALLER_CWD") {
+        let path = PathBuf::from(&caller_cwd);
+        if path.is_absolute() && path.is_dir() {
+            return path;
+        }
+    }
+
+    // 3. Fall back to cwd
     if let Ok(cwd) = std::env::current_dir() {
         return cwd;
     }
