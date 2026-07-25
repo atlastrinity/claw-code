@@ -5110,6 +5110,19 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
                     updated_count += 1;
                 }
             }
+
+            // Auto-repair parent status: if a parent is marked Completed but has active children (InProgress/Pending),
+            // automatically set parent status to InProgress so parent-child hierarchy remains consistent!
+            for i in 0..current_nodes.len() {
+                let pid = current_nodes[i].id.clone();
+                let has_active_children = current_nodes.iter().any(|n| {
+                    n.parent_id.as_ref() == Some(&pid)
+                        && (n.status == Some(TaskStatus::InProgress) || n.status == Some(TaskStatus::Pending))
+                });
+                if has_active_children && current_nodes[i].status == Some(TaskStatus::Completed) {
+                    current_nodes[i].status = Some(TaskStatus::InProgress);
+                }
+            }
         }
         TaskGraphOperation::UpdateStatus => {
             let mut cascade_completed = Vec::new();

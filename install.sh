@@ -74,8 +74,8 @@ print_usage() {
 Usage: ./install.sh [options]
 
 Options:
-  --release       Build the optimized release profile (slower, smaller binary).
-  --debug         Build the debug profile (default, faster compile).
+  --release       Build the optimized release profile (default, smaller binary).
+  --debug         Build the debug profile (faster compile).
   --no-verify     Skip the post-install verification step.
   -h, --help      Show this help text and exit.
 
