@@ -3022,13 +3022,14 @@ const RAG_HTTP_TIMEOUT_SECS: u64 = 30;
 const RAG_INGEST_TIMEOUT_SECS: u64 = 60;
 
 fn resolve_rag_base_url() -> Result<String, String> {
-    std::env::var("RAG_BASE_URL")
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| {
-            "RAG not configured: set RAG_BASE_URL env var (e.g. http://127.0.0.1:8787) and ensure claw-rag-service is running".to_string()
-        })
+    if let Ok(url) = std::env::var("RAG_BASE_URL") {
+        let trimmed = url.trim().to_string();
+        if !trimmed.is_empty() {
+            return Ok(trimmed);
+        }
+    }
+    // Fall back to default local claw-rag-service port 8787
+    Ok("http://127.0.0.1:8787".to_string())
 }
 
 #[derive(Debug, Deserialize)]
