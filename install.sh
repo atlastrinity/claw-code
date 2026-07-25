@@ -237,6 +237,7 @@ esac
 step "Locating the Rust workspace"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/scripts/lib_sync.sh"
 RUST_DIR="${SCRIPT_DIR}/rust"
 
 if [ ! -d "${RUST_DIR}" ]; then
@@ -346,61 +347,15 @@ ok "built ${CLAW_BIN}"
 
 step "Installing binaries and synchronizing settings"
 
-GLOBAL_DIR="$HOME/.claw"
-GLOBAL_BIN_DIR="${GLOBAL_DIR}/bin"
-
-info "Ensuring global bin directory exists: ${GLOBAL_BIN_DIR}"
-mkdir -p "${GLOBAL_BIN_DIR}"
-
-info "Copying binaries to global bin directory..."
-rm -f "${GLOBAL_BIN_DIR}/claw" "${GLOBAL_BIN_DIR}/claw-analog" "${GLOBAL_BIN_DIR}/claw-rag-service"
-cp "${RUST_DIR}/target/${BUILD_PROFILE}/claw" "${GLOBAL_BIN_DIR}/"
-cp "${RUST_DIR}/target/${BUILD_PROFILE}/claw-analog" "${GLOBAL_BIN_DIR}/"
-cp "${RUST_DIR}/target/${BUILD_PROFILE}/claw-rag-service" "${GLOBAL_BIN_DIR}/"
-
-info "Copying CLAW.md rules to global configuration directory..."
-cp "${SCRIPT_DIR}/CLAW.md" "${GLOBAL_DIR}/CLAW.md"
-
-if [ -d "${SCRIPT_DIR}/.claw/skills" ]; then
-    info "Copying skills to global configuration directory..."
-    mkdir -p "${GLOBAL_DIR}/skills"
-    rsync -a --exclude=".build" --exclude=".git" "${SCRIPT_DIR}/.claw/skills/" "${GLOBAL_DIR}/skills/"
-fi
-
-if [ "${OS_FAMILY}" = "macos" ]; then
-    info "Re-signing binaries for macOS..."
-    codesign -s - -f "${GLOBAL_BIN_DIR}/claw" || warn "failed to codesign claw"
-    codesign -s - -f "${GLOBAL_BIN_DIR}/claw-analog" || warn "failed to codesign claw-analog"
-    codesign -s - -f "${GLOBAL_BIN_DIR}/claw-rag-service" || warn "failed to codesign claw-rag-service"
-fi
+copy_binaries "${RUST_DIR}/target" "${BUILD_PROFILE}"
 
 # Point verification and output to the installed binary
 CLAW_BIN="${GLOBAL_BIN_DIR}/claw"
 
-info "Synchronizing MCP Server Settings..."
-LOCAL_SETTINGS="${SCRIPT_DIR}/.claw.json"
-GLOBAL_SETTINGS="${GLOBAL_DIR}/settings.json"
+info "Synchronizing configurations..."
+sync_all "${SCRIPT_DIR}"
+update_mcp_paths
 
-if [ -f "${LOCAL_SETTINGS}" ] && [ ! -f "${GLOBAL_SETTINGS}" ]; then
-    info "Creating global settings from local..."
-    cp "${LOCAL_SETTINGS}" "${GLOBAL_SETTINGS}"
-elif [ ! -f "${LOCAL_SETTINGS}" ] && [ -f "${GLOBAL_SETTINGS}" ]; then
-    info "Creating local settings from global..."
-    cp "${GLOBAL_SETTINGS}" "${LOCAL_SETTINGS}"
-elif [ -f "${LOCAL_SETTINGS}" ] && [ -f "${GLOBAL_SETTINGS}" ]; then
-    info "Syncing configurations between local and global..."
-    if [ "${LOCAL_SETTINGS}" -nt "${GLOBAL_SETTINGS}" ]; then
-        info "Local .claw.json is newer. Overwriting global settings.json..."
-        cp "${LOCAL_SETTINGS}" "${GLOBAL_SETTINGS}"
-    elif [ "${GLOBAL_SETTINGS}" -nt "${LOCAL_SETTINGS}" ]; then
-        info "Global settings.json is newer. Overwriting local .claw.json..."
-        cp "${GLOBAL_SETTINGS}" "${LOCAL_SETTINGS}"
-    else
-        info "Settings are identical in timestamp."
-    fi
-else
-    warn "Missing both local and global settings files."
-fi
 
 # ---------------------------------------------------------------------------
 # Step 6: post-install verification

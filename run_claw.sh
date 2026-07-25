@@ -38,60 +38,9 @@ if [ -n "$CLAW_CALLER_CWD" ] && [ -f "$CLAW_CALLER_CWD/.env" ]; then
     set +a
 fi
 
-# Синхронізуємо конфігурації (settings та CLAW.md) з глобальною папкою перед запуском
-GLOBAL_DIR="$HOME/.claw"
-mkdir -p "$GLOBAL_DIR"
-
-LOCAL_SETTINGS="$SCRIPT_DIR/.claw.json"
-GLOBAL_SETTINGS="$GLOBAL_DIR/settings.json"
-
-if [ -f "$LOCAL_SETTINGS" ] && [ ! -f "$GLOBAL_SETTINGS" ]; then
-    cp "$LOCAL_SETTINGS" "$GLOBAL_SETTINGS"
-elif [ ! -f "$LOCAL_SETTINGS" ] && [ -f "$GLOBAL_SETTINGS" ]; then
-    cp "$GLOBAL_SETTINGS" "$LOCAL_SETTINGS"
-elif [ -f "$LOCAL_SETTINGS" ] && [ -f "$GLOBAL_SETTINGS" ]; then
-    if [ "$LOCAL_SETTINGS" -nt "$GLOBAL_SETTINGS" ]; then
-        cp "$LOCAL_SETTINGS" "$GLOBAL_SETTINGS"
-    elif [ "$GLOBAL_SETTINGS" -nt "$LOCAL_SETTINGS" ]; then
-        cp "$GLOBAL_SETTINGS" "$LOCAL_SETTINGS"
-    fi
-fi
-
-LOCAL_CLAW="$SCRIPT_DIR/CLAW.md"
-GLOBAL_CLAW="$GLOBAL_DIR/CLAW.md"
-
-if [ -f "$LOCAL_CLAW" ] && [ ! -f "$GLOBAL_CLAW" ]; then
-    cp "$LOCAL_CLAW" "$GLOBAL_CLAW"
-elif [ ! -f "$LOCAL_CLAW" ] && [ -f "$GLOBAL_CLAW" ]; then
-    cp "$GLOBAL_CLAW" "$LOCAL_CLAW"
-elif [ -f "$LOCAL_CLAW" ] && [ -f "$GLOBAL_CLAW" ]; then
-    if [ "$LOCAL_CLAW" -nt "$GLOBAL_CLAW" ]; then
-        cp "$LOCAL_CLAW" "$GLOBAL_CLAW"
-    elif [ "$GLOBAL_CLAW" -nt "$LOCAL_CLAW" ]; then
-        cp "$GLOBAL_CLAW" "$LOCAL_CLAW"
-    fi
-fi
-
-LOCAL_ENV="$SCRIPT_DIR/.env"
-GLOBAL_ENV="$GLOBAL_DIR/.env"
-
-if [ -f "$LOCAL_ENV" ] && [ ! -f "$GLOBAL_ENV" ]; then
-    cp "$LOCAL_ENV" "$GLOBAL_ENV"
-elif [ ! -f "$LOCAL_ENV" ] && [ -f "$GLOBAL_ENV" ]; then
-    cp "$GLOBAL_ENV" "$LOCAL_ENV"
-elif [ -f "$LOCAL_ENV" ] && [ -f "$GLOBAL_ENV" ]; then
-    if [ "$LOCAL_ENV" -nt "$GLOBAL_ENV" ]; then
-        cp "$LOCAL_ENV" "$GLOBAL_ENV"
-    elif [ "$GLOBAL_ENV" -nt "$LOCAL_ENV" ]; then
-        cp "$GLOBAL_ENV" "$LOCAL_ENV"
-    fi
-fi
-
-# Синхронізуємо скіли з глобальною папкою перед запуском (двостороння синхронізація)
-mkdir -p "$SCRIPT_DIR/.claw/skills"
-mkdir -p "$GLOBAL_DIR/skills"
-rsync -au --exclude=".build" --exclude=".git" "$SCRIPT_DIR/.claw/skills/" "$GLOBAL_DIR/skills/"
-rsync -au --exclude=".build" --exclude=".git" "$GLOBAL_DIR/skills/" "$SCRIPT_DIR/.claw/skills/"
+# Синхронізуємо конфігурації (settings, CLAW.md, .env, skills) з глобальною папкою перед запуском
+source "${SCRIPT_DIR}/scripts/lib_sync.sh"
+sync_all "$SCRIPT_DIR"
 
 # Очищаємо файли планування та завдань для нової сесії, якщо встановлено CLAW_NEW_SESSION
 if [ "$CLAW_NEW_SESSION" = "true" ]; then
