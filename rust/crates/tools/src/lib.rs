@@ -5102,7 +5102,7 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
                         }
                     }
                 } else {
-                    return Err(format!("Node with id '{}' not found.", node.id));
+                    return Err(format!("Node with id '{}' not found in the task graph. You cannot update status of a node that has not been created yet. To add new sub-tasks, first call TaskGraph with operation: 'add' (providing id, parent_id, and content).", node.id));
                 }
             }
 
