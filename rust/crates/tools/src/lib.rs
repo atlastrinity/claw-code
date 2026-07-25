@@ -765,7 +765,7 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "TaskGraph",
-            description: "Manage the structured task map. Add nodes to form a hierarchy, or update their status. The roadmap is stored globally and NEVER deleted. Use 'failed' status to abandon a branch of execution. IMPORTANT: The 'id' and 'parent_id' fields MUST be strings (e.g. \"1\", \"1.1\"), NOT integers. Every node MUST have a string 'id'. RULE: Never create new root tasks (`parent_id: null`) if a graph already exists. When expanding a plan, you MUST find the most relevant existing task and add your new steps as sub-tasks under it. CRITICAL RULE for 'update_status': You MUST send ONLY the nodes whose status is actually changing. Do NOT resend unchanged nodes, content, or parent_id fields. Sending 1-3 changed nodes is correct; sending the entire graph is FORBIDDEN and wastes resources.",
+            description: "Manage the structured task map. Add nodes to form a hierarchy, or update their status. The roadmap is stored globally and NEVER deleted. Use 'failed' status to abandon a branch of execution. IMPORTANT: The 'id' and 'parent_id' fields MUST be strings (e.g. \"1\", \"1.1\"), NOT integers. Every node MUST have a string 'id'. RULE: Never create new root tasks (`parent_id: null`) if a graph already exists. When expanding a plan, you MUST find the most relevant existing task and add your new steps as sub-tasks under it. LANGUAGE RULE: All task content, node titles, and descriptions MUST be written strictly in English (e.g. 'Analyze project structure', NOT Ukrainian/other languages). CRITICAL RULE for 'update_status': You MUST send ONLY the nodes whose status is actually changing. Do NOT resend unchanged nodes, content, or parent_id fields. Sending 1-3 changed nodes is correct; sending the entire graph is FORBIDDEN and wastes resources.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
@@ -5364,6 +5364,7 @@ r#"> [!IMPORTANT]
 > 5. Node IDs MUST be strings (e.g. "1.1").
 > 6. Do NOT prefix the `content` field with the node ID (e.g., write "Task description", NOT "1.1: Task description"). Ensure parent nodes exist before creating deep children (e.g., create 1.1 before 1.1.1).
 > 7. **ANTI-REWRITE**: Do NOT use `add` to resubmit the entire graph. Only add genuinely NEW nodes. Parent statuses propagate AUTOMATICALLY — you do NOT need to manually set parent status when completing children.
+> 8. **LANGUAGE MANDATE**: All node content, task titles, and sub-steps MUST be written strictly in English (e.g. "Analyze Swift code", NOT Ukrainian/other languages).
 
 # Task List
 
