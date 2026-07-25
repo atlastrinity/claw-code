@@ -1,0 +1,107 @@
+use crate::task_graph::types::{TaskNode, TaskStatus};
+
+pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
+    let mut changed = true;
+    while changed {
+        changed = false;
+
+        // 1. Upward InProgress propagation
+        let mut parents_to_update = Vec::new();
+        for node in &*current_nodes {
+            if node.status == Some(TaskStatus::InProgress)
+                || node.status == Some(TaskStatus::Completed)
+            {
+                if let Some(ref p_id) = node.parent_id {
+                    if let Some(parent) = current_nodes.iter().find(|n| n.id == *p_id) {
+                        if parent.status != Some(TaskStatus::InProgress)
+                            && parent.status != Some(TaskStatus::Completed)
+                        {
+                            parents_to_update.push(p_id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for p_id in parents_to_update {
+            if let Some(parent) = current_nodes.iter_mut().find(|n| n.id == p_id) {
+                parent.status = Some(TaskStatus::InProgress);
+                changed = true;
+            }
+        }
+
+        // 2. Upward Completed & Failed propagation (when all children are finished)
+        let mut parents_to_complete = Vec::new();
+        let mut parents_to_fail = Vec::new();
+
+        for parent_node in &*current_nodes {
+            let children: Vec<&TaskNode> = current_nodes
+                .iter()
+                .filter(|n| n.parent_id.as_ref() == Some(&parent_node.id))
+                .collect();
+
+            if !children.is_empty() {
+                let all_completed = children
+                    .iter()
+                    .all(|c| c.status == Some(TaskStatus::Completed));
+                let all_finished = children.iter().all(|c| {
+                    c.status == Some(TaskStatus::Completed) || c.status == Some(TaskStatus::Failed)
+                });
+                let any_failed = children
+                    .iter()
+                    .any(|c| c.status == Some(TaskStatus::Failed));
+
+                if all_completed && parent_node.status != Some(TaskStatus::Completed) {
+                    parents_to_complete.push(parent_node.id.clone());
+                } else if all_finished
+                    && any_failed
+                    && parent_node.status != Some(TaskStatus::Failed)
+                {
+                    parents_to_fail.push(parent_node.id.clone());
+                }
+            }
+        }
+
+        for p_id in parents_to_complete {
+            if let Some(parent) = current_nodes.iter_mut().find(|n| n.id == p_id) {
+                parent.status = Some(TaskStatus::Completed);
+                changed = true;
+            }
+        }
+        for p_id in parents_to_fail {
+            if let Some(parent) = current_nodes.iter_mut().find(|n| n.id == p_id) {
+                parent.status = Some(TaskStatus::Failed);
+                changed = true;
+            }
+        }
+
+        // 3. Downward InProgress propagation: if a parent is InProgress but has no active InProgress child,
+        // automatically activate its first pending child to InProgress so a leaf sub-task is always active!
+        let mut children_to_activate = Vec::new();
+        for node in &*current_nodes {
+            if node.status == Some(TaskStatus::InProgress) {
+                let children: Vec<&TaskNode> = current_nodes
+                    .iter()
+                    .filter(|n| n.parent_id.as_ref() == Some(&node.id))
+                    .collect();
+                if !children.is_empty() {
+                    let has_active_child = children
+                        .iter()
+                        .any(|c| c.status == Some(TaskStatus::InProgress));
+                    if !has_active_child {
+                        if let Some(first_pending) =
+                            children.iter().find(|c| c.status == Some(TaskStatus::Pending))
+                        {
+                            children_to_activate.push(first_pending.id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for c_id in children_to_activate {
+            if let Some(child) = current_nodes.iter_mut().find(|n| n.id == c_id) {
+                child.status = Some(TaskStatus::InProgress);
+                changed = true;
+            }
+        }
+    }
+}
