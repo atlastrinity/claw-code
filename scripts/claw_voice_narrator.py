@@ -1665,23 +1665,12 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         if op == "update_status":
             action_desc = "оновлення статусу завдань"
             if details:
-                if len(details) > 3:
-                    details_summary = ", ".join(details[:2]) + f" та ще {len(details) - 2} завдань"
-                else:
-                    details_summary = ", ".join(details)
-                spoken_text = f"Оновлюю статус завдань: {details_summary}."
+                spoken_text = f"Оновив статус: {', '.join(details[:3])}."
             else:
-                spoken_text = "Оновлюю статус завдань у списку."
+                spoken_text = "Оновив статус завдань у графіку."
         else:
             action_desc = "оновлення планування"
-            if details:
-                if len(details) > 3:
-                    details_summary = ", ".join(details[:2]) + f" та ще {len(details) - 2} завдань"
-                else:
-                    details_summary = ", ".join(details)
-                spoken_text = f"Додаю нові завдання до плану: {details_summary}."
-            else:
-                spoken_text = "Оновлюю планування завдань."
+            spoken_text = "Оновив графік завдань."
             
     else:
         tool_name_ua = TOOL_NAMES_UA.get(tool_name, tool_name)
