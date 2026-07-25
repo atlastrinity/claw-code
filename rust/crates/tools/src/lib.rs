@@ -2108,8 +2108,16 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
         let has_children = nodes.iter().any(|n| n.parent_id.as_ref() == Some(&matched_id));
         if has_children {
             return Err(format!(
-                "Error: TaskGraph Enforcement. Task '{}' has sub-tasks. You are NOT allowed to execute mutating actions directly under a parent task. You MUST set one of its leaf sub-tasks (e.g. child nodes) to 'in_progress' and run the action under it.",
+                "Error: TaskGraph Enforcement. Task '{}' has sub-tasks. You are NOT allowed to execute actions directly under a parent task. You MUST set one of its leaf sub-tasks to 'in_progress' and run the action under it.",
                 matched_id
+            ));
+        }
+
+        // Rule 1b: Top-level phase tasks (e.g. "1", "2") MUST be expanded into recursive sub-tasks before executing detailed actions
+        if !matched_id.contains('.') {
+            return Err(format!(
+                "Error: TaskGraph Enforcement. Task '{}' is a top-level phase. You MUST expand it into granular sub-tasks (e.g. '{}.1', '{}.2') using TaskGraph operation: \"add\" (with parent_id: \"{}\") and set '{}.1' to 'in_progress' BEFORE executing detailed actions.",
+                matched_id, matched_id, matched_id, matched_id, matched_id
             ));
         }
 
@@ -2146,8 +2154,8 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
                          Task ID '{}' has already been matched to a different action in this session.\n\
                          First action: '{}' (using tool '{}' on path '{:?}')\n\
                          Current action: '{}' (using tool '{}' on path '{:?}')\n\n\
-                         You are NOT allowed to perform multiple distinct/fragmented actions under the same task node. You MUST create granular, fragmented sub-tasks for each distinct action (e.g. '2.2.1', '2.2.2') and update their status to 'in_progress' before executing this action.",
-                        matched_id, first_desc, first_tool, first_path, current_desc, current_tool, current_path
+                         You are NOT allowed to perform multiple distinct actions under the same task node. You MUST create granular sub-tasks for each distinct action (e.g. '{}.1', '{}.2') using TaskGraph operation: \"add\" (with parent_id: \"{}\") and set '{}.1' to 'in_progress' before executing this action.",
+                        matched_id, first_desc, first_tool, first_path, current_desc, current_tool, current_path, matched_id, matched_id, matched_id, matched_id
                     ));
                 }
             }
