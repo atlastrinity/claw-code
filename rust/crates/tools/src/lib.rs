@@ -5342,6 +5342,32 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
                 changed = true;
             }
         }
+
+        // 3. Downward InProgress propagation: if a parent is InProgress but has no active InProgress child,
+        // automatically activate its first pending child to InProgress so a leaf sub-task is always active!
+        let mut children_to_activate = Vec::new();
+        for node in &current_nodes {
+            if node.status == Some(TaskStatus::InProgress) {
+                let children: Vec<&TaskNode> = current_nodes
+                    .iter()
+                    .filter(|n| n.parent_id.as_ref() == Some(&node.id))
+                    .collect();
+                if !children.is_empty() {
+                    let has_active_child = children.iter().any(|c| c.status == Some(TaskStatus::InProgress));
+                    if !has_active_child {
+                        if let Some(first_pending) = children.iter().find(|c| c.status == Some(TaskStatus::Pending)) {
+                            children_to_activate.push(first_pending.id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for c_id in children_to_activate {
+            if let Some(child) = current_nodes.iter_mut().find(|n| n.id == c_id) {
+                child.status = Some(TaskStatus::InProgress);
+                changed = true;
+            }
+        }
     }
 
     // Validate transitions
@@ -13481,4 +13507,47 @@ printf 'pwsh:%s' "$1"
             .into_bytes()
         }
     }
+
+    #[test]
+    fn task_graph_downward_in_progress_propagation() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("downward_prop.json");
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "add",
+                "nodes": [
+                    {"id": "1", "content": "Phase 1"},
+                    {"id": "1.1", "parent_id": "1", "content": "Task 1.1"},
+                    {"id": "1.1.1", "parent_id": "1.1", "content": "Subtask 1.1.1"}
+                ]
+            }),
+        )
+        .expect("TaskGraph add should succeed");
+
+        // Now update parent Phase 1 to in_progress
+        execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "update_status",
+                "nodes": [
+                    {"id": "1", "status": "in_progress"}
+                ]
+            }),
+        )
+        .expect("TaskGraph update_status should succeed");
+
+        let graph_content = std::fs::read_to_string(&path).expect("read graph store");
+        let nodes: serde_json::Value = serde_json::from_str(&graph_content).expect("parse store json");
+        let node_1_1_1 = nodes.as_array().unwrap().iter().find(|n| n["id"] == "1.1.1").unwrap();
+        assert_eq!(node_1_1_1["status"], "in_progress");
+
+        let _ = std::fs::remove_file(&path);
+    }
 }
+
+
