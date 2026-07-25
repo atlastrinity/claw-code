@@ -1140,7 +1140,7 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
             if stdout or stderr:
                 output_summary = f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}".strip()
             elif "nodes_updated" in parsed_out:
-                output_summary = f"TaskGraph structure updated: {parsed_out['nodes_updated']} tree nodes added or reordered in the roadmap (not completed)."
+                output_summary = f"TaskGraph roadmap updated ({parsed_out['nodes_updated']} total nodes in tree structure)."
             elif "output" in parsed_out:
                 output_summary = str(parsed_out["output"]).strip()
     except Exception:
@@ -1155,7 +1155,8 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
         "RULES: 1. NEVER use agent names (Атлас, Атласе, Тетяна, Тетяно, Гріша, Грішо). Just state the fact directly. "
         "2. Always use masculine verbs (e.g. 'перевірив', 'не знайшов'). "
         "3. Do NOT use English words or Latin letters. Translate every English term into its phonetic Ukrainian equivalent. "
-        "4. Keep it under 15 words. No ellipses, no trailing questions. Output ONLY the Ukrainian sentence."
+        "4. If TaskGraph roadmap was updated, simply say 'Оновив графік завдань'. NEVER say 'вношу N завдань' or 'завершено N завдань'. "
+        "5. Keep it under 15 words. No ellipses, no trailing questions. Output ONLY the Ukrainian sentence."
     )
     
     if is_error:
