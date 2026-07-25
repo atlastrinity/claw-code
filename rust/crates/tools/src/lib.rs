@@ -534,12 +534,16 @@ impl GlobalToolRegistry {
             .iter()
             .find(|tool| tool.definition().name.eq_ignore_ascii_case(raw_name))
         {
+            // Plugin/MCP tools MUST also pass TaskGraph enforcement
+            validate_active_task_for_tool(raw_name, &coerced_input)?;
             return tool.execute(&coerced_input).map_err(|e| e.to_string());
         }
 
         if let Some(tool) = self.plugin_tools.iter().find(|tool| {
             normalization::canonical_allowed_tool_name(&tool.definition().name) == resolved_name
         }) {
+            // Plugin/MCP tools MUST also pass TaskGraph enforcement
+            validate_active_task_for_tool(&resolved_name, &coerced_input)?;
             return tool.execute(&coerced_input).map_err(|e| e.to_string());
         }
 
@@ -1612,15 +1616,14 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
         "git_log",
         "git_show",
         "git_diff",
-        "WorkerCreate",
+        // Worker read-only tools (observation only, no mutations)
         "WorkerObserve",
-        "WorkerResolveTrust",
-        "WorkerAwaitReady",
-        "WorkerSendPrompt",
         "WorkerObserveCompletion",
-        "WorkerTerminate",
-        "WorkerRestart",
         "WorkerGet",
+        "WorkerAwaitReady",
+        "WorkerResolveTrust",
+        // NOTE: WorkerCreate, WorkerSendPrompt, WorkerTerminate, WorkerRestart
+        // are MUTATING and must pass TaskGraph enforcement.
     ];
 
     if READ_ONLY_TOOLS.iter().any(|&ro| ro.eq_ignore_ascii_case(name)) {
@@ -1662,17 +1665,26 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
                     || trimmed.starts_with("cargo check")
                     || trimmed.starts_with("cargo test")
                     || trimmed.starts_with("cargo clippy")
-                    || trimmed.starts_with("cargo build")
+                    // NOTE: cargo build is MUTATING (creates target/) — NOT whitelisted
                     || trimmed.starts_with("git status")
                     || trimmed.starts_with("git log")
                     || trimmed.starts_with("git diff")
                     || trimmed.starts_with("git show")
                     || trimmed.starts_with("git branch")
-                    || trimmed.contains("status")
-                    || trimmed.contains("overview")
-                    || trimmed.contains("--help")
-                    || trimmed.contains("--version")
-                    || trimmed.contains("-h")
+                    || trimmed.starts_with("systemctl status")
+                    || trimmed.starts_with("docker inspect")
+                    || trimmed.starts_with("kubectl get")
+                    || trimmed.starts_with("kubectl describe")
+                    // Only allow --help/--version if command is simple (at most 2 words + flag)
+                    // e.g. "cargo --help" OK, "cargo build --help" OK, "rm -rf /tmp --help" BLOCKED
+                    || {
+                        let words: Vec<&str> = trimmed.split_whitespace().collect();
+                        let last = words.last().copied().unwrap_or("");
+                        let is_help_flag = last == "--help" || last == "--version" || last == "-h";
+                        is_help_flag && words.len() <= 3 && !words.iter().any(|w| {
+                            w.starts_with('/') || w.contains("rm") || w.contains("dd") || w.contains("mv") || w.contains("kill")
+                        })
+                    }
                     || (trimmed.starts_with("ssh ") && (
                         trimmed.contains("cat ")
                         || trimmed.contains("ls ")
@@ -10444,6 +10456,50 @@ mod tests {
                 "description": "Read-only exploration"
             }));
             assert!(result.is_ok(), "Read-only command '{}' should pass", cmd);
+        }
+
+        std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    }
+
+    #[test]
+    fn task_graph_bash_whitelist_hardened() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let path = temp_path("hardened_bash.json");
+        let _ = std::fs::remove_file(&path);
+        std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+        // These commands WERE exploitable before hardening and should now be BLOCKED
+        let should_be_blocked = vec![
+            "cargo build --release",       // cargo build is mutating
+            "rm -rf /tmp/test --help",     // --help in middle should NOT bypass
+            "dd if=/dev/zero of=/dev/sda -h", // -h in middle should NOT bypass
+        ];
+
+        for cmd in should_be_blocked {
+            let result = validate_active_task_for_tool("bash", &json!({
+                "command": cmd,
+                "description": "Test"
+            }));
+            assert!(result.is_err(), "Mutating command '{}' should be BLOCKED after hardening", cmd);
+        }
+
+        // These should STILL pass (legitimate use of --help / --version)
+        let should_still_pass = vec![
+            "cargo --help",
+            "git --version",
+            "rustc -h",
+            "git status",
+            "cargo check",
+        ];
+
+        for cmd in should_still_pass {
+            let result = validate_active_task_for_tool("bash", &json!({
+                "command": cmd,
+                "description": "Read-only exploration"
+            }));
+            assert!(result.is_ok(), "Legitimate read-only '{}' should pass", cmd);
         }
 
         std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
