@@ -2187,16 +2187,6 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
                 let _ = std::fs::write(&history_file, serialized);
             }
         }
-
-        // Rule 3: Task must have a parent (i.e. cannot be a top-level task with no parent)
-        if !matched_id.contains('.') {
-            return Err(format!(
-                "Error: Strict TaskGraph Enforcement.\n\
-                 Task '{}' is a top-level task (Level 1) and has no parent task to act as the main goal.\n\
-                 Any mutating action must be planned under a sub-task. You MUST create a sub-task (e.g. '1.1' or '2.1') and set it to 'in_progress' before executing this action.",
-                matched_id
-            ));
-        }
     }
 
     Ok(())
