@@ -1,0 +1,42 @@
+{
+  "max_tokens": 64,
+  "messages": [
+    {
+      "content": "Use tools when needed",
+      "role": "system"
+    },
+    {
+      "content": "Say hello",
+      "role": "user"
+    }
+  ],
+  "model": "grok-3",
+  "stream": false,
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "function": {
+        "description": "Fetches weather",
+        "name": "weather",
+        "parameters": {
+          "additionalProperties": false,
+          "properties": {
+            "city": {
+              "type": "string"
+            },
+            "description": {
+              "description": "MANDATORY: A brief explanation of what this tool call does to match the active TaskGraph node. MUST be in English.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "city",
+            "description"
+          ],
+          "type": "object"
+        }
+      },
+      "type": "function"
+    }
+  ]
+}
