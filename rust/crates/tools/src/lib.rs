@@ -1766,7 +1766,16 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
     // Check if there is at least one task in progress
     let has_in_progress = nodes.iter().any(|node| node.status == Some(TaskStatus::InProgress));
     if !has_in_progress {
-        return Err("Error: Strict TaskGraph Enforcement. There are no tasks currently marked as 'in_progress' in your task.md. You MUST call the TaskGraph tool to set at least one task to 'in_progress' before you can execute this action.".to_string());
+        let first_pending = nodes
+            .iter()
+            .find(|node| node.status == Some(TaskStatus::Pending) || node.status.is_none())
+            .map(|n| n.id.as_str())
+            .unwrap_or("1");
+        return Err(format!(
+            "Error: Strict TaskGraph Enforcement. There are no tasks currently marked as 'in_progress' in your task.md. \
+             To unblock immediately, call TaskGraph with operation: \"update_status\" and nodes: [{{\"id\": \"{}\", \"status\": \"in_progress\"}}].",
+            first_pending
+        ));
     }
 
     // Since matches_any is true, we now perform TaskGraph enforcement checks on the matched node
@@ -5055,7 +5064,15 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
     match input.operation {
         TaskGraphOperation::Add => {
             let was_empty = current_nodes.is_empty();
-            for node in input.nodes {
+            for mut node in input.nodes {
+                // Auto-infer parent_id if missing but id structure implies a parent (e.g. "3.1" -> parent_id: "3")
+                if node.parent_id.is_none() {
+                    let parts: Vec<&str> = node.id.split('.').collect();
+                    if parts.len() > 1 {
+                        node.parent_id = Some(parts[..parts.len() - 1].join("."));
+                    }
+                }
+
                 if let Some(existing) = current_nodes.iter_mut().find(|n| n.id == node.id) {
                     if let Some(content) = node.content {
                         if !content.trim().is_empty() {
