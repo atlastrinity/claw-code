@@ -3,12 +3,7 @@ use crate::task_graph::{
     validate_active_task_for_tool, validate_task_graph, TaskNode, TaskStatus,
 };
 use serde_json::json;
-use std::sync::{Mutex, OnceLock};
 
-fn env_lock() -> &'static Mutex<()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-}
 
 pub struct TaskGraphEnvGuard {
     _lock_guard: std::sync::MutexGuard<'static, ()>,
