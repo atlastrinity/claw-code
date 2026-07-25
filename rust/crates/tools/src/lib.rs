@@ -5156,12 +5156,31 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
             }
         }
         TaskGraphOperation::UpdateStatus => {
+            // Guard: block bulk status updates (models should send only changed nodes)
+            let total_existing = current_nodes.len();
+            let submitted_count = input.nodes.len();
+            if total_existing > 3 && submitted_count > 5 && submitted_count as f64 / total_existing as f64 > 0.6 {
+                return Err(format!(
+                    "Error: Bulk update_status detected. You submitted {} nodes but only status CHANGES should be sent. \
+                    Do NOT resend the entire graph. Send ONLY the 1-3 nodes whose status is actually changing. \
+                    Example: {{\"operation\":\"update_status\",\"nodes\":[{{\"id\":\"3.1\",\"status\":\"in_progress\"}}]}}",
+                    submitted_count
+                ));
+            }
+
             let mut cascade_completed = Vec::new();
             let mut cascade_failed = Vec::new();
+
+            // Collect IDs of new nodes that don't exist yet
+            let mut missing_ids: Vec<String> = Vec::new();
 
             for node in input.nodes {
                 if let Some(existing) = current_nodes.iter_mut().find(|n| n.id == node.id) {
                     if let Some(new_status) = node.status {
+                        // Skip nodes whose status hasn't actually changed
+                        if existing.status.as_ref() == Some(&new_status) {
+                            continue;
+                        }
                         existing.status = Some(new_status.clone());
                         updated_count += 1;
                         if new_status == TaskStatus::Completed {
@@ -5171,8 +5190,19 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
                         }
                     }
                 } else {
-                    return Err(format!("Node with id '{}' not found in the task graph. You cannot update status of a node that has not been created yet. To add new sub-tasks, first call TaskGraph with operation: 'add' (providing id, parent_id, and content).", node.id));
+                    missing_ids.push(node.id.clone());
                 }
+            }
+
+            // If there are missing nodes, return a clear error with 2-step instructions
+            if !missing_ids.is_empty() {
+                return Err(format!(
+                    "Node(s) not found in the task graph: [{}]. You cannot update status of nodes that don't exist yet. \
+                    SOLUTION (2 steps): \
+                    Step 1: Call TaskGraph with operation: \"add\" to create ONLY the new nodes (e.g. {{\"operation\":\"add\",\"nodes\":[{{\"id\":\"{}\",\"parent_id\":\"...\",\"content\":\"...\"}}]}}). \
+                    Step 2: Then call TaskGraph with operation: \"update_status\" to change ONLY the status of existing nodes that need updating.",
+                    missing_ids.join(", "), missing_ids[0]
+                ));
             }
 
             // Cascade completion to non-terminal sub-tasks when parent is set to Completed
@@ -9834,7 +9864,7 @@ mod tests {
         )
         .expect("TaskGraph update t1 completed should succeed");
         let fourth_output: serde_json::Value = serde_json::from_str(&fourth).expect("valid json");
-        assert_eq!(fourth_output["nodes_updated"].as_i64().expect("int"), 1);
+        assert_eq!(fourth_output["nodes_updated"].as_i64().expect("int"), 0); // t1 already auto-completed via bubble-up when t1.1 completed
 
         std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
         let _ = std::fs::remove_file(path);
