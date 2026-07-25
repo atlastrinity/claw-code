@@ -5041,6 +5041,16 @@ fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> 
 
     let mut updated_count = 0;
 
+    // Auto-repair parent_ids based on id structure immediately after loading
+    for node in &mut current_nodes {
+        let parts: Vec<&str> = node.id.split('.').collect();
+        if parts.len() > 1 {
+            node.parent_id = Some(parts[..parts.len() - 1].join("."));
+        } else {
+            node.parent_id = None;
+        }
+    }
+
     match input.operation {
         TaskGraphOperation::Add => {
             let was_empty = current_nodes.is_empty();

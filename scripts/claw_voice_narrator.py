@@ -1140,7 +1140,7 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
             if stdout or stderr:
                 output_summary = f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}".strip()
             elif "nodes_updated" in parsed_out:
-                output_summary = f"TaskGraph updated nodes: {parsed_out['nodes_updated']}"
+                output_summary = f"TaskGraph structure updated: {parsed_out['nodes_updated']} tree nodes added or reordered in the roadmap (not completed)."
             elif "output" in parsed_out:
                 output_summary = str(parsed_out["output"]).strip()
     except Exception:
