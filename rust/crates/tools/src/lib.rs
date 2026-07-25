@@ -1612,6 +1612,8 @@ fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), String
         "notebook_read",
         "NotebookRead",
         "repl",            // REPL for exploration
+        "retrieve_context",
+        "RetrieveContext",
         "git_status",
         "git_log",
         "git_show",
