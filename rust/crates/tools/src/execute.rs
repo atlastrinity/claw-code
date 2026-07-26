@@ -49,7 +49,7 @@ pub(crate) fn execute_tool_with_enforcer(
     budget: ContextBudget,
 ) -> Result<String, String> {
     validate_active_task_for_tool(name, input)?;
-    match name {
+    let mut res = match name {
         "bash" => {
             // Parse input to get the command for permission classification
             let bash_input: BashCommandInput = from_value(input)?;
@@ -193,7 +193,21 @@ pub(crate) fn execute_tool_with_enforcer(
             from_value::<IngestContextInput>(input).and_then(run_ingest_context)
         }
         _ => Err(format!("unsupported tool: {name}")),
+    };
+
+    if let Ok(ref mut output) = res {
+        const MAX_TOOL_OUTPUT_CHARS: usize = 16_000;
+        if output.len() > MAX_TOOL_OUTPUT_CHARS {
+            let total_len = output.len();
+            output.truncate(MAX_TOOL_OUTPUT_CHARS);
+            output.push_str(&format!(
+                "\n\n[PROGRESSIVE CHUNK NOTICE: Tool output chunked at {} characters to prevent context window overflow. Total output size was {} characters. Use specific line/file limits or targeted search queries to request further chunks if needed].",
+                MAX_TOOL_OUTPUT_CHARS, total_len
+            ));
+        }
     }
+
+    res
 }
 
 /// Enforce permission check with a dynamically classified permission mode.

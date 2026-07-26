@@ -112,3 +112,97 @@ pub fn save_task_graph_output(
         alert,
     })
 }
+
+pub fn build_active_hierarchy_prompt() -> Option<String> {
+    let store_path = task_graph_store_path().ok()?;
+    let mut nodes = Vec::new();
+
+    if store_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&store_path) {
+            if let Ok(n) = serde_json::from_str::<Vec<TaskNode>>(&content) {
+                nodes = n;
+            }
+        }
+    }
+
+    if nodes.is_empty() {
+        if let Some(parent) = store_path.parent() {
+            let task_md_path = parent.join("task.md");
+            if task_md_path.exists() {
+                if let Ok(content) = std::fs::read_to_string(&task_md_path) {
+                    nodes = parse_task_md_to_nodes(&content);
+                }
+            }
+        }
+    }
+
+    if nodes.is_empty() {
+        return None;
+    }
+
+    // Find the currently active in_progress node (prefer deepest leaf node)
+    let mut in_progress_nodes: Vec<&TaskNode> = nodes
+        .iter()
+        .filter(|node| node.status == Some(TaskStatus::InProgress))
+        .collect();
+    in_progress_nodes.sort_by(|a, b| b.id.len().cmp(&a.id.len()));
+
+    let active_leaf = in_progress_nodes.first()?;
+    
+    // Find Root node (e.g. "1" or "2" or top level parent)
+    let root_id = active_leaf.id.split('.').next().unwrap_or(&active_leaf.id);
+    let root_node = nodes.iter().find(|n| n.id == root_id);
+
+    // Build parent chain
+    let mut chain = Vec::new();
+    let mut current = *active_leaf;
+    chain.push(current);
+
+    while let Some(ref parent_id) = current.parent_id {
+        if let Some(parent) = nodes.iter().find(|n| &n.id == parent_id) {
+            chain.push(parent);
+            current = parent;
+        } else {
+            break;
+        }
+    }
+    chain.reverse();
+
+    let mut out = String::from("<active-task-hierarchy>\n");
+    out.push_str("🎯 RECURSIVE TASK HIERARCHY & GOAL FOCUS:\n");
+
+    if let Some(root) = root_node {
+        if root.id != active_leaf.id {
+            out.push_str(&format!(
+                "  • ROOT GOAL (#{}): {}\n",
+                root.id,
+                root.content.as_deref().unwrap_or("Active Goal")
+            ));
+        }
+    }
+
+    for (idx, node) in chain.iter().enumerate() {
+        let is_leaf = idx == chain.len() - 1;
+        let prefix = if is_leaf {
+            "  ↳ ⚡ ACTIVE LEAF TASK"
+        } else {
+            "  ↳ 📂 PARENT TASK"
+        };
+        out.push_str(&format!(
+            "{} (#{}): {}\n",
+            prefix,
+            node.id,
+            node.content.as_deref().unwrap_or("")
+        ));
+    }
+
+    out.push_str(
+        "\nCRITICAL HIERARCHICAL DIRECTIVES:\n\
+         1. Maintain strict execution alignment with Root & Parent goals above while executing Active Leaf Task.\n\
+         2. All internal task graph titles, sub-steps, and descriptions MUST be in English.\n\
+         3. When performing searches (web/grep), preserve the original query language of the user.\n\
+         </active-task-hierarchy>",
+    );
+
+    Some(out)
+}

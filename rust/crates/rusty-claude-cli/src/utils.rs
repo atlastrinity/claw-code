@@ -2034,8 +2034,11 @@ pub fn short_tool_id(id: &str) -> String {
 pub fn build_system_prompt(
     model: &str,
     session_id: Option<&str>,
-    extra_sections: Vec<String>,
+    mut extra_sections: Vec<String>,
 ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    if let Some(hierarchy) = tools::task_graph::build_active_hierarchy_prompt() {
+        extra_sections.push(hierarchy);
+    }
     Ok(load_system_prompt_with_session(
         std::env::current_dir()?,
         DEFAULT_DATE,
@@ -2409,6 +2412,8 @@ pub fn request_ends_with_tool_result(request: &ApiRequest) -> bool {
 ///   - "context size (128000 tokens)"
 ///   - "maximum context length is 200000 tokens"
 pub fn extract_context_window_tokens_from_error(error_str: &str) -> Option<u32> {
+    let lowered_all = error_str.to_ascii_lowercase();
+
     // Pattern: "(NNNNNN tokens)" appearing after context-size markers
     for line in error_str.lines() {
         let lowered = line.to_ascii_lowercase();
@@ -2453,6 +2458,16 @@ pub fn extract_context_window_tokens_from_error(error_str: &str) -> Option<u32> 
             }
         }
     }
+
+    if lowered_all.contains("1305")
+        || lowered_all.contains("overloaded")
+        || lowered_all.contains("overload")
+        || lowered_all.contains("context_window_blocked")
+        || lowered_all.contains("payload too large")
+    {
+        return Some(64_000);
+    }
+
     None
 }
 

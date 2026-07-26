@@ -51,8 +51,24 @@ impl MessageRequest {
     }
 
     /// Injects the `description` parameter into the input schema of all tools
-    /// to ensure the LLM always provides a description for TaskGraph enforcement.
+    /// to ensure the LLM always provides a description for TaskGraph enforcement,
+    /// and injects the active TaskGraph goal hierarchy if available.
     pub fn inject_taskgraph_description(&mut self) {
+        self.inject_taskgraph_description_with_hierarchy(None);
+    }
+
+    pub fn inject_taskgraph_description_with_hierarchy(&mut self, hierarchy: Option<&str>) {
+        if let Some(hierarchy_prompt) = hierarchy {
+            let mut current_sys = self.system.clone().unwrap_or_default();
+            if !current_sys.contains("<active-task-hierarchy>") {
+                if !current_sys.is_empty() {
+                    current_sys.push_str("\n\n");
+                }
+                current_sys.push_str(hierarchy_prompt);
+                self.system = Some(current_sys);
+            }
+        }
+
         if let Some(tools) = &mut self.tools {
             for tool in tools.iter_mut() {
                 if let serde_json::Value::Object(ref mut schema_map) = tool.input_schema {
