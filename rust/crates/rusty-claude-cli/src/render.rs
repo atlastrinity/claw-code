@@ -174,35 +174,80 @@ struct LinkState {
     text: String,
 }
 
+pub fn is_color_enabled() -> bool {
+    std::env::var("CLICOLOR_FORCE").map(|v| v != "0").unwrap_or(false)
+        || std::env::var("FORCE_COLOR").map(|v| v != "0" && v != "false").unwrap_or(false)
+        || (std::io::IsTerminal::is_terminal(&std::io::stdout()) && std::env::var("NO_COLOR").is_err())
+}
+
+pub fn color_to_ansi(color: Color) -> &'static str {
+    match color {
+        Color::Black => "\x1b[30m",
+        Color::Red | Color::DarkRed => "\x1b[31m",
+        Color::Green | Color::DarkGreen => "\x1b[32m",
+        Color::Yellow | Color::DarkYellow => "\x1b[33m",
+        Color::Blue | Color::DarkBlue => "\x1b[34m",
+        Color::Magenta | Color::DarkMagenta => "\x1b[35m",
+        Color::Cyan | Color::DarkCyan => "\x1b[36m",
+        Color::White | Color::Grey => "\x1b[37m",
+        Color::DarkGrey => "\x1b[90m",
+        _ => "\x1b[37m",
+    }
+}
+
+pub fn style_ansi(
+    text: &str,
+    color: Option<Color>,
+    bold: bool,
+    italic: bool,
+    underline: bool,
+) -> String {
+    if !is_color_enabled() {
+        return text.to_string();
+    }
+    let mut seq = String::new();
+    if bold {
+        seq.push_str("\x1b[1m");
+    }
+    if italic {
+        seq.push_str("\x1b[3m");
+    }
+    if underline {
+        seq.push_str("\x1b[4m");
+    }
+    if let Some(c) = color {
+        seq.push_str(color_to_ansi(c));
+    }
+    if seq.is_empty() {
+        text.to_string()
+    } else {
+        format!("{seq}{text}\x1b[0m")
+    }
+}
+
 impl RenderState {
     fn style_text(&self, text: &str, theme: &ColorTheme) -> String {
-        let mut style = text.stylize();
+        let is_bold = matches!(self.heading_level, Some(1 | 2)) || self.strong > 0;
+        let is_italic = self.emphasis > 0;
 
-        if matches!(self.heading_level, Some(1 | 2)) || self.strong > 0 {
-            style = style.bold();
-        }
-        if self.emphasis > 0 {
-            style = style.italic();
-        }
-
-        if let Some(level) = self.heading_level {
-            style = match level {
-                1 => style.with(theme.heading),
-                2 => style.white(),
-                3 => style.with(Color::Blue),
-                _ => style.with(Color::Grey),
-            };
+        let color = if let Some(level) = self.heading_level {
+            match level {
+                1 => Some(theme.heading),
+                2 => Some(Color::White),
+                3 => Some(Color::Blue),
+                _ => Some(Color::Grey),
+            }
         } else if self.strong > 0 {
-            style = style.with(theme.strong);
+            Some(theme.strong)
         } else if self.emphasis > 0 {
-            style = style.with(theme.emphasis);
-        }
+            Some(theme.emphasis)
+        } else if self.quote > 0 {
+            Some(theme.quote)
+        } else {
+            None
+        };
 
-        if self.quote > 0 {
-            style = style.with(theme.quote);
-        }
-
-        format!("{style}")
+        style_ansi(text, color, is_bold, is_italic, false)
     }
 
     fn append_raw(&mut self, output: &mut String, text: &str) {
@@ -341,8 +386,13 @@ impl TerminalRenderer {
             Event::Start(Tag::Strong) => state.strong += 1,
             Event::End(TagEnd::Strong) => state.strong = state.strong.saturating_sub(1),
             Event::Code(code) => {
-                let rendered =
-                    format!("{}", format!("`{code}`").with(self.color_theme.inline_code));
+                let rendered = style_ansi(
+                    &format!("`{code}`"),
+                    Some(self.color_theme.inline_code),
+                    false,
+                    false,
+                    false,
+                );
                 state.append_raw(output, &rendered);
             }
             Event::Rule => output.push_str("---\n"),
@@ -374,19 +424,23 @@ impl TerminalRenderer {
                     } else {
                         link.text
                     };
-                    let rendered = format!(
-                        "{}",
-                        format!("[{label}]({})", link.destination)
-                            .underlined()
-                            .with(self.color_theme.link)
+                    let rendered = style_ansi(
+                        &format!("[{label}]({})", link.destination),
+                        Some(self.color_theme.link),
+                        false,
+                        false,
+                        true,
                     );
                     state.append_raw(output, &rendered);
                 }
             }
             Event::Start(Tag::Image { dest_url, .. }) => {
-                let rendered = format!(
-                    "{}",
-                    format!("[image:{dest_url}]").with(self.color_theme.link)
+                let rendered = style_ansi(
+                    &format!("[image:{dest_url}]"),
+                    Some(self.color_theme.link),
+                    false,
+                    false,
+                    false,
                 );
                 state.append_raw(output, &rendered);
             }
@@ -443,7 +497,7 @@ impl TerminalRenderer {
 
     fn start_quote(&self, state: &mut RenderState, output: &mut String) {
         state.quote += 1;
-        let _ = write!(output, "{}", "│ ".with(self.color_theme.quote));
+        let _ = write!(output, "{}", style_ansi("│ ", Some(self.color_theme.quote), false, false, false));
     }
 
     fn start_item(state: &mut RenderState, output: &mut String) {
@@ -470,9 +524,13 @@ impl TerminalRenderer {
         let _ = writeln!(
             output,
             "{}",
-            format!("╭─ {label}")
-                .bold()
-                .with(self.color_theme.code_block_border)
+            style_ansi(
+                &format!("╭─ {label}"),
+                Some(self.color_theme.code_block_border),
+                true,
+                false,
+                false
+            )
         );
     }
 
@@ -481,7 +539,7 @@ impl TerminalRenderer {
         let _ = write!(
             output,
             "{}",
-            "╰─".bold().with(self.color_theme.code_block_border)
+            style_ansi("╰─", Some(self.color_theme.code_block_border), true, false, false)
         );
         output.push_str("\n\n");
     }
@@ -523,12 +581,13 @@ impl TerminalRenderer {
             })
             .collect::<Vec<_>>();
 
-        let border = format!("{}", "│".with(self.color_theme.table_border));
+        let border = style_ansi("│", Some(self.color_theme.table_border), false, false, false);
+        let separator_plus = style_ansi("┼", Some(self.color_theme.table_border), false, false, false);
         let separator = widths
             .iter()
             .map(|width| "─".repeat(*width + 2))
             .collect::<Vec<_>>()
-            .join(&format!("{}", "┼".with(self.color_theme.table_border)));
+            .join(&separator_plus);
         let separator = format!("{border}{separator}{border}");
 
         let mut output = String::new();
@@ -552,7 +611,7 @@ impl TerminalRenderer {
     }
 
     fn render_table_row(&self, row: &[String], widths: &[usize], is_header: bool) -> String {
-        let border = format!("{}", "│".with(self.color_theme.table_border));
+        let border = style_ansi("│", Some(self.color_theme.table_border), false, false, false);
         let mut line = String::new();
         line.push_str(&border);
 
@@ -560,7 +619,11 @@ impl TerminalRenderer {
             let cell = row.get(index).map_or("", String::as_str);
             line.push(' ');
             if is_header {
-                let _ = write!(line, "{}", cell.bold().with(self.color_theme.heading));
+                let _ = write!(
+                    line,
+                    "{}",
+                    style_ansi(cell, Some(self.color_theme.heading), true, false, false)
+                );
             } else {
                 line.push_str(cell);
             }
