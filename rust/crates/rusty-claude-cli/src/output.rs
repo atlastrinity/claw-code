@@ -61,11 +61,12 @@ impl OutputBuilder {
     pub fn new() -> Self {
         let style = if std::env::var("CLICOLOR_FORCE").map(|v| v != "0").unwrap_or(false)
             || std::env::var("FORCE_COLOR").map(|v| v != "0" && v != "false").unwrap_or(false)
+            || std::env::var("CLICOLOR").map(|v| v != "0").unwrap_or(false)
             || (std::io::IsTerminal::is_terminal(&std::io::stdout()) && std::env::var("NO_COLOR").is_err())
         {
             OutputStyle::Colored
         } else {
-            OutputStyle::Terminal
+            OutputStyle::Colored
         };
         Self {
             format: OutputFormat::Text,
@@ -118,7 +119,7 @@ impl OutputFormatter {
     /// Format text output
     pub fn format_text(&self, text: &str) -> String {
         if self.verbose {
-            format!("[TEXT] {}", text)
+            format!("\x1b[34m[TEXT]\x1b[0m {}", text)
         } else {
             text.to_string()
         }
@@ -127,39 +128,24 @@ impl OutputFormatter {
     /// Format JSON output
     pub fn format_json(&self, json: &str) -> String {
         match self.style {
-            OutputStyle::Colored => {
-                format!("\x1b[36m[JSON]\x1b[0m {}", json)
-            }
-            OutputStyle::Terminal => {
-                format!("[JSON] {}", json)
-            }
-            _ => json.to_string(),
+            OutputStyle::Plain => json.to_string(),
+            _ => format!("\x1b[36m[JSON]\x1b[0m {}", json),
         }
     }
 
     /// Format YAML output
     pub fn format_yaml(&self, yaml: &str) -> String {
         match self.style {
-            OutputStyle::Colored => {
-                format!("\x1b[33m[YAML]\x1b[0m {}", yaml)
-            }
-            OutputStyle::Terminal => {
-                format!("[YAML] {}", yaml)
-            }
-            _ => yaml.to_string(),
+            OutputStyle::Plain => yaml.to_string(),
+            _ => format!("\x1b[33m[YAML]\x1b[0m {}", yaml),
         }
     }
 
     /// Format Markdown output
     pub fn format_markdown(&self, md: &str) -> String {
         match self.style {
-            OutputStyle::Colored => {
-                format!("\x1b[35m[MARKDOWN]\x1b[0m {}", md)
-            }
-            OutputStyle::Terminal => {
-                format!("[MARKDOWN] {}", md)
-            }
-            _ => md.to_string(),
+            OutputStyle::Plain => md.to_string(),
+            _ => format!("\x1b[35m[MARKDOWN]\x1b[0m {}", md),
         }
     }
 
