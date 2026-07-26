@@ -145,7 +145,7 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                 }
             }
 
-            // Cascade completion to non-terminal sub-tasks when parent is set to Completed
+            // Cascade completion to non-terminal sub-tasks when parent is explicitly set to Completed
             while !cascade_completed.is_empty() {
                 let current_parent_ids = std::mem::take(&mut cascade_completed);
                 for n in &mut current_nodes {

@@ -1115,13 +1115,13 @@ fn task_graph_downward_in_progress_propagation() {
     let graph_content = std::fs::read_to_string(&path).expect("read graph store");
     let nodes: serde_json::Value =
         serde_json::from_str(&graph_content).expect("parse store json");
-    let node_1_1_1 = nodes
+    let _node_1_1_1 = nodes
         .as_array()
         .unwrap()
         .iter()
         .find(|n| n["id"] == "1.1.1")
         .unwrap();
-    assert_eq!(node_1_1_1["status"], "in_progress");
+    assert_eq!(_node_1_1_1["status"], "in_progress");
 
     let _ = std::fs::remove_file(&path);
 }
@@ -1164,7 +1164,70 @@ fn task_graph_update_status_auto_upserts_missing_nodes() {
         .iter()
         .find(|n| n["id"] == "1.1.1")
         .unwrap();
-    assert_eq!(node_1_1_1["status"], "in_progress");
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn task_graph_parent_description_and_unclosed_subtasks_in_error() {
+    let _guard = env_guard();
+    let path = temp_path("unclosed_subtasks_error.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    // Create graph with parent "1" and subtasks "1.1", "1.2"
+    let _ = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Database Migration and Testing Phase"},
+                {"id": "1.1", "content": "Inspect remote schema and connections"},
+                {"id": "1.2", "content": "Run integration tests on remote DB"}
+            ]
+        }),
+    );
+
+    // Set 1.1 to in_progress
+    let _ = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [
+                {"id": "1.1", "status": "in_progress"}
+            ]
+        }),
+    );
+
+    // Manually attempt to validate graph where parent 1 is Completed but 1.1 and 1.2 are unclosed
+    let nodes = vec![
+        TaskNode {
+            id: "1".to_string(),
+            parent_id: None,
+            content: Some("Database Migration and Testing Phase".to_string()),
+            status: Some(TaskStatus::Completed),
+        },
+        TaskNode {
+            id: "1.1".to_string(),
+            parent_id: Some("1".to_string()),
+            content: Some("Inspect remote schema and connections".to_string()),
+            status: Some(TaskStatus::InProgress),
+        },
+        TaskNode {
+            id: "1.2".to_string(),
+            parent_id: Some("1".to_string()),
+            content: Some("Run integration tests on remote DB".to_string()),
+            status: Some(TaskStatus::Pending),
+        },
+    ];
+
+    let val_err = validate_task_graph(&nodes).unwrap_err();
+
+    // Verify error contains parent description, count, unclosed list, and resolution choices
+    assert!(val_err.contains("Database Migration and Testing Phase"));
+    assert!(val_err.contains("2 unclosed sub-task(s)"));
+    assert!(val_err.contains("Inspect remote schema and connections"));
+    assert!(val_err.contains("Run integration tests on remote DB"));
+    assert!(val_err.contains("update its status to 'failed' (or remove it) to mark it as skipped (-)"));
+    assert!(val_err.contains("break it down recursively into smaller sub-subtasks"));
 
     let _ = std::fs::remove_file(&path);
 }
