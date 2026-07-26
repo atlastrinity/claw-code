@@ -416,6 +416,12 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
         let estimated_tokens = estimate_request_tokens(request);
         let _lock = Self::apply_api_pause(&request.model, estimated_tokens).await;
         
+        let msg_count = request.messages.len();
+        eprintln!(
+            "📊 Request context: ~{} tokens estimated, {} messages",
+            estimated_tokens, msg_count
+        );
+        
         let models_to_try = vec![request.model.clone()];
         
         let mut last_error = None;
@@ -426,6 +432,19 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                 key_index = 1;
             }
             let start_index = key_index;
+            let mut overload_fail_count: usize = 0;
+            let mut total_keys: usize = 0;
+            
+            // Count total available keys for this model
+            {
+                let mut k = 1;
+                while Self::has_key_for_index(model, k) {
+                    total_keys += 1;
+                    k += 1;
+                }
+            }
+            
+            let mut attempt: u32 = 0;
             
             loop {
                 if key_index != start_index || model != &request.model {
@@ -471,11 +490,40 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                             || err_str.contains("Too Many Requests")
                             || err_str.contains("overloaded");
                         
+                        if is_rate_limit {
+                            overload_fail_count += 1;
+                        }
+                        
                         last_error = Some(err);
                         
                         if is_rate_limit {
-                            eprintln!("⏳ Rate limit or server overload detected. Pausing for 2 seconds before retry...");
-                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            // All keys exhausted with the same overload/1305 error — 
+                            // this is almost certainly a context overflow, not a rate limit
+                            if overload_fail_count >= total_keys && total_keys > 1 {
+                                eprintln!(
+                                    "\n🚫 All {} API keys for model '{}' returned overload/1305 errors.",
+                                    total_keys, model
+                                );
+                                eprintln!(
+                                    "   📊 Estimated context: ~{} tokens, {} messages.",
+                                    estimated_tokens, msg_count
+                                );
+                                eprintln!(
+                                    "   💡 This is likely a context window overflow, not a rate limit."
+                                );
+                                eprintln!(
+                                    "   💡 Try: /clear to reset conversation, or /compact to reduce context size."
+                                );
+                                break;
+                            }
+                            
+                            attempt += 1;
+                            let backoff_secs = std::cmp::min(2u64.pow(attempt), 16);
+                            eprintln!(
+                                "⏳ Rate limit detected. Pausing for {} seconds before retry...",
+                                backoff_secs
+                            );
+                            tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
                             
                             key_index += 1;
                             if !Self::has_key_for_index(model, key_index) {
@@ -504,6 +552,12 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
         let estimated_tokens = estimate_request_tokens(request);
         let _lock = Self::apply_api_pause(&request.model, estimated_tokens).await;
         
+        let msg_count = request.messages.len();
+        eprintln!(
+            "📊 Stream context: ~{} tokens estimated, {} messages",
+            estimated_tokens, msg_count
+        );
+        
         let models_to_try = vec![request.model.clone()];
         
         let mut last_error = None;
@@ -513,6 +567,19 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                 key_index = 1;
             }
             let start_index = key_index;
+            let mut overload_fail_count: usize = 0;
+            let mut total_keys: usize = 0;
+            
+            // Count total available keys for this model
+            {
+                let mut k = 1;
+                while Self::has_key_for_index(model, k) {
+                    total_keys += 1;
+                    k += 1;
+                }
+            }
+            
+            let mut attempt: u32 = 0;
             
             loop {
                 if key_index != start_index || model != &request.model {
@@ -570,11 +637,40 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                             || err_str.contains("Too Many Requests")
                             || err_str.contains("overloaded");
                         
+                        if is_rate_limit {
+                            overload_fail_count += 1;
+                        }
+                        
                         last_error = Some(err);
                         
                         if is_rate_limit {
-                            eprintln!("⏳ Rate limit or server overload detected. Pausing for 2 seconds before retry...");
-                            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                            // All keys exhausted with the same overload/1305 error — 
+                            // this is almost certainly a context overflow, not a rate limit
+                            if overload_fail_count >= total_keys && total_keys > 1 {
+                                eprintln!(
+                                    "\n🚫 All {} API keys for model '{}' returned overload/1305 errors.",
+                                    total_keys, model
+                                );
+                                eprintln!(
+                                    "   📊 Estimated context: ~{} tokens, {} messages.",
+                                    estimated_tokens, msg_count
+                                );
+                                eprintln!(
+                                    "   💡 This is likely a context window overflow, not a rate limit."
+                                );
+                                eprintln!(
+                                    "   💡 Try: /clear to reset conversation, or /compact to reduce context size."
+                                );
+                                break;
+                            }
+                            
+                            attempt += 1;
+                            let backoff_secs = std::cmp::min(2u64.pow(attempt), 16);
+                            eprintln!(
+                                "⏳ Rate limit detected. Pausing for {} seconds before retry...",
+                                backoff_secs
+                            );
+                            tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
                             
                             key_index += 1;
                             if !Self::has_key_for_index(model, key_index) {
