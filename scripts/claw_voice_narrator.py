@@ -1370,12 +1370,6 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
             if re.search(r'[єЄіІїЇґҐ]', text):
                 return text
 
-    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
-    base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
-    max_retries = max(1, len(parse_env_keys(target_env)))
-
-    url = f"{base_url}/chat/completions"
-    
     if title == "Запит":
         gender_rules = (
             "IMPORTANT: Translate the user's request directly and literally into Ukrainian. "
@@ -1419,57 +1413,11 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
             "NEVER include agent names. Keep under 15 words, highly constructive and professional."
         )
 
-    payload = {
-        "model": model_id,
-        "messages": [
-            {
-                "role": "system",
-                "content": f"You are a professional Ukrainian software engineer and narrator. Translate or rewrite the given text into natural, fluent Ukrainian (UA). RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts and standard terms directly into natural Ukrainian developer slang (e.g. 'concurrency' -> 'паралельність', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'bug' -> 'баг', 'error' -> 'помилка'). 2. Do NOT use any English words or Latin letters. Translate every English code element, file name, path, variable, class/function name, command or tool name into its phonetic Ukrainian equivalent (e.g., 'run_claw.sh' -> 'ран клоу крапка ес ейч', 'VoicePlayer' -> 'войс плеєр', 'grep_search' -> 'ґреп серч', 'git status' -> 'ґіт статус'). 3. {gender_rules} 4. IMPORTANT FOR SPEECH SYNTHESIS (TTS): This text will be read aloud. You MUST strip out or simplify all heavy technical visual elements. Do NOT read long SSH keys, API bot tokens, email lists, full path directories, or long numeric IDs literally. Replace them with brief natural Ukrainian summaries (e.g., 'ssh-ed25519 AAA...' -> 'публічний ключ деплою', 'dima1203@gmail.com' -> 'електронні пошти отримувачів', '/home/dima/scripts/x.py' -> 'скрипт ікс', '8562512293:AAEX...' -> 'токен телеграм-бота'). Remove all markdown structures, headers, lists, and tables, converting them into smooth, conversational, easy-to-read paragraphs. Output ONLY the clean, speech-friendly Ukrainian text, with no introductory or concluding remarks."
-            },
-            {
-                "role": "user",
-                "content": text
-            }
-        ],
-        "temperature": 0.3
-    }
-    
-    for attempt in range(max_retries):
-        if attempt > 0:
-            base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
-            
-        if not base_url or not api_key:
-            return text
+    system_prompt = f"You are a professional Ukrainian software engineer and narrator. Translate or rewrite the given text into natural, fluent Ukrainian (UA). RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts and standard terms directly into natural Ukrainian developer slang (e.g. 'concurrency' -> 'паралельність', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'bug' -> 'баг', 'error' -> 'помилка'). 2. Do NOT use any English words or Latin letters. Translate every English code element, file name, path, variable, class/function name, command or tool name into its phonetic Ukrainian equivalent (e.g., 'run_claw.sh' -> 'ран клоу крапка ес ейч', 'VoicePlayer' -> 'войс плеєр', 'grep_search' -> 'ґреп серч', 'git status' -> 'ґіт статус'). 3. {gender_rules} 4. IMPORTANT FOR SPEECH SYNTHESIS (TTS): This text will be read aloud. You MUST strip out or simplify all heavy technical visual elements. Do NOT read long SSH keys, API bot tokens, email lists, full path directories, or long numeric IDs literally. Replace them with brief natural Ukrainian summaries (e.g., 'ssh-ed25519 AAA...' -> 'публічний ключ деплою', 'dima1203@gmail.com' -> 'електронні пошти отримувачів', '/home/dima/scripts/x.py' -> 'скрипт ікс', '8562512293:AAEX...' -> 'токен телеграм-бота'). Remove all markdown structures, headers, lists, and tables, converting them into smooth, conversational, easy-to-read paragraphs. Output ONLY the clean, speech-friendly Ukrainian text, with no introductory or concluding remarks."
 
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-
-        try:
-            req = urllib.request.Request(
-                url, 
-                data=json.dumps(payload).encode('utf-8'), 
-                headers=headers,
-                method='POST'
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                res_data = json.loads(response.read().decode('utf-8'))
-                translated_text = res_data['choices'][0]['message']['content'].strip()
-                if translated_text:
-                    return strip_agent_names(translated_text)
-        except urllib.error.HTTPError as e:
-            if e.code in (429, 401, 403, 500, 502, 503, 504):
-                rotate_api_key_index(target_env)
-                time.sleep(1.0)
-                continue
-            print(f"\n⚠️ Помилка автоперекладу через {model} (HTTP {e.code}): {e}")
-            break
-        except Exception as e:
-            rotate_api_key_index(target_env)
-            time.sleep(1.0)
-            continue
-        
+    translated = call_narration_llm_chain(system_prompt, text)
+    if translated:
+        return translated
     return text
 
 def translate_to_english(text: str) -> str:
