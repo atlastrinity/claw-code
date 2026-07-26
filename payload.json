@@ -588,6 +588,26 @@
       "is_error": true,
       "role": "tool",
       "tool_call_id": "call_43abb656633c4e42b95440b0"
+    },
+    {
+      "content": null,
+      "role": "assistant",
+      "tool_calls": [
+        {
+          "function": {
+            "arguments": "{\"description\":\"Analyze recent refactoring changes\",\"nodes\":[{\"content\":\"Analyze code structure and organization metrics\",\"id\":\"2.1\",\"parent_id\":\"2\",\"status\":\"in_progress\"}],\"operation\":\"add\"}",
+            "name": "TaskGraph"
+          },
+          "id": "call_bab9e66f95a14858a7db2412",
+          "type": "function"
+        }
+      ]
+    },
+    {
+      "content": "{\"nodes_updated\":1}",
+      "is_error": false,
+      "role": "tool",
+      "tool_call_id": "call_bab9e66f95a14858a7db2412"
     }
   ],
   "model": "glm-4.7-flash",
