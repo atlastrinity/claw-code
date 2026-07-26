@@ -8,12 +8,20 @@ export CLAW_BYPASS_WORKSPACE_CHECK="${CLAW_BYPASS_WORKSPACE_CHECK:-true}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
-# Знаходимо робочий інтерпретатор Python (pyenv шіми можуть зависати)
-PYTHON_BIN="python3"
-if [ -x "/opt/homebrew/bin/python3" ]; then
-    PYTHON_BIN="/opt/homebrew/bin/python3"
-elif [ -x "/usr/bin/python3" ]; then
-    PYTHON_BIN="/usr/bin/python3"
+# Знаходимо інтерпретатор Python із підтримкою edge_tts
+PYTHON_BIN=""
+for candidate in "$HOME/.pyenv/shims/python3" "$(command -v python3 2>/dev/null)" "/usr/bin/python3" "/opt/homebrew/bin/python3"; do
+    if [ -n "$candidate" ] && [ -x "$candidate" ] && "$candidate" -c "import edge_tts" >/dev/null 2>&1; then
+        PYTHON_BIN="$candidate"
+        break
+    fi
+done
+if [ -z "$PYTHON_BIN" ]; then
+    if [ -x "/opt/homebrew/bin/python3" ]; then
+        PYTHON_BIN="/opt/homebrew/bin/python3"
+    else
+        PYTHON_BIN="python3"
+    fi
 fi
 
 # Завантажуємо змінні оточення (API ключі тощо) з різних джерел у порядку пріоритету
