@@ -1345,28 +1345,11 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
     if not text.strip():
         return text
 
-    # Check if text needs translation or cleaning for TTS.
-    needs_processing = False
-    if voice == "atlas" and title == "Результат" and len(text) > 120:
-        needs_processing = True
-    elif re.search(r'[a-zA-Z]', text):
-        needs_processing = True
-    elif re.search(r'[ыЫэЭъЪёЁ]', text):
-        needs_processing = True
-    elif re.search(r'[|#*`_─━]', text):  # Markdown/visual separators
-        needs_processing = True
-    elif re.search(r'/\w+/', text) or re.search(r'\\\w+', text): # Paths
-        needs_processing = True
-    elif re.search(r'\d{8,}', text): # Long numbers/tokens
-        needs_processing = True
-    elif '@' in text: # Emails
-        needs_processing = True
-
-    if not needs_processing:
-        # Check cyrillic proportion
+    # Always process text through LLM narration model for Atlas to guarantee clean interactive Ukrainian
+    if voice != "atlas" and not re.search(r'[a-zA-Z]', text) and not re.search(r'[ыЫэЭъЪёЁ]', text) and not re.search(r'[|#*`_─━]', text):
         cyrillic_chars = len(re.findall(r'[а-яА-ЯёЁєЄіІїЇґҐ]', text))
         total_chars = len(re.sub(r'\s+', '', text))
-        if total_chars > 0 and (cyrillic_chars / total_chars) > 0.4:
+        if total_chars > 0 and (cyrillic_chars / total_chars) > 0.6:
             if re.search(r'[єЄіІїЇґҐ]', text):
                 return text
 
