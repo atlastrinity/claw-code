@@ -1009,7 +1009,7 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str, str]:
         base_url = os.environ.get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/").rstrip('/')
         target_env = "GEMINI_API_KEY"
         api_key = get_current_key(target_env)
-        model_id = "gemini-3.1-flash-lite"
+        model_id = "gemini-2.0-flash"
     elif model in ("glm", "glm2", "glm3"):
         base_url = os.environ.get("GLM_BASE_URL", "https://api.z.ai/api/paas/v4").rstrip('/')
         keys = parse_env_keys("GLM_API_KEY")
@@ -1045,93 +1045,92 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str, str]:
             
     return base_url, api_key, model_id, target_env
 
-def translate_and_summarize_thinking(text: str) -> str:
-    if not text.strip():
-        return ""
 
-    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
+def call_narration_llm_chain(system_prompt: str, user_prompt: str) -> str:
+    import urllib.request, urllib.error, time
+    model_setting = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
     
-    base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
-    max_retries = max(1, len(parse_env_keys(target_env)))
-    
-    for attempt in range(max_retries):
-        if attempt > 0:
-            base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
-            
-        if not base_url or not api_key:
-            return ""
-
-        url = f"{base_url}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
+    candidates = []
+    base_url, api_key, model_id, target_env = resolve_narration_api_config(model_setting)
+    if base_url:
+        candidates.append((base_url, api_key, model_id, target_env))
         
+    openrouter_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
+    if openrouter_key and "sk-or-" in openrouter_key:
+        candidates.append(("https://openrouter.ai/api/v1", openrouter_key, "meta-llama/llama-3.2-3b-instruct", "OPENROUTER_API_KEY"))
+        
+    candidates.append(("http://127.0.0.1:11434/v1", "", "qwen2.5:latest", "LOCAL_OLLAMA"))
+    candidates.append(("http://127.0.0.1:11434/v1", "", "llama3.2:latest", "LOCAL_OLLAMA"))
+    candidates.append(("http://127.0.0.1:11434/v1", "", "qwen2.5-coder:1.5b", "LOCAL_OLLAMA"))
+
+    for base_url, api_key, model_id, target_env in candidates:
+        if not base_url:
+            continue
+            
+        url = f"{base_url.rstrip('/')}/chat/completions"
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+            
         payload = {
             "model": model_id,
             "messages": [
-                {
-                    "role": "system",
-                    "content": (
-                        "You are Tetiana, a female software coordinator and strategist. Your role is to voice the agent's internal reasoning and strategy (WHY we are doing something) in Ukrainian based on the thinking block. "
-                        "RULES: "
-                        "1. NEVER mention any agent names (Атлас, Тетяна, Гріша). "
-                        "2. Use feminine verbs (e.g. 'думаю', 'вирішила', 'перевіряю', 'бачу'). "
-                        "3. Focus on the THOUGHT PROCESS and STRATEGY, not the exact tool action. (e.g. 'Щоб зрозуміти архітектуру, мені потрібно поглянути на основні файли', або 'Схоже, тут є проблема з підключенням, зараз перевірю логи'). "
-                        "4. Keep it under 15 words. "
-                        "5. No conversational prefixes, no ellipses, no trailing questions. "
-                        "Output ONLY the Ukrainian reasoning text."
-                    )
-                },
-                {
-                    "role": "user",
-                    "content": text
-                }
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt}
             ],
-            "temperature": 0.5
+            "temperature": 0.5,
+            "max_tokens": 100
         }
         
         try:
-            import urllib.request, urllib.error
             req = urllib.request.Request(
                 url, 
                 data=json.dumps(payload).encode('utf-8'), 
                 headers=headers,
                 method='POST'
             )
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with urllib.request.urlopen(req, timeout=5) as response:
                 res_data = json.loads(response.read().decode('utf-8'))
-                summary_text = res_data['choices'][0]['message']['content'].strip()
-                if summary_text:
-                    return strip_agent_names(summary_text)
-                return ""
+                choices = res_data.get("choices", [])
+                if choices:
+                    text = choices[0].get("message", {}).get("content", "").strip()
+                    if text:
+                        return strip_agent_names(text)
         except urllib.error.HTTPError as e:
-            if e.code in (429, 401, 403, 500, 502, 503, 504):
+            if target_env and target_env not in ("LOCAL_OLLAMA", ""):
                 rotate_api_key_index(target_env)
-                import time
-                time.sleep(1.0)
-            else:
-                print(f"\n⚠️ Помилка автоперекладу та підсумку думок через {model} (HTTP {e.code}): {e}")
-                break
-        except Exception as e:
-            rotate_api_key_index(target_env)
-            import time
-            time.sleep(1.0)
-        
+            continue
+        except Exception:
+            if target_env and target_env not in ("LOCAL_OLLAMA", ""):
+                rotate_api_key_index(target_env)
+            continue
+            
     return ""
 
+
+def translate_and_summarize_thinking(text: str) -> str:
+    if not text.strip():
+        return ""
+
+    system_prompt = (
+        "You are Tetiana, a female software coordinator and strategist. Your role is to voice the agent's internal reasoning and strategy (WHY we are doing something) in Ukrainian based on the thinking block. "
+        "RULES: "
+        "1. NEVER mention any agent names (Атлас, Тетяна, Гріша). "
+        "2. Use feminine verbs (e.g. 'думаю', 'вирішила', 'перевіряю', 'бачу'). "
+        "3. Focus on the THOUGHT PROCESS and STRATEGY, not the exact tool action. (e.g. 'Щоб зрозуміти архітектуру, мені потрібно поглянути на основні файли', або 'Схоже, тут є проблема з підключенням, зараз перевірю логи'). "
+        "4. Keep it under 15 words. "
+        "5. No conversational prefixes, no ellipses, no trailing questions. "
+        "Output ONLY the Ukrainian reasoning text."
+    )
+    return call_narration_llm_chain(system_prompt, text)
 
 
 def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool, output_val: str) -> str:
     if not output_val.strip() and not is_error:
         return ""
 
-    model = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
-    
-    # Limit output length to prevent payload bloat
     output_summary = output_val.strip()
     
-    # Спробуємо розпарсити вивід як JSON, щоб дістати чистий stdout/stderr
     try:
         parsed_out = json.loads(output_val)
         if isinstance(parsed_out, dict):
@@ -1165,63 +1164,7 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
         error_context = "The tool executed normally and SUCCESSFULLY. DO NOT report any errors, even if the raw output contains source code with 'error' or 'exception'."
         
     prompt_user = f"The tool was run for: '{action_desc}'. {error_context} The raw output was: '{output_summary}'."
-    
-    base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
-    max_retries = max(1, len(parse_env_keys(target_env)))
-    
-    for attempt in range(max_retries):
-        if attempt > 0:
-            base_url, api_key, model_id, target_env = resolve_narration_api_config(model)
-            
-        if not base_url or not api_key:
-            return ""
-
-        url = f"{base_url}/chat/completions"
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {api_key}"
-        }
-        
-        payload = {
-            "model": model_id,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": prompt_system
-                },
-                {
-                    "role": "user",
-                    "content": prompt_user
-                }
-            ],
-            "temperature": 0.5
-        }
-        
-        try:
-            req = urllib.request.Request(
-                url, 
-                data=json.dumps(payload).encode('utf-8'), 
-                headers=headers,
-                method='POST'
-            )
-            with urllib.request.urlopen(req, timeout=10) as response:
-                res_data = json.loads(response.read().decode('utf-8'))
-                summary_text = res_data['choices'][0]['message']['content'].strip()
-                if summary_text:
-                    return strip_agent_names(summary_text)
-                return ""
-        except urllib.error.HTTPError as e:
-            if e.code in (429, 401, 403, 500, 502, 503, 504):
-                rotate_api_key_index(target_env)
-                time.sleep(1)
-            else:
-                print(f"\n⚠️ Помилка автоозвучки результату інструменту через {model} (HTTP {e.code}): {e}")
-                break
-        except Exception as e:
-            rotate_api_key_index(target_env)
-            time.sleep(1)
-            
-    return ""
+    return call_narration_llm_chain(prompt_system, prompt_user)
 
 
 def load_task_descriptions() -> dict[str, str]:
