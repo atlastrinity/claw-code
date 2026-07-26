@@ -1231,3 +1231,44 @@ fn task_graph_parent_description_and_unclosed_subtasks_in_error() {
 
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn task_graph_auto_demotes_completed_parent_when_subtask_is_added_or_opened() {
+    let _guard = env_guard();
+    let path = temp_path("demote_test.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    // Initial setup: parent 1 and child 1.1 completed
+    let _ = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Parent Task", "status": "completed"},
+                {"id": "1.1", "parent_id": "1", "content": "Child Task", "status": "completed"}
+            ]
+        }),
+    ).expect("initial add succeeds");
+
+    // Now add a new subtask 1.2 under already completed parent 1
+    let result = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1.2", "parent_id": "1", "content": "New Subtask", "status": "in_progress"}
+            ]
+        }),
+    ).expect("add subtask to completed parent should auto-demote parent to in_progress");
+
+    let output: serde_json::Value = serde_json::from_str(&result).unwrap();
+    assert_eq!(output["nodes_updated"].as_u64().unwrap_or(0), 1);
+
+    // Read saved nodes and verify parent 1 was auto-demoted to in_progress
+    let saved_content = std::fs::read_to_string(&path).expect("saved json");
+    let saved_nodes: Vec<TaskNode> = serde_json::from_str(&saved_content).expect("parse nodes");
+    let parent_1 = saved_nodes.iter().find(|n| n.id == "1").expect("parent 1 exists");
+    assert_eq!(parent_1.status, Some(TaskStatus::InProgress));
+
+    let _ = std::fs::remove_file(&path);
+}
