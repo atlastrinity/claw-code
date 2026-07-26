@@ -59,9 +59,17 @@ pub struct OutputBuilder {
 impl OutputBuilder {
     /// Create a new output builder
     pub fn new() -> Self {
+        let style = if std::env::var("CLICOLOR_FORCE").map(|v| v != "0").unwrap_or(false)
+            || std::env::var("FORCE_COLOR").map(|v| v != "0" && v != "false").unwrap_or(false)
+            || (std::io::IsTerminal::is_terminal(&std::io::stdout()) && std::env::var("NO_COLOR").is_err())
+        {
+            OutputStyle::Colored
+        } else {
+            OutputStyle::Terminal
+        };
         Self {
             format: OutputFormat::Text,
-            style: OutputStyle::Terminal,
+            style,
             verbose: false,
         }
     }
@@ -225,8 +233,7 @@ impl OutputFormatter {
     /// Format success message
     pub fn format_success(&self, message: &str) -> String {
         match self.style {
-            OutputStyle::Colored => format!("\x1b[32m✓ {}\x1b[0m", message),
-            OutputStyle::Terminal => format!("✓ {}", message),
+            OutputStyle::Colored | OutputStyle::Terminal | OutputStyle::Ansi => format!("\x1b[32m✓ {}\x1b[0m", message),
             _ => message.to_string(),
         }
     }
@@ -234,8 +241,7 @@ impl OutputFormatter {
     /// Format error message
     pub fn format_error(&self, message: &str) -> String {
         match self.style {
-            OutputStyle::Colored => format!("\x1b[31m✗ {}\x1b[0m", message),
-            OutputStyle::Terminal => format!("✗ {}", message),
+            OutputStyle::Colored | OutputStyle::Terminal | OutputStyle::Ansi => format!("\x1b[31m✗ {}\x1b[0m", message),
             _ => message.to_string(),
         }
     }
@@ -243,8 +249,7 @@ impl OutputFormatter {
     /// Format warning message
     pub fn format_warning(&self, message: &str) -> String {
         match self.style {
-            OutputStyle::Colored => format!("\x1b[33m⚠ {}\x1b[0m", message),
-            OutputStyle::Terminal => format!("⚠ {}", message),
+            OutputStyle::Colored | OutputStyle::Terminal | OutputStyle::Ansi => format!("\x1b[33m⚠ {}\x1b[0m", message),
             _ => message.to_string(),
         }
     }
@@ -252,8 +257,7 @@ impl OutputFormatter {
     /// Format info message
     pub fn format_info(&self, message: &str) -> String {
         match self.style {
-            OutputStyle::Colored => format!("\x1b[34mℹ {}\x1b[0m", message),
-            OutputStyle::Terminal => format!("ℹ {}", message),
+            OutputStyle::Colored | OutputStyle::Terminal | OutputStyle::Ansi => format!("\x1b[34mℹ {}\x1b[0m", message),
             _ => message.to_string(),
         }
     }

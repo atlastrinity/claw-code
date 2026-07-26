@@ -10,11 +10,8 @@
       "role": "user"
     }
   ],
-  "model": "gpt-4o",
-  "stream": true,
-  "stream_options": {
-    "include_usage": true
-  },
+  "model": "openai/gpt-4.1-mini",
+  "stream": false,
   "tool_choice": "auto",
   "tools": [
     {
