@@ -199,10 +199,14 @@ pub(crate) fn execute_tool_with_enforcer(
         const MAX_TOOL_OUTPUT_CHARS: usize = 16_000;
         if output.len() > MAX_TOOL_OUTPUT_CHARS {
             let total_len = output.len();
-            output.truncate(MAX_TOOL_OUTPUT_CHARS);
+            let mut truncate_len = MAX_TOOL_OUTPUT_CHARS;
+            while truncate_len > 0 && !output.is_char_boundary(truncate_len) {
+                truncate_len -= 1;
+            }
+            output.truncate(truncate_len);
             output.push_str(&format!(
                 "\n\n[PROGRESSIVE CHUNK NOTICE: Tool output chunked at {} characters to prevent context window overflow. Total output size was {} characters. Use specific line/file limits or targeted search queries to request further chunks if needed].",
-                MAX_TOOL_OUTPUT_CHARS, total_len
+                truncate_len, total_len
             ));
         }
     }

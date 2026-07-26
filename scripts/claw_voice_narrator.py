@@ -1785,8 +1785,7 @@ def tail_session_loop():
         else:
             sessions_dir = original_cwd / ".claw" / "sessions"
             
-        if not sessions_dir.exists():
-            sessions_dir = project_root / ".claw" / "sessions"
+        sessions_dir.mkdir(parents=True, exist_ok=True)
 
         print(f"{COLORS['bold']}{COLORS['system']}🎙️ Режим реального часу (Tailing Mode) запущено.{COLORS['reset']}")
         print(f"{COLORS['system']}Очікування нових записів у сесіях...{COLORS['reset']}\n")
