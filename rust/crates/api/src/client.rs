@@ -439,7 +439,12 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                 fallback_request.model = model.clone();
                 fallback_request.inject_taskgraph_description();
                 
-                let client_res = if let Ok(fallback_client) = ProviderClient::from_model_with_key_index(model, key_index) {
+                let client_res = if key_index == start_index && model == &request.model {
+                    match self {
+                        Self::Anthropic(client) => client.send_message(&fallback_request).await,
+                        Self::Xai(client) | Self::OpenAi(client) => client.send_message(&fallback_request).await,
+                    }
+                } else if let Ok(fallback_client) = ProviderClient::from_model_with_key_index(model, key_index) {
                     match fallback_client {
                         ProviderClient::Anthropic(client) => client.send_message(&fallback_request).await,
                         ProviderClient::Xai(client) | ProviderClient::OpenAi(client) => client.send_message(&fallback_request).await,
@@ -521,7 +526,18 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                 fallback_request.model = model.clone();
                 fallback_request.inject_taskgraph_description();
                 
-                let client_res = if let Ok(fallback_client) = ProviderClient::from_model_with_key_index(model, key_index) {
+                let client_res = if key_index == start_index && model == &request.model {
+                    match self {
+                        Self::Anthropic(client) => client
+                            .stream_message(&fallback_request)
+                            .await
+                            .map(MessageStream::Anthropic),
+                        Self::Xai(client) | Self::OpenAi(client) => client
+                            .stream_message(&fallback_request)
+                            .await
+                            .map(MessageStream::OpenAiCompat),
+                    }
+                } else if let Ok(fallback_client) = ProviderClient::from_model_with_key_index(model, key_index) {
                     match fallback_client {
                         ProviderClient::Anthropic(client) => client
                             .stream_message(&fallback_request)
