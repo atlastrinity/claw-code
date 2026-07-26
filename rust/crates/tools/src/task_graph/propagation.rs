@@ -5,6 +5,31 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
     while changed {
         changed = false;
 
+        // 0. Demote Completed parents back to InProgress when they have
+        //    unclosed children. This handles the case where new subtasks are
+        //    added (via 'add' or auto-upsert in 'update_status') under
+        //    already-completed parents, preventing a validation deadlock.
+        let mut parents_to_demote = Vec::new();
+        for node in &*current_nodes {
+            if node.status == Some(TaskStatus::Completed) {
+                let has_unclosed_child = current_nodes.iter().any(|n| {
+                    n.parent_id.as_ref() == Some(&node.id) && {
+                        let st = n.status.unwrap_or(TaskStatus::Pending);
+                        st != TaskStatus::Completed && st != TaskStatus::Failed
+                    }
+                });
+                if has_unclosed_child {
+                    parents_to_demote.push(node.id.clone());
+                }
+            }
+        }
+        for p_id in parents_to_demote {
+            if let Some(parent) = current_nodes.iter_mut().find(|n| n.id == p_id) {
+                parent.status = Some(TaskStatus::InProgress);
+                changed = true;
+            }
+        }
+
         // 1. Upward InProgress propagation
         let mut parents_to_update = Vec::new();
         for node in &*current_nodes {

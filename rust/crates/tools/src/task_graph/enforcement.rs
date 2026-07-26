@@ -239,7 +239,7 @@ fn extract_meaningful_words(text: &str) -> HashSet<String> {
         "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not",
         "only", "own", "same", "so", "than", "too", "very", "can", "will", "just", "don",
         "should", "now", "add", "new", "file", "create", "update", "run", "make", "do", "set",
-        "get", "use", "edit", "change", "fix", "remove", "delete", "test", "task", "code",
+        "get", "use", "edit", "change", "fix", "remove", "delete", "task", "code",
     ];
     let stop_set: HashSet<&str> = STOP_WORDS.iter().copied().collect();
 
@@ -305,7 +305,13 @@ fn extract_meaningful_words(text: &str) -> HashSet<String> {
             let input_words = extract_meaningful_words(&input_text);
 
             if !task_words.is_empty() && !input_words.is_empty() {
-                let has_overlap = input_words.iter().any(|w| task_words.contains(w));
+                let has_overlap = input_words.iter().any(|iw| {
+                    task_words.iter().any(|tw| {
+                        iw == tw
+                            || (tw.len() >= 4 && iw.starts_with(tw.as_str()))
+                            || (iw.len() >= 4 && tw.starts_with(iw.as_str()))
+                    })
+                });
                 if !has_overlap {
                     return Err(format!(
                         "Error: Strict TaskGraph Enforcement. Your action ('{}') does not match the active task '{}' (\"{}\"). Ensure your tool description or parameters match the task in task.md, write task titles and descriptions in English ONLY, or set a matching task to 'in_progress'.",
