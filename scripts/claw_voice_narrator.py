@@ -996,6 +996,22 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str, str]:
     model_id = ""
     target_env = ""
 
+    # Dynamically resolve alias mapping from .claw.json or ~/.claw/settings.json
+    resolved_model = model
+    claw_json_path = Path(os.environ.get("CLAW_CALLER_CWD", ".")) / ".claw.json"
+    if not claw_json_path.exists():
+        claw_json_path = Path.home() / ".claw" / "settings.json"
+        
+    if claw_json_path.exists():
+        try:
+            with open(claw_json_path, "r") as f:
+                cfg = json.load(f)
+                aliases = cfg.get("aliases", {})
+                if model in aliases:
+                    resolved_model = aliases[model]
+        except Exception:
+            pass
+
     def get_current_key(env_var_name: str) -> str:
         keys = parse_env_keys(env_var_name)
         if not keys:
@@ -1005,12 +1021,12 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str, str]:
         selected = keys[idx % len(keys)]
         return selected
 
-    if model == "gemini-lite":
+    if model == "gemini-lite" or "gemini" in resolved_model.lower():
         base_url = os.environ.get("GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta/openai/").rstrip('/')
         target_env = "GEMINI_API_KEY"
         api_key = get_current_key(target_env)
-        model_id = "gemini-2.0-flash"
-    elif model in ("glm", "glm2", "glm3"):
+        model_id = resolved_model
+    elif model in ("glm", "glm2", "glm3") or "glm" in resolved_model.lower():
         base_url = os.environ.get("GLM_BASE_URL", "https://api.z.ai/api/paas/v4").rstrip('/')
         keys = parse_env_keys("GLM_API_KEY")
         target_env = "GLM_API_KEY"
@@ -1023,13 +1039,13 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str, str]:
                 api_key = get_current_key(target_env)
         else:
             api_key = ""
-        model_id = "glm-4-flash"
+        model_id = resolved_model
     else:
         env_var_name = "OPENAI_API_KEY"
-        if "silicon" in model.lower():
+        if "silicon" in model.lower() or "silicon" in resolved_model.lower():
             env_var_name = "SILICONFLOW_API_KEY"
             base_url = os.environ.get("SILICONFLOW_BASE_URL", "https://api.siliconflow.com/v1").rstrip('/')
-        elif "anthropic" in model.lower() or "claude" in model.lower():
+        elif "anthropic" in model.lower() or "claude" in model.lower() or "anthropic" in resolved_model.lower():
             env_var_name = "ANTHROPIC_API_KEY"
             base_url = os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1").rstrip('/')
         else:
@@ -1037,7 +1053,7 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str, str]:
             
         target_env = env_var_name
         api_key = get_current_key(target_env)
-        model_id = model
+        model_id = resolved_model
 
     if not api_key:
         target_env = "OPENAI_API_KEY"
