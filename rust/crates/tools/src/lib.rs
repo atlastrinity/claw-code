@@ -26,8 +26,8 @@ pub mod pdf_extract;
 // ─── New modules (extracted from lib.rs) ────────────────────────────────────
 pub(crate) mod util;
 
-pub(crate) mod tool_types;
-pub(crate) use tool_types::*;
+pub mod tool_types;
+pub use tool_types::*;
 
 pub mod registry;
 pub use registry::*;
