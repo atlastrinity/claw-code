@@ -1051,10 +1051,20 @@ def call_narration_llm_chain(system_prompt: str, user_prompt: str) -> str:
     model_setting = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
     
     candidates = []
-    base_url, api_key, model_id, target_env = resolve_narration_api_config(model_setting)
-    if base_url:
-        candidates.append((base_url, api_key, model_id, target_env))
+    
+    # 1. First candidates: All available keys for the strictly configured CLAW_NARRATION_MODEL
+    base_url, primary_key, model_id, target_env = resolve_narration_api_config(model_setting)
+    all_keys = parse_env_keys(target_env) if target_env else []
+    if not all_keys and primary_key:
+        all_keys = [primary_key]
         
+    if base_url and all_keys:
+        for k in all_keys:
+            candidates.append((base_url, k, model_id, target_env))
+    elif base_url:
+        candidates.append((base_url, primary_key, model_id, target_env))
+        
+    # 2. Backup candidates if primary provider keys fail
     openrouter_key = os.environ.get("OPENROUTER_API_KEY") or os.environ.get("OPENAI_API_KEY")
     if openrouter_key and "sk-or-" in openrouter_key:
         candidates.append(("https://openrouter.ai/api/v1", openrouter_key, "meta-llama/llama-3.2-3b-instruct", "OPENROUTER_API_KEY"))
