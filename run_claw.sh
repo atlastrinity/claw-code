@@ -46,6 +46,9 @@ if [ -n "$CLAW_CALLER_CWD" ] && [ -f "$CLAW_CALLER_CWD/.env" ]; then
     set +a
 fi
 
+export CLICOLOR_FORCE="${CLICOLOR_FORCE:-1}"
+export FORCE_COLOR="${FORCE_COLOR:-true}"
+
 # Синхронізуємо конфігурації (settings, CLAW.md, .env, skills) з глобальною папкою перед запуском
 source "${SCRIPT_DIR}/scripts/lib_sync.sh"
 sync_all "$SCRIPT_DIR"
