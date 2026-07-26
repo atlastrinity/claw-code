@@ -139,7 +139,13 @@ pub enum ProviderClient {
 
 impl ProviderClient {
     pub fn from_model(model: &str) -> Result<Self, ApiError> {
-        Self::from_model_with_anthropic_auth(model, None)
+        let resolved = providers::resolve_model_alias(model);
+        let active_index = get_active_key_index(&resolved);
+        if let Ok(client) = Self::from_model_with_key_index(&resolved, active_index) {
+            Ok(client)
+        } else {
+            Self::from_model_with_anthropic_auth(model, None)
+        }
     }
 
     pub fn from_model_with_anthropic_auth(
@@ -422,7 +428,7 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
             let start_index = key_index;
             
             loop {
-                if key_index > 1 || model != &request.model {
+                if key_index != start_index || model != &request.model {
                     eprintln!(
                         "\n⚠️ Switching to model '{}' with API key index {}...",
                         model, key_index
@@ -433,12 +439,7 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                 fallback_request.model = model.clone();
                 fallback_request.inject_taskgraph_description();
                 
-                let client_res = if key_index == 1 && model == &request.model {
-                    match self {
-                        Self::Anthropic(client) => client.send_message(&fallback_request).await,
-                        Self::Xai(client) | Self::OpenAi(client) => client.send_message(&fallback_request).await,
-                    }
-                } else if let Ok(fallback_client) = ProviderClient::from_model_with_key_index(model, key_index) {
+                let client_res = if let Ok(fallback_client) = ProviderClient::from_model_with_key_index(model, key_index) {
                     match fallback_client {
                         ProviderClient::Anthropic(client) => client.send_message(&fallback_request).await,
                         ProviderClient::Xai(client) | ProviderClient::OpenAi(client) => client.send_message(&fallback_request).await,
@@ -509,7 +510,7 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
             let start_index = key_index;
             
             loop {
-                if key_index > 1 || model != &request.model {
+                if key_index != start_index || model != &request.model {
                     eprintln!(
                         "\n⚠️ Switching to model '{}' with API key index {}...",
                         model, key_index
@@ -520,18 +521,7 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                 fallback_request.model = model.clone();
                 fallback_request.inject_taskgraph_description();
                 
-                let client_res = if key_index == 1 && model == &request.model {
-                    match self {
-                        Self::Anthropic(client) => client
-                            .stream_message(&fallback_request)
-                            .await
-                            .map(MessageStream::Anthropic),
-                        Self::Xai(client) | Self::OpenAi(client) => client
-                            .stream_message(&fallback_request)
-                            .await
-                            .map(MessageStream::OpenAiCompat),
-                    }
-                } else if let Ok(fallback_client) = ProviderClient::from_model_with_key_index(model, key_index) {
+                let client_res = if let Ok(fallback_client) = ProviderClient::from_model_with_key_index(model, key_index) {
                     match fallback_client {
                         ProviderClient::Anthropic(client) => client
                             .stream_message(&fallback_request)
