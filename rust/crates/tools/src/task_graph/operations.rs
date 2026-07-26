@@ -112,7 +112,7 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                         if existing.status.as_ref() == Some(&new_status) {
                             continue;
                         }
-                        existing.status = Some(new_status.clone());
+                        existing.status = Some(new_status);
                         updated_count += 1;
                         if new_status == TaskStatus::Completed {
                             cascade_completed.push(node.id.clone());
@@ -128,7 +128,7 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                     } else {
                         None
                     };
-                    let new_status = node.status.clone().unwrap_or(TaskStatus::Pending);
+                    let new_status = node.status.unwrap_or(TaskStatus::Pending);
                     let content = node
                         .content
                         .clone()
@@ -137,7 +137,7 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                         id: node.id.clone(),
                         parent_id: node.parent_id.clone().or(parent_id),
                         content,
-                        status: Some(new_status.clone()),
+                        status: Some(new_status),
                     });
                     updated_count += 1;
                     if new_status == TaskStatus::Completed {

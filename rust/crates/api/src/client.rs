@@ -42,29 +42,31 @@ impl TpmRateLimiter {
     async fn acquire(&self, limit: usize, estimated_tokens: usize) {
         loop {
             let now = Instant::now();
-            let mut lock = match self.window.lock() {
-                Ok(g) => g,
-                Err(_) => return,
+            let wait_duration = {
+                let mut lock = match self.window.lock() {
+                    Ok(g) => g,
+                    Err(_) => return,
+                };
+
+                lock.retain(|(time, _)| now.duration_since(*time) < Duration::from_secs(60));
+
+                let current_tokens: usize = lock.iter().map(|(_, tokens)| tokens).sum();
+
+                if current_tokens + estimated_tokens <= limit {
+                    lock.push((now, estimated_tokens));
+                    return;
+                }
+
+                if let Some(&(first_time, _)) = lock.first() {
+                    let elapsed = now.duration_since(first_time);
+                    Duration::from_secs(60).saturating_sub(elapsed)
+                } else {
+                    lock.push((now, estimated_tokens));
+                    return;
+                }
             };
 
-            lock.retain(|(time, _)| now.duration_since(*time) < Duration::from_secs(60));
-
-            let current_tokens: usize = lock.iter().map(|(_, tokens)| tokens).sum();
-
-            if current_tokens + estimated_tokens <= limit {
-                lock.push((now, estimated_tokens));
-                return;
-            }
-
-            if let Some(&(first_time, _)) = lock.first() {
-                let elapsed = now.duration_since(first_time);
-                let wait_duration = Duration::from_secs(60).saturating_sub(elapsed);
-                drop(lock);
-                tokio::time::sleep(wait_duration).await;
-            } else {
-                lock.push((now, estimated_tokens));
-                return;
-            }
+            tokio::time::sleep(wait_duration).await;
         }
     }
 }
@@ -376,11 +378,9 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                 limit = parsed;
             }
         }
-    } else {
-        if let Ok(val) = std::env::var("CLAW_DEFAULT_TPM_LIMIT") {
-            if let Ok(parsed) = val.parse::<usize>() {
-                limit = parsed;
-            }
+    } else if let Ok(val) = std::env::var("CLAW_DEFAULT_TPM_LIMIT") {
+        if let Ok(parsed) = val.parse::<usize>() {
+            limit = parsed;
         }
     }
 

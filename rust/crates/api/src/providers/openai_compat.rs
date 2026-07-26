@@ -1650,7 +1650,7 @@ fn normalize_object_schema(schema: &mut Value) {
                 });
             }
             if let Some(required) = obj.get("required") {
-                if required.as_array().map_or(false, |a| a.is_empty()) {
+                if required.as_array().is_some_and(|a| a.is_empty()) {
                     obj.remove("required");
                 }
             }

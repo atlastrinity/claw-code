@@ -69,7 +69,7 @@ fn is_not_ignored(entry: &walkdir::DirEntry) -> bool {
     let name = entry.file_name().to_string_lossy();
     // Ignore common large or irrelevant directories
     if entry.file_type().is_dir() {
-        matches!(
+        !matches!(
             name.as_ref(),
             ".git"
             | "target"
@@ -90,7 +90,7 @@ fn is_not_ignored(entry: &walkdir::DirEntry) -> bool {
             | ".omx"
             | "audio_output"
             | "audio_output_test"
-        ) == false
+        )
     } else {
         true
     }
