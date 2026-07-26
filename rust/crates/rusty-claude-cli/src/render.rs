@@ -175,9 +175,22 @@ struct LinkState {
 }
 
 pub fn is_color_enabled() -> bool {
-    std::env::var("CLICOLOR_FORCE").map(|v| v != "0").unwrap_or(false)
-        || std::env::var("FORCE_COLOR").map(|v| v != "0" && v != "false").unwrap_or(false)
-        || (std::io::IsTerminal::is_terminal(&std::io::stdout()) && std::env::var("NO_COLOR").is_err())
+    if let Ok(v) = std::env::var("NO_COLOR") {
+        if v != "0" && v != "false" && !v.is_empty() {
+            return false;
+        }
+    }
+    if let Ok(v) = std::env::var("CLICOLOR_FORCE") {
+        if v == "0" {
+            return false;
+        }
+    }
+    if let Ok(v) = std::env::var("FORCE_COLOR") {
+        if v == "0" || v == "false" {
+            return false;
+        }
+    }
+    true
 }
 
 pub fn color_to_ansi(color: Color) -> &'static str {
