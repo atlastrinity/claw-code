@@ -224,23 +224,44 @@ if [ "$IS_APPLE_DEV" = "true" ]; then
     open -a Xcode
     sleep 3
   fi
-else
-  # Тимчасово відключаємо iOS MCP сервери у .claw.json, якщо вони не використовуються
   TARGET_CLAW_JSON="${CLAW_CALLER_CWD:-.}/.claw.json"
   if [ -f "$TARGET_CLAW_JSON" ]; then
-    echo "🧹 Тимчасове відключення iOS MCP серверів у $TARGET_CLAW_JSON..."
+    echo "🍏 Активація всіх MCP серверів у $TARGET_CLAW_JSON..."
+    "$PYTHON_BIN" -c '
+import json, sys
+try:
+    with open(sys.argv[1], "r") as f:
+        data = json.load(f)
+    avail = data.get("availableMcpServers", {})
+    data["mcpServers"] = dict(avail)
+    with open(sys.argv[1], "w") as f:
+        json.dump(data, f, indent=2)
+except Exception as e:
+    print("Warning: failed to update mcpServers:", e)
+' "$TARGET_CLAW_JSON"
+  fi
+else
+  # Тимчасово відключаємо iOS MCP сервери (xcode-bridge, ios-simulator) у .claw.json, якщо вони не використовуються
+  TARGET_CLAW_JSON="${CLAW_CALLER_CWD:-.}/.claw.json"
+  if [ -f "$TARGET_CLAW_JSON" ]; then
+    echo "🧹 Фільтрація iOS MCP серверів у $TARGET_CLAW_JSON..."
     cp "$TARGET_CLAW_JSON" "$TARGET_CLAW_JSON.bak"
     "$PYTHON_BIN" -c '
 import json, sys
 try:
     with open(sys.argv[1], "r") as f:
         data = json.load(f)
-    if "mcpServers" in data:
-        data["mcpServers"] = {}
+    avail = data.get("availableMcpServers", {})
+    apple_servers = {"xcode-bridge", "ios-simulator"}
+    active = {}
+    for k, v in avail.items():
+        if k not in apple_servers:
+            active[k] = v
+    data["mcpServers"] = active
     with open(sys.argv[1], "w") as f:
         json.dump(data, f, indent=2)
 except Exception as e:
-    print("Warning: failed to strip mcpServers:", e)
+    print("Warning: failed to update mcpServers:", e)
 ' "$TARGET_CLAW_JSON"
   fi
 fi

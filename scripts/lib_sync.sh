@@ -149,6 +149,11 @@ def update_paths(json_path):
     avail = data.get("availableMcpServers", {})
     updated = False
 
+    if not data.get("mcpServers") and avail:
+        data["mcpServers"] = dict(avail)
+        updated = True
+        print(f"  ✅ Populated mcpServers from availableMcpServers in {os.path.basename(json_path)}")
+
     bundles = glob.glob(os.path.expanduser(
         "~/.antigravity-ide/extensions/googlecloudtools.datacloud-*/mcp_servers/cli/mcp_proxy_bundle.js"
     ))
@@ -161,6 +166,11 @@ def update_paths(json_path):
                     args[0] = valid_bundle
                     updated = True
                     print(f"  ✅ Updated {key} path in {os.path.basename(json_path)} → {valid_bundle}")
+            if key in data.get("mcpServers", {}):
+                args = data["mcpServers"][key].get("args", [])
+                if args and args[0] != valid_bundle:
+                    args[0] = valid_bundle
+                    updated = True
 
     if updated:
         with open(json_path, "w") as f:
