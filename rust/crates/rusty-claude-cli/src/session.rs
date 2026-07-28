@@ -429,6 +429,28 @@ pub fn session_clear_backup_path(session_path: &Path) -> PathBuf {
 }
 
 #[allow(clippy::too_many_lines)]
+fn has_uncompleted_task_graph() -> bool {
+    let cwd = match std::env::current_dir() {
+        Ok(path) => path,
+        Err(_) => return false,
+    };
+    let graph_json = cwd.join(".clawd-task-graph.json");
+    if graph_json.exists() {
+        if let Ok(content) = std::fs::read_to_string(&graph_json) {
+            if let Ok(nodes) = serde_json::from_str::<Vec<serde_json::Value>>(&content) {
+                for node in nodes {
+                    if let Some(status) = node.get("status").and_then(|s| s.as_str()) {
+                        if status == "in_progress" || status == "pending" {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
+}
+
 pub fn resume_session(session_path: &Path, commands: &[String], output_format: CliOutputFormat) {
     let session_reference = session_path.display().to_string();
     let (handle, session) = match load_session_reference(&session_reference) {
@@ -467,6 +489,7 @@ pub fn resume_session(session_path: &Path, commands: &[String], output_format: C
     let resolved_path = handle.path.clone();
 
     if commands.is_empty() {
+        let has_pending_tasks = has_uncompleted_task_graph();
         if output_format == CliOutputFormat::Json {
             println!(
                 "{}",
@@ -477,6 +500,7 @@ pub fn resume_session(session_path: &Path, commands: &[String], output_format: C
                     "session_id": session.session_id,
                     "path": handle.path.display().to_string(),
                     "message_count": session.messages.len(),
+                    "has_pending_tasks": has_pending_tasks,
                 })
             );
         } else {
@@ -485,6 +509,9 @@ pub fn resume_session(session_path: &Path, commands: &[String], output_format: C
                 handle.path.display(),
                 session.messages.len()
             );
+            if has_pending_tasks {
+                println!("📋 Active TaskGraph detected with remaining tasks.");
+            }
         }
         return;
     }

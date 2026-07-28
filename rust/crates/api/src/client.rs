@@ -579,8 +579,6 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                 }
             }
             
-            let mut attempt: u32 = 0;
-            
             loop {
                 if key_index != start_index || model != &request.model {
                     eprintln!(
@@ -630,55 +628,59 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                             model, key_index, err
                         );
                         
+                        let status_code = err.status_code().unwrap_or(0);
                         let err_str = format!("{:?}", err);
-                        let is_rate_limit = err.is_rate_limit() 
-                            || err_str.contains("1305") 
-                            || err_str.contains("429")
-                            || err_str.contains("Too Many Requests")
-                            || err_str.contains("overloaded");
-                        
-                        if is_rate_limit {
-                            overload_fail_count += 1;
-                        }
-                        
+                        let is_cooldown_error = crate::cooldown::KeyCooldownTracker::should_trigger_cooldown(&err_str, status_code);
+
                         last_error = Some(err);
-                        
-                        if is_rate_limit {
-                            // All keys exhausted with the same overload/1305 error — 
-                            // this is almost certainly a context overflow, not a rate limit
-                            if overload_fail_count >= total_keys && total_keys > 1 {
-                                eprintln!(
-                                    "\n🚫 All {} API keys for model '{}' returned overload/1305 errors.",
-                                    total_keys, model
-                                );
-                                eprintln!(
-                                    "   📊 Estimated context: ~{} tokens, {} messages.",
-                                    estimated_tokens, msg_count
-                                );
-                                eprintln!(
-                                    "   💡 This is likely a context window overflow, not a rate limit."
-                                );
-                                eprintln!(
-                                    "   💡 Try: /clear to reset conversation, or /compact to reduce context size."
-                                );
-                                break;
-                            }
-                            
-                            attempt += 1;
-                            let backoff_secs = std::cmp::min(2u64.pow(attempt), 16);
-                            eprintln!(
-                                "⏳ Rate limit detected. Pausing for {} seconds before retry...",
-                                backoff_secs
+
+                        if is_cooldown_error {
+                            overload_fail_count += 1;
+                            crate::cooldown::GLOBAL_KEY_COOLDOWN.mark_cooldown(
+                                model,
+                                key_index,
+                                crate::cooldown::DEFAULT_COOLDOWN_DURATION,
                             );
-                            tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
-                            
-                            key_index += 1;
-                            if !Self::has_key_for_index(model, key_index) {
-                                key_index = 1;
+
+                            let (next_key, min_wait) = crate::cooldown::GLOBAL_KEY_COOLDOWN.find_available_key(
+                                model,
+                                total_keys,
+                                key_index + 1,
+                            );
+
+                            if let Some(wait_time) = min_wait {
+                                if overload_fail_count >= total_keys && total_keys > 1 {
+                                    eprintln!(
+                                        "\n🚫 All {} API keys for model '{}' are in cooldown or overloaded.",
+                                        total_keys, model
+                                    );
+                                    eprintln!(
+                                        "   📊 Estimated context: ~{} tokens, {} messages.",
+                                        estimated_tokens, msg_count
+                                    );
+                                    eprintln!(
+                                        "   💡 Try: /clear to reset conversation, or /compact to reduce context size."
+                                    );
+                                    break;
+                                }
+
+                                let wait_secs = std::cmp::min(wait_time.as_secs(), 15).max(2);
+                                eprintln!(
+                                    "⏳ All API keys for '{}' in cooldown. Waiting {}s for key {} to recover...",
+                                    model, wait_secs, next_key
+                                );
+                                tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
+                            } else {
+                                eprintln!(
+                                    "❄️ API key {} placed in 60s cooldown. Switching to available key {}...",
+                                    key_index, next_key
+                                );
                             }
+
+                            key_index = next_key;
                             set_active_key_index(model, key_index);
-                            
-                            if key_index == start_index {
+
+                            if key_index == start_index && min_wait.is_none() {
                                 break;
                             }
                             continue;

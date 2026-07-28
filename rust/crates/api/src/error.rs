@@ -244,6 +244,16 @@ impl ApiError {
     }
 
     #[must_use]
+    pub fn status_code(&self) -> Option<u16> {
+        match self {
+            Self::Api(info) => Some(info.status.as_u16()),
+            Self::Http(err) => err.status().map(|s| s.as_u16()),
+            Self::RetriesExhausted { last_error, .. } => last_error.status_code(),
+            _ => None,
+        }
+    }
+
+    #[must_use]
     pub fn is_context_window_failure(&self) -> bool {
         match self {
             Self::ContextWindowExceeded { .. } => true,
