@@ -156,7 +156,7 @@ if [ $? -eq 0 ] && [ -n "$ALIASES_OUTPUT" ]; then
     echo "============================================================================"
     echo " Натисніть Enter для вибору '$DEFAULT_MODEL' за замовчуванням"
     read -p " Введіть номер основної моделі: " choice
-    if [ -n "$choice" ] && [ -n "${MODEL_KEYS[$choice]}" ]; then
+    if [[ "$choice" =~ ^[0-9]+$ ]] && [ -n "${MODEL_KEYS[$choice]:-}" ]; then
         SELECTED_MODEL="${MODEL_KEYS[$choice]}"
         echo " ✅ Обрано модель: $SELECTED_MODEL"
     else
@@ -168,7 +168,7 @@ if [ $? -eq 0 ] && [ -n "$ALIASES_OUTPUT" ]; then
     echo " Натисніть Enter для вибору '$DEFAULT_NARRATION' за замовчуванням для озвучки"
     read -p " Введіть номер моделі на озвучку: " choice_narration
     SELECTED_NARRATION_MODEL="$DEFAULT_NARRATION"
-    if [ -n "$choice_narration" ] && [ -n "${MODEL_KEYS[$choice_narration]}" ]; then
+    if [[ "$choice_narration" =~ ^[0-9]+$ ]] && [ -n "${MODEL_KEYS[$choice_narration]:-}" ]; then
         SELECTED_NARRATION_MODEL="${MODEL_KEYS[$choice_narration]}"
         echo " ✅ Обрано модель на озвучку: $SELECTED_NARRATION_MODEL"
     else
@@ -180,7 +180,7 @@ if [ $? -eq 0 ] && [ -n "$ALIASES_OUTPUT" ]; then
     echo " Натисніть Enter для вибору '$DEFAULT_GRISHA' за замовчуванням для контролера Гріші"
     read -p " Введіть номер моделі для Гріші: " choice_grisha
     SELECTED_GRISHA_MODEL="$DEFAULT_GRISHA"
-    if [ -n "$choice_grisha" ] && [ -n "${MODEL_KEYS[$choice_grisha]}" ]; then
+    if [[ "$choice_grisha" =~ ^[0-9]+$ ]] && [ -n "${MODEL_KEYS[$choice_grisha]:-}" ]; then
         SELECTED_GRISHA_MODEL="${MODEL_KEYS[$choice_grisha]}"
         echo " ✅ Обрано модель для Гріші: $SELECTED_GRISHA_MODEL"
     else
@@ -223,46 +223,6 @@ if [ "$IS_APPLE_DEV" = "true" ]; then
     echo "🍏 Запуск Xcode (необхідно для xcode-bridge MCP)..."
     open -a Xcode
     sleep 3
-  fi
-  TARGET_CLAW_JSON="${CLAW_CALLER_CWD:-.}/.claw.json"
-  if [ -f "$TARGET_CLAW_JSON" ]; then
-    echo "🍏 Активація всіх MCP серверів у $TARGET_CLAW_JSON..."
-    "$PYTHON_BIN" -c '
-import json, sys
-try:
-    with open(sys.argv[1], "r") as f:
-        data = json.load(f)
-    avail = data.get("availableMcpServers", {})
-    data["mcpServers"] = dict(avail)
-    with open(sys.argv[1], "w") as f:
-        json.dump(data, f, indent=2)
-except Exception as e:
-    print("Warning: failed to update mcpServers:", e)
-' "$TARGET_CLAW_JSON"
-  fi
-else
-  # Тимчасово відключаємо iOS MCP сервери (xcode-bridge, ios-simulator) у .claw.json, якщо вони не використовуються
-  TARGET_CLAW_JSON="${CLAW_CALLER_CWD:-.}/.claw.json"
-  if [ -f "$TARGET_CLAW_JSON" ]; then
-    echo "🧹 Фільтрація iOS MCP серверів у $TARGET_CLAW_JSON..."
-    cp "$TARGET_CLAW_JSON" "$TARGET_CLAW_JSON.bak"
-    "$PYTHON_BIN" -c '
-import json, sys
-try:
-    with open(sys.argv[1], "r") as f:
-        data = json.load(f)
-    avail = data.get("availableMcpServers", {})
-    apple_servers = {"xcode-bridge", "ios-simulator"}
-    active = {}
-    for k, v in avail.items():
-        if k not in apple_servers:
-            active[k] = v
-    data["mcpServers"] = active
-    with open(sys.argv[1], "w") as f:
-        json.dump(data, f, indent=2)
-except Exception as e:
-    print("Warning: failed to update mcpServers:", e)
-' "$TARGET_CLAW_JSON"
   fi
 fi
 

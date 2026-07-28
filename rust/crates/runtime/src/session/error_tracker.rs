@@ -233,19 +233,7 @@ impl ErrorTracker {
 
         let solution_summary = truncate(output, 1024);
 
-        let safe_tool = tool_name.to_lowercase().replace(' ', "-");
-        let safe_category: String = category
-            .chars()
-            .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
-            .take(30)
-            .collect();
-
-        let raw_name = format!("autolearn-{safe_tool}-{safe_category}");
-        let name = if raw_name.len() > 50 {
-            raw_name[..50].trim_end_matches('-').to_string()
-        } else {
-            raw_name
-        };
+        let name = make_dynamic_skill_name(tool_name, &category);
 
         let temp_dir = temp_skills_dir();
         let skill_dir = temp_dir.join(&name);
@@ -342,11 +330,7 @@ impl ErrorTracker {
         }
 
         // 2. Check persisted skills from omc-learned/ (cross-session memory).
-        let expected_name = format!(
-            "autolearn-{}-{}",
-            tool_name.to_lowercase().replace(' ', "-"),
-            &category,
-        );
+        let expected_name = make_dynamic_skill_name(tool_name, &category);
         let persisted_path = learned_skills_dir().join(&expected_name).join("SKILL.md");
         if persisted_path.is_file() {
             if let Ok(content) = std::fs::read_to_string(&persisted_path) {
@@ -420,6 +404,23 @@ fn extract_solution_from_skill_md(content: &str) -> String {
             .unwrap_or_else(|| content.to_string())
     } else {
         result
+    }
+}
+
+/// Helper function to construct a consistent dynamic skill name from tool_name and category.
+pub(crate) fn make_dynamic_skill_name(tool_name: &str, category: &str) -> String {
+    let safe_tool = tool_name.to_lowercase().replace(' ', "-");
+    let safe_category: String = category
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
+        .take(30)
+        .collect();
+
+    let raw_name = format!("autolearn-{safe_tool}-{safe_category}");
+    if raw_name.len() > 50 {
+        raw_name[..50].trim_end_matches('-').to_string()
+    } else {
+        raw_name
     }
 }
 
@@ -812,5 +813,16 @@ mod tests {
         let truncated = super::truncate(&long_input, 1024);
         assert!(truncated.ends_with('…'));
         assert_eq!(truncated.chars().count(), 1025); // 1024 + 1 for '…'
+    }
+
+    #[test]
+    fn make_dynamic_skill_name_consistency() {
+        let name1 = super::make_dynamic_skill_name("bash", "PermissionDenied");
+        assert_eq!(name1, "autolearn-bash-permissiondenied");
+
+        let name2 = super::make_dynamic_skill_name("MCP Tool", "Special chars in category & % #!");
+        assert!(name2.starts_with("autolearn-mcp-tool-"));
+        assert!(!name2.contains('%'));
+        assert!(name2.len() <= 50);
     }
 }

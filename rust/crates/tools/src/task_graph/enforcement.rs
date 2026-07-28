@@ -230,6 +230,28 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
         ));
     }
 
+fn extract_all_strings(val: &Value, out: &mut String) {
+    match val {
+        Value::String(s) => {
+            out.push(' ');
+            out.push_str(s);
+        }
+        Value::Array(arr) => {
+            for item in arr {
+                extract_all_strings(item, out);
+            }
+        }
+        Value::Object(obj) => {
+            for (k, v) in obj {
+                if k != "active_task_id" {
+                    extract_all_strings(v, out);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 fn extract_meaningful_words(text: &str) -> HashSet<String> {
     const STOP_WORDS: &[&str] = &[
         "a", "an", "the", "and", "or", "but", "if", "then", "else", "when", "at", "by", "for",
@@ -288,18 +310,9 @@ fn extract_meaningful_words(text: &str) -> HashSet<String> {
                 }
             }
 
-            // Extract input text from tool parameters
+            // Extract input text from tool parameters (recursively handling objects and arrays)
             let mut input_text = String::new();
-            if let Some(obj) = input.as_object() {
-                for (k, v) in obj {
-                    if k != "active_task_id" {
-                        if let Some(s) = v.as_str() {
-                            input_text.push(' ');
-                            input_text.push_str(s);
-                        }
-                    }
-                }
-            }
+            extract_all_strings(input, &mut input_text);
 
             let task_words = extract_meaningful_words(&task_text);
             let input_words = extract_meaningful_words(&input_text);

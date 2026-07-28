@@ -186,25 +186,18 @@ for path in valid_paths:
                 updated = True
         data["availableMcpServers"] = avail
 
-        # Dynamically pull/sync missing servers from availableMcpServers into mcpServers
+        # Sync proxy bundle paths in mcpServers and availableMcpServers
         mcp = data.get("mcpServers")
         if not isinstance(mcp, dict):
             mcp = {}
-            updated = True
-        
-        for k, v in avail.items():
-            if k not in mcp:
-                mcp[k] = v
-                updated = True
-            elif valid_bundle and k in ["notebooks", "visualization"]:
-                args = mcp[k].get("args", [])
-                if args and args[0] != valid_bundle:
-                    args[0] = valid_bundle
-                    updated = True
 
-        # Update proxy bundle paths in availableMcpServers as well
         if valid_bundle:
             for key in ["notebooks", "visualization"]:
+                if key in mcp and isinstance(mcp[key], dict):
+                    args = mcp[key].get("args", [])
+                    if args and args[0] != valid_bundle:
+                        args[0] = valid_bundle
+                        updated = True
                 if key in avail and isinstance(avail[key], dict):
                     args = avail[key].get("args", [])
                     if args and args[0] != valid_bundle:
