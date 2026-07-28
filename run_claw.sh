@@ -200,31 +200,10 @@ else
 fi
 echo ""
 
-# 1.5 Перевірка наявності iOS-компонентів для автозапуску Xcode
 FORWARD_ARGS=()
 for arg in "$@"; do
   FORWARD_ARGS+=("$arg")
 done
-
-# Якщо є згадки Xcode/iOS в аргументах або відповідні файли в проекті, запускаємо Xcode
-IS_APPLE_DEV="false"
-if find "${CLAW_CALLER_CWD:-.}" -maxdepth 1 \( -name "*.xcodeproj" -o -name "*.xcworkspace" -o -name "Podfile" \) -print -quit | grep -q .; then
-  IS_APPLE_DEV="true"
-fi
-for arg in "${FORWARD_ARGS[@]}"; do
-  if echo "$arg" | grep -iqE "ios|xcode|swift|swiftui|cocoapods|podfile|simulator|watchos|tvos|macos|iphonesimulator"; then
-    IS_APPLE_DEV="true"
-    break
-  fi
-done
-
-if [ "$IS_APPLE_DEV" = "true" ]; then
-  if ! pgrep -q -x "Xcode"; then
-    echo "🍏 Запуск Xcode (необхідно для xcode-bridge MCP)..."
-    open -a Xcode
-    sleep 3
-  fi
-fi
 
 # Повертаємося до директорії запуску перед стартом сервісів та клієнта
 cd "${CLAW_CALLER_CWD:-.}"
