@@ -53,12 +53,70 @@ pub fn parse_task_md_to_nodes(content: &str) -> Vec<TaskNode> {
     nodes
 }
 
+pub fn normalize_single_active_leaf(nodes: &mut [TaskNode]) {
+    // Find all leaf nodes currently set to InProgress
+    let leaf_in_progress_indices: Vec<usize> = nodes
+        .iter()
+        .enumerate()
+        .filter(|(_, n)| {
+            n.status == Some(TaskStatus::InProgress) && {
+                let id = &n.id;
+                !nodes.iter().any(|other| other.parent_id.as_deref() == Some(id))
+            }
+        })
+        .map(|(idx, _)| idx)
+        .collect();
+
+    // If more than 1 leaf node is marked InProgress, keep only the latest/deepest one active
+    if leaf_in_progress_indices.len() > 1 {
+        let active_index = *leaf_in_progress_indices.last().unwrap();
+        for &idx in &leaf_in_progress_indices {
+            if idx != active_index {
+                nodes[idx].status = Some(TaskStatus::Pending);
+            }
+        }
+    }
+}
+
+pub fn create_task_checkpoint(store_path: &PathBuf, completed_nodes: &[TaskNode]) {
+    if completed_nodes.is_empty() { return; }
+    let Some(parent) = store_path.parent() else { return; };
+    let checkpoints_dir = parent.join(".claw").join("checkpoints");
+    let _ = std::fs::create_dir_all(&checkpoints_dir);
+
+    for node in completed_nodes {
+        let checkpoint_file = checkpoints_dir.join(format!("task_{}.json", node.id.replace('.', "_")));
+        let snapshot = serde_json::json!({
+            "task_id": node.id,
+            "content": node.content,
+            "status": "completed",
+            "timestamp_secs": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        });
+        if let Ok(json) = serde_json::to_string_pretty(&snapshot) {
+            let _ = std::fs::write(checkpoint_file, json);
+        }
+    }
+}
+
 pub fn save_task_graph_output(
     store_path: &PathBuf,
     current_nodes: &[TaskNode],
     updated_count: usize,
     alert: Option<String>,
 ) -> Result<TaskGraphOutput, String> {
+    let mut mutable_nodes = current_nodes.to_vec();
+    normalize_single_active_leaf(&mut mutable_nodes);
+
+    let completed_nodes: Vec<TaskNode> = mutable_nodes
+        .iter()
+        .filter(|n| n.status == Some(TaskStatus::Completed))
+        .cloned()
+        .collect();
+    create_task_checkpoint(store_path, &completed_nodes);
+
     if let Some(parent) = store_path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
 
@@ -80,7 +138,7 @@ pub fn save_task_graph_output(
 "#,
         );
 
-        for node in current_nodes {
+        for node in &mutable_nodes {
             let depth = node.id.split('.').count().saturating_sub(1);
             let checkbox = match node.status {
                 Some(TaskStatus::Completed) => "[x]",
@@ -103,7 +161,7 @@ pub fn save_task_graph_output(
 
     std::fs::write(
         store_path,
-        serde_json::to_string_pretty(current_nodes).map_err(|error| error.to_string())?,
+        serde_json::to_string_pretty(&mutable_nodes).map_err(|error| error.to_string())?,
     )
     .map_err(|error| error.to_string())?;
 

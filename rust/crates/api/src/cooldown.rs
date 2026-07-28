@@ -21,16 +21,70 @@ impl Default for KeyCooldownTracker {
 
 impl KeyCooldownTracker {
     pub fn new() -> Self {
+        let tracker = Self {
+            cooldowns: Arc::new(RwLock::new(HashMap::new())),
+        };
+        tracker.load_from_disk();
+        tracker
+    }
+
+    pub fn new_empty() -> Self {
         Self {
             cooldowns: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    fn get_persistence_path() -> Option<std::path::PathBuf> {
+        let home = std::env::var_os("HOME").map(std::path::PathBuf::from)?;
+        Some(home.join(".claw").join("cooldowns.json"))
+    }
+
+    fn save_to_disk(&self) {
+        let Some(path) = Self::get_persistence_path() else { return; };
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let now = Instant::now();
+        let map = self.cooldowns.read().unwrap_or_else(|e| e.into_inner());
+        let entries: Vec<(String, usize, u64)> = map
+            .iter()
+            .filter_map(|((model, key_idx), &until)| {
+                if until > now {
+                    Some((model.clone(), *key_idx, (until - now).as_secs()))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        if let Ok(json) = serde_json::to_string(&entries) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+
+    fn load_from_disk(&self) {
+        let Some(path) = Self::get_persistence_path() else { return; };
+        if !path.exists() { return; }
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(entries) = serde_json::from_str::<Vec<(String, usize, u64)>>(&content) {
+                let now = Instant::now();
+                let mut map = self.cooldowns.write().unwrap_or_else(|e| e.into_inner());
+                for (model, key_idx, remaining_secs) in entries {
+                    if remaining_secs > 0 {
+                        map.insert((model, key_idx), now + Duration::from_secs(remaining_secs));
+                    }
+                }
+            }
         }
     }
 
     /// Mark a key for a model as cooling down for a given duration.
     pub fn mark_cooldown(&self, model: &str, key_index: usize, duration: Duration) {
         let until = Instant::now() + duration;
-        let mut map = self.cooldowns.write().unwrap_or_else(|e| e.into_inner());
-        map.insert((model.to_string(), key_index), until);
+        {
+            let mut map = self.cooldowns.write().unwrap_or_else(|e| e.into_inner());
+            map.insert((model.to_string(), key_index), until);
+        }
+        self.save_to_disk();
         eprintln!(
             "❄️ API key index {} for model '{}' marked in {}s cooldown",
             key_index, model, duration.as_secs()
@@ -121,25 +175,25 @@ mod tests {
 
     #[test]
     fn test_key_cooldown_lifecycle() {
-        let tracker = KeyCooldownTracker::new();
-        assert!(!tracker.is_in_cooldown("glm-4.7-flash", 1));
+        let tracker = KeyCooldownTracker::new_empty();
+        assert!(!tracker.is_in_cooldown("glm-4.7-flash-test", 1));
 
-        tracker.mark_cooldown("glm-4.7-flash", 1, Duration::from_secs(10));
-        assert!(tracker.is_in_cooldown("glm-4.7-flash", 1));
-        assert!(!tracker.is_in_cooldown("glm-4.7-flash", 2));
+        tracker.mark_cooldown("glm-4.7-flash-test", 1, Duration::from_secs(10));
+        assert!(tracker.is_in_cooldown("glm-4.7-flash-test", 1));
+        assert!(!tracker.is_in_cooldown("glm-4.7-flash-test", 2));
 
-        let (best, wait) = tracker.find_available_key("glm-4.7-flash", 2, 1);
+        let (best, wait) = tracker.find_available_key("glm-4.7-flash-test", 2, 1);
         assert_eq!(best, 2);
         assert!(wait.is_none());
     }
 
     #[test]
     fn test_all_keys_in_cooldown_returns_min_wait() {
-        let tracker = KeyCooldownTracker::new();
-        tracker.mark_cooldown("glm-4.7-flash", 1, Duration::from_secs(30));
-        tracker.mark_cooldown("glm-4.7-flash", 2, Duration::from_secs(10));
+        let tracker = KeyCooldownTracker::new_empty();
+        tracker.mark_cooldown("glm-4.7-flash-test", 1, Duration::from_secs(30));
+        tracker.mark_cooldown("glm-4.7-flash-test", 2, Duration::from_secs(10));
 
-        let (best, wait) = tracker.find_available_key("glm-4.7-flash", 2, 1);
+        let (best, wait) = tracker.find_available_key("glm-4.7-flash-test", 2, 1);
         assert_eq!(best, 2);
         assert!(wait.is_some());
         assert!(wait.unwrap().as_secs() <= 10);

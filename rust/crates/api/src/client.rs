@@ -558,7 +558,7 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
             estimated_tokens, msg_count
         );
         
-        let models_to_try = vec![request.model.clone()];
+        let models_to_try = build_fallback_model_cascade(&request.model);
         
         let mut last_error = None;
         for model in &models_to_try {
@@ -842,4 +842,40 @@ mod tests {
             other => panic!("Expected ProviderClient::OpenAi for local model, got: {other:?}"),
         }
     }
+
+    #[test]
+    fn test_fallback_model_cascade_generation() {
+        let cascade_glm = super::build_fallback_model_cascade("glm-4.7-flash");
+        assert!(cascade_glm.len() >= 2);
+        assert_eq!(cascade_glm[0], "glm-4.7-flash");
+        assert!(cascade_glm.contains(&"gemini-3.1-flash-lite".to_string()));
+
+        let cascade_gemini = super::build_fallback_model_cascade("gemini-3.5-flash");
+        assert!(cascade_gemini.contains(&"glm-4.7-flash".to_string()));
+    }
+}
+
+pub fn build_fallback_model_cascade(primary_model: &str) -> Vec<String> {
+    let mut cascade = vec![primary_model.to_string()];
+    let lower = primary_model.to_lowercase();
+    if lower.contains("glm") || lower.contains("zhipu") {
+        if !cascade.contains(&"gemini-3.1-flash-lite".to_string()) {
+            cascade.push("gemini-3.1-flash-lite".to_string());
+        }
+        if !cascade.contains(&"quick".to_string()) {
+            cascade.push("quick".to_string());
+        }
+    } else if lower.contains("gemini") {
+        if !cascade.contains(&"glm-4.7-flash".to_string()) {
+            cascade.push("glm-4.7-flash".to_string());
+        }
+        if !cascade.contains(&"quick".to_string()) {
+            cascade.push("quick".to_string());
+        }
+    } else {
+        if !cascade.contains(&"gemini-3.1-flash-lite".to_string()) {
+            cascade.push("gemini-3.1-flash-lite".to_string());
+        }
+    }
+    cascade
 }

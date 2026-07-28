@@ -358,3 +358,47 @@ fn extract_meaningful_words(text: &str) -> HashSet<String> {
 
     Ok(())
 }
+
+pub fn auto_create_recovery_subtask(failed_tool: &str, error_msg: &str) -> Result<(), String> {
+    let store_path = task_graph_store_path()?;
+    if !store_path.exists() {
+        return Ok(());
+    }
+
+    let content = std::fs::read_to_string(&store_path).map_err(|e| e.to_string())?;
+    let mut nodes: Vec<TaskNode> = serde_json::from_str(&content).map_err(|e| e.to_string())?;
+
+    // Find current active leaf in_progress node
+    let active_leaf_idx = nodes.iter().position(|n| {
+        n.status == Some(TaskStatus::InProgress) && {
+            let id = &n.id;
+            !nodes.iter().any(|other| other.parent_id.as_deref() == Some(id))
+        }
+    });
+
+    let Some(leaf_idx) = active_leaf_idx else { return Ok(()); };
+    let parent_id = nodes[leaf_idx].id.clone();
+
+    // Count existing children under parent_id
+    let child_count = nodes.iter().filter(|n| n.parent_id.as_deref() == Some(&parent_id)).count();
+    let new_child_id = format!("{}.{}", parent_id, child_count + 1);
+
+    let clean_error_summary = error_msg
+        .lines()
+        .next()
+        .unwrap_or(error_msg)
+        .chars()
+        .take(80)
+        .collect::<String>();
+
+    let new_node = TaskNode {
+        id: new_child_id.clone(),
+        parent_id: Some(parent_id),
+        content: Some(format!("Fix execution error in {}: {}", failed_tool, clean_error_summary)),
+        status: Some(TaskStatus::InProgress),
+    };
+
+    nodes.push(new_node);
+    crate::task_graph::store::save_task_graph_output(&store_path, &nodes, 1, Some(format!("Auto-recovery subtask {} added", new_child_id)))?;
+    Ok(())
+}
