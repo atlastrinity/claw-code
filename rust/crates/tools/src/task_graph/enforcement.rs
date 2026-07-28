@@ -204,13 +204,20 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
         format!("Error: TaskGraph is in an inconsistent state. Please resolve task graph validation errors using the TaskGraph tool before executing this action. Validation error: {}", err)
     })?;
 
-    // If all tasks in the graph are Completed or Failed, the task graph plan is finished — allow execution
+    // If all tasks in the graph are Completed or Failed, strict enforcement requires adding a new task before executing mutating actions
     let all_completed = !nodes.is_empty()
         && nodes.iter().all(|node| {
             node.status == Some(TaskStatus::Completed) || node.status == Some(TaskStatus::Failed)
         });
     if all_completed {
-        return Ok(());
+        return Err(
+            "Error: Strict TaskGraph Enforcement. All existing tasks in your task.md are marked as 'completed' (or 'failed').\n\
+             You CANNOT execute mutating actions when no task is 'in_progress'.\n\
+             If you have additional work or actions to perform, you MUST:\n\
+             1. Call `TaskGraph` with `operation: \"add\"` to add a new task node.\n\
+             2. Mark that new task as `in_progress` using `operation: \"update_status\"`.\n\
+             3. Only THEN execute your mutating action.".to_string()
+        );
     }
 
     // Check if there is at least one task in progress
