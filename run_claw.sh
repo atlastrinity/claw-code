@@ -274,6 +274,7 @@ export RAG_BASE_URL="${RAG_BASE_URL:-http://127.0.0.1:8787}"
 echo "🚀 Запуск claw-rag-service у фоні..."
 "$HOME/.claw/bin/claw-rag-service" serve >> "$HOME/.claw/logs/claw-rag-startup.err" 2>&1 &
 RAG_PID=$!
+disown $RAG_PID 2>/dev/null || true
 sleep 1
 if ! kill -0 $RAG_PID 2>/dev/null; then
   echo "❌ УВАГА: claw-rag-service відразу завершився помилкою! Див. ~/.claw/logs/claw-rag-startup.err"
@@ -286,6 +287,7 @@ if [ "${CLAW_TTS:-true}" != "false" ] && [ "${CLAW_VOICE_NARRATOR:-true}" != "fa
   mkdir -p "$HOME/.claw/logs"
   "$PYTHON_BIN" "${SCRIPT_DIR}/scripts/claw_voice_narrator.py" --tail >> "$HOME/.claw/logs/voice-narrator.log" 2>&1 &
   NARRATOR_PID=$!
+  disown $NARRATOR_PID 2>/dev/null || true
 else
   echo "🔇 Озвучку CLAW Voice Narrator відключено через змінні оточення (CLAW_TTS=false / CLAW_VOICE_NARRATOR=false)."
 fi
@@ -293,18 +295,23 @@ fi
 # 5. Налаштовуємо автоматичне очищення при виході з claw
 cleanup() {
   echo "🛑 Зупинка claw-rag-service та Voice Narrator..."
-  kill $RAG_PID 2>/dev/null
-  [ -n "$NARRATOR_PID" ] && kill $NARRATOR_PID 2>/dev/null
+  {
+    if [ -n "$RAG_PID" ]; then
+      kill "$RAG_PID" 2>/dev/null || true
+    fi
+    if [ -n "$NARRATOR_PID" ]; then
+      kill "$NARRATOR_PID" 2>/dev/null || true
+    fi
+    pkill -f "claw-rag-service" 2>/dev/null || true
+    pkill -f "claw_voice_narrator.py" 2>/dev/null || true
+    pkill -f "afplay" 2>/dev/null || true
+    rm -f ~/.claw/narration.lock ~/.claw/voice_narrator.pid 2>/dev/null || true
+  } 2>/dev/null
 
-  # Зупинка озвучки якщо працює
-  pkill -f "claw_voice_narrator.py" 2>/dev/null
-  pkill -f "afplay" 2>/dev/null
-  rm -f ~/.claw/narration.lock ~/.claw/voice_narrator.pid
-  
   TARGET_CLAW_JSON="${CLAW_CALLER_CWD:-.}/.claw.json"
   if [ -f "$TARGET_CLAW_JSON.bak" ]; then
     echo "🔄 Відновлення оригінального .claw.json..."
-    mv "$TARGET_CLAW_JSON.bak" "$TARGET_CLAW_JSON"
+    mv "$TARGET_CLAW_JSON.bak" "$TARGET_CLAW_JSON" 2>/dev/null || true
   fi
 }
 trap cleanup EXIT

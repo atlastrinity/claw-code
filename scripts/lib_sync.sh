@@ -116,6 +116,9 @@ sync_all() {
             "${GLOBAL_CLAW_DIR}/skills/" "${project_root}/.claw/skills/"
         echo -e "  ${_LS_GREEN}↔${_LS_NC} skills: bidirectional sync complete"
     fi
+
+    # Dynamically pull and sync MCP servers across global and local settings
+    update_mcp_paths "${project_root}/.claw.json" "$GLOBAL_SETTINGS" "${CLAW_CALLER_CWD:-.}/.claw.json"
 }
 
 # ---------------------------------------------------------------------------
@@ -135,49 +138,87 @@ update_mcp_paths() {
         if [ -n "${SCRIPT_DIR:-}" ] && [ -f "${SCRIPT_DIR}/.claw.json" ]; then
             json_paths+=("${SCRIPT_DIR}/.claw.json")
         fi
+        if [ -n "${CLAW_CALLER_CWD:-}" ] && [ -f "${CLAW_CALLER_CWD}/.claw.json" ]; then
+            json_paths+=("${CLAW_CALLER_CWD}/.claw.json")
+        fi
     fi
 
     python3 -c '
 import json, os, glob, sys
 
-def update_paths(json_path):
-    if not os.path.exists(json_path):
-        return
-    with open(json_path, "r") as f:
-        data = json.load(f)
+paths = [p for p in sys.argv[1:] if p]
+all_avail = {}
+valid_paths = [p for p in paths if os.path.exists(p)]
 
-    avail = data.get("availableMcpServers", {})
-    updated = False
+# 1. Accumulate availableMcpServers across all configs
+for path in valid_paths:
+    try:
+        with open(path, "r") as f:
+            d = json.load(f)
+        avail = d.get("availableMcpServers", {})
+        if isinstance(avail, dict):
+            for k, v in avail.items():
+                if k not in all_avail:
+                    all_avail[k] = v
+    except Exception:
+        pass
 
-    if not data.get("mcpServers") and avail:
-        data["mcpServers"] = dict(avail)
-        updated = True
-        print(f"  ✅ Populated mcpServers from availableMcpServers in {os.path.basename(json_path)}")
+# Find proxy bundle path if available
+bundles = glob.glob(os.path.expanduser(
+    "~/.antigravity-ide/extensions/googlecloudtools.datacloud-*/mcp_servers/cli/mcp_proxy_bundle.js"
+))
+valid_bundle = sorted(bundles)[-1] if bundles else None
 
-    bundles = glob.glob(os.path.expanduser(
-        "~/.antigravity-ide/extensions/googlecloudtools.datacloud-*/mcp_servers/cli/mcp_proxy_bundle.js"
-    ))
-    if bundles:
-        valid_bundle = sorted(bundles)[-1]
-        for key in ["notebooks", "visualization"]:
-            if key in avail:
-                args = avail[key].get("args", [])
+# 2. Update each file with merged availableMcpServers and sync mcpServers
+for path in valid_paths:
+    try:
+        with open(path, "r") as f:
+            data = json.load(f)
+        updated = False
+        
+        # Merge availableMcpServers
+        avail = data.get("availableMcpServers", {})
+        if not isinstance(avail, dict):
+            avail = {}
+        for k, v in all_avail.items():
+            if k not in avail:
+                avail[k] = v
+                updated = True
+        data["availableMcpServers"] = avail
+
+        # Dynamically pull/sync missing servers from availableMcpServers into mcpServers
+        mcp = data.get("mcpServers")
+        if not isinstance(mcp, dict):
+            mcp = {}
+            updated = True
+        
+        for k, v in avail.items():
+            if k not in mcp:
+                mcp[k] = v
+                updated = True
+            elif valid_bundle and k in ["notebooks", "visualization"]:
+                args = mcp[k].get("args", [])
                 if args and args[0] != valid_bundle:
                     args[0] = valid_bundle
                     updated = True
-                    print(f"  ✅ Updated {key} path in {os.path.basename(json_path)} → {valid_bundle}")
-            if key in data.get("mcpServers", {}):
-                args = data["mcpServers"][key].get("args", [])
-                if args and args[0] != valid_bundle:
-                    args[0] = valid_bundle
-                    updated = True
 
-    if updated:
-        with open(json_path, "w") as f:
-            json.dump(data, f, indent=2)
+        # Update proxy bundle paths in availableMcpServers as well
+        if valid_bundle:
+            for key in ["notebooks", "visualization"]:
+                if key in avail and isinstance(avail[key], dict):
+                    args = avail[key].get("args", [])
+                    if args and args[0] != valid_bundle:
+                        args[0] = valid_bundle
+                        updated = True
+        
+        data["mcpServers"] = mcp
 
-for path in sys.argv[1:]:
-    update_paths(path)
+        if updated:
+            with open(path, "w") as f:
+                json.dump(data, f, indent=2)
+            print(f"  ✅ Dynamically synced MCP servers in {os.path.basename(path)}")
+    except Exception as e:
+        print(f"  ⚠️ Error syncing MCP servers in {path}: {e}")
 ' "${json_paths[@]}"
 }
 
