@@ -279,27 +279,13 @@ trap cleanup EXIT
 # 5. Запускаємо основний клієнт claw у циклі захисту
 echo "🚀 Запуск основного клієнта Claw ($SELECTED_MODEL)..."
 
-# Перевіряємо, чи є вже існуючі сесії, щоб продовжити останню
-SESSIONS_DIR="${CLAW_CALLER_CWD:-.}/.claw/sessions"
-if [ "$CLAW_NEW_SESSION" != "true" ] && [ -d "$SESSIONS_DIR" ] && [ "$(find "$SESSIONS_DIR" -name "*.jsonl" 2>/dev/null | wc -l)" -gt 0 ]; then
-  echo "🔄 Знайдено попередню сесію. Продовжуємо роботу з останнього місця..."
-  RESUME_ARGS="--resume latest"
-else
-  if [ "$CLAW_NEW_SESSION" = "true" ]; then
-    echo "🌱 Запуск нової сесії основного клієнта Claw ($SELECTED_MODEL) з авто-відновленням..."
-  else
-    echo "🌱 Попередніх сесій не знайдено. Запускаємо нову сесію..."
-  fi
-  RESUME_ARGS=""
-fi
-
 while true; do
   "$HOME/.claw/bin/claw" \
     --model "$SELECTED_MODEL" \
     --permission-mode danger-full-access \
     --skip-permissions \
     --accept-danger-non-interactive \
-    $RESUME_ARGS "${FORWARD_ARGS[@]}"
+    "${FORWARD_ARGS[@]}"
     
   EXIT_CODE=$?
   
@@ -312,6 +298,5 @@ while true; do
   fi
   
   echo "⚠️ Agent exited with error or timeout (Code $EXIT_CODE). Auto-restarting in 3 seconds..."
-  RESUME_ARGS="--resume latest"
   sleep 3
 done
