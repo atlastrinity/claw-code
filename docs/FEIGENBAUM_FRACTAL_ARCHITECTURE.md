@@ -4,12 +4,13 @@
 
 The **Feigenbaum Fractal Architecture** applies the universal period-doubling bifurcation constant ($\delta \approx 4.6692016091029907$) and orbit scaling constant ($\alpha \approx 2.5029078750958928$) to key subsystems of the `claw` runtime:
 
-1. **Self-Similar Task Graph (`FractalTaskGraph`)**: Governs task decomposition budgets, depth decay, and chaos-threshold termination.
-2. **Asymmetric Sibling Weighting ($\alpha$-scaling)**: Allocates non-uniform resources to asymmetric child tasks using $\alpha^{-i}$ weighting.
-3. **Bifurcation Telemetry & ASCII Visualizer (`telemetry.rs`)**: Generates real-time metrics and rich ASCII tree diagrams of fractal execution trees.
-4. **Adaptive Rate Limiter (`FractalRateLimiter`)**: Escalates request pauses, timeouts, and TPM limits using $\delta^L$ scaling with circuit-breaker protection.
-5. **Inverted Model Cascade (`ModelCascade`)**: Automatically assigns tasks to model tiers based on depth and rate-limiter pressure.
-6. **Geometric Session Compaction (`fractal_compact_messages`)**: Thins conversation transcripts using $\delta$-spaced geometric sampling to preserve long-term history without memory inflation.
+1. **Self-Similar Task Graph (`FractalTaskGraph`)**: Governs task decomposition budgets, depth decay, dynamic chaos boundaries, and termination.
+2. **Dynamic Chaos Boundary (`dynamic_max_depth`)**: Dynamically scales depth bounds up to 6 levels for large enterprise budgets (>10,000 tokens).
+3. **Asymmetric Sibling Weighting ($\alpha$-scaling)**: Allocates non-uniform resources to asymmetric child tasks using $\alpha^{-i}$ weighting.
+4. **Bifurcation Telemetry & ASCII Visualizer (`telemetry.rs`)**: Generates real-time metrics and rich ASCII tree diagrams of fractal execution trees.
+5. **Adaptive Rate Limiter with Stochastic Alpha-Jitter (`FractalRateLimiter`)**: Escalates request pauses, timeouts, and TPM limits using $\delta^L$ scaling, $\pm \frac{\text{jitter}}{\alpha}$ thundering-herd protection, and circuit-breaker safety.
+6. **Inverted Model Cascade (`ModelCascade`)**: Automatically assigns tasks to model tiers based on depth and rate-limiter pressure.
+7. **Geometric Session Compaction (`fractal_compact_messages`)**: Thins conversation transcripts using $\delta$-spaced geometric sampling to preserve long-term history without memory inflation.
 
 ---
 
@@ -20,10 +21,10 @@ The architecture is implemented in pure Rust under `rust/crates/runtime/src/frac
 ```text
 rust/crates/runtime/src/fractal/
 ├── mod.rs             # Public module re-exports
-├── constants.rs       # Feigenbaum constants (δ, α), budget decay, α-asymmetric weighting
+├── constants.rs       # Feigenbaum constants (δ, α), budget decay, dynamic depth, α-asymmetric weighting
 ├── task_graph.rs      # FractalTaskNode, FractalTaskGraph with .clawd-task-graph.json compatibility
 ├── telemetry.rs       # BifurcationTelemetryReport and ASCII tree renderer
-├── rate_limiter.rs    # FractalRateLimiter (δ-backoff, hysteresis recovery, circuit breaker)
+├── rate_limiter.rs    # FractalRateLimiter (δ-backoff, stochastic α-jitter, hysteresis, circuit breaker)
 ├── model_cascade.rs   # ModelTier, default_cascade(), select_model_for_depth()
 ├── compact.rs         # Geometric fractal transcript compaction
 └── tests.rs           # Pure Rust unit test suite
@@ -74,14 +75,20 @@ pub fn asymmetric_sibling_weight(sibling_idx: usize, total_siblings: usize) -> f
 }
 ```
 
-#### Chaos Boundary Detection
+#### Dynamic Chaos Boundary Scaling
 
-A task node is considered **atomic** when its fractional budget falls below 1% of the total budget:
+For large enterprise task budgets ($B_0 > 10,000$), maximum depth dynamically scales up to 6 levels:
+
+$$\text{MaxDepth} = \min\left(6, 4 + \left\lfloor \frac{\ln(B_0 / 10000)}{\ln(\delta)} \right\rfloor\right)$$
 
 ```rust
-pub fn is_atomic(total: usize, depth: usize) -> bool {
-    let fraction = level_fraction(depth);
-    fraction < CHAOS_THRESHOLD
+pub fn dynamic_max_depth(total_tokens: usize) -> usize {
+    if total_tokens <= 10_000 {
+        MAX_FRACTAL_DEPTH
+    } else {
+        let extra = (((total_tokens as f64) / 10_000.0).ln() / FEIGENBAUM_DELTA.ln()).floor() as usize;
+        (MAX_FRACTAL_DEPTH + extra).min(6)
+    }
 }
 ```
 
@@ -121,18 +128,21 @@ Sample Output:
 
 ---
 
-### 4. Adaptive Rate Limiter (`rate_limiter.rs`)
+### 4. Adaptive Rate Limiter with Stochastic Alpha-Jitter (`rate_limiter.rs`)
 
-The `FractalRateLimiter` adjusts inter-request pause, request timeout, and TPM caps dynamically upon failure:
+The `FractalRateLimiter` adjusts inter-request pause, request timeout, and TPM caps dynamically upon failure, with stochastic alpha-jitter:
 
 - **Pause**: $P(L) = P_0 \cdot \delta^L$
+- **Jittered Pause**: $P(L)_{\text{jitter}} = P(L) \pm \frac{\text{jitter\_factor}}{\alpha}$
 - **Timeout**: $T(L) = T_0 \cdot \delta^L$
 - **TPM Cap**: $\text{TPM}(L) = \frac{\text{TPM}_0}{\delta^L}$
 
 ```rust
-pub fn current_pause(&self) -> Duration {
-    let factor = FEIGENBAUM_DELTA.powi(self.current_level as i32);
-    Duration::from_secs_f64(self.base_pause_secs * factor)
+pub fn current_pause_with_jitter(&self, jitter_factor: f64) -> Duration {
+    let base_secs = self.current_pause().as_secs_f64();
+    let jitter = (jitter_factor.clamp(-1.0, 1.0)) / FEIGENBAUM_ALPHA;
+    let final_secs = (base_secs + jitter).max(0.1);
+    Duration::from_secs_f64(final_secs)
 }
 ```
 
@@ -182,6 +192,6 @@ cargo test --package runtime --lib fractal
 ```
 
 ### Results
-- **11 Pure Rust Fractal Unit Tests**: All passed.
-- **Full `runtime` crate test suite**: 670 passed, 0 failed.
+- **13 Pure Rust Fractal Unit Tests**: All passed.
+- **Full `runtime` crate test suite**: Passed.
 - **Warnings**: 0.
