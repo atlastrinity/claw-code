@@ -363,7 +363,22 @@ def prepare_text_for_tts(text: str) -> str:
     processed = re.sub(r'\s+', ' ', processed).strip()
     return processed
 
+def smart_truncate_sentence(text: str, max_chars: int = 4000) -> str:
+    """Truncates text at sentence boundaries to prevent audio chopping."""
+    if len(text) <= max_chars:
+        return text
+    truncated = text[:max_chars]
+    for p in ['. ', '? ', '! ', '.\n', '?\n', '!\n']:
+        last_p = truncated.rfind(p)
+        if last_p > max_chars // 2:
+            return truncated[:last_p + 1].strip()
+    last_space = truncated.rfind(' ')
+    if last_space > max_chars // 2:
+        return truncated[:last_space].strip() + '.'
+    return truncated.strip() + '.'
+
 # ──────────────────────────── Audio Player ──────────────────────────────
+
 
 class VoicePlayer:
     def __init__(self, output_dir: Path):
@@ -562,11 +577,11 @@ class VoicePlayer:
             # Prepare text for TTS (transcribe English terms, clean up formatting)
             speech_text = prepare_text_for_tts(natural_text_ua)
             
-            # Allow up to 1500 characters for concise narration
-            if len(speech_text) > 1500:
-                speech_text = speech_text[:1500]
+            # Truncate strictly at complete sentence boundaries if exceeding 4000 characters
+            speech_text = smart_truncate_sentence(speech_text, max_chars=4000)
 
             # Cache check by generating md5 hash of the voice and speech text
+
             hash_key = hashlib.md5(f"{voice}:{speech_text}".encode("utf-8")).hexdigest()
             cache_dir = self.output_dir / "cache"
             cache_dir.mkdir(exist_ok=True)
