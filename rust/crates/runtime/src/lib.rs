@@ -216,3 +216,5 @@ pub(crate) fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 pub mod workspace;
 pub mod file_tree;
+pub mod fractal;
+
