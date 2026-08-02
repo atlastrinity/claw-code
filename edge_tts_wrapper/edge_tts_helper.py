@@ -31,10 +31,11 @@ class EdgeTTSHelper:
                 "--write-media", temp_mp3_path
             ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15.0)
             
-            # 2. Convert mp3 to WAV using ffmpeg
+            # 2. Convert mp3 to WAV using ffmpeg, appending 400ms tail silence to prevent audio clipping
             subprocess.run([
                 "ffmpeg", "-y",
                 "-i", temp_mp3_path,
+                "-af", "apad=pad_dur=0.4",
                 "-ac", "1",
                 "-ar", str(self.sample_rate),
                 output_wav_path
@@ -44,9 +45,10 @@ class EdgeTTSHelper:
             if os.path.exists(temp_mp3_path):
                 os.remove(temp_mp3_path)
 
-    def trim_silence(self, audio_data, threshold=0.005, pad_ms=50):
+    def trim_silence(self, audio_data, threshold=0.001, pad_ms=350):
         """
         Removes silence from the start and end of a numpy audio array.
+        Uses low threshold (0.001) and generous padding (350ms) to ensure quiet sentence endings/consonants are not cut off.
         """
         pad_samples = int(self.sample_rate * (pad_ms / 1000.0))
         above_threshold = np.where(np.abs(audio_data) > threshold)[0]
@@ -57,13 +59,14 @@ class EdgeTTSHelper:
             return audio_data[start_idx:end_idx]
         return audio_data
 
-    def trim_silence_file(self, wav_path, output_wav_path, threshold=0.005, pad_ms=50):
+    def trim_silence_file(self, wav_path, output_wav_path, threshold=0.001, pad_ms=350):
         """
         Loads a WAV file, trims silence, and saves it.
         """
         data, sr = sf.read(wav_path)
         trimmed = self.trim_silence(data, threshold=threshold, pad_ms=pad_ms)
         sf.write(output_wav_path, trimmed, self.sample_rate)
+
 
     def pitch_shift_file(self, wav_path, output_wav_path, pitch_factor=0.92):
         """

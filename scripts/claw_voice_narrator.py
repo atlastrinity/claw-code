@@ -437,7 +437,9 @@ class VoicePlayer:
                         print(f"\n{COLORS['grisha']}⚠️ afplay повернув код {self.current_proc.returncode}{COLORS['reset']}")
                         if stderr:
                             print(f"  Помилка: {stderr.strip()}")
+                    time.sleep(0.3)  # Allow coreaudiod buffer to fully drain before closing
                 except subprocess.TimeoutExpired:
+
                     print(f"\n{COLORS['grisha']}⚠️ afplay перевищив ліміт часу (120 с), завершення процесу.{COLORS['reset']}")
                     self.current_proc.terminate()
                     try:
