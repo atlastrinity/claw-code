@@ -8,6 +8,8 @@ archive/
 # Claw Code local artifacts
 .claw/settings.local.json
 .claw/sessions/
+.claw/checkpoints/
+payload.json
 program/.claw/
 program/.clawd-task-graph.json
 program/task.md
