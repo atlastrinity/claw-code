@@ -152,9 +152,9 @@ impl KeyCooldownTracker {
         (best_key, min_wait)
     }
 
-    /// Check if an error indicates a rate-limit, overload, or quota issue that warrants cooldown.
+    /// Check if an error indicates a rate-limit, overload, quota, or timeout issue that warrants cooldown.
     pub fn should_trigger_cooldown(error_text: &str, status_code: u16) -> bool {
-        if status_code == 429 || status_code == 503 || status_code == 504 {
+        if status_code == 429 || status_code == 503 || status_code == 504 || status_code == 408 {
             return true;
         }
 
@@ -166,7 +166,11 @@ impl KeyCooldownTracker {
             || lower.contains("quota")
             || lower.contains("resource_exhausted")
             || lower.contains("capacity")
+            || lower.contains("timeout")
+            || lower.contains("stalled")
+            || lower.contains("idle")
     }
+
 }
 
 #[cfg(test)]

@@ -565,16 +565,30 @@ impl MessageStream {
                 return Ok(None);
             }
 
-            match self.response.chunk().await? {
-                Some(chunk) => {
+            let chunk_res = tokio::time::timeout(
+                std::time::Duration::from_secs(45),
+                self.response.chunk(),
+            )
+            .await;
+
+            match chunk_res {
+                Ok(Ok(Some(chunk))) => {
                     for parsed in self.parser.push(&chunk)? {
                         self.pending.extend(self.state.ingest_chunk(parsed)?);
                     }
                 }
-                None => {
+                Ok(Ok(None)) => {
                     self.done = true;
                 }
+                Ok(Err(err)) => return Err(err.into()),
+                Err(_) => {
+                    return Err(ApiError::Auth(format!(
+                        "API stream read timeout: provider '{}' stalled for >45s without sending chunks",
+                        self.parser.provider
+                    )));
+                }
             }
+
         }
     }
 }
