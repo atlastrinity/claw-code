@@ -48,6 +48,8 @@ if [ -n "$CLAW_CALLER_CWD" ] && [ -f "$CLAW_CALLER_CWD/.env" ]; then
     set +a
 fi
 
+unset OLLAMA_HOST
+
 export CLICOLOR_FORCE="${CLICOLOR_FORCE:-1}"
 export FORCE_COLOR="${FORCE_COLOR:-true}"
 
@@ -140,9 +142,8 @@ if [ $? -eq 0 ] && [ -n "$ALIASES_OUTPUT" ]; then
     
     declare -a MODEL_KEYS
     
-    OLDIFS=$IFS
-    IFS=$'\n'
-    for line in $ALIASES_OUTPUT; do
+    while IFS= read -r line; do
+        [ -z "$line" ] && continue
         num=$(echo "$line" | cut -d"|" -f1)
         key=$(echo "$line" | cut -d"|" -f2)
         val=$(echo "$line" | cut -d"|" -f3)
@@ -150,8 +151,7 @@ if [ $? -eq 0 ] && [ -n "$ALIASES_OUTPUT" ]; then
         
         # Вирівнювання тексту для красивого виводу
         printf " %2d) \033[1;36m%-15s\033[0m -> %s\n" "$num" "$key" "$val"
-    done
-    IFS=$OLDIFS
+    done <<< "$ALIASES_OUTPUT"
     
     echo "============================================================================"
     echo " Натисніть Enter для вибору '$DEFAULT_MODEL' за замовчуванням"
