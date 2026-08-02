@@ -43,6 +43,24 @@ pub fn is_atomic(total: usize, depth: usize) -> bool {
     fraction < CHAOS_THRESHOLD || (total > 0 && level_budget(total, depth) < (total as f64 * CHAOS_THRESHOLD) as usize)
 }
 
+/// Dynamically scale maximum fractal depth for massive tasks (budget > 10,000).
+#[must_use]
+pub fn dynamic_max_depth(total_tokens: usize) -> usize {
+    if total_tokens <= 10_000 {
+        MAX_FRACTAL_DEPTH
+    } else {
+        let extra = (((total_tokens as f64) / 10_000.0).ln() / FEIGENBAUM_DELTA.ln()).floor() as usize;
+        (MAX_FRACTAL_DEPTH + extra).min(6)
+    }
+}
+
+/// Check if *depth* has crossed the dynamically computed chaos threshold.
+#[must_use]
+pub fn is_atomic_dynamic(total: usize, depth: usize) -> bool {
+    depth >= dynamic_max_depth(total) || is_atomic(total, depth)
+}
+
+
 /// Calculate optimal number of child tasks at a given *depth*.
 #[must_use]
 pub fn optimal_children(depth: usize, cap: usize) -> usize {

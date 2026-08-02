@@ -57,6 +57,18 @@ impl FractalRateLimiter {
         Duration::from_secs_f64(self.base_pause_secs * factor)
     }
 
+    /// Return pause duration scaled by δ, plus stochastic jitter ±(jitter_factor / α)
+    /// to avoid thundering-herd collisions across concurrent workers.
+    #[must_use]
+    pub fn current_pause_with_jitter(&self, jitter_factor: f64) -> Duration {
+        use super::constants::FEIGENBAUM_ALPHA;
+        let base_secs = self.current_pause().as_secs_f64();
+        let jitter = (jitter_factor.clamp(-1.0, 1.0)) / FEIGENBAUM_ALPHA;
+        let final_secs = (base_secs + jitter).max(0.1);
+        Duration::from_secs_f64(final_secs)
+    }
+
+
     #[must_use]
     pub fn current_timeout(&self) -> Duration {
         let factor = FEIGENBAUM_DELTA.powi(self.current_level as i32);

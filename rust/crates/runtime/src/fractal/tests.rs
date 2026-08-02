@@ -123,5 +123,24 @@ mod tests {
         assert!(ascii.contains("id=1"));
         assert!(ascii.contains("id=1.1"));
     }
+
+    #[test]
+    fn test_dynamic_max_depth_and_atomic_check() {
+        assert_eq!(dynamic_max_depth(5_000), 4);
+        assert_eq!(dynamic_max_depth(10_000), 4);
+        assert!(dynamic_max_depth(50_000) > 4);
+        assert!(is_atomic_dynamic(2000, 4));
+    }
+
+    #[test]
+    fn test_jittered_pause() {
+        let limiter = FractalRateLimiter::new(1.0, 30.0, 80_000, 4);
+        let p_normal = limiter.current_pause();
+        let p_jitter = limiter.current_pause_with_jitter(0.5);
+
+        assert!(p_jitter.as_secs_f64() > 0.0);
+        assert!((p_jitter.as_secs_f64() - p_normal.as_secs_f64()).abs() < 1.0);
+    }
 }
+
 
