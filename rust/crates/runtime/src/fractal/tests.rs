@@ -83,4 +83,45 @@ mod tests {
         assert!(msgs.len() < 50);
         assert_eq!(msgs.last().unwrap(), "msg_99");
     }
+
+    #[test]
+    fn test_asymmetric_sibling_weighting() {
+        let w0 = asymmetric_sibling_weight(0, 3);
+        let w1 = asymmetric_sibling_weight(1, 3);
+        let w2 = asymmetric_sibling_weight(2, 3);
+
+        assert!(w0 > w1);
+        assert!(w1 > w2);
+        assert!(((w0 + w1 + w2) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_asymmetric_sibling_budget() {
+        let b0 = asymmetric_sibling_budget(1000, 0, 3);
+        let b1 = asymmetric_sibling_budget(1000, 1, 3);
+        let b2 = asymmetric_sibling_budget(1000, 2, 3);
+
+        assert!(b0 > b1);
+        assert!(b1 > b2);
+    }
+
+    #[test]
+    fn test_bifurcation_telemetry_report_and_ascii_tree() {
+        use super::super::telemetry::BifurcationTelemetryReport;
+
+        let mut graph = FractalTaskGraph::new(2000);
+        let root = graph.add_root("1", "Root Task");
+        root.add_child("1.1", "Sub Task 1", 2000);
+        root.add_child("1.2", "Sub Task 2", 2000);
+
+        let report = BifurcationTelemetryReport::from_graph(&graph);
+        assert_eq!(report.total_nodes, 3);
+        assert_eq!(report.max_depth_reached, 1);
+
+        let ascii = report.render_ascii_tree(&graph);
+        assert!(ascii.contains("Fractal Task Tree"));
+        assert!(ascii.contains("id=1"));
+        assert!(ascii.contains("id=1.1"));
+    }
 }
+

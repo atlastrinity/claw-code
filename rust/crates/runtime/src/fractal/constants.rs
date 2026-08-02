@@ -60,6 +60,29 @@ pub fn bifurcation_ratio(depth: usize) -> f64 {
     }
 }
 
+/// Calculate the asymmetric weight factor for sibling *idx* among *total_siblings*
+/// using the second Feigenbaum constant α.
+#[must_use]
+pub fn asymmetric_sibling_weight(sibling_idx: usize, total_siblings: usize) -> f64 {
+    if total_siblings <= 1 {
+        return 1.0;
+    }
+    let raw = 1.0 / FEIGENBAUM_ALPHA.powi(sibling_idx as i32);
+    let sum: f64 = (0..total_siblings)
+        .map(|i| 1.0 / FEIGENBAUM_ALPHA.powi(i as i32))
+        .sum();
+    raw / sum
+}
+
+/// Calculate asymmetric budget allocated to sibling *idx* given parent budget.
+#[must_use]
+pub fn asymmetric_sibling_budget(parent_budget: usize, sibling_idx: usize, total_siblings: usize) -> usize {
+    let weight = asymmetric_sibling_weight(sibling_idx, total_siblings);
+    let val = ((parent_budget as f64) * weight).floor() as usize;
+    val.max(1)
+}
+
+
 /// Immutable budget descriptor for a single fractal node depth.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct FractalBudget {
