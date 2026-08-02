@@ -132,13 +132,23 @@ pub fn save_task_graph_output(
 > 6. Do NOT prefix the `content` field with the node ID (e.g., write "Task description", NOT "1.1: Task description"). Ensure parent nodes exist before creating deep children (e.g., create 1.1 before 1.1.1).
 > 7. **ANTI-REWRITE**: Do NOT use `add` to resubmit the entire graph. Only add genuinely NEW nodes. Parent statuses propagate AUTOMATICALLY — you do NOT need to manually set parent status when completing children.
 > 8. **LANGUAGE MANDATE**: All node content, task titles, and sub-steps MUST be written strictly in English (e.g. "Analyze Swift code", NOT Ukrainian/other languages).
+> 9. **AUTO-VERIFICATION MANDATE**: Before marking any task as `completed`, you MUST verify your work (e.g. read the modified file, compile, run tests, check status). Do not mark as completed based solely on a successful mutating tool call.
 
 # Task List
 
 "#,
         );
 
+        let mut skip_descendants_of: Option<String> = None;
         for node in &mutable_nodes {
+            if let Some(ref skip_id) = skip_descendants_of {
+                if node.id.starts_with(&format!("{}.", skip_id)) {
+                    continue;
+                } else {
+                    skip_descendants_of = None;
+                }
+            }
+
             let depth = node.id.split('.').count().saturating_sub(1);
             let checkbox = match node.status {
                 Some(TaskStatus::Completed) => "[x]",
@@ -154,6 +164,10 @@ pub fn save_task_graph_output(
                 node.id,
                 node.content.as_deref().unwrap_or("")
             ));
+
+            if node.status == Some(TaskStatus::Completed) {
+                skip_descendants_of = Some(node.id.clone());
+            }
         }
 
         let _ = std::fs::write(&task_md_path, markdown);

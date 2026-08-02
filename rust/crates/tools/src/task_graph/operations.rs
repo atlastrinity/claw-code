@@ -262,11 +262,29 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         }
     }
 
-    let alert = if !finished_parent_ids.is_empty() {
-        Some(format!(
+    let mut alerts = Vec::new();
+    if !finished_parent_ids.is_empty() {
+        alerts.push(format!(
             "⚠️ Alert: All subtasks under parent task(s) [{}] are completed or failed. Please verify the work, update the parent task status using 'update_status', and proceed to the next sibling task.",
             finished_parent_ids.join(", ")
-        ))
+        ));
+    }
+
+    if let Some(active) = current_nodes.iter().find(|n| n.status == Some(TaskStatus::InProgress)) {
+        let has_children = current_nodes.iter().any(|n| n.parent_id.as_ref() == Some(&active.id));
+        if !has_children {
+            let depth = active.id.split('.').count();
+            if depth < 3 {
+                alerts.push(format!(
+                    "⚠️ Deep Recursion Alert: The active task '{}' is at level {} and has no sub-tasks. For deep recursion planning, you MUST decompose tasks to at least level 3 (Phase -> Sub-task -> Micro-action). Please use TaskGraph operation: \"add\" to break this down.",
+                    active.id, depth
+                ));
+            }
+        }
+    }
+
+    let alert = if !alerts.is_empty() {
+        Some(alerts.join("\n\n"))
     } else {
         None
     };

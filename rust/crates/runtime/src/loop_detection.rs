@@ -64,7 +64,12 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for LoopDetectionMiddleware<'a> {
             }
 
             if identical_count >= self.max_identical_calls {
-                let reason = "[SYSTEM DIRECTIVE - LOOP DETECTED]\nYou have executed this exact same tool with the exact same input recently in this turn.\nYou are caught in a repetitive loop. Analyze your actions, stop repeating the same cyclical events, try a completely different approach.".to_string();
+                let reason = "[SYSTEM DIRECTIVE - LOOP DETECTED]\nYou have executed this exact same tool with the exact same input recently in this turn.\nYou are caught in a repetitive loop. Analyze your actions, stop repeating the same cyclical events, try a completely different approach.\n\
+                \nTaskGraph RECOVERY DIRECTIVE:\n\
+                1. If this task keeps failing, DO NOT delete it.\n\
+                2. Mark the current active task as 'failed' using TaskGraph operation: 'update_status'.\n\
+                3. Create a new recovery sub-task or an alternative approach using TaskGraph operation: 'add'.\n\
+                4. Set the new recovery task to 'in_progress' and proceed.".to_string();
 
                 denied_messages.push(ConversationMessage::tool_result(
                     call_state.request.tool_use_id.clone(),
