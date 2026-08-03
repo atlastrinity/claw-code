@@ -43,16 +43,27 @@ pub fn is_atomic(total: usize, depth: usize) -> bool {
     fraction < CHAOS_THRESHOLD || (total > 0 && level_budget(total, depth) < (total as f64 * CHAOS_THRESHOLD) as usize)
 }
 
-/// Dynamically scale maximum fractal depth for massive enterprise tasks (budget > 10,000 up to 100k+ tokens).
+/// Maximum depth limit for massive enterprise-scale tasks (100k+ tokens).
+pub const MAX_ENTERPRISE_FRACTAL_DEPTH: usize = 10;
+
+/// Token threshold above which enterprise depth scaling activates.
+pub const ENTERPRISE_SCALE_THRESHOLD: usize = 10_000;
+
+/// Dynamically scale maximum fractal depth for massive enterprise tasks.
 #[must_use]
 pub fn dynamic_max_depth(total_tokens: usize) -> usize {
-    if total_tokens <= 10_000 {
+    if total_tokens <= ENTERPRISE_SCALE_THRESHOLD {
         MAX_FRACTAL_DEPTH
     } else {
-        let extra = (((total_tokens as f64) / 10_000.0).ln() / FEIGENBAUM_DELTA.ln()).floor() as usize;
-        (MAX_FRACTAL_DEPTH + extra).min(10)
+        let ratio = (total_tokens as f64) / (ENTERPRISE_SCALE_THRESHOLD as f64);
+        if !ratio.is_finite() || ratio <= 0.0 {
+            return MAX_FRACTAL_DEPTH;
+        }
+        let extra = (ratio.ln() / FEIGENBAUM_DELTA.ln()).floor().max(0.0) as usize;
+        (MAX_FRACTAL_DEPTH + extra).min(MAX_ENTERPRISE_FRACTAL_DEPTH)
     }
 }
+
 
 
 /// Check if *depth* has crossed the dynamically computed chaos threshold.

@@ -48,11 +48,17 @@ pub fn select_model_for_depth(depth: usize, cascade: &[ModelTier], limiter_level
     let adjusted_tier = ideal_tier.saturating_sub(limiter_level);
 
     if limiter_level > 0 && adjusted_tier == 0 && ideal_tier > 0 {
+        tracing::warn!(
+            "ModelCascade: rate limiter pressure (level {}) shifted tier from ideal {} down to fallback '{}'",
+            limiter_level, ideal_tier, cascade[0].alias
+        );
         eprintln!(
             "⚠️ ModelCascade: rate limiter pressure (level {}) shifted tier from ideal {} down to fallback '{}'",
             limiter_level, ideal_tier, cascade[0].alias
         );
     }
+
+
 
     cascade[adjusted_tier].clone()
 }

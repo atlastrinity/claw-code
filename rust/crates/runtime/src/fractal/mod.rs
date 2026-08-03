@@ -14,7 +14,8 @@ pub use compact::fractal_compact_messages;
 pub use constants::{
     asymmetric_sibling_budget, asymmetric_sibling_weight, bifurcation_ratio, dynamic_max_depth,
     is_atomic, is_atomic_dynamic, level_budget, level_fraction, optimal_children, FractalBudget,
-    CHAOS_THRESHOLD, FEIGENBAUM_ALPHA, FEIGENBAUM_DELTA, MAX_FRACTAL_DEPTH,
+    CHAOS_THRESHOLD, ENTERPRISE_SCALE_THRESHOLD, FEIGENBAUM_ALPHA, FEIGENBAUM_DELTA,
+    MAX_ENTERPRISE_FRACTAL_DEPTH, MAX_FRACTAL_DEPTH,
 };
 pub use model_cascade::{
     default_cascade, select_model_for_budget, select_model_for_depth, ModelTier,
