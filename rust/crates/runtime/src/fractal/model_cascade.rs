@@ -46,8 +46,17 @@ pub fn select_model_for_depth(depth: usize, cascade: &[ModelTier], limiter_level
     let max_tier = cascade.len() - 1;
     let ideal_tier = max_tier.saturating_sub(depth.min(max_tier));
     let adjusted_tier = ideal_tier.saturating_sub(limiter_level);
+
+    if limiter_level > 0 && adjusted_tier == 0 && ideal_tier > 0 {
+        eprintln!(
+            "⚠️ ModelCascade: rate limiter pressure (level {}) shifted tier from ideal {} down to fallback '{}'",
+            limiter_level, ideal_tier, cascade[0].alias
+        );
+    }
+
     cascade[adjusted_tier].clone()
 }
+
 
 /// Select a model tier using a `FractalBudget`.
 #[must_use]

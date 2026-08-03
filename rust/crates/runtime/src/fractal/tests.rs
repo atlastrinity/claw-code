@@ -129,8 +129,12 @@ mod tests {
         assert_eq!(dynamic_max_depth(5_000), 4);
         assert_eq!(dynamic_max_depth(10_000), 4);
         assert!(dynamic_max_depth(50_000) > 4);
+        assert_eq!(dynamic_max_depth(10_000_000), 8);
+        assert_eq!(dynamic_max_depth(1_000_000_000), 10);
         assert!(is_atomic_dynamic(2000, 4));
     }
+
+
 
     #[test]
     fn test_jittered_pause() {
