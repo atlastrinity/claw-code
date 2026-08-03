@@ -855,7 +855,7 @@ impl MessageStream {
             }
 
             let chunk_res = tokio::time::timeout(
-                std::time::Duration::from_secs(45),
+                std::time::Duration::from_secs(20),
                 self.response.chunk(),
             )
             .await;
@@ -870,10 +870,11 @@ impl MessageStream {
                 Ok(Err(err)) => return Err(err.into()),
                 Err(_) => {
                     return Err(ApiError::Auth(
-                        "API stream read timeout: Anthropic provider stalled for >45s without sending chunks".to_string()
+                        "API stream read timeout: Anthropic provider stalled for >20s without sending chunks".to_string()
                     ));
                 }
             }
+
 
         }
     }
