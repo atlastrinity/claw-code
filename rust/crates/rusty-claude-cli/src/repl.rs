@@ -21,7 +21,8 @@ fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
     let trimmed = last_assistant_text.trim();
     let is_question = trimmed.ends_with('?') || trimmed.contains("Please review") || trimmed.contains("let me know");
 
-    if let Ok(content) = std::fs::read_to_string("task.md") {
+    let task_md_path = runtime::workspace::workspace_root().join("task.md");
+    if let Ok(content) = std::fs::read_to_string(&task_md_path) {
         if content.contains("- [ ]") || content.contains("- [/]") {
             if is_question {
                 if auto_decide {

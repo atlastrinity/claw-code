@@ -60,7 +60,8 @@ sync_all "$SCRIPT_DIR"
 # Очищаємо файли планування та завдань для нової сесії, якщо встановлено CLAW_NEW_SESSION
 if [ "$CLAW_NEW_SESSION" = "true" ]; then
     echo "🧹 Очищення файлів завдань попередньої сесії..."
-    rm -f "${CLAW_CALLER_CWD:-.}/task.md" "${CLAW_CALLER_CWD:-.}/.clawd-task-graph.json"
+    rm -f "${CLAW_CALLER_CWD:-.}/task.md" "${CLAW_CALLER_CWD:-.}/.clawd-task-graph.json" "${CLAW_CALLER_CWD:-.}/.clawd-action-history.json"
+    rm -f "${SCRIPT_DIR}/task.md" "${SCRIPT_DIR}/.clawd-task-graph.json" "${SCRIPT_DIR}/.clawd-action-history.json"
 fi
 
 # 0. Прибираємо зомбі-процеси, якщо минулого разу термінал впав
