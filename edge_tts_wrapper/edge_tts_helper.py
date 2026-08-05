@@ -9,14 +9,29 @@ class EdgeTTSHelper:
         self.default_voice = default_voice
         self.sample_rate = sample_rate
 
-    def synthesize_to_wav(self, text, output_wav_path, voice=None, rate="+0%", pitch="+0Hz"):
-        """
-        Synthesizes text using edge-tts and converts it directly to a mono WAV file at the target sample rate.
-        Supports rate (e.g. '+10%') and pitch (e.g. '-5Hz') parameters.
-        """
-        voice = voice or self.default_voice
-        
-        # Create temp mp3 file
+    def _split_text_chunks(self, text, max_chunk_len=1200):
+        if len(text) <= max_chunk_len:
+            return [text]
+        import re
+        sentences = re.split(r'(?<=[.!?\n])\s+', text)
+        chunks = []
+        current = []
+        current_len = 0
+        for s in sentences:
+            if not s.strip():
+                continue
+            if current_len + len(s) > max_chunk_len and current:
+                chunks.append(" ".join(current))
+                current = [s]
+                current_len = len(s)
+            else:
+                current.append(s)
+                current_len += len(s) + 1
+        if current:
+            chunks.append(" ".join(current))
+        return chunks
+
+    def _synthesize_chunk(self, text, output_wav_path, voice, rate, pitch):
         with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as temp_mp3:
             temp_mp3_path = temp_mp3.name
 
@@ -29,7 +44,7 @@ class EdgeTTSHelper:
                 f"--rate={rate}",
                 f"--pitch={pitch}",
                 "--write-media", temp_mp3_path
-            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15.0)
+            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120.0)
             
             # 2. Convert mp3 to WAV using ffmpeg, appending 400ms tail silence to prevent audio clipping
             subprocess.run([
@@ -39,11 +54,37 @@ class EdgeTTSHelper:
                 "-ac", "1",
                 "-ar", str(self.sample_rate),
                 output_wav_path
-            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15.0)
+            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120.0)
             
         finally:
             if os.path.exists(temp_mp3_path):
                 os.remove(temp_mp3_path)
+
+    def synthesize_to_wav(self, text, output_wav_path, voice=None, rate="+0%", pitch="+0Hz"):
+        """
+        Synthesizes text using edge-tts and converts it directly to a mono WAV file at the target sample rate.
+        Supports rate (e.g. '+10%') and pitch (e.g. '-5Hz') parameters.
+        Automatically chunks long text to prevent timeouts and audio truncation.
+        """
+        voice = voice or self.default_voice
+        chunks = self._split_text_chunks(text, max_chunk_len=1200)
+
+        if len(chunks) == 1:
+            self._synthesize_chunk(chunks[0], output_wav_path, voice, rate, pitch)
+        else:
+            temp_wavs = []
+            try:
+                for idx, chunk in enumerate(chunks):
+                    with tempfile.NamedTemporaryFile(suffix=f"_{idx}.wav", delete=False) as tw:
+                        temp_wav_path = tw.name
+                    self._synthesize_chunk(chunk, temp_wav_path, voice, rate, pitch)
+                    temp_wavs.append(temp_wav_path)
+                
+                self.concatenate_files(temp_wavs, output_wav_path, gap_seconds=0.2, normalize_peak=0.95)
+            finally:
+                for tw_path in temp_wavs:
+                    if os.path.exists(tw_path):
+                        os.remove(tw_path)
 
     def trim_silence(self, audio_data, threshold=0.001, pad_ms=350):
         """

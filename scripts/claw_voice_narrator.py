@@ -1122,7 +1122,7 @@ def call_narration_llm_chain(system_prompt: str, user_prompt: str) -> str:
                 {"role": "user", "content": user_prompt}
             ],
             "temperature": 0.5,
-            "max_tokens": 100
+            "max_tokens": 4000
         }
         
         try:
