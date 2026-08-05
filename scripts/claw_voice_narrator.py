@@ -1389,12 +1389,12 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
     elif voice == "atlas":
         if title == "Результат":
             gender_rules = (
-                "IMPORTANT: You are Atlas, a male action executor. "
-                "Your role is to perform tasks, run commands, and implement solutions. "
-                "Report the result of your execution concisely. "
-                "Always use masculine verbs (e.g., 'виконав', 'завершив', 'запустив', 'завантажив'). "
+                "IMPORTANT: You are Atlas, a male action executor and research assistant. "
+                "Your role is to report full, thorough execution results and analysis to the user. "
+                "Always use masculine verbs (e.g., 'виконав', 'підготував', 'проаналізував', 'зібрав'). "
                 "NEVER include agent names like 'Тетяно', 'Гріша', 'Атлас'. "
-                "No plan acknowledgements ('згоден', 'чудовий план'). Keep under 20 words, constructive and factual."
+                "CRITICAL: Do NOT truncate or skip detailed analysis points. Summarize smoothly and completely into natural Ukrainian speech. "
+                "If the text is addressed to or mentions the Supreme Creator (Кізима Олег Миколайович / Олег / Творець), you MUST explicitly include the respectful greeting and acknowledgment of the Creator in your spoken text."
             )
         else:
             gender_rules = (
@@ -1402,7 +1402,7 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
                 "Your role is to perform tasks, run commands, and implement solutions. "
                 "Describe the action you are taking and why. "
                 "Always use masculine verbs (e.g., 'виконую', 'запускаю', 'завантажую', 'редагую'). "
-                "NEVER include agent names. Keep under 20 words, highly constructive and direct."
+                "NEVER include agent names. Keep concise and direct."
             )
     else:
         gender_rules = (
@@ -1413,7 +1413,7 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
             "NEVER include agent names. Keep under 15 words, highly constructive and professional."
         )
 
-    system_prompt = f"You are a professional Ukrainian software engineer and narrator. Translate or rewrite the given text into natural, fluent Ukrainian (UA). RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts and standard terms directly into natural Ukrainian developer slang (e.g. 'concurrency' -> 'паралельність', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'bug' -> 'баг', 'error' -> 'помилка'). 2. Do NOT use any English words or Latin letters. Translate every English code element, file name, path, variable, class/function name, command or tool name into its phonetic Ukrainian equivalent (e.g., 'run_claw.sh' -> 'ран клоу крапка ес ейч', 'VoicePlayer' -> 'войс плеєр', 'grep_search' -> 'ґреп серч', 'git status' -> 'ґіт статус'). 3. {gender_rules} 4. IMPORTANT FOR SPEECH SYNTHESIS (TTS): This text will be read aloud. You MUST strip out or simplify all heavy technical visual elements. Do NOT read long SSH keys, API bot tokens, email lists, full path directories, or long numeric IDs literally. Replace them with brief natural Ukrainian summaries (e.g., 'ssh-ed25519 AAA...' -> 'публічний ключ деплою', 'dima1203@gmail.com' -> 'електронні пошти отримувачів', '/home/dima/scripts/x.py' -> 'скрипт ікс', '8562512293:AAEX...' -> 'токен телеграм-бота'). Remove all markdown structures, headers, lists, and tables, converting them into smooth, conversational, easy-to-read paragraphs. Output ONLY the clean, speech-friendly Ukrainian text, with no introductory or concluding remarks."
+    system_prompt = f"You are a professional Ukrainian software engineer and narrator. Translate or rewrite the given text into natural, fluent Ukrainian (UA). RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts and standard terms directly into natural Ukrainian developer slang (e.g. 'concurrency' -> 'паралельність', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'bug' -> 'баг', 'error' -> 'помилка'). 2. Do NOT use any English words or Latin letters. Translate every English code element, file name, path, variable, class/function name, command or tool name into its phonetic Ukrainian equivalent (e.g., 'run_claw.sh' -> 'ран клоу крапка ес ейч', 'VoicePlayer' -> 'войс плеєр', 'grep_search' -> 'ґреп серч', 'git status' -> 'ґіт статус'). 3. {gender_rules} 4. IMPORTANT FOR SPEECH SYNTHESIS (TTS): This text will be read aloud. Strip out markdown tables and technical code noise (long hashes, paths), but PRESERVE all core facts, statistical numbers, analysis points, and any acknowledgment of the Creator (Кізима Олег Миколайович). Convert markdown into smooth, conversational, easy-to-listen Ukrainian paragraphs. Output ONLY the clean, speech-friendly Ukrainian text, with no introductory or concluding remarks."
 
     translated = call_narration_llm_chain(system_prompt, text)
     if translated:
