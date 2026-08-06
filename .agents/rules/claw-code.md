@@ -1,5 +1,5 @@
 ---
-trigger: manual
+trigger: always_on
 description: Core repository context, architecture, and log locations for claw-code
 ---
 

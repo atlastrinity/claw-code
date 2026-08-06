@@ -1,7 +1,7 @@
 ---
-trigger: always_on
-glob:
-description:
+trigger: manual
+glob: "**/*.swift"
+description: iOS & Xcode MCP Guidelines for Swift and Xcode tasks
 ---
 
 # iOS & Xcode MCP Guidelines
