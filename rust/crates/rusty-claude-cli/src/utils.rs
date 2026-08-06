@@ -4994,6 +4994,7 @@ mod tests {
     fn parses_single_word_command_aliases_without_falling_back_to_prompt_mode() {
         let _guard = env_lock();
         std::env::remove_var("RUSTY_CLAUDE_PERMISSION_MODE");
+        std::env::remove_var("DASHSCOPE_API_KEY");
         assert_eq!(
             parse_args(&["help".to_string()]).expect("help should parse"),
             CliAction::Help {
@@ -5053,21 +5054,17 @@ mod tests {
             CliAction::Prompt { preset: None, model, .. } => assert_eq!(model, "gpt-4"),
             other => panic!("expected CliAction::Prompt, got: {other:?}"),
         }
-        let err_qwen = parse_args(&[
+        match parse_args(&[
             "prompt".to_string(),
             "test".to_string(),
             "--model".to_string(),
             "qwen-plus".to_string(),
         ])
-        .expect_err("`--model qwen-plus` should fail with DashScope hint");
-        assert!(
-            err_qwen.contains("Did you mean `qwen/qwen-plus`?"),
-            "Qwen model error should hint qwen/ prefix: {err_qwen}"
-        );
-        assert!(
-            err_qwen.contains("DASHSCOPE_API_KEY"),
-            "Qwen model error should mention env var: {err_qwen}"
-        );
+        .expect("`--model qwen-plus` should parse as a bare DashScope model")
+        {
+            CliAction::Prompt { model, .. } => assert_eq!(model, "qwen-plus"),
+            other => panic!("expected CliAction::Prompt, got: {other:?}"),
+        }
         // Unrelated invalid model should NOT get a hint
         let err_garbage = parse_args(&[
             "prompt".to_string(),
