@@ -59,6 +59,13 @@ pub enum SkillSlashDispatch {
 
 const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
     SlashCommandSpec {
+        name: "goal",
+        aliases: &["auto-goal", "ultragoal-mode"],
+        summary: "Toggle or check autonomous long-running goal mode",
+        argument_hint: Some("[on|off|status]"),
+        resume_supported: true,
+    },
+    SlashCommandSpec {
         name: "help",
         aliases: &[],
         summary: "Show available slash commands",
@@ -1046,6 +1053,9 @@ const SLASH_COMMAND_SPECS: &[SlashCommandSpec] = &[
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SlashCommand {
+    Goal {
+        action: Option<String>,
+    },
     Help,
     Status,
     Sandbox,
@@ -1226,6 +1236,7 @@ impl SlashCommand {
     #[must_use]
     pub fn slash_name(&self) -> &'static str {
         match self {
+            Self::Goal { .. } => "/goal",
             Self::Help => "/help",
             Self::Clear { .. } => "/clear",
             Self::Compact { .. } => "/compact",
@@ -1321,6 +1332,9 @@ pub fn validate_slash_command_input(
     let remainder = remainder_after_command(trimmed, command);
 
     Ok(Some(match command {
+        "goal" | "auto-goal" | "ultragoal-mode" => SlashCommand::Goal {
+            action: optional_single_arg(command, &args, "[on|off|status]")?,
+        },
         "help" => {
             validate_no_args(command, &args)?;
             SlashCommand::Help
@@ -1919,7 +1933,7 @@ fn slash_command_category(name: &str) -> &'static str {
         "help" | "status" | "cost" | "resume" | "session" | "version" | "usage" | "stats"
         | "rename" | "clear" | "compact" | "history" | "tokens" | "cache" | "exit" | "summary"
         | "tag" | "thinkback" | "copy" | "share" | "feedback" | "rewind" | "pin" | "unpin"
-        | "bookmarks" | "context" | "files" | "focus" | "unfocus" | "retry" | "stop" | "undo" => {
+        | "bookmarks" | "context" | "files" | "focus" | "unfocus" | "retry" | "stop" | "undo" | "goal" => {
             "Session"
         }
         "model" | "permissions" | "config" | "memory" | "theme" | "vim" | "voice" | "color"
@@ -2275,6 +2289,29 @@ struct CreatedAgent {
 enum SkillInstallSource {
     Directory { root: PathBuf, prompt_path: PathBuf },
     MarkdownFile { path: PathBuf },
+}
+
+pub fn handle_goal_slash_command(action: Option<&str>, active: &mut bool) -> String {
+    match action {
+        Some("on") | Some("enable") | Some("start") | Some("true") | Some("1") => {
+            *active = true;
+            "🎯 Long-running Autonomous Goal Mode enabled (/goal on). The agent will loop through TaskGraph tasks automatically without waiting for user prompts until all tasks are complete.".to_string()
+        }
+        Some("off") | Some("disable") | Some("stop") | Some("false") | Some("0") => {
+            *active = false;
+            "⏸️ Long-running Autonomous Goal Mode disabled (/goal off). Returning to standard turn-based prompt mode.".to_string()
+        }
+        None | Some("status") | Some("check") => {
+            let status = if *active { "ENABLED (ON)" } else { "DISABLED (OFF)" };
+            format!(
+                "🎯 Autonomous Goal Mode: {}\n  Usage: /goal [on|off|status]\n  When enabled, Claw continues executing pending TaskGraph sub-tasks autonomously without pausing for user input after each step.",
+                status
+            )
+        }
+        Some(other) => {
+            format!("Unknown action '{other}' for /goal. Usage: /goal [on|off|status]")
+        }
+    }
 }
 
 #[allow(clippy::too_many_lines)]
@@ -5373,7 +5410,8 @@ pub fn handle_slash_command(
             message: render_slash_command_help(),
             session: session.clone(),
         }),
-        SlashCommand::Status
+        SlashCommand::Goal { .. }
+        | SlashCommand::Status
         | SlashCommand::Bughunter { .. }
         | SlashCommand::Commit
         | SlashCommand::Pr { .. }
@@ -6058,7 +6096,7 @@ mod tests {
         assert!(!help.contains("/login"));
         assert!(!help.contains("/logout"));
         assert!(help.contains("/setup"));
-        assert_eq!(slash_command_specs().len(), 140);
+        assert_eq!(slash_command_specs().len(), 141);
         assert!(resume_supported_slash_commands().len() >= 39);
     }
 

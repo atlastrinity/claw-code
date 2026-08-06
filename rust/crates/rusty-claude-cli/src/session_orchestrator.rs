@@ -596,7 +596,8 @@ pub fn run_resume_command(
                 })),
             })
         }
-        SlashCommand::Bughunter { .. }
+        SlashCommand::Goal { .. }
+        | SlashCommand::Bughunter { .. }
         | SlashCommand::Commit { .. }
         | SlashCommand::Pr { .. }
         | SlashCommand::Issue { .. }

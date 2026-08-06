@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
 fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
-    let auto_decide = std::env::var("CLAW_AUTO_DECIDE").map(|v| v.to_lowercase() == "true").unwrap_or(false);
+    let auto_decide = cli.goal_mode || std::env::var("CLAW_AUTO_DECIDE").map(|v| v.to_lowercase() == "true").unwrap_or(false);
     
     let mut last_assistant_text = String::new();
     if let Some(last_msg) = cli.runtime.session().messages.last() {
@@ -324,6 +324,7 @@ pub struct LiveCli {
     runtime: BuiltRuntime,
     session: SessionHandle,
     prompt_history: Vec<PromptHistoryEntry>,
+    pub goal_mode: bool,
 }
 
 impl LiveCli {
@@ -348,6 +349,10 @@ impl LiveCli {
             permission_mode,
             None,
         )?;
+        let goal_mode = std::env::var("CLAW_GOAL_MODE")
+            .or_else(|_| std::env::var("CLAW_AUTO_DECIDE"))
+            .map(|v| v.to_lowercase() == "true" || v == "1")
+            .unwrap_or(false);
         let cli = Self {
             model,
             tools,
@@ -356,6 +361,7 @@ impl LiveCli {
             runtime,
             session,
             prompt_history: Vec::new(),
+            goal_mode,
         };
         tracing::info!(
             session_id = %cli.session.id,
@@ -936,6 +942,11 @@ impl LiveCli {
         Ok(match command {
             SlashCommand::Help => {
                 println!("{}", render_repl_help());
+                false
+            }
+            SlashCommand::Goal { action } => {
+                let msg = commands::handle_goal_slash_command(action.as_deref(), &mut self.goal_mode);
+                println!("{msg}");
                 false
             }
             SlashCommand::Status => {

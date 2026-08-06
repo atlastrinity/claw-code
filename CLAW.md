@@ -12,6 +12,7 @@
 - **Non-Overlapping Sub-Task Creation:** When adding sub-tasks via `TaskGraph` (`operation: "add"`), submit ONLY NEW node IDs that do NOT already exist in the graph. Submitting existing node IDs will trigger bulk rewrite errors.
 - **Prevention of Duplicate Tasks:** Never perform similar search or analysis actions twice. Deeply nested leaf nodes (e.g. "1.1.1: inspect directory X", "1.1.2: search files in directory Y") must define unique, non-overlapping search scopes to avoid redundant execution.
 - **Handling Failures:** If an approach fails, do NOT delete the task. Mark it as `failed` (which appears under a minus sign `[-]`), and create a new sibling node to represent your alternative attempt. Update a task's status to `completed` only when it is successfully finished.
+- **Autonomous Goal Mode (/goal):** In long-running goal mode (`/goal on`), do NOT wait for user input after completing intermediate steps or asking clarifying questions. Continuously execute pending leaf tasks in `TaskGraph` using appropriate tools until all tasks are marked as `completed` or `failed`.
 - **No Manual Edits:** The system automatically syncs it to `task.md`. NEVER edit `task.md` directly using file editing tools.
 
 ## 2. RAG Context Store
