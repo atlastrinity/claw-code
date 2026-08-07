@@ -74,10 +74,42 @@ pub fn pricing_for_model(model: &str) -> Option<ModelPricing> {
             cache_read_cost_per_million: 1.5,
         });
     }
-    if normalized.contains("sonnet") {
+    if normalized.contains("gemini") {
+        return Some(ModelPricing {
+            input_cost_per_million: 1.25,
+            output_cost_per_million: 5.0,
+            cache_creation_cost_per_million: 1.25,
+            cache_read_cost_per_million: 0.3,
+        });
+    }
+    if normalized.contains("gpt-4o-mini") || normalized.contains("mini") {
+        return Some(ModelPricing {
+            input_cost_per_million: 0.15,
+            output_cost_per_million: 0.60,
+            cache_creation_cost_per_million: 0.15,
+            cache_read_cost_per_million: 0.075,
+        });
+    }
+    if normalized.contains("gpt") || normalized.contains("openai") {
+        return Some(ModelPricing {
+            input_cost_per_million: 2.50,
+            output_cost_per_million: 10.0,
+            cache_creation_cost_per_million: 2.50,
+            cache_read_cost_per_million: 1.25,
+        });
+    }
+    if normalized.contains("deepseek") {
+        return Some(ModelPricing {
+            input_cost_per_million: 0.27,
+            output_cost_per_million: 1.10,
+            cache_creation_cost_per_million: 0.27,
+            cache_read_cost_per_million: 0.07,
+        });
+    }
+    if normalized.contains("sonnet") || normalized.is_empty() {
         return Some(ModelPricing::default_sonnet_tier());
     }
-    None
+    Some(ModelPricing::default_sonnet_tier())
 }
 
 impl TokenUsage {

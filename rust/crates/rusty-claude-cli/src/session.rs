@@ -20,6 +20,7 @@ pub struct ManagedSessionSummary {
     pub message_count: usize,
     pub parent_session_id: Option<String>,
     pub branch_name: Option<String>,
+    pub title: Option<String>,
     pub lifecycle: SessionLifecycleSummary,
 }
 
@@ -93,6 +94,7 @@ pub fn list_managed_sessions() -> Result<Vec<ManagedSessionSummary>, Box<dyn std
             message_count: session.message_count,
             parent_session_id: session.parent_session_id,
             branch_name: session.branch_name,
+            title: session.title,
             lifecycle: lifecycle.clone(),
         })
         .collect())
@@ -113,6 +115,7 @@ pub fn latest_managed_session() -> Result<ManagedSessionSummary, Box<dyn std::er
         message_count: session.message_count,
         parent_session_id: session.parent_session_id,
         branch_name: session.branch_name,
+        title: session.title,
         lifecycle,
     })
 }

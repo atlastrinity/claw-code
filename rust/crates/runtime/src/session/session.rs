@@ -130,6 +130,7 @@ pub struct Session {
     /// Timestamp of last successful health check (ROADMAP #38)
     pub last_health_check_ms: Option<u64>,
     pub model: Option<String>,
+    pub title: Option<String>,
     persistence: Option<SessionPersistence>,
 }
 
@@ -145,6 +146,7 @@ impl PartialEq for Session {
             && self.workspace_root == other.workspace_root
             && self.prompt_history == other.prompt_history
             && self.last_health_check_ms == other.last_health_check_ms
+            && self.title == other.title
     }
 }
 
@@ -198,6 +200,7 @@ impl Session {
             prompt_history: Vec::new(),
             last_health_check_ms: None,
             model: None,
+            title: None,
             persistence: None,
         }
     }
@@ -294,7 +297,21 @@ impl Session {
     }
 
     pub fn push_user_text(&mut self, text: impl Into<String>) -> Result<(), SessionError> {
-        self.push_message(ConversationMessage::user_text(text))
+        let text_str = text.into();
+        if self.title.is_none() && !text_str.trim().is_empty() {
+            let clean_title: String = text_str
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .chars()
+                .take(60)
+                .collect();
+            if !clean_title.is_empty() {
+                self.title = Some(clean_title);
+            }
+        }
+        self.push_message(ConversationMessage::user_text(text_str))
     }
 
     pub fn record_health_check(&mut self, timestamp_ms: u64) {
@@ -354,6 +371,7 @@ impl Session {
             prompt_history: self.prompt_history.clone(),
             last_health_check_ms: self.last_health_check_ms,
             model: self.model.clone(),
+            title: self.title.clone(),
             persistence: None,
         }
     }
@@ -396,6 +414,12 @@ impl Session {
                 "workspace_root".to_string(),
                 JsonValue::String(workspace_root_to_string(workspace_root)?),
             );
+        }
+        if let Some(model) = &self.model {
+            object.insert("model".to_string(), JsonValue::String(model.clone()));
+        }
+        if let Some(title) = &self.title {
+            object.insert("title".to_string(), JsonValue::String(title.clone()));
         }
         if !self.prompt_history.is_empty() {
             object.insert(
@@ -467,6 +491,10 @@ impl Session {
             .get("model")
             .and_then(JsonValue::as_str)
             .map(String::from);
+        let title = object
+            .get("title")
+            .and_then(JsonValue::as_str)
+            .map(String::from);
         Ok(Self {
             version,
             session_id,
@@ -479,6 +507,7 @@ impl Session {
             prompt_history,
             last_health_check_ms: None,
             model,
+            title,
             persistence: None,
         })
     }
@@ -587,6 +616,7 @@ impl Session {
             prompt_history,
             last_health_check_ms: None,
             model,
+            title: None,
             persistence: None,
         })
     }

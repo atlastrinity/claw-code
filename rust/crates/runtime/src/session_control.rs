@@ -425,6 +425,7 @@ impl SessionStore {
                             .fork
                             .as_ref()
                             .and_then(|fork| fork.branch_name.clone()),
+                        title: session.title.clone(),
                     }
                 }
                 Err(_) => ManagedSessionSummary {
@@ -436,6 +437,7 @@ impl SessionStore {
                     message_count: 0,
                     parent_session_id: None,
                     branch_name: None,
+                    title: None,
                 },
             };
             sessions.push(summary);
@@ -486,6 +488,7 @@ impl SessionStore {
                         .fork
                         .as_ref()
                         .and_then(|fork| fork.branch_name.clone()),
+                    title: session.title.clone(),
                 },
                 Err(_) => ManagedSessionSummary {
                     id: fallback_id,
@@ -496,6 +499,7 @@ impl SessionStore {
                     message_count: 0,
                     parent_session_id: None,
                     branch_name: None,
+                    title: None,
                 },
             };
             sessions.push(summary);
@@ -548,6 +552,7 @@ pub struct ManagedSessionSummary {
     pub message_count: usize,
     pub parent_session_id: Option<String>,
     pub branch_name: Option<String>,
+    pub title: Option<String>,
 }
 
 fn sort_managed_sessions(sessions: &mut [ManagedSessionSummary]) {
@@ -915,6 +920,7 @@ mod tests {
                 message_count: 2,
                 parent_session_id: None,
                 branch_name: None,
+                title: None,
             },
             ManagedSessionSummary {
                 id: "newer-file-older-session".to_string(),
@@ -925,6 +931,7 @@ mod tests {
                 message_count: 1,
                 parent_session_id: None,
                 branch_name: None,
+                title: None,
             },
         ];
 
