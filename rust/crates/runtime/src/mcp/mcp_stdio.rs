@@ -1091,7 +1091,9 @@ impl McpServerManager {
     fn is_retryable_error(error: &McpServerManagerError) -> bool {
         matches!(
             error,
-            McpServerManagerError::Transport { .. } | McpServerManagerError::Timeout { .. }
+            McpServerManagerError::Transport { .. }
+                | McpServerManagerError::Timeout { .. }
+                | McpServerManagerError::InvalidResponse { .. }
         )
     }
 

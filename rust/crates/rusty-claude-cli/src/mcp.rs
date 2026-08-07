@@ -280,15 +280,51 @@ impl RuntimeMcpState {
         })
     }
 
+    fn extract_server_name(&self, qualified_tool_name: &str) -> Option<String> {
+        if let Some(rest) = qualified_tool_name.strip_prefix("mcp__") {
+            if let Some((server_name, _)) = rest.split_once("__") {
+                return Some(server_name.to_string());
+            }
+        }
+        for name in self.available_servers.keys() {
+            if qualified_tool_name.contains(name) {
+                return Some(name.clone());
+            }
+        }
+        None
+    }
+
     pub fn call_tool(
         &mut self,
         qualified_tool_name: &str,
         arguments: Option<serde_json::Value>,
     ) -> Result<String, ToolError> {
-        let response = self
+        let first_result = self
             .runtime
-            .block_on(self.manager.call_tool(qualified_tool_name, arguments))
-            .map_err(|error| ToolError::new(error.to_string()))?;
+            .block_on(self.manager.call_tool(qualified_tool_name, arguments.clone()));
+
+        let response = match first_result {
+            Ok(resp) => resp,
+            Err(first_err) => {
+                if let Some(server_name) = self.extract_server_name(qualified_tool_name) {
+                    if self.load_server(&server_name).is_ok() {
+                        if let Ok(retry_resp) = self
+                            .runtime
+                            .block_on(self.manager.call_tool(qualified_tool_name, arguments))
+                        {
+                            retry_resp
+                        } else {
+                            return Err(ToolError::new(first_err.to_string()));
+                        }
+                    } else {
+                        return Err(ToolError::new(first_err.to_string()));
+                    }
+                } else {
+                    return Err(ToolError::new(first_err.to_string()));
+                }
+            }
+        };
+
         if let Some(error) = response.error {
             return Err(ToolError::new(format!(
                 "MCP tool `{qualified_tool_name}` returned JSON-RPC error: {} ({})",
