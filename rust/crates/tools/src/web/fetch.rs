@@ -10,7 +10,15 @@ pub(crate) fn execute_web_fetch(input: &WebFetchInput) -> Result<WebFetchOutput,
     let response = client
         .get(request_url.clone())
         .send()
-        .map_err(|error| error.to_string())?;
+        .map_err(|error| {
+            if error.is_timeout() {
+                format!("Failed to fetch URL '{request_url}': request timed out after 20s.")
+            } else if error.is_connect() {
+                format!("Failed to fetch URL '{request_url}': could not connect to host. Check URL or network connection.")
+            } else {
+                format!("Failed to fetch URL '{request_url}': {error}")
+            }
+        })?;
 
     let status = response.status();
     let final_url = response.url().to_string();

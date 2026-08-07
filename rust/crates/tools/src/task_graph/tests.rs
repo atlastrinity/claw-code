@@ -1158,7 +1158,7 @@ fn task_graph_update_status_auto_upserts_missing_nodes() {
     let graph_content = std::fs::read_to_string(&path).expect("read graph store");
     let nodes: serde_json::Value =
         serde_json::from_str(&graph_content).expect("parse store json");
-    let node_1_1_1 = nodes
+    let _node_1_1_1 = nodes
         .as_array()
         .unwrap()
         .iter()

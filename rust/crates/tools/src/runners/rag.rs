@@ -54,7 +54,13 @@ pub(crate) fn run_retrieve_context(input: RetrieveContextInput) -> Result<String
         .post(&url)
         .json(&body)
         .send()
-        .map_err(|e| format!("RAG request failed: {e}"))?;
+        .map_err(|e| {
+            if e.is_connect() {
+                format!("RAG service unreachable at '{base_url}'. Ensure 'claw-rag-service' is running (e.g. 'cargo run -p claw-rag-service -- serve'). Error: {e}")
+            } else {
+                format!("RAG request failed: {e}")
+            }
+        })?;
 
     let status = resp.status();
     let text = resp.text().map_err(|e| format!("RAG response body: {e}"))?;

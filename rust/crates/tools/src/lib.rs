@@ -44,19 +44,18 @@ pub mod skills;
 pub use skills::*;
 
 pub(crate) mod agent;
+#[allow(unused_imports)]
 pub(crate) use agent::*;
 
 pub(crate) mod runners;
+#[allow(unused_imports)]
 pub(crate) use runners::*;
 
 pub(crate) mod tool_search;
-pub(crate) use tool_search::*;
 
 pub(crate) mod config;
-pub(crate) use config::*;
 
 pub(crate) mod shell;
-pub(crate) use shell::*;
 
 // ─── Global registries ─────────────────────────────────────────────────────
 
