@@ -81,6 +81,7 @@ Hashes below come from `git log --oneline`. Merge line counts come from `git sho
 | **Config** | `tools` | config inspection — **moderate parity** |
 | **EnterPlanMode** | `tools` | worktree plan mode toggle — **good parity** |
 | **ExitPlanMode** | `tools` | worktree plan mode restore — **good parity** |
+| **AskUserQuestion** | `tools` | interactive user prompt via stdout/stdin — **good parity** |
 | **StructuredOutput** | `tools` | passthrough JSON — **good parity** |
 | **REPL** | `tools` | subprocess code execution — **moderate parity** |
 | **PowerShell** | `tools` | Windows PowerShell execution — **moderate parity** |
@@ -89,7 +90,6 @@ Hashes below come from `git log --oneline`. Merge line counts come from `git sho
 
 | Tool | Status | Notes |
 |------|--------|-------|
-| **AskUserQuestion** | stub | needs live user I/O integration |
 | **McpAuth** | stub | needs full auth UX beyond the MCP lifecycle bridge |
 | **RemoteTrigger** | stub | needs HTTP client |
 | **TestingPermission** | stub | test-only, low priority |

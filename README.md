@@ -274,6 +274,7 @@ cargo test --workspace
 ## Documentation map
 
 - [`docs/USAGE.md`](./docs/USAGE.md) — quick commands, auth, sessions, config, parity harness
+- [`docs/SYSTEM_STATUS.md`](./docs/SYSTEM_STATUS.md) — architecture, verified Rust module map, and feature implementation status
 - [`docs/navigation-file-context.md`](./docs/navigation-file-context.md) — terminal navigation, scrollback, `@path` file context, attachments, and secret-safety guidance
 - [`docs/local-openai-compatible-providers.md`](./docs/local-openai-compatible-providers.md) — Ollama/llama.cpp/vLLM setup, Claw multi-provider positioning, and local skills install checks
 - [`docs/windows-install-release.md`](./docs/windows-install-release.md) — PowerShell-first install, release artifact, provider switching, and Windows/WSL notification smoke paths
