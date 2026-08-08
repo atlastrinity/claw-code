@@ -120,6 +120,13 @@ impl ApiLockGuard {
         if let Some(parent) = lock_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+        if let Ok(meta) = std::fs::metadata(&lock_path) {
+            if let Ok(modified) = meta.modified() {
+                if modified.elapsed().unwrap_or_default().as_secs() > 15 {
+                    let _ = std::fs::remove_file(&lock_path);
+                }
+            }
+        }
         let _ = std::fs::File::create(&lock_path);
         Self { lock_path }
     }
@@ -341,7 +348,12 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
     let home = std::env::var("HOME").unwrap_or_default();
     if !home.is_empty() {
         let lock_path = std::path::Path::new(&home).join(".claw/narration.lock");
+        let start = std::time::Instant::now();
         while lock_path.exists() {
+            if start.elapsed().as_secs() > 5 {
+                let _ = std::fs::remove_file(&lock_path);
+                break;
+            }
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
         }
     }

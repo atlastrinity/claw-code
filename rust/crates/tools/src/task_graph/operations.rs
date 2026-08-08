@@ -30,12 +30,14 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         if task_md_path.exists() {
             if let Ok(content) = std::fs::read_to_string(&task_md_path) {
                 current_nodes = parse_task_md_to_nodes(&content);
-                // Restore any nodes that were deleted from task.md as failed
+                // Restore any nodes that were omitted or deleted from task.md
                 for stored in &stored_nodes {
                     if !current_nodes.iter().any(|n| n.id == stored.id) {
-                        let mut failed_node = stored.clone();
-                        failed_node.status = Some(TaskStatus::Failed);
-                        current_nodes.push(failed_node);
+                        let mut node = stored.clone();
+                        if node.status != Some(TaskStatus::Completed) {
+                            node.status = Some(TaskStatus::Failed);
+                        }
+                        current_nodes.push(node);
                     }
                 }
             }
@@ -281,6 +283,16 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                 ));
             }
         }
+    }
+
+    let all_graph_finished = !current_nodes.is_empty()
+        && current_nodes.iter().all(|n| {
+            n.status == Some(TaskStatus::Completed) || n.status == Some(TaskStatus::Failed)
+        });
+    if all_graph_finished {
+        alerts.push(
+            "🎉 All tasks in the task graph are now COMPLETED or finished. Please summarize the completed work for the user and ask for the next goal or task.".to_string()
+        );
     }
 
     let alert = if !alerts.is_empty() {

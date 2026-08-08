@@ -176,9 +176,11 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
                 nodes = parse_task_md_to_nodes(&content);
                 for stored in &stored_nodes {
                     if !nodes.iter().any(|n| n.id == stored.id) {
-                        let mut failed_node = stored.clone();
-                        failed_node.status = Some(TaskStatus::Failed);
-                        nodes.push(failed_node);
+                        let mut node = stored.clone();
+                        if node.status != Some(TaskStatus::Completed) {
+                            node.status = Some(TaskStatus::Failed);
+                        }
+                        nodes.push(node);
                     }
                 }
                 loaded = true;
@@ -358,7 +360,7 @@ fn extract_meaningful_words(text: &str) -> HashSet<String> {
         let depth = matched_id.split('.').count();
         if depth < 2 {
             return Err(format!(
-                "Error: TaskGraph Enforcement. Task '{}' is at level 1 (root phase). You MUST create sub-tasks (e.g. '{}.1') under root phases before executing mutating actions.",
+                "Error: TaskGraph Enforcement. Task '{}' is a top-level task (Level 1). You MUST create sub-tasks (e.g. '{}.1') under root phases before executing mutating actions.",
                 matched_id, matched_id
             ));
         }

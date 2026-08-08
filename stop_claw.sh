@@ -55,26 +55,16 @@ kill_process "cargo run.*claw" false
 kill_process "cargo test.*" false
 kill_process "deps/claw-" false
 
-# Kill node/MCP server processes spawned by claw
-kill_process "ios-simulator-mcp" false
-kill_process "mcpbridge" false
-kill_process "firebase.*mcp" false
-kill_process "asc-mcp" false
-kill_process "mcp-server-github" false
-kill_process "mcp-remote" false
-kill_process "mcp_proxy_bundle.js" false
-kill_process "chrome-devtools-mcp" false
-kill_process "swiftlens" false
-kill_process "uv tool uvx.*swiftlens" false
-kill_process "pyscn-mcp" false
-kill_process "uv tool uvx.*pyscn-mcp" false
+# Clean up temporary processes spawned directly by claw CLI if needed
 
 
 # Kill edge-tts Python TTS synthesis processes
 kill_process "edge.tts" false
 kill_process "edge_tts" false
 
-# Kill iOS simulator auxiliary daemon processes
+# Kill MCP bridge and iOS simulator auxiliary daemon processes
+kill_process "mcpbridge" false
+kill_process "ios-simulator-mcp" false
 kill_process "idb_companion" false
 kill_process "bin/idb " false
 
@@ -83,19 +73,16 @@ rm -f ~/.claw/api.lock ~/.claw/narration.lock ~/.claw/voice_narrator.pid
 
 # Restore .claw.json from backup if stop was called before cleanup trap
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-search_dirs="."
-
-# Додаємо папку, де лежить сам скрипт (корінь проекту)
-if [ -d "$SCRIPT_DIR" ]; then
-    search_dirs="$search_dirs $SCRIPT_DIR"
+search_dirs=("$SCRIPT_DIR")
+if [ "$PWD" != "$SCRIPT_DIR" ]; then
+    search_dirs+=(".")
 fi
-
-# Додаємо глобальну папку ~/.claw
 if [ -d "$HOME/.claw" ]; then
-    search_dirs="$search_dirs $HOME/.claw"
+    search_dirs+=("$HOME/.claw")
 fi
 
-for bak_file in $(find $search_dirs -maxdepth 3 -name ".claw.json.bak" 2>/dev/null); do
+find "${search_dirs[@]}" -maxdepth 3 -name ".claw.json.bak" 2>/dev/null | while read -r bak_file; do
+    [ -z "$bak_file" ] && continue
     original="${bak_file%.bak}"
     if [ -f "$bak_file" ]; then
         echo "🔄 Відновлення $original з бекапу..."

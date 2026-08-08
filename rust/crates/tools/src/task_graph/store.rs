@@ -139,16 +139,7 @@ pub fn save_task_graph_output(
 "#,
         );
 
-        let mut skip_descendants_of: Option<String> = None;
         for node in &mutable_nodes {
-            if let Some(ref skip_id) = skip_descendants_of {
-                if node.id.starts_with(&format!("{}.", skip_id)) {
-                    continue;
-                } else {
-                    skip_descendants_of = None;
-                }
-            }
-
             let depth = node.id.split('.').count().saturating_sub(1);
             let checkbox = match node.status {
                 Some(TaskStatus::Completed) => "[x]",
@@ -164,10 +155,6 @@ pub fn save_task_graph_output(
                 node.id,
                 node.content.as_deref().unwrap_or("")
             ));
-
-            if node.status == Some(TaskStatus::Completed) {
-                skip_descendants_of = Some(node.id.clone());
-            }
         }
 
         let _ = std::fs::write(&task_md_path, markdown);
