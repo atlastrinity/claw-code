@@ -9122,7 +9122,7 @@ impl ApiClient for AnthropicRuntimeClient {
             // first stream event.  If the model does not respond within the
             // deadline we drop the stalled connection and re-send the request as
             // a continuation nudge (one retry only).
-            let max_attempts: usize = if is_post_tool { 2 } else { 1 };
+            let max_attempts: usize = if is_post_tool { 3 } else { 3 };
 
             for attempt in 1..=max_attempts {
                 let result = self
@@ -9136,6 +9136,16 @@ impl ApiClient for AnthropicRuntimeClient {
                     {
                         // Stalled after tool completion — nudge the model by
                         // re-sending the same request.
+                    }
+                    Err(error) if attempt < max_attempts => {
+                        eprintln!(
+                            "✘ ❌ Request failed: {}\n  Retrying stream with key rotation (attempt {}/{})...",
+                            error,
+                            attempt + 1,
+                            max_attempts
+                        );
+                        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
+                        continue;
                     }
                     Err(error) => return Err(error),
                 }

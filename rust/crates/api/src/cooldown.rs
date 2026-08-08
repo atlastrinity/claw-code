@@ -169,6 +169,12 @@ impl KeyCooldownTracker {
             || lower.contains("timeout")
             || lower.contains("stalled")
             || lower.contains("idle")
+            || lower.contains("decoding response body")
+            || lower.contains("error decoding")
+            || lower.contains("connection reset")
+            || lower.contains("broken pipe")
+            || lower.contains("http error")
+            || lower.contains("network error")
     }
 
 }
@@ -201,5 +207,12 @@ mod tests {
         assert_eq!(best, 2);
         assert!(wait.is_some());
         assert!(wait.unwrap().as_secs() <= 10);
+    }
+
+    #[test]
+    fn test_should_trigger_cooldown_detects_network_and_decoding_errors() {
+        assert!(KeyCooldownTracker::should_trigger_cooldown("http error: error decoding response body", 0));
+        assert!(KeyCooldownTracker::should_trigger_cooldown("connection reset by peer", 0));
+        assert!(KeyCooldownTracker::should_trigger_cooldown("rate limit exceeded", 429));
     }
 }
