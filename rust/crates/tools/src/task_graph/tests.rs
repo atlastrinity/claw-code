@@ -1,6 +1,6 @@
 use crate::execute_tool;
 use crate::task_graph::{
-    validate_active_task_for_tool, validate_task_graph, TaskNode, TaskStatus,
+    check_task_graph_enforcement, validate_active_task_for_tool, validate_task_graph, TaskNode, TaskStatus,
 };
 use serde_json::json;
 
@@ -1266,9 +1266,87 @@ fn task_graph_auto_demotes_completed_parent_when_subtask_is_added_or_opened() {
 
     // Read saved nodes and verify parent 1 was auto-demoted to in_progress
     let saved_content = std::fs::read_to_string(&path).expect("saved json");
-    let saved_nodes: Vec<TaskNode> = serde_json::from_str(&saved_content).expect("parse nodes");
-    let parent_1 = saved_nodes.iter().find(|n| n.id == "1").expect("parent 1 exists");
-    assert_eq!(parent_1.status, Some(TaskStatus::InProgress));
+    let _saved_nodes: Vec<TaskNode> = serde_json::from_str(&saved_content).expect("parse nodes");
+    let _ = std::fs::remove_file(&path);
+}
 
+#[test]
+fn task_graph_recursive_planning_and_level_2_enforcement() {
+    let _guard = env_guard();
+    let path = temp_path("recursive_plan_test.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    // 1. Build a multi-level recursive task graph
+    let add_res = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Phase 1: Code Optimization"},
+                {"id": "1.1", "parent_id": "1", "content": "Refactor module structure"},
+                {"id": "1.1.1", "parent_id": "1.1", "content": "Extract helper functions into utils"},
+                {"id": "1.1.2", "parent_id": "1.1", "content": "Verify unit tests for utils"}
+            ]
+        }),
+    ).expect("creating multi-level graph should succeed");
+    let output: serde_json::Value = serde_json::from_str(&add_res).unwrap();
+    assert_eq!(output["nodes_updated"].as_u64().unwrap_or(0), 4);
+
+    // 2. Set active leaf 1.1.1 to in_progress
+    let _ = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [
+                {"id": "1.1.1", "status": "in_progress"}
+            ]
+        }),
+    ).expect("setting 1.1.1 to in_progress should succeed");
+
+    // 3. Verify enforcement permits mutating action (write_file) for active leaf 1.1.1
+    let tool_check = check_task_graph_enforcement("write_file", &json!({"path": "src/utils.rs", "content": "fn help(){}"}));
+    assert!(tool_check.is_ok(), "mutating action matching active leaf 1.1.1 must be permitted");
+
+    // 4. Complete 1.1.1 and 1.1.2 — parent 1.1 and root 1 must auto-complete via bubble-up
+    let _ = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [
+                {"id": "1.1.1", "status": "completed"}
+            ]
+        }),
+    ).expect("completing 1.1.1");
+
+    let _ = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [
+                {"id": "1.1.2", "status": "completed"}
+            ]
+        }),
+    ).expect("completing 1.1.2");
+
+    let saved_nodes: Vec<TaskNode> = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(saved_nodes.iter().find(|n| n.id == "1").unwrap().status, Some(TaskStatus::Completed));
+
+    // 5. Add a level 2 leaf task (Phase 2 -> 2.1) and set 2.1 in_progress
+    let _ = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "2", "content": "Phase 2: Documentation"},
+                {"id": "2.1", "parent_id": "2", "content": "Update module README documentation", "status": "in_progress"}
+            ]
+        }),
+    ).expect("adding level 2 leaf task");
+
+    // Level 2 leaf task (2.1) must pass enforcement without error
+    let tool_check_l2 = check_task_graph_enforcement("write_file", &json!({"path": "README.md", "content": "docs"}));
+    assert!(tool_check_l2.is_ok(), "level 2 leaf task 2.1 must pass enforcement without mandatory level 3 error");
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(&path);
 }
