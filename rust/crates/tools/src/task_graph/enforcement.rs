@@ -347,10 +347,10 @@ fn extract_meaningful_words(text: &str) -> HashSet<String> {
     // ── Layer 1: Parent-child & Level 1 check for the active task ──
     if let Some(ref matched_id) = matched_node_id {
         let depth = matched_id.split('.').count();
-        if depth < 3 {
+        if depth < 2 {
             return Err(format!(
-                "Error: TaskGraph Enforcement. Task '{}' is at level {}. For deep recursion planning, you MUST decompose tasks to at least level 3 (Phase -> Sub-task -> Micro-action). Please use TaskGraph operation: \"add\" to break this down further.",
-                matched_id, depth
+                "Error: TaskGraph Enforcement. Task '{}' is at level 1 (root phase). You MUST create sub-tasks (e.g. '{}.1') under root phases before executing mutating actions.",
+                matched_id, matched_id
             ));
         }
 
