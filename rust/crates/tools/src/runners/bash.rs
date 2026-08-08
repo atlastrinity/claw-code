@@ -120,6 +120,23 @@ pub(crate) fn looks_like_windows_absolute_path(token: &str) -> bool {
         || token.starts_with(r"\\")
 }
 
+pub(crate) fn analyze_command_failure_hint(stdout: &str, stderr: &str) -> Option<String> {
+    let combined = format!("{}\n{}", stdout, stderr);
+    if combined.contains("Supported platforms for the buildables in the current scheme is empty") {
+        return Some("💡 DIAGNOSTIC HINT: xcodebuild failed because the Xcode scheme is missing supported platforms. Update .xcodegen.yml to set SDKROOT: iphoneos and SUPPORTED_PLATFORMS: \"iphonesimulator iphoneos\", then run 'xcodegen generate -s .xcodegen.yml'.".to_string());
+    }
+    if combined.contains("annotated with '@main' and must provide a main static function") || combined.contains("duplicate attribute '@main'") {
+        return Some("💡 DIAGNOSTIC HINT: Swift compilation failed due to multiple '@main' entry points. Inspect your Swift files (e.g. SceneDelegate.swift vs App.swift) and remove redundant '@main' annotations.".to_string());
+    }
+    if combined.contains("Unable to find a device matching the provided destination specifier") {
+        return Some("💡 DIAGNOSTIC HINT: xcodebuild/simctl could not find target device by name. Use 'xcrun simctl list devices booted' to get the booted device ID (e.g. -destination 'id=<UUID>').".to_string());
+    }
+    if combined.contains("No project spec found at") && combined.contains("project.yml") {
+        return Some("💡 DIAGNOSTIC HINT: xcodegen default spec is project.yml. If your spec file is .xcodegen.yml, specify the spec flag: 'xcodegen generate -s .xcodegen.yml'.".to_string());
+    }
+    None
+}
+
 pub(crate) fn run_bash(input: BashCommandInput, budget: ContextBudget) -> Result<String, String> {
     if input.command.contains("task.md") && (input.command.contains('>') || input.command.contains("sed ") || input.command.contains("awk ") || input.command.contains("ed ") || input.command.contains("vim ") || input.command.contains("nano ") || input.command.contains("echo ")) {
         return Err("Error: Direct modification of task.md via bash is forbidden. You MUST use the TaskGraph tool to maintain your task tree.".to_string());
@@ -128,7 +145,15 @@ pub(crate) fn run_bash(input: BashCommandInput, budget: ContextBudget) -> Result
         return serde_json::to_string_pretty(&output).map_err(|error| error.to_string());
     }
     execute_bash(input, budget.max_bash_output_bytes)
-        .map(|output| to_pretty_json(output).unwrap_or_else(|_| "{}".to_string()))
+        .map(|mut output| {
+            if let Some(hint) = analyze_command_failure_hint(&output.stdout, &output.stderr) {
+                if !output.stderr.is_empty() {
+                    output.stderr.push_str("\n\n");
+                }
+                output.stderr.push_str(&hint);
+            }
+            to_pretty_json(output).unwrap_or_else(|_| "{}".to_string())
+        })
         .map_err(|error| format!("failed to execute bash command: {error}"))
 }
 

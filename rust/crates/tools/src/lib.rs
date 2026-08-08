@@ -57,6 +57,9 @@ pub(crate) mod config;
 
 pub(crate) mod shell;
 
+pub mod priority_manager;
+pub use priority_manager::*;
+
 // ─── Global registries ─────────────────────────────────────────────────────
 
 /// Global LSP registry shared across tool invocations within a session.

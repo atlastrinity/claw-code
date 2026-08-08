@@ -211,6 +211,26 @@ pub(crate) fn execute_tool_with_enforcer(
         }
     }
 
+    let input_summary = serde_json::to_string(input).unwrap_or_default();
+    match &mut res {
+        Ok(out) => {
+            if out.contains("BUILD FAILED") || out.contains("Command failed with exit code") || out.contains("Supported platforms for the buildables in the current scheme is empty") {
+                if let Some(blocker) = crate::priority_manager::record_and_evaluate_tool_failure(name, &input_summary) {
+                    out.push_str("\n\n");
+                    out.push_str(&blocker);
+                }
+            } else {
+                crate::priority_manager::clear_tool_failure(name, &input_summary);
+            }
+        }
+        Err(err_msg) => {
+            if let Some(blocker) = crate::priority_manager::record_and_evaluate_tool_failure(name, &input_summary) {
+                err_msg.push_str("\n\n");
+                err_msg.push_str(&blocker);
+            }
+        }
+    }
+
     res
 }
 
