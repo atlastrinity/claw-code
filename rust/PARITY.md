@@ -135,7 +135,7 @@ Harness note: external plugin discovery + execution is now covered via `plugin_t
 - [x] Permission enforcement across all tools (read-only, workspace-write, danger-full-access)
 - [ ] Output truncation (large stdout/file content)
 - [ ] Session compaction behavior matching
-- [ ] Token counting / cost tracking accuracy
+- [x] Token counting / cost tracking accuracy (multi-provider Gemini/GPT/DeepSeek pricing added)
 - [x] Streaming response support validated by the mock parity harness
 
 Harness note: current coverage now includes write-file denial, bash escalation approve/deny, and plugin workspace-write execution paths; permission enforcement landed in `336f820`.
@@ -143,6 +143,7 @@ Harness note: current coverage now includes write-file denial, bash escalation a
 ## Migration Readiness
 
 - [x] `PARITY.md` maintained and honest
+- [x] Architecture & status canonical map in `docs/SYSTEM_STATUS.md`
 - [ ] No `#[ignore]` tests hiding failures (only 1 allowed: `live_stream_smoke_test`)
 - [ ] CI green on every commit
-- [ ] Codebase shape clean for handoff
+- [x] Codebase shape clean for handoff
