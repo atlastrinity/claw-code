@@ -60,9 +60,9 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                     .filter(|n| current_nodes.iter().any(|existing| existing.id == n.id))
                     .map(|n| n.id.clone())
                     .collect();
-                if duplicate_ids.len() >= 2 {
+                if duplicate_ids.len() >= 2 && duplicate_ids.len() == submitted_size {
                     return Err(format!(
-                        "Error: TaskGraph bulk rewrite detected. {} of your submitted nodes already exist: [{}].\n\
+                        "Error: TaskGraph bulk rewrite detected. All {} of your submitted nodes already exist: [{}].\n\
                          The 'add' operation is ONLY for adding NEW sub-tasks to an existing graph.\n\n\
                          HOW TO PROCEED:\n\
                          1. Resubmit operation: \"add\" with ONLY the NEW sub-task nodes (e.g. nodes: [{{\"id\": \"2.1\", \"parent_id\": \"2\", \"content\": \"...\", \"status\": \"in_progress\"}}]).\n\

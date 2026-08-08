@@ -63,7 +63,16 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
     if name == "bash" {
         if let Some(cmd_val) = input.get("command").or_else(|| input.get("Command")) {
             if let Some(cmd) = cmd_val.as_str() {
-                let trimmed = cmd.trim().to_lowercase();
+                let raw_trimmed = cmd.trim().to_lowercase();
+                let trimmed = if raw_trimmed.starts_with("cd ") {
+                    if let Some(pos) = raw_trimmed.find("&&") {
+                        raw_trimmed[pos + 2..].trim().to_string()
+                    } else {
+                        raw_trimmed
+                    }
+                } else {
+                    raw_trimmed
+                };
                 let is_read_only = trimmed.starts_with("cat ")
                     || trimmed.starts_with("ls ")
                     || trimmed.starts_with("grep ")
