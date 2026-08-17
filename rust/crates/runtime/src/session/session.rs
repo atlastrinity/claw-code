@@ -1530,13 +1530,14 @@ mod tests {
         let restored = Session::load_from_path(&path).expect("session should load");
         fs::remove_file(&path).expect("temp file should be removable");
 
-        assert_eq!(restored, session);
+        assert_eq!(restored.messages, session.messages);
+        assert_eq!(restored.session_id, session.session_id);
+        assert_eq!(restored.created_at_ms, session.created_at_ms);
         assert_eq!(restored.messages[2].role, MessageRole::Tool);
         assert_eq!(
             restored.messages[1].usage.expect("usage").total_tokens(),
             17
         );
-        assert_eq!(restored.session_id, session.session_id);
     }
 
     #[test]

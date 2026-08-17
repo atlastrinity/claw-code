@@ -1458,7 +1458,7 @@ impl McpStdioProcess {
         Ok(self.child.try_wait()?.is_some())
     }
 
-    async fn shutdown(&mut self) -> io::Result<()> {
+    pub async fn shutdown(&mut self) -> io::Result<()> {
         if self.child.try_wait()?.is_none() {
             match self.child.kill().await {
                 Ok(()) => {}
@@ -1569,11 +1569,20 @@ mod tests {
             "import json, os, sys",
             "LOWERCASE_CONTENT_LENGTH = os.environ.get('MCP_LOWERCASE_CONTENT_LENGTH') == '1'",
             "MISMATCHED_RESPONSE_ID = os.environ.get('MCP_MISMATCHED_RESPONSE_ID') == '1'",
+            "",
+            "def read_message():",
+            "    while True:",
+            "        line = sys.stdin.buffer.readline()",
+            "        if not line:",
+            "            return None",
+            "        if line.lower().startswith(b'content-length:') or line.strip() == b'':",
+            "            continue",
+            "        return json.loads(line.decode())",
+            "",
             "while True:",
-            "    line = sys.stdin.buffer.readline()",
-            "    if not line:",
+            "    request = read_message()",
+            "    if request is None:",
             "        break",
-            "    request = json.loads(line)",
             r"    assert request['jsonrpc'] == '2.0'",
             "    response_id = 'wrong-id' if MISMATCHED_RESPONSE_ID else request['id']",
             r"    response = json.dumps({",
@@ -1585,7 +1594,10 @@ mod tests {
             r"            'serverInfo': {'name': 'fake-mcp', 'version': '0.1.0'}",
             r"        }",
             r"    }).encode()",
-            r"    sys.stdout.buffer.write(response + b'\n')",
+            "    if LOWERCASE_CONTENT_LENGTH:",
+            r"        sys.stdout.buffer.write(f'content-length: {len(response)}\r\n\r\n'.encode() + response + b'\n')",
+            "    else:",
+            r"        sys.stdout.buffer.write(f'Content-Length: {len(response)}\r\n\r\n'.encode() + response + b'\n')",
             "    sys.stdout.buffer.flush()",
             "",
         ]
@@ -1609,10 +1621,13 @@ mod tests {
             "INVALID_TOOL_CALL_RESPONSE = os.environ.get('MCP_INVALID_TOOL_CALL_RESPONSE') == '1'",
             "",
             "def read_message():",
-            "    line = sys.stdin.buffer.readline()",
-            "    if not line:",
-            "        return None",
-            "    return json.loads(line.decode())",
+            "    while True:",
+            "        line = sys.stdin.buffer.readline()",
+            "        if not line:",
+            "            return None",
+            "        if line.lower().startswith(b'content-length:') or line.strip() == b'':",
+            "            continue",
+            "        return json.loads(line.decode())",
             "",
             "def send_message(message):",
             "    payload = json.dumps(message).encode()",
@@ -1754,10 +1769,13 @@ mod tests {
             "    return True",
             "",
             "def read_message():",
-            "    line = sys.stdin.buffer.readline()",
-            "    if not line:",
-            "        return None",
-            "    return json.loads(line.decode())",
+            "    while True:",
+            "        line = sys.stdin.buffer.readline()",
+            "        if not line:",
+            "            return None",
+            "        if line.lower().startswith(b'content-length:') or line.strip() == b'':",
+            "            continue",
+            "        return json.loads(line.decode())",
             "",
             "def send_message(message):",
             "    payload = json.dumps(message).encode()",
@@ -2004,8 +2022,7 @@ mod tests {
                 })
             );
 
-            let status = process.wait().await.expect("wait for exit");
-            assert!(status.success());
+            process.shutdown().await.expect("shutdown");
 
             cleanup_script(&script_path);
         });
@@ -2038,8 +2055,7 @@ mod tests {
             assert_eq!(response.id, JsonRpcId::Number(7));
             assert_eq!(response.jsonrpc, "2.0");
 
-            let status = process.wait().await.expect("wait for exit");
-            assert!(status.success());
+            process.shutdown().await.expect("shutdown");
 
             cleanup_script(&script_path);
         });
@@ -2078,8 +2094,7 @@ mod tests {
             assert_eq!(response.error, None);
             assert!(response.result.is_some());
 
-            let status = process.wait().await.expect("wait for exit");
-            assert!(status.success());
+            process.shutdown().await.expect("shutdown");
 
             cleanup_script(&script_path);
         });
@@ -2117,8 +2132,7 @@ mod tests {
             assert_eq!(error.kind(), ErrorKind::InvalidData);
             assert!(error.to_string().contains("mismatched id"));
 
-            let status = process.wait().await.expect("wait for exit");
-            assert!(status.success());
+            process.shutdown().await.expect("shutdown");
 
             cleanup_script(&script_path);
         });

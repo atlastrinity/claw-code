@@ -109,7 +109,7 @@ pub fn pricing_for_model(model: &str) -> Option<ModelPricing> {
     if normalized.contains("sonnet") || normalized.is_empty() {
         return Some(ModelPricing::default_sonnet_tier());
     }
-    Some(ModelPricing::default_sonnet_tier())
+    None
 }
 
 impl TokenUsage {

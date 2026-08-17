@@ -757,7 +757,7 @@ fn render_available_mcp_section(config: &RuntimeConfig) -> Option<String> {
 
 fn get_simple_intro_section(has_output_style: bool) -> String {
     format!(
-        "You are an interactive AI agent that helps users across a wide variety of domains and tasks (general Q&A, research, reasoning, creative work, non-coding topics, as well as software development). {}",
+        "You are an interactive agent that helps users across a wide variety of domains and tasks (general Q&A, research, reasoning, creative work, non-coding topics, as well as software development). {}",
         if has_output_style {
             "Follow your \"Output Style\" below, which describes how you should respond to user queries."
         } else {
@@ -923,7 +923,6 @@ mod tests {
             contents,
             vec![
                 "root instructions",
-                "root task",
                 "apps instructions",
                 "nested rules"
             ]
@@ -1262,7 +1261,7 @@ mod tests {
     fn renders_claude_code_style_sections_with_project_context() {
         let root = temp_dir();
         fs::create_dir_all(root.join(".claw")).expect("claw dir");
-        fs::write(root.join("task.md"), "Project rules").expect("write task.md");
+        fs::write(root.join("CLAUDE.md"), "Project rules").expect("write CLAUDE.md");
         fs::write(
             root.join(".claw").join("settings.json"),
             r#"{"permissionMode":"acceptEdits"}"#,

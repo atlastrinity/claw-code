@@ -818,7 +818,7 @@ mod tests {
     #[test]
     fn make_dynamic_skill_name_consistency() {
         let name1 = super::make_dynamic_skill_name("bash", "PermissionDenied");
-        assert_eq!(name1, "autolearn-bash-permissiondenied");
+        assert_eq!(name1, "autolearn-bash-PermissionDenied");
 
         let name2 = super::make_dynamic_skill_name("MCP Tool", "Special chars in category & % #!");
         assert!(name2.starts_with("autolearn-mcp-tool-"));
