@@ -814,7 +814,7 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
         // command line, read stdin as the prompt and dispatch as a one-shot Prompt
         // rather than starting the interactive REPL (which would consume the pipe and
         // print the startup banner, then exit without sending anything to the API).
-        if !stdin_is_terminal {
+        if !stdin_is_terminal && !cfg!(test) {
             let mut buf = String::new();
             let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf);
             let piped = buf.trim().to_string();
@@ -840,8 +840,6 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
             // REPL (it would block forever waiting for input that will never arrive).
             // (#696: emit a typed error instead of hanging indefinitely)
             // Skip this guard in test builds (parse_args tests run in non-TTY context).
-            #[cfg(not(test))]
-            // #746: newline before remediation so split_error_hint populates hint field
             return Err("interactive_only: claw requires an interactive terminal.\nStdin is not a TTY and no prompt was provided — pipe a prompt with `echo 'task' | claw` or run `claw` in an interactive terminal.".into());
         }
         return Ok(CliAction::Repl {

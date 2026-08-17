@@ -31,12 +31,18 @@ fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
                 }
                 return (false, String::new());
             }
-            let uncompleted_tasks = content.lines()
-                .filter(|l| l.contains("- [ ]") || l.contains("- [/]"))
-                .collect::<Vec<_>>()
-                .join("\n");
+            let nodes = tools::task_graph::parse_task_md_to_nodes(&content);
+            let (_active_leaf, _chain, branch_summary) = tools::task_graph::compute_active_recursion_branch(&nodes);
+            let task_context = branch_summary.unwrap_or_else(|| {
+                content
+                    .lines()
+                    .filter(|l| l.contains("- [ ]") || l.contains("- [/]"))
+                    .take(6)
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            });
             
-            let prompt = format!("<system-reminder>CRITICAL: You stopped generating tool calls, but the TaskGraph still contains uncompleted or in-progress tasks in task.md:\n{}\n\nIf you have finished the work, you MUST immediately call the TaskGraph tool with operation 'update_status' to mark all remaining tasks as 'completed'. DO NOT output final text or call other tools without updating the TaskGraph first. If you are not finished, continue working on the tasks using the appropriate tools.</system-reminder>", uncompleted_tasks);
+            let prompt = format!("<system-reminder>CRITICAL: You stopped generating tool calls, but the TaskGraph still contains active/pending tasks:\n{}\n\nIf you have finished the work, you MUST immediately call the TaskGraph tool with operation 'update_status' to mark the active/completed tasks. If you are not finished, continue working on the active lowest-order leaf task using the appropriate tools.</system-reminder>", task_context);
             return (true, prompt);
         }
     }

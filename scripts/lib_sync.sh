@@ -107,18 +107,28 @@ sync_all() {
     sync_file "${project_root}/CLAW.md"      "${GLOBAL_CLAW_DIR}/CLAW.md" "CLAW.md"
     sync_file "${project_root}/.env"         "${GLOBAL_CLAW_DIR}/.env"    ".env"
 
-    # Bidirectional skills sync via rsync
+    # Also keep ~/.claw/claw.json in sync with settings.json
+    if [ -f "$GLOBAL_SETTINGS" ]; then
+        cp "$GLOBAL_SETTINGS" "${GLOBAL_CLAW_DIR}/claw.json" 2>/dev/null || true
+    fi
+
+    # Bidirectional skills sync via rsync for .claw/skills and .agents/skills
+    mkdir -p "${GLOBAL_CLAW_DIR}/skills"
     if [ -d "${project_root}/.claw/skills" ] || [ -d "${GLOBAL_CLAW_DIR}/skills" ]; then
-        mkdir -p "${project_root}/.claw/skills" "${GLOBAL_CLAW_DIR}/skills"
+        mkdir -p "${project_root}/.claw/skills"
         rsync -au --exclude=".build" --exclude=".git" \
             "${project_root}/.claw/skills/" "${GLOBAL_CLAW_DIR}/skills/"
         rsync -au --exclude=".build" --exclude=".git" \
             "${GLOBAL_CLAW_DIR}/skills/" "${project_root}/.claw/skills/"
-        echo -e "  ${_LS_GREEN}↔${_LS_NC} skills: bidirectional sync complete"
     fi
+    if [ -d "${project_root}/.agents/skills" ]; then
+        rsync -au --exclude=".build" --exclude=".git" \
+            "${project_root}/.agents/skills/" "${GLOBAL_CLAW_DIR}/skills/"
+    fi
+    echo -e "  ${_LS_GREEN}↔${_LS_NC} skills: bidirectional sync complete"
 
     # Dynamically pull and sync MCP servers across global and local settings
-    update_mcp_paths "${project_root}/.claw.json" "$GLOBAL_SETTINGS" "${CLAW_CALLER_CWD:-.}/.claw.json"
+    update_mcp_paths "${project_root}/.claw.json" "$GLOBAL_SETTINGS" "${GLOBAL_CLAW_DIR}/claw.json" "${CLAW_CALLER_CWD:-.}/.claw.json"
 }
 
 # ---------------------------------------------------------------------------

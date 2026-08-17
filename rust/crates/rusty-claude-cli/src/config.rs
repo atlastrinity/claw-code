@@ -87,6 +87,7 @@ pub fn is_bare_provider_model(model: &str) -> bool {
         || model.starts_with("grok-")
         || model.starts_with("kimi-")
         || model.starts_with("glm-")
+        || model.starts_with("qwen-")
 }
 
 pub fn is_local_openai_model_syntax(model: &str) -> bool {

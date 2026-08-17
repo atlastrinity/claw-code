@@ -413,7 +413,11 @@ fn version_status_doctor_include_binary_provenance_797() {
         version["binary_provenance"]["workspace_git_sha"]
     );
 
-    let doctor = assert_json_command(&root, &["--output-format", "json", "doctor"]);
+    let doctor = assert_json_command_with_env(
+        &root,
+        &["--output-format", "json", "doctor"],
+        &[("ANTHROPIC_API_KEY", "sk-ant-test-key")],
+    );
     let system = doctor["checks"]
         .as_array()
         .expect("doctor checks")
@@ -2644,7 +2648,7 @@ fn assert_non_empty_action(parsed: &Value, args: &[&str]) {
 fn run_claw(current_dir: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_claw"));
     command.current_dir(current_dir).args(args);
-    for key in ["CLAW_OUTPUT_FORMAT", "CLAW_LOG", "RUST_LOG"] {
+    for key in ["CLAW_OUTPUT_FORMAT", "CLAW_LOG", "RUST_LOG", "OLLAMA_HOST"] {
         if !envs.iter().any(|(env_key, _)| *env_key == key) {
             command.env_remove(key);
         }
@@ -3227,6 +3231,7 @@ fn short_p_flag_swallows_no_flags_755() {
         .args(["-p", "hello", "--output-format", "json"])
         .env_remove("ANTHROPIC_API_KEY")
         .env_remove("ANTHROPIC_AUTH_TOKEN")
+        .env_remove("OLLAMA_HOST")
         .output()
         .expect("claw -p should run");
     assert!(

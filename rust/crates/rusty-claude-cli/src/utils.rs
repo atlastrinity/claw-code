@@ -3475,6 +3475,34 @@ mod tests {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<String>,
+    }
+
+    impl EnvVarGuard {
+        fn unset(key: &'static str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::remove_var(key);
+            Self { key, previous }
+        }
+
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var(key).ok();
+            std::env::set_var(key, value);
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            match &self.previous {
+                Some(value) => std::env::set_var(self.key, value),
+                None => std::env::remove_var(self.key),
+            }
+        }
+    }
+
     fn with_current_dir<T>(cwd: &Path, f: impl FnOnce() -> T) -> T {
         let _guard = cwd_lock()
             .lock()
@@ -4993,6 +5021,7 @@ mod tests {
     #[test]
     fn parses_single_word_command_aliases_without_falling_back_to_prompt_mode() {
         let _guard = env_lock();
+        let _ollama_guard = EnvVarGuard::unset("OLLAMA_HOST");
         std::env::remove_var("RUSTY_CLAUDE_PERMISSION_MODE");
         std::env::remove_var("DASHSCOPE_API_KEY");
         assert_eq!(
@@ -6275,6 +6304,8 @@ mod tests {
 
     #[test]
     fn format_connected_line_renders_anthropic_provider_for_claude_model() {
+        let _guard = env_lock();
+        let _ollama = EnvVarGuard::unset("OLLAMA_HOST");
         let model = "anthropic/claude-sonnet-4-6";
 
         let line = format_connected_line(model);
@@ -6284,6 +6315,8 @@ mod tests {
 
     #[test]
     fn format_connected_line_renders_xai_provider_for_grok_model() {
+        let _guard = env_lock();
+        let _ollama = EnvVarGuard::unset("OLLAMA_HOST");
         let model = "grok-3";
 
         let line = format_connected_line(model);
