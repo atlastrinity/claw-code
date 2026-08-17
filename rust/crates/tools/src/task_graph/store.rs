@@ -101,11 +101,69 @@ pub fn create_task_checkpoint(store_path: &PathBuf, completed_nodes: &[TaskNode]
     }
 }
 
+pub fn compute_active_recursion_branch(nodes: &[TaskNode]) -> (Option<String>, Vec<String>, Option<String>) {
+    let mut in_progress_nodes: Vec<&TaskNode> = nodes
+        .iter()
+        .filter(|node| node.status == Some(TaskStatus::InProgress))
+        .collect();
+    in_progress_nodes.sort_by(|a, b| b.id.len().cmp(&a.id.len()));
+
+    let Some(active_leaf) = in_progress_nodes.first().copied() else {
+        return (None, Vec::new(), None);
+    };
+
+    let leaf_id = active_leaf.id.clone();
+    let mut chain_nodes = Vec::new();
+    let mut current = active_leaf;
+    chain_nodes.push(current);
+
+    while let Some(ref parent_id) = current.parent_id {
+        if let Some(parent) = nodes.iter().find(|n| &n.id == parent_id) {
+            chain_nodes.push(parent);
+            current = parent;
+        } else {
+            break;
+        }
+    }
+    chain_nodes.reverse();
+
+    let chain_ids: Vec<String> = chain_nodes.iter().map(|n| n.id.clone()).collect();
+    let mut summary_lines = Vec::new();
+
+    for (idx, node) in chain_nodes.iter().enumerate() {
+        let is_leaf = idx == chain_nodes.len() - 1;
+        let tag = if is_leaf { "⚡ ACTIVE LEAF (Lowest Order)" } else { "📂 PARENT PHASE" };
+        summary_lines.push(format!(
+            "[{}] \"{}\" ({})",
+            node.id,
+            node.content.as_deref().unwrap_or(""),
+            tag
+        ));
+    }
+
+    let summary = format!(
+        "Recursive Task Chain (Finish lowest order leaf task first):\n{}\n\nStrict recursive dependency active. Full graph available in task.md or via TaskGraph operation 'view'.",
+        summary_lines.join(" ->\n  ")
+    );
+
+    (Some(leaf_id), chain_ids, Some(summary))
+}
+
 pub fn save_task_graph_output(
     store_path: &PathBuf,
     current_nodes: &[TaskNode],
     updated_count: usize,
     alert: Option<String>,
+) -> Result<TaskGraphOutput, String> {
+    save_task_graph_output_with_review(store_path, current_nodes, updated_count, alert, None)
+}
+
+pub fn save_task_graph_output_with_review(
+    store_path: &PathBuf,
+    current_nodes: &[TaskNode],
+    updated_count: usize,
+    alert: Option<String>,
+    grisha_review: Option<Vec<String>>,
 ) -> Result<TaskGraphOutput, String> {
     let mut mutable_nodes = current_nodes.to_vec();
     normalize_single_active_leaf(&mut mutable_nodes);
@@ -166,8 +224,15 @@ pub fn save_task_graph_output(
     )
     .map_err(|error| error.to_string())?;
 
+    let (active_leaf_id, active_recursion_chain, active_branch_summary) =
+        compute_active_recursion_branch(&mutable_nodes);
+
     Ok(TaskGraphOutput {
         nodes_updated: updated_count,
+        active_leaf_id,
+        active_recursion_chain,
+        active_branch_summary,
+        grisha_review,
         alert,
     })
 }

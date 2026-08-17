@@ -1467,3 +1467,92 @@ fn task_graph_sibling_auto_advance_on_completion() {
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn test_grisha_simulation_detector_blocks_echo_chains() {
+    let _guard = env_guard();
+    let path = temp_path("grisha_sim.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Phase 1"},
+                {"id": "1.1", "parent_id": "1", "content": "Inspect system", "status": "in_progress"}
+            ]
+        }),
+    )
+    .expect("TaskGraph add should succeed");
+
+    // Attempting to simulate analysis via chained echo commands must be blocked by Grisha
+    let sim_cmd = r#"echo "=== Tool Invocation Analysis ===" && echo "Available tools: 14" && echo "Duplicate count: 14 tools duplicated""#;
+    let res = execute_tool("bash", &json!({"command": sim_cmd}));
+    assert!(res.is_err());
+    let err_msg = res.unwrap_err();
+    assert!(err_msg.contains("GRISHA_SIM_003") || err_msg.contains("Faux Execution / Simulation Detected"));
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn test_grisha_plan_review_and_smart_recursive_branch() {
+    let _guard = env_guard();
+    let path = temp_path("grisha_plan.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    // 1. Add top-level plan without sub-tasks -> Grisha should generate advisory remarks
+    let out_str = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Analyze core directive compliance"}
+            ]
+        }),
+    )
+    .expect("TaskGraph add should succeed");
+
+    let out: serde_json::Value = serde_json::from_str(&out_str).expect("parse output");
+    assert!(out.get("grisha_review").is_some());
+    let review = out["grisha_review"].as_array().unwrap();
+    assert!(review[0].as_str().unwrap().contains("Grisha Advisory"));
+
+    // 2. Add leaf node 1.1 and 1.1.1 and activate it
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1.1", "parent_id": "1", "content": "Tool analysis"},
+                {"id": "1.1.1", "parent_id": "1.1", "content": "Inspect configuration files", "status": "in_progress"}
+            ]
+        }),
+    )
+    .expect("Add 1.1 and 1.1.1 should succeed");
+
+    // 3. Update status and verify smart active recursion branch is returned
+    let update_out_str = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [
+                {"id": "1.1.1", "status": "in_progress"}
+            ]
+        }),
+    )
+    .expect("Update status should succeed");
+
+    let update_out: serde_json::Value = serde_json::from_str(&update_out_str).expect("parse output");
+    assert_eq!(update_out["active_leaf_id"].as_str().unwrap(), "1.1.1");
+    let chain = update_out["active_recursion_chain"].as_array().unwrap();
+    let chain_ids: Vec<&str> = chain.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(chain_ids, vec!["1", "1.1", "1.1.1"]);
+    assert!(update_out["active_branch_summary"].as_str().unwrap().contains("ACTIVE LEAF"));
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+

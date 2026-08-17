@@ -14,6 +14,12 @@ pub use provider_pipeline::*;
 pub mod task_graph;
 pub use task_graph::*;
 
+pub mod grisha;
+pub use grisha::{
+    GrishaErrorCode, GrishaExecutionError, GrishaPlanReviewOutcome, GrishaPlanReviewer,
+    GrishaSimulationDetector, GrishaSupervisor,
+};
+
 mod pipeline_error;
 pub use pipeline_error::*;
 

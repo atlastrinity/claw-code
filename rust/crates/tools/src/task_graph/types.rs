@@ -90,9 +90,17 @@ pub struct TaskGraphInput {
     pub nodes: Vec<TaskNode>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Clone)]
 pub struct TaskGraphOutput {
     pub nodes_updated: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_leaf_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub active_recursion_chain: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_branch_summary: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grisha_review: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alert: Option<String>,
 }

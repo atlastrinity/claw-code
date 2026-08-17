@@ -1,6 +1,6 @@
 use crate::task_graph::propagation::propagate_task_statuses;
 use crate::task_graph::store::{
-    parse_task_md_to_nodes, save_task_graph_output, task_graph_store_path,
+    parse_task_md_to_nodes, save_task_graph_output_with_review, task_graph_store_path,
 };
 use crate::task_graph::types::{
     TaskGraphInput, TaskGraphOperation, TaskGraphOutput, TaskNode, TaskStatus,
@@ -49,10 +49,17 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
     }
 
     let mut updated_count = 0;
+    let mut grisha_remarks = None;
 
     match input.operation {
         TaskGraphOperation::Add => {
-            for node in input.nodes {
+            // Grisha Plan Review & Enrichment Gatekeeper
+            let review_outcome = crate::grisha::GrishaSupervisor::review_plan(&input.nodes, &current_nodes)?;
+            if !review_outcome.remarks.is_empty() {
+                grisha_remarks = Some(review_outcome.remarks);
+            }
+
+            for node in review_outcome.enriched_nodes {
                 if let Some(existing) = current_nodes.iter_mut().find(|n| n.id == node.id) {
                     if let Some(content) = node.content {
                         existing.content = Some(content);
@@ -278,5 +285,5 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         None
     };
 
-    save_task_graph_output(&store_path, &current_nodes, updated_count, alert)
+    save_task_graph_output_with_review(&store_path, &current_nodes, updated_count, alert, grisha_remarks)
 }

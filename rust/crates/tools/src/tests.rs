@@ -3796,8 +3796,14 @@ printf 'pwsh:%s' "$1"
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let original_anthropic = std::env::var_os("ANTHROPIC_API_KEY");
         let original_xai = std::env::var_os("XAI_API_KEY");
+        let original_openai_key = std::env::var_os("OPENAI_API_KEY");
+        let original_openai_base = std::env::var_os("OPENAI_BASE_URL");
+        let original_ollama_host = std::env::var_os("OLLAMA_HOST");
         std::env::set_var("ANTHROPIC_API_KEY", "anthropic-test-key");
         std::env::remove_var("XAI_API_KEY");
+        std::env::remove_var("OPENAI_API_KEY");
+        std::env::remove_var("OPENAI_BASE_URL");
+        std::env::remove_var("OLLAMA_HOST");
         let fallback_config = ProviderFallbackConfig::new(
             None,
             vec![
@@ -3825,6 +3831,15 @@ printf 'pwsh:%s' "$1"
         }
         if let Some(value) = original_xai {
             std::env::set_var("XAI_API_KEY", value);
+        }
+        if let Some(value) = original_openai_key {
+            std::env::set_var("OPENAI_API_KEY", value);
+        }
+        if let Some(value) = original_openai_base {
+            std::env::set_var("OPENAI_BASE_URL", value);
+        }
+        if let Some(value) = original_ollama_host {
+            std::env::set_var("OLLAMA_HOST", value);
         }
     }
 

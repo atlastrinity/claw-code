@@ -63,6 +63,9 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
     if name == "bash" {
         if let Some(cmd_val) = input.get("command").or_else(|| input.get("Command")) {
             if let Some(cmd) = cmd_val.as_str() {
+                // Grisha Supervisor: Detect faux execution / echo simulations
+                crate::grisha::GrishaSupervisor::inspect_command(cmd)?;
+
                 let raw_trimmed = cmd.trim().to_lowercase();
                 let trimmed = if raw_trimmed.starts_with("cd ") {
                     if let Some(pos) = raw_trimmed.find("&&") {
