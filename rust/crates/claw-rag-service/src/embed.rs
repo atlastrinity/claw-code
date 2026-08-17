@@ -28,6 +28,11 @@ impl EmbedConfig {
         })
     }
 
+    #[must_use]
+    pub fn is_mock(&self) -> bool {
+        self.base_url.starts_with("mock://")
+    }
+
     /// Deterministic fake vectors for tests / dry-run (1536 dims match common `OpenAI` models;
     /// truncated scan still works if dim mismatches — ingest uses same mock for all).
     #[must_use]

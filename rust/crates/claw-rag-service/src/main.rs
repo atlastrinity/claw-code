@@ -68,10 +68,19 @@ async fn ui_index() -> Html<&'static str> {
     Html(INDEX_HTML)
 }
 
+async fn health_check(State(state): State<Arc<AppState>>) -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "status": "ok",
+        "service": "claw-rag-service",
+        "db_exists": state.db_path.is_file(),
+        "is_mock": state.cfg.is_mock()
+    }))
+}
+
 fn rag_router(state: Arc<AppState>) -> Router {
     Router::new()
         .route("/", get(ui_index))
-        .route("/health", get(|| async { "ok" }))
+        .route("/health", get(health_check))
         .route("/v1/stats", get(stats))
         .route("/v1/query", post(query))
         .route("/v1/ingest", post(ingest_single))
@@ -198,6 +207,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let handle = tokio::runtime::Handle::current();
         std::thread::spawn(move || {
             let _watcher = watcher; // Keep the watcher alive
+            let mut consecutive_failures: u32 = 0;
             loop {
                 // Wait for the first filesystem event
                 if rx.blocking_recv().is_none() {
@@ -216,6 +226,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     }
                 }
 
+                // If recent failures occurred, apply backoff delay before triggering ingest
+                if consecutive_failures > 0 {
+                    let backoff_secs = (5 * (1 << consecutive_failures.min(4))).min(60);
+                    std::thread::sleep(std::time::Duration::from_secs(backoff_secs));
+                }
+
                 eprintln!(
                     "[claw-rag-service] Detected file changes. Triggering automatic ingest..."
                 );
@@ -224,6 +240,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     let client = new_http_client();
                     match handle.block_on(run_ingest(&serve_workspaces, &db_path, &cfg, &client)) {
                         Ok(st) => {
+                            consecutive_failures = 0;
                             if st.chunks_total > 0 || st.files_indexed > 0 {
                                 tracing::info!(
                                     files = st.files_indexed,
@@ -238,8 +255,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             }
                         }
                         Err(e) => {
-                            tracing::error!(error = %e, "auto-ingest failed");
-                            eprintln!("[claw-rag-service] Auto-ingest error: {}", e);
+                            consecutive_failures = consecutive_failures.saturating_add(1);
+                            tracing::warn!(
+                                error = %e,
+                                failure_count = consecutive_failures,
+                                "auto-ingest failed, embedding backend might be offline; will retry with backoff"
+                            );
+                            eprintln!(
+                                "[claw-rag-service] Auto-ingest error (attempt {}): {}. Backing off...",
+                                consecutive_failures, e
+                            );
                         }
                     }
                 }

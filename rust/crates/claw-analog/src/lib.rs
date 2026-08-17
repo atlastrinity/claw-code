@@ -2754,6 +2754,9 @@ glob_max_paths = 100
 
         let _g1 = EnvVarGuard::set("ANTHROPIC_API_KEY", "sk-test-mock");
         let _g2 = EnvVarGuard::set("ANTHROPIC_BASE_URL", url.as_str());
+        let _g3 = EnvVarGuard::remove("OLLAMA_HOST");
+        let _g4 = EnvVarGuard::remove("OPENAI_API_KEY");
+        let _g5 = EnvVarGuard::remove("OPENAI_BASE_URL");
 
         let config = AnalogConfig {
             model: "claude-sonnet-4-6".into(),
@@ -2804,6 +2807,9 @@ glob_max_paths = 100
 
         let _g1 = EnvVarGuard::set("ANTHROPIC_API_KEY", "sk-test-mock");
         let _g2 = EnvVarGuard::set("ANTHROPIC_BASE_URL", url.as_str());
+        let _g3 = EnvVarGuard::remove("OLLAMA_HOST");
+        let _g4 = EnvVarGuard::remove("OPENAI_API_KEY");
+        let _g5 = EnvVarGuard::remove("OPENAI_BASE_URL");
 
         let export = dir.path().join("export-session.json");
 
@@ -2859,6 +2865,9 @@ glob_max_paths = 100
 
         let _g1 = EnvVarGuard::set("ANTHROPIC_API_KEY", "sk-test-mock");
         let _g2 = EnvVarGuard::set("ANTHROPIC_BASE_URL", url.as_str());
+        let _g3 = EnvVarGuard::remove("OLLAMA_HOST");
+        let _g4 = EnvVarGuard::remove("OPENAI_API_KEY");
+        let _g5 = EnvVarGuard::remove("OPENAI_BASE_URL");
 
         let config = AnalogConfig {
             model: "claude-sonnet-4-6".into(),
@@ -2941,6 +2950,12 @@ glob_max_paths = 100
         fn set(key: &'static str, value: &str) -> Self {
             let old = std::env::var_os(key);
             std::env::set_var(key, value);
+            Self { key, old }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let old = std::env::var_os(key);
+            std::env::remove_var(key);
             Self { key, old }
         }
     }
