@@ -2933,6 +2933,21 @@ use std::collections::BTreeMap;
     }
 
     #[test]
+    fn read_file_fuzzy_suggestions_and_binary_notice() {
+        let _guard = env_lock()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        let workspace = runtime::workspace::workspace_root();
+        let target_file = workspace.join("src").join("lib.rs");
+        if target_file.exists() {
+        let res = execute_tool("read_file", &json!({ "path": "src/li.rs" }));
+        assert!(res.is_err());
+        let err = res.unwrap_err();
+        assert!(err.contains("Did you mean one of these files"), "got error: {}", err);
+        }
+    }
+
+    #[test]
     fn glob_and_grep_tools_cover_success_and_errors() {
         let _guard = env_lock()
             .lock()

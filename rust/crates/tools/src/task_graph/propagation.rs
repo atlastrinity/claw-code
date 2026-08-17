@@ -128,5 +128,48 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
                 changed = true;
             }
         }
+
+        // 4. Horizontal sibling auto-advance: when a node is auto-completed
+        //    (all children finished), promote its next pending sibling under
+        //    the same parent to InProgress. This eliminates wasted turns where
+        //    the agent manually transitions between siblings.
+        let mut siblings_to_advance = Vec::new();
+        for node in &*current_nodes {
+            if node.status == Some(TaskStatus::Completed) {
+                // Find siblings under the same parent, sorted by id
+                let mut siblings: Vec<&TaskNode> = current_nodes
+                    .iter()
+                    .filter(|n| n.parent_id == node.parent_id && n.id != node.id)
+                    .collect();
+                siblings.sort_by(|a, b| {
+                    let a_parts: Vec<u32> = a.id.split('.').filter_map(|s| s.parse().ok()).collect();
+                    let b_parts: Vec<u32> = b.id.split('.').filter_map(|s| s.parse().ok()).collect();
+                    a_parts.cmp(&b_parts)
+                });
+
+                // Check if any sibling is already InProgress
+                let has_active_sibling = siblings.iter().any(|s| s.status == Some(TaskStatus::InProgress));
+                if !has_active_sibling {
+                    // Find the next sibling that comes after this node and is Pending
+                    let node_parts: Vec<u32> = node.id.split('.').filter_map(|s| s.parse().ok()).collect();
+                    if let Some(next_sib) = siblings.iter().find(|s| {
+                        s.status == Some(TaskStatus::Pending) && {
+                            let s_parts: Vec<u32> = s.id.split('.').filter_map(|p| p.parse().ok()).collect();
+                            s_parts > node_parts
+                        }
+                    }) {
+                        if !siblings_to_advance.contains(&next_sib.id) {
+                            siblings_to_advance.push(next_sib.id.clone());
+                        }
+                    }
+                }
+            }
+        }
+        for sib_id in siblings_to_advance {
+            if let Some(sib) = current_nodes.iter_mut().find(|n| n.id == sib_id) {
+                sib.status = Some(TaskStatus::InProgress);
+                changed = true;
+            }
+        }
     }
 }

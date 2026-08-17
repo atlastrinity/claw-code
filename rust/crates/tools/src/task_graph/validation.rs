@@ -91,7 +91,7 @@ pub fn validate_task_graph(nodes: &[TaskNode]) -> Result<(), String> {
 
         for (idx, sibling) in siblings.iter().enumerate() {
             let sib_status = sibling.status.unwrap_or(TaskStatus::Pending);
-            if sib_status == TaskStatus::InProgress || sib_status == TaskStatus::Completed {
+            if sib_status == TaskStatus::InProgress {
                 for prev_sibling in siblings.iter().take(idx) {
                     let prev_status = prev_sibling.status.unwrap_or(TaskStatus::Pending);
                     if prev_status != TaskStatus::Completed && prev_status != TaskStatus::Failed {

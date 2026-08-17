@@ -464,7 +464,7 @@ fn task_graph_deep_recursion_bubble_up_depth_5() {
 }
 
 #[test]
-fn task_graph_blocks_bulk_rewrite_via_add() {
+fn task_graph_upserts_bulk_add() {
     let _guard = env_guard();
     let path = temp_path("bulk_rewrite.json");
     let _ = std::fs::remove_file(&path);
@@ -501,12 +501,9 @@ fn task_graph_blocks_bulk_rewrite_via_add() {
         }),
     );
     assert!(
-        rewrite_result.is_err(),
-        "Bulk rewrite via add should be blocked"
+        rewrite_result.is_ok(),
+        "Bulk add with existing nodes should upsert seamlessly"
     );
-    assert!(rewrite_result
-        .unwrap_err()
-        .contains("bulk rewrite detected"));
 
     let partial_add = execute_tool(
         "TaskGraph",
@@ -521,7 +518,8 @@ fn task_graph_blocks_bulk_rewrite_via_add() {
     );
     assert!(
         partial_add.is_ok(),
-        "Partial add with <60% overlap should succeed"
+        "Partial add with <60% overlap should succeed, got: {:?}",
+        partial_add.err()
     );
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
@@ -810,10 +808,7 @@ fn task_graph_no_in_progress_blocks_action() {
             "description": "Edit pending task file"
         }),
     );
-    assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .contains("no tasks currently marked as 'in_progress'"));
+    assert!(result.is_ok(), "Action should succeed by auto-promoting first pending task");
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(path);
@@ -1349,4 +1344,126 @@ fn task_graph_recursive_planning_and_level_2_enforcement() {
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn task_graph_path_based_semantic_matching() {
+    let _guard = env_guard();
+    let path = temp_path("path_match.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Refactor the parser module"},
+                {"id": "1.1", "parent_id": "1", "content": "Update parser validation logic", "status": "in_progress"}
+            ]
+        }),
+    )
+    .expect("TaskGraph add should succeed");
+
+    // Tool writes to src/parser/validation.rs — should match via path segments
+    let result = validate_active_task_for_tool(
+        "write_file",
+        &json!({
+            "path": "src/parser/validation.rs",
+            "content": "fn validate() {}"
+        }),
+    );
+    assert!(
+        result.is_ok(),
+        "Path 'src/parser/validation.rs' should match task 'Update parser validation logic' via path segments: {:?}",
+        result
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn task_graph_level1_only_graph_blocks_mutating_action() {
+    let _guard = env_guard();
+    let path = temp_path("level1_block.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Phase 1: Setup infrastructure", "status": "pending"}
+            ]
+        }),
+    )
+    .expect("TaskGraph add should succeed");
+
+    // With only a level 1 node and no leaves, mutating action should be blocked
+    let result = validate_active_task_for_tool(
+        "write_file",
+        &json!({"path": "setup.sh", "content": "echo hello"}),
+    );
+    assert!(result.is_err(), "Level 1 only graph should block mutating actions");
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("Recursive Planning Required"),
+        "Should require recursive planning, got: {}",
+        err
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn task_graph_sibling_auto_advance_on_completion() {
+    let _guard = env_guard();
+    let path = temp_path("sibling_advance.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Phase 1"},
+                {"id": "1.1", "parent_id": "1", "content": "First subtask", "status": "in_progress"},
+                {"id": "1.2", "parent_id": "1", "content": "Second subtask", "status": "pending"},
+                {"id": "1.3", "parent_id": "1", "content": "Third subtask", "status": "pending"}
+            ]
+        }),
+    )
+    .expect("TaskGraph add should succeed");
+
+    // Complete task 1.1
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [{"id": "1.1", "status": "completed"}]
+        }),
+    )
+    .expect("update_status should succeed");
+
+    // Check that 1.2 was auto-advanced to in_progress
+    let content = std::fs::read_to_string(&path).expect("read store");
+    let nodes: Vec<serde_json::Value> = serde_json::from_str(&content).expect("parse json");
+    let node_1_2 = nodes.iter().find(|n| n["id"] == "1.2").expect("node 1.2 should exist");
+    assert_eq!(
+        node_1_2["status"].as_str().unwrap(),
+        "in_progress",
+        "Sibling 1.2 should auto-advance to in_progress after 1.1 completes"
+    );
+
+    // 1.3 should still be pending
+    let node_1_3 = nodes.iter().find(|n| n["id"] == "1.3").expect("node 1.3 should exist");
+    assert_eq!(
+        node_1_3["status"].as_str().unwrap(),
+        "pending",
+        "Sibling 1.3 should remain pending"
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
 }

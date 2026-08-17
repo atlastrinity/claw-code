@@ -489,26 +489,38 @@ where
                 system_prompt,
                 messages: self.session.messages.clone(),
             };
-            let events = match self.api_client.stream(request) {
-                Ok(events) => events,
-                Err(error) => {
-                    tracing::error!(
-                        iteration = iterations,
-                        error = %error,
-                        "API stream failed"
-                    );
-                    self.record_turn_failed(iterations, &error);
-                    return Err(error);
-                }
-            };
-            let (assistant_message, usage, turn_prompt_cache_events) =
-                match build_assistant_message(events) {
-                    Ok(result) => result,
+            let mut retries = 0;
+            let max_retries = 2;
+            let (assistant_message, usage, turn_prompt_cache_events) = loop {
+                let stream_res = self
+                    .api_client
+                    .stream(request.clone())
+                    .and_then(build_assistant_message);
+
+                match stream_res {
+                    Ok(res) => break res,
                     Err(error) => {
+                        if retries < max_retries {
+                            retries += 1;
+                            tracing::warn!(
+                                iteration = iterations,
+                                retry = retries,
+                                error = %error,
+                                "API stream failed, retrying after backoff..."
+                            );
+                            std::thread::sleep(std::time::Duration::from_secs(1 << retries));
+                            continue;
+                        }
+                        tracing::error!(
+                            iteration = iterations,
+                            error = %error,
+                            "API stream failed after retries"
+                        );
                         self.record_turn_failed(iterations, &error);
                         return Err(error);
                     }
-                };
+                }
+            };
             if let Some(usage) = usage {
                 self.usage_tracker.record(usage);
             }

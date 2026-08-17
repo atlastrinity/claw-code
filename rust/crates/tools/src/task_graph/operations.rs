@@ -52,29 +52,6 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
 
     match input.operation {
         TaskGraphOperation::Add => {
-            // Bulk Rewrite Guard: block 'add' if the graph already has nodes AND the user submits more than 3 nodes
-            let existing_graph_size = current_nodes.len();
-            let submitted_size = input.nodes.len();
-            if existing_graph_size >= 4 && submitted_size >= 4 {
-                let duplicate_ids: Vec<String> = input
-                    .nodes
-                    .iter()
-                    .filter(|n| current_nodes.iter().any(|existing| existing.id == n.id))
-                    .map(|n| n.id.clone())
-                    .collect();
-                if duplicate_ids.len() >= 2 && duplicate_ids.len() == submitted_size {
-                    return Err(format!(
-                        "Error: TaskGraph bulk rewrite detected. All {} of your submitted nodes already exist: [{}].\n\
-                         The 'add' operation is ONLY for adding NEW sub-tasks to an existing graph.\n\n\
-                         HOW TO PROCEED:\n\
-                         1. Resubmit operation: \"add\" with ONLY the NEW sub-task nodes (e.g. nodes: [{{\"id\": \"2.1\", \"parent_id\": \"2\", \"content\": \"...\", \"status\": \"in_progress\"}}]).\n\
-                         2. Do NOT resubmit existing parent or sibling nodes in your 'add' payload.\n\
-                         3. To change statuses of pre-existing nodes, use operation: \"update_status\".",
-                        duplicate_ids.len(), duplicate_ids.join(", ")
-                    ));
-                }
-            }
-
             for node in input.nodes {
                 if let Some(existing) = current_nodes.iter_mut().find(|n| n.id == node.id) {
                     if let Some(content) = node.content {

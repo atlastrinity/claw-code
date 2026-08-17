@@ -236,16 +236,55 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
         .iter()
         .any(|node| node.status == Some(TaskStatus::InProgress));
     if !has_in_progress {
-        let first_pending = nodes
+        // Smart auto-promotion: scan for a promotable leaf node at depth >= 2.
+        // Try to find ANY pending leaf at depth >= 2 (not just the first pending node).
+        let promotable_leaf = nodes.iter().find(|node| {
+            (node.status == Some(TaskStatus::Pending) || node.status.is_none())
+                && node.id.split('.').count() >= 2
+                && !nodes.iter().any(|n| n.parent_id.as_ref() == Some(&node.id))
+        });
+
+        if let Some(leaf) = promotable_leaf {
+            let promote_id = leaf.id.clone();
+            let _ = crate::task_graph::operations::execute_task_graph(
+                crate::task_graph::types::TaskGraphInput {
+                    operation: crate::task_graph::types::TaskGraphOperation::UpdateStatus,
+                    nodes: vec![crate::task_graph::types::TaskNode {
+                        id: promote_id,
+                        parent_id: None,
+                        content: None,
+                        status: Some(TaskStatus::InProgress),
+                    }],
+                },
+            );
+            return Ok(());
+        }
+
+        // No promotable leaf found — check the first pending node and enforce decomposition
+        if let Some(first_pending) = nodes
             .iter()
             .find(|node| node.status == Some(TaskStatus::Pending) || node.status.is_none())
-            .map(|n| n.id.as_str())
-            .unwrap_or("1");
-        return Err(format!(
-            "Error: Strict TaskGraph Enforcement. There are no tasks currently marked as 'in_progress' in your task.md. \
-             To unblock immediately, call TaskGraph with operation: \"update_status\" and nodes: [{{\"id\": \"{}\", \"status\": \"in_progress\"}}].",
-            first_pending
-        ));
+        {
+            let is_leaf = !nodes.iter().any(|n| n.parent_id.as_ref() == Some(&first_pending.id));
+            return Err(format!(
+                "Error: Recursive Planning Required. The next pending task '{}' (\"{}\"){} is not yet decomposed into actionable leaf sub-tasks.\n\
+                 You MUST:\n\
+                 1. Call `TaskGraph` with `operation: \"add\"` to create sub-tasks (e.g. '{}.1', '{}.2') under this task.\n\
+                 2. Set the first leaf sub-task to `in_progress` using `operation: \"update_status\"`.\n\
+                 3. Only THEN execute your mutating action.",
+                first_pending.id,
+                first_pending.content.as_deref().unwrap_or(""),
+                if !is_leaf { " (has children that need completion)" } else { " (Level 1 phase)" },
+                first_pending.id,
+                first_pending.id,
+            ));
+        }
+
+        return Err(
+            "Error: Strict TaskGraph Enforcement. There are no pending tasks in your task.md. \
+             To perform mutating actions, call TaskGraph with operation: \"add\" to create a new task."
+                .to_string(),
+        );
     }
 
 fn extract_all_strings(val: &Value, out: &mut String) {
@@ -288,6 +327,38 @@ fn extract_meaningful_words(text: &str) -> HashSet<String> {
         .filter(|w| w.len() >= 3 && !stop_set.contains(w))
         .map(|w| w.to_string())
         .collect()
+}
+
+/// Extract meaningful path segments (directory names, file stems) from text
+/// that looks like file paths. This enables matching tool actions against tasks
+/// that describe work on specific modules/files.
+fn extract_path_segments(text: &str) -> HashSet<String> {
+    let mut segments = HashSet::new();
+    for word in text.split_whitespace() {
+        // Detect path-like tokens: contain '/' or '.' with extension or start with '.'
+        if word.contains('/') || word.contains('\\') || (word.contains('.') && word.len() > 4) {
+            let path = std::path::Path::new(word);
+            // Extract the file stem (e.g. "mod" from "mod.rs")
+            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                let s = stem.to_lowercase();
+                if s.len() >= 3 {
+                    segments.insert(s);
+                }
+            }
+            // Extract each directory component (e.g. "parser" from "src/parser/mod.rs")
+            for component in path.components() {
+                if let std::path::Component::Normal(c) = component {
+                    if let Some(c_str) = c.to_str() {
+                        let lower = c_str.to_lowercase();
+                        if lower.len() >= 3 && lower != "src" && lower != "lib" && lower != "mod" {
+                            segments.insert(lower);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    segments
 }
 
     let mut matched_node_id: Option<String> = None;
@@ -335,15 +406,33 @@ fn extract_meaningful_words(text: &str) -> HashSet<String> {
             let task_words = extract_meaningful_words(&task_text);
             let input_words = extract_meaningful_words(&input_text);
 
+            // Also extract path segments for cross-matching (file paths vs task descriptions)
+            let task_path_segs = extract_path_segments(&task_text);
+            let input_path_segs = extract_path_segments(&input_text);
+
             if !task_words.is_empty() && !input_words.is_empty() {
-                let has_overlap = input_words.iter().any(|iw| {
+                let has_word_overlap = input_words.iter().any(|iw| {
                     task_words.iter().any(|tw| {
                         iw == tw
                             || (tw.len() >= 4 && iw.starts_with(tw.as_str()))
                             || (iw.len() >= 4 && tw.starts_with(iw.as_str()))
                     })
                 });
-                if !has_overlap {
+
+                // Path-based matching: check if file path segments from the tool input
+                // match words in the task description, or vice versa.
+                let has_path_overlap = input_path_segs.iter().any(|seg| {
+                    task_words.contains(seg)
+                        || task_path_segs.contains(seg)
+                        || task_words.iter().any(|tw| {
+                            (tw.len() >= 4 && seg.contains(tw.as_str()))
+                                || (seg.len() >= 4 && tw.contains(seg.as_str()))
+                        })
+                }) || task_path_segs.iter().any(|seg| {
+                    input_words.contains(seg)
+                });
+
+                if !has_word_overlap && !has_path_overlap {
                     return Err(format!(
                         "Error: Strict TaskGraph Enforcement. Your action ('{}') does not match the active task '{}' (\"{}\"). Ensure your tool description or parameters match the task in task.md, write task titles and descriptions in English ONLY, or set a matching task to 'in_progress'.",
                         input_text.trim(), active_node.id, active_node.content.as_deref().unwrap_or("")

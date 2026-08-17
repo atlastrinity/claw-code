@@ -224,16 +224,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     let client = new_http_client();
                     match handle.block_on(run_ingest(&serve_workspaces, &db_path, &cfg, &client)) {
                         Ok(st) => {
-                            tracing::info!(
-                                files = st.files_indexed,
-                                chunks = st.chunks_total,
-                                embeddings = st.embeddings_written,
-                                "auto-ingest complete"
-                            );
-                            eprintln!(
-                                "[claw-rag-service] Auto-ingest complete: files={} chunks={} embeddings={}",
-                                st.files_indexed, st.chunks_total, st.embeddings_written
-                            );
+                            if st.chunks_total > 0 || st.files_indexed > 0 {
+                                tracing::info!(
+                                    files = st.files_indexed,
+                                    chunks = st.chunks_total,
+                                    embeddings = st.embeddings_written,
+                                    "auto-ingest complete"
+                                );
+                                eprintln!(
+                                    "[claw-rag-service] Auto-ingest complete: files={} chunks={} embeddings={}",
+                                    st.files_indexed, st.chunks_total, st.embeddings_written
+                                );
+                            }
                         }
                         Err(e) => {
                             tracing::error!(error = %e, "auto-ingest failed");

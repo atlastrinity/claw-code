@@ -12,9 +12,50 @@ pub(crate) fn run_read_file(input: ReadFileInput, budget: ContextBudget) -> Resu
         Ok(output) => to_pretty_json(output),
         Err(e) => {
             if e.kind() == std::io::ErrorKind::NotFound {
+                let target_path = std::path::Path::new(&input.path);
+                let stem = target_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                let suggestions = if !stem.is_empty() {
+                    let parent = target_path.parent().unwrap_or(std::path::Path::new(""));
+                    let candidates = vec![
+                        workspace.join(parent),
+                        std::env::current_dir().unwrap_or_default().join(parent),
+                        std::path::PathBuf::from(parent),
+                    ];
+                    let mut matches = Vec::new();
+                    let mut matched_dir = String::new();
+                    for dir in candidates {
+                        if let Ok(entries) = std::fs::read_dir(&dir) {
+                            for entry in entries.flatten() {
+                                let name = entry.file_name().to_string_lossy().into_owned();
+                                if name.to_lowercase().contains(&stem.to_lowercase()) && !matches.contains(&name) {
+                                    matches.push(name);
+                                }
+                            }
+                        }
+                        if !matches.is_empty() {
+                            matched_dir = dir.display().to_string();
+                            break;
+                        }
+                    }
+                    if matches.is_empty() {
+                        String::new()
+                    } else {
+                        format!("\n\nDid you mean one of these files in '{}'?\n  - {}", matched_dir, matches.join("\n  - "))
+                    }
+                } else {
+                    String::new()
+                };
+
                 Err(format!(
-                    "Error: File '{}' not found. The path might be incorrect or you are in the wrong directory. Please use the `list_dir` or `glob_search` tool to find the correct file path before trying to read again.",
-                    input.path
+                    "Error: File '{}' not found. The path might be incorrect or you are in the wrong directory. Please use the `list_dir` or `glob_search` tool to find the correct file path before trying to read again.{}",
+                    input.path, suggestions
+                ))
+            } else if e.to_string().contains("binary") {
+                let path_obj = std::path::Path::new(&input.path);
+                let file_size = std::fs::metadata(path_obj).map(|m| m.len()).unwrap_or(0);
+                Err(format!(
+                    "Notice: File '{}' is a binary file (size: {} bytes). Full raw text reading is omitted to prevent terminal corruption. Use specific inspection tools (e.g. `file`, `stat`, or binary CLI parsers via `bash`) if necessary.",
+                    input.path, file_size
                 ))
             } else {
                 Err(io_to_string(e))
