@@ -161,12 +161,12 @@ impl ProviderClient {
         model: &str,
         anthropic_auth: Option<AuthSource>,
     ) -> Result<Self, ApiError> {
+        if let Some(auth) = anthropic_auth {
+            return Ok(Self::Anthropic(AnthropicClient::from_auth(auth)));
+        }
         let resolved_model = providers::resolve_model_alias(model);
         match providers::detect_provider_kind(&resolved_model) {
-            ProviderKind::Anthropic => Ok(Self::Anthropic(match anthropic_auth {
-                Some(auth) => AnthropicClient::from_auth(auth),
-                None => AnthropicClient::from_env()?,
-            })),
+            ProviderKind::Anthropic => Ok(Self::Anthropic(AnthropicClient::from_env()?)),
             ProviderKind::Xai => Ok(Self::Xai(OpenAiCompatClient::from_env(
                 OpenAiCompatConfig::xai(),
             )?)),
@@ -769,6 +769,8 @@ mod tests {
 
     #[test]
     fn provider_detection_prefers_model_family() {
+        let _lock = env_lock();
+        let _ollama = EnvVarGuard::set("OLLAMA_HOST", None);
         assert_eq!(detect_provider_kind("grok-3"), ProviderKind::Xai);
         assert_eq!(
             detect_provider_kind("claude-sonnet-4-6"),
@@ -812,6 +814,7 @@ mod tests {
         // use OpenAiCompatConfig::dashscope() which reads DASHSCOPE_API_KEY and
         // points at dashscope.aliyuncs.com.
         let _lock = env_lock();
+        let _ollama = EnvVarGuard::set("OLLAMA_HOST", None);
         let _dashscope = EnvVarGuard::set("DASHSCOPE_API_KEY", Some("test-dashscope-key"));
         let _openai = EnvVarGuard::set("OPENAI_API_KEY", None);
 
@@ -840,6 +843,7 @@ mod tests {
     #[test]
     fn local_openai_base_url_routes_authless_ollama_models() {
         let _lock = env_lock();
+        let _ollama = EnvVarGuard::set("OLLAMA_HOST", None);
         let _base_url = EnvVarGuard::set("OPENAI_BASE_URL", Some("http://127.0.0.1:11434/v1"));
         let _openai_key = EnvVarGuard::set("OPENAI_API_KEY", None);
         let _anthropic_key = EnvVarGuard::set("ANTHROPIC_API_KEY", Some("test-anthropic-key"));

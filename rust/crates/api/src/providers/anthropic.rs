@@ -194,7 +194,16 @@ impl AnthropicClient {
 
     #[must_use]
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
-        self.base_url = base_url.into();
+        let url = base_url.into();
+        let trimmed = url.trim();
+        self.base_url = if !trimmed.starts_with("http://")
+            && !trimmed.starts_with("https://")
+            && !trimmed.starts_with("mock://")
+        {
+            format!("http://{trimmed}")
+        } else {
+            trimmed.to_string()
+        };
         self
     }
 
@@ -789,7 +798,16 @@ fn read_auth_token() -> Option<String> {
 
 #[must_use]
 pub fn read_base_url() -> String {
-    std::env::var("ANTHROPIC_BASE_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string())
+    let url = std::env::var("ANTHROPIC_BASE_URL").unwrap_or_else(|_| DEFAULT_BASE_URL.to_string());
+    let trimmed = url.trim();
+    if !trimmed.starts_with("http://")
+        && !trimmed.starts_with("https://")
+        && !trimmed.starts_with("mock://")
+    {
+        format!("http://{trimmed}")
+    } else {
+        trimmed.to_string()
+    }
 }
 
 fn request_id_from_headers(headers: &reqwest::header::HeaderMap) -> Option<String> {

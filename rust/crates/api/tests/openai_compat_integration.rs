@@ -697,6 +697,7 @@ async fn openai_compatible_client_honors_http_proxy_for_requests() {
 #[tokio::test]
 async fn provider_client_dispatches_xai_requests_from_env() {
     let _lock = env_lock();
+    let _ollama = ScopedEnvVar::remove("OLLAMA_HOST");
     let _api_key = ScopedEnvVar::set("XAI_API_KEY", "xai-test-key");
 
     let state = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
@@ -901,6 +902,12 @@ impl ScopedEnvVar {
     fn set(key: &'static str, value: impl AsRef<std::ffi::OsStr>) -> Self {
         let previous = std::env::var_os(key);
         std::env::set_var(key, value);
+        Self { key, previous }
+    }
+
+    fn remove(key: &'static str) -> Self {
+        let previous = std::env::var_os(key);
+        std::env::remove_var(key);
         Self { key, previous }
     }
 }

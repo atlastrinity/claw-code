@@ -6,6 +6,7 @@ use api::{read_xai_base_url, ApiError, AuthSource, ProviderClient, ProviderKind}
 #[test]
 fn provider_client_routes_grok_aliases_through_xai() {
     let _lock = env_lock();
+    let _ollama = EnvVarGuard::set("OLLAMA_HOST", None);
     let _xai_api_key = EnvVarGuard::set("XAI_API_KEY", Some("xai-test-key"));
 
     let client = ProviderClient::from_model("grok-mini").expect("grok alias should resolve");
@@ -16,6 +17,7 @@ fn provider_client_routes_grok_aliases_through_xai() {
 #[test]
 fn provider_client_reports_missing_xai_credentials_for_grok_models() {
     let _lock = env_lock();
+    let _ollama = EnvVarGuard::set("OLLAMA_HOST", None);
     let _xai_api_key = EnvVarGuard::set("XAI_API_KEY", None);
 
     let error = ProviderClient::from_model("grok-3")

@@ -1092,6 +1092,8 @@ mod tests {
 
     #[test]
     fn detects_provider_from_model_name_first() {
+        let _lock = env_lock();
+        let _ollama = EnvVarGuard::set("OLLAMA_HOST", None);
         assert_eq!(detect_provider_kind("grok"), ProviderKind::Xai);
         assert_eq!(
             detect_provider_kind("claude-sonnet-4-6"),
@@ -1119,6 +1121,8 @@ mod tests {
 
     #[test]
     fn maps_model_name_to_model_family_identity() {
+        let _lock = env_lock();
+        let _ollama = EnvVarGuard::set("OLLAMA_HOST", None);
         // given: Anthropic, OpenAI-compatible, and xAI model names
         let claude_model = "claude-opus-4-6";
         let openai_model = "openai/gpt-4.1-mini";
