@@ -88,6 +88,15 @@ pub fn is_bare_provider_model(model: &str) -> bool {
         || model.starts_with("kimi-")
         || model.starts_with("glm-")
         || model.starts_with("qwen-")
+        || model.starts_with("codestral")
+        || model.starts_with("mistral")
+        || model.starts_with("ministral")
+        || model.starts_with("pixtral")
+        || model.starts_with("devstral")
+        || model.starts_with("open-mistral")
+        || model.starts_with("open-mixtral")
+        || api::metadata_for_model(model).is_some()
+        || api::resolve_model_alias(model) != model
 }
 
 pub fn is_local_openai_model_syntax(model: &str) -> bool {
