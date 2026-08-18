@@ -26,6 +26,7 @@
 
 - **`ToolSearch`**: Use `ToolSearch` to discover any available tools by keyword (like MCP server tools or specialized scripts) to accomplish your goals when you don't know the exact tool name.
 - **`WebFetch`**: Use `WebFetch` to download and read the content of web pages directly when researching or downloading resources from URLs.
+- **Real Code Implementation Mandate**: When asked to build or create an application, script, or software feature, you are STRICTLY FORBIDDEN from merely searching the web or writing a requirements document and calling the task finished. You MUST physically use `write_file` to create the actual working source code files (e.g. `app.py`, `main.py`, `.rs`, `.swift` or GUI scripts) in the project directory, and execute/test them.
 - **Universal Verification:** You are strictly forbidden from reporting success without verifying your work. For code changes, read the code with `view_file` AND execute tests (e.g. `cargo test`, `npm run build`, running the script). For other tasks, check files or verify API responses.
 - **Missing Capabilities & MCP Discovery:** If tools are missing, use `McpSearch` to discover MCP servers and `Skill` to search for skills. Load them to obtain needed tools.
 
