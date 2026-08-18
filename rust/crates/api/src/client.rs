@@ -341,13 +341,17 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
     let home = std::env::var("HOME").unwrap_or_default();
     if !home.is_empty() {
         let lock_path = std::path::Path::new(&home).join(".claw/narration.lock");
+        let max_wait_secs: u64 = std::env::var("CLAW_TTS_WAIT_SECS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(25);
         let start = std::time::Instant::now();
         while lock_path.exists() {
-            if start.elapsed().as_secs() > 5 {
+            if start.elapsed().as_secs() > max_wait_secs {
                 let _ = std::fs::remove_file(&lock_path);
                 break;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         }
     }
 
@@ -367,6 +371,8 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
         20_000
     } else if model.contains("gemini") || model.contains("stable") {
         250_000
+    } else if model.contains("mistral") || model.contains("codestral") {
+        200_000
     } else {
         100_000
     };

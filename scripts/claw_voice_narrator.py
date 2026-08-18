@@ -439,7 +439,10 @@ class VoicePlayer:
                 break
             wav_path = item
             try:
-                time.sleep(0.1)  # Give system time to sync file to disk
+                # Ensure narration lock exists while playback is running
+                lock_path.parent.mkdir(parents=True, exist_ok=True)
+                lock_path.touch(exist_ok=True)
+                time.sleep(0.05)  # Give system time to sync file to disk
                 self.current_proc = subprocess.Popen(
                     ["afplay", str(wav_path)],
                     stdout=subprocess.PIPE,
@@ -452,9 +455,8 @@ class VoicePlayer:
                         print(f"\n{COLORS['grisha']}⚠️ afplay повернув код {self.current_proc.returncode}{COLORS['reset']}")
                         if stderr:
                             print(f"  Помилка: {stderr.strip()}")
-                    time.sleep(0.3)  # Allow coreaudiod buffer to fully drain before closing
+                    time.sleep(0.2)  # Allow coreaudiod buffer to fully drain before closing
                 except subprocess.TimeoutExpired:
-
                     print(f"\n{COLORS['grisha']}⚠️ afplay перевищив ліміт часу (120 с), завершення процесу.{COLORS['reset']}")
                     self.current_proc.terminate()
                     try:
