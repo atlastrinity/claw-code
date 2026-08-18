@@ -94,7 +94,6 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         }
         TaskGraphOperation::UpdateStatus => {
             let mut cascade_completed = Vec::new();
-            let mut cascade_failed = Vec::new();
 
             for node in input.nodes {
                 if let Some(existing) = current_nodes.iter_mut().find(|n| n.id == node.id) {
@@ -107,7 +106,6 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                         if new_status == TaskStatus::Completed {
                             cascade_completed.push(node.id.clone());
                         } else if new_status == TaskStatus::Failed {
-                            cascade_failed.push(node.id.clone());
                             newly_failed_nodes.push(node.id.clone());
                         }
                     }
@@ -134,7 +132,6 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                     if new_status == TaskStatus::Completed {
                         cascade_completed.push(node.id.clone());
                     } else if new_status == TaskStatus::Failed {
-                        cascade_failed.push(node.id.clone());
                         newly_failed_nodes.push(node.id.clone());
                     }
                 }
@@ -155,22 +152,23 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                     }
                 }
             }
+        }
+    }
 
-            // Cascade failure to non-terminal sub-tasks when parent is set to Failed
-            while !cascade_failed.is_empty() {
-                let current_parent_ids = std::mem::take(&mut cascade_failed);
-                for n in &mut current_nodes {
-                    if let Some(ref pid) = n.parent_id {
-                        if current_parent_ids.contains(pid)
-                            && n.status != Some(TaskStatus::Completed)
-                            && n.status != Some(TaskStatus::Failed)
-                        {
-                            n.status = Some(TaskStatus::Failed);
-                            cascade_failed.push(n.id.clone());
-                        }
-                    }
-                }
-            }
+    // Auto-repair parent status: if a parent has active children (InProgress/Pending),
+    // its status MUST be InProgress so parent-child hierarchy remains consistent and children are never skipped!
+    for i in 0..current_nodes.len() {
+        let pid = current_nodes[i].id.clone();
+        let has_active_children = current_nodes.iter().any(|n| {
+            n.parent_id.as_ref() == Some(&pid)
+                && (n.status == Some(TaskStatus::InProgress)
+                    || n.status == Some(TaskStatus::Pending))
+        });
+        if has_active_children
+            && (current_nodes[i].status == Some(TaskStatus::Completed)
+                || current_nodes[i].status == Some(TaskStatus::Failed))
+        {
+            current_nodes[i].status = Some(TaskStatus::InProgress);
         }
     }
 
