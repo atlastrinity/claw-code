@@ -8711,8 +8711,8 @@ mod alias_resolution_tests {
         let resolved = resolve_model_alias_with_config("opus");
         assert!(validate_model_syntax(&resolved).is_ok());
 
-        // Raw aliases should FAIL syntax validation (this is why we resolve first!)
-        assert!(validate_model_syntax("opus").is_err());
+        // Invalid raw models should FAIL syntax validation
+        assert!(validate_model_syntax("invalid-bare-model").is_err());
     }
 
     #[test]

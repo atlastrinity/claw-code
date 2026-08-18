@@ -1556,3 +1556,97 @@ fn test_grisha_plan_review_and_smart_recursive_branch() {
     let _ = std::fs::remove_file(path);
 }
 
+#[test]
+fn test_mixed_finished_parent_auto_advances_to_next_phase() {
+    let _guard = env_guard();
+    let test_dir = std::env::temp_dir().join(format!("claw_test_auto_advance_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&test_dir);
+    let path = test_dir.join(".clawd-task-graph.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", path.to_str().unwrap());
+
+    // 1. Setup Phase 1 and Phase 2 with hierarchy
+    let _ = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Phase 1: Config"},
+                {"id": "1.1", "parent_id": "1", "content": "Update project.yml", "status": "completed"},
+                {"id": "1.2", "parent_id": "1", "content": "Run xcodegen", "status": "failed"},
+                {"id": "1.3", "parent_id": "1", "content": "Load simulator MCP", "status": "in_progress"},
+                {"id": "1.3.1", "parent_id": "1.3", "content": "Search MCP", "status": "completed"},
+                {"id": "1.3.2", "parent_id": "1.3", "content": "Load MCP", "status": "in_progress"},
+                {"id": "2", "content": "Phase 2: Build and Test"},
+                {"id": "2.1", "parent_id": "2", "content": "Discover simulator"},
+                {"id": "2.1.1", "parent_id": "2.1", "content": "List simulators"}
+            ]
+        }),
+    ).expect("Add phases should succeed");
+
+    // 2. Complete the last sub-task of Phase 1 (1.3.2)
+    let out_str = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [
+                {"id": "1.3.2", "status": "completed"}
+            ]
+        }),
+    ).expect("Complete 1.3.2 should succeed and auto-advance");
+
+    let out: serde_json::Value = serde_json::from_str(&out_str).expect("parse output");
+    // Verify that Phase 2 was automatically promoted to InProgress down to leaf 2.1.1
+    assert_eq!(out["active_leaf_id"].as_str().unwrap(), "2.1.1");
+    let chain = out["active_recursion_chain"].as_array().unwrap();
+    let chain_ids: Vec<&str> = chain.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(chain_ids, vec!["2", "2.1", "2.1.1"]);
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_dir_all(&test_dir);
+}
+
+#[test]
+fn test_recursive_reopen_resets_subsequent_phases_to_pending() {
+    let _guard = env_guard();
+    let test_dir = std::env::temp_dir().join(format!("claw_test_reopen_reset_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&test_dir);
+    let path = test_dir.join(".clawd-task-graph.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", path.to_str().unwrap());
+
+    // 1. Add Phase 1 with 1.1, 1.2, 1.3
+    let _ = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Phase 1: Setup"},
+                {"id": "1.1", "parent_id": "1", "content": "Inspect files", "status": "completed"},
+                {"id": "1.2", "parent_id": "1", "content": "Build project", "status": "failed"},
+                {"id": "1.3", "parent_id": "1", "content": "Next step", "status": "pending"}
+            ]
+        }),
+    ).expect("Add phase should succeed");
+
+    // 2. Reopen 1.2 via recursive subtask addition
+    let out_str = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1.2.1", "parent_id": "1.2", "content": "Diagnose build error", "status": "pending"},
+                {"id": "1.2.2", "parent_id": "1.2", "content": "Apply patch", "status": "pending"}
+            ]
+        }),
+    ).expect("Add subtasks to failed parent should auto-reopen parent to in_progress");
+
+    let out: serde_json::Value = serde_json::from_str(&out_str).expect("parse output");
+    assert_eq!(out["active_leaf_id"].as_str().unwrap(), "1.2.1");
+    let chain = out["active_recursion_chain"].as_array().unwrap();
+    let chain_ids: Vec<&str> = chain.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(chain_ids, vec!["1", "1.2", "1.2.1"]);
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_dir_all(&test_dir);
+}
+
+
