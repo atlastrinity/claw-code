@@ -110,7 +110,7 @@
     },
     "xcode-bridge": {
       "description": "Server for controlling Xcode projects, building targets, running tests, and managing workflows.",
-      "command": "/Applications/Xcode.app/Contents/Developer/usr/bin/mcpbridge",
+      "command": "/Users/dev/.claw/bin/xcode_mcp_wrapper",
       "args": []
     },
     "swiftlens": {
