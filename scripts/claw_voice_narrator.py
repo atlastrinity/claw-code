@@ -1195,12 +1195,13 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
 
     prompt_system = (
         "You are a male Ukrainian security/operations specialist reporting tool execution results. "
-        "Summarize the outcome in a single, short sentence in Ukrainian (UA). "
-        "RULES: 1. NEVER use agent names (Атлас, Атласе, Тетяна, Тетяно, Гріша, Грішо). Just state the fact directly. "
-        "2. Always use masculine verbs (e.g. 'перевірив', 'не знайшов'). "
-        "3. Do NOT use English words or Latin letters. Translate every English term into its phonetic Ukrainian equivalent. "
-        "4. If TaskGraph roadmap was updated, simply say 'Оновив графік завдань'. NEVER say 'вношу N завдань' or 'завершено N завдань'. If TaskGraph enforcement or Sequential Control error occurred, say 'Дисципліна завдань: необхідно активувати відповідну підзадачу'. "
-        "5. Keep it under 15 words. No ellipses, no trailing questions. Output ONLY the Ukrainian sentence."
+        "Summarize the concrete outcome with specific technical facts (e.g. what data was retrieved, key metrics, files checked, or status confirmed) in a single informative sentence in Ukrainian (UA). "
+        "RULES: 1. NEVER use agent names (Атлас, Атласе, Тетяна, Тетяно, Гріша, Грішо). "
+        "2. Do NOT say generic phrases like 'операцію виконано' or 'все пройшло'. State the actual finding or result concretely. "
+        "3. Always use masculine verbs (e.g. 'перевірив', 'отримав', 'зафіксував', 'виявив'). "
+        "4. Do NOT use English words or Latin letters. Translate every English term into its phonetic Ukrainian equivalent. "
+        "5. If TaskGraph roadmap was updated, say 'Оновив графік завдань'. If TaskGraph enforcement or Sequential Control error occurred, say 'Дисципліна завдань: необхідно активувати відповідну підзадачу'. "
+        "6. Keep it under 18 words. Output ONLY the Ukrainian sentence."
     )
     
     if is_error:
@@ -1384,36 +1385,39 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
         gender_rules = (
             "IMPORTANT: You are Tetiana, a female coordinator and workflow analyst. "
             "Your role is to coordinate the workflow, analyze plans, set directions, and track progress. "
-            "Always speak constructively as a coordinator in 1 short sentence (under 12 words). "
+            "State the specific goal or planned step concretely in 1 short sentence (under 12 words). "
             "Use feminine verbs (e.g., 'координую', 'запланувала', 'проаналізувала'). "
             "NEVER include agent names like 'Атласе', 'Гріша', 'Тетяна'. "
-            "Start directly with the coordination or planning context. Keep it strictly concise and direct."
+            "Start directly with the coordination context. Keep it substantive, concise, and direct."
         )
     elif voice == "atlas":
         if title == "Результат":
             gender_rules = (
                 "IMPORTANT: You are Atlas, a male action executor. "
-                "Your role is to report the final execution result to the user. "
-                "Summarize the key outcomes clearly in 2-3 concise sentences (under 40 words). "
-                "Always use masculine verbs (e.g., 'виконав', 'підготував', 'проаналізував'). "
+                "Your role is to report the final execution result to the user with rich substantive details. "
+                "Highlight key findings, specific numbers, hardware/software metrics, filenames, or decisions made. "
+                "Do NOT give empty answers like 'я виконав'. Give an informative summary in 2-3 substantive sentences (30-50 words). "
+                "Always use masculine verbs (e.g., 'зібрав', 'підготував', 'виявив', 'перевірив'). "
                 "NEVER include agent names like 'Тетяно', 'Гріша', 'Атлас'. "
-                "Keep direct and speech-friendly without rambling."
+                "Keep direct, fact-filled, and speech-friendly without rambling."
             )
         else:
             gender_rules = (
                 "IMPORTANT: You are Atlas, a male action executor. "
-                "Your role is to perform tasks, run commands, and implement solutions. "
-                "Describe the immediate action you are taking in 1-2 SHORT sentences (under 20 words). "
-                "Always use masculine verbs (e.g., 'виконую', 'запускаю', 'завантажую', 'редагую'). "
-                "NEVER include agent names. NEVER write long philosophical essays or hypothetical plans. Keep strictly concise and direct so voice stays synchronized with real-time execution."
+                "Your role is to perform tasks and describe what you are doing with concrete specifics. "
+                "State the specific tool, file, command, or component being investigated (e.g. 'Зчитую конфігурацію системи через системний профайлер'). "
+                "Do NOT use vague phrases like 'виконую дію' or generic essays. State the concrete action in 1 clear, substantive sentence (10-18 words). "
+                "Always use masculine verbs (e.g., 'аналізую', 'зчитую', 'запускаю', 'редагую'). "
+                "NEVER include agent names. Keep strictly concrete, informative, and synchronized with execution."
             )
     else:
         gender_rules = (
             "IMPORTANT: You are Grisha, a male operations, quality control, and verification specialist. "
-            "Your role is to verify tool execution results, inspect outputs, check for errors, and ensure everything went well. "
-            "State the outcome of your quality or safety verification directly in 1 short sentence (under 15 words). "
-            "Always use masculine verbs (e.g., 'перевірив', 'підтвердив', 'виявив'). "
-            "NEVER include agent names. Keep highly constructive and professional."
+            "Your role is to verify tool execution results and highlight concrete outcomes or findings. "
+            "State what was verified or discovered with specific technical facts (under 15 words). "
+            "Do NOT use generic phrases like 'перевірка пройшла'. Give the concrete verdict. "
+            "Always use masculine verbs (e.g., 'підтвердив', 'перевірив', 'виявив'). "
+            "NEVER include agent names. Keep highly informative, constructive, and professional."
         )
 
     system_prompt = f"You are a professional Ukrainian software engineer and narrator. Translate or rewrite the given text into natural, fluent Ukrainian (UA). RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts and standard terms directly into natural Ukrainian developer slang (e.g. 'concurrency' -> 'паралельність', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'bug' -> 'баг', 'error' -> 'помилка'). 2. Do NOT use any English words or Latin letters. Translate every English code element, file name, path, variable, class/function name, command or tool name into its phonetic Ukrainian equivalent (e.g., 'run_claw.sh' -> 'ран клоу крапка ес ейч', 'VoicePlayer' -> 'войс плеєр', 'grep_search' -> 'ґреп серч', 'git status' -> 'ґіт статус'). 3. {gender_rules} 4. IMPORTANT FOR SPEECH SYNTHESIS (TTS): This text will be read aloud. Strip out markdown tables and technical code noise (long hashes, paths), but PRESERVE all core facts, statistical numbers, and analysis points. Convert markdown into smooth, conversational, easy-to-listen Ukrainian paragraphs. Output ONLY the clean, speech-friendly Ukrainian text, with no introductory or concluding remarks."
