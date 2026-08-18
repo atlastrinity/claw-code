@@ -150,7 +150,7 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
         //    the agent manually transitions between siblings.
         let mut siblings_to_advance = Vec::new();
         for node in &*current_nodes {
-            if node.status == Some(TaskStatus::Completed) {
+            if node.status == Some(TaskStatus::Completed) || node.status == Some(TaskStatus::Failed) {
                 // Find siblings under the same parent, sorted by id
                 let mut siblings: Vec<&TaskNode> = current_nodes
                     .iter()
