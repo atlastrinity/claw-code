@@ -1649,4 +1649,54 @@ fn test_recursive_reopen_resets_subsequent_phases_to_pending() {
     let _ = std::fs::remove_dir_all(&test_dir);
 }
 
+#[test]
+fn test_parent_with_failed_and_completed_children_stays_failed_and_advances() {
+    let _guard = env_guard();
+    let test_dir = std::env::temp_dir().join(format!("claw_test_failed_mixed_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&test_dir);
+    let path = test_dir.join(".clawd-task-graph.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", path.to_str().unwrap());
+
+    // 1. Setup Phase 1, Phase 2 (with 2.1 failed, 2.2 in_progress), Phase 3 (3.1 pending)
+    let _ = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Phase 1: Config", "status": "completed"},
+                {"id": "2", "content": "Phase 2: Build & Test", "status": "in_progress"},
+                {"id": "2.1", "parent_id": "2", "content": "Build project", "status": "failed"},
+                {"id": "2.1.1", "parent_id": "2.1", "content": "Inspect error logs", "status": "failed"},
+                {"id": "2.1.2", "parent_id": "2.1", "content": "Apply fix", "status": "completed"},
+                {"id": "2.1.3", "parent_id": "2.1", "content": "Verify fix", "status": "failed"},
+                {"id": "2.2", "parent_id": "2", "content": "Run unit tests", "status": "in_progress"},
+                {"id": "3", "content": "Phase 3: Deploy & Verify", "status": "pending"},
+                {"id": "3.1", "parent_id": "3", "content": "Install app", "status": "pending"},
+                {"id": "3.2", "parent_id": "3", "content": "Interactive UI verification", "status": "pending"}
+            ]
+        }),
+    ).expect("Add initial graph should succeed");
+
+    // 2. Complete the last sub-task of Phase 2 (2.2)
+    let out_str = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [
+                {"id": "2.2", "status": "completed"}
+            ]
+        }),
+    ).expect("Completing 2.2 should propagate Phase 2 to Failed and auto-advance to Phase 3");
+
+    let out: serde_json::Value = serde_json::from_str(&out_str).expect("parse output");
+    // Verify that Phase 2 is marked Failed and Phase 3 (3.1) is auto-promoted to InProgress
+    assert_eq!(out["active_leaf_id"].as_str().unwrap(), "3.1");
+    let chain = out["active_recursion_chain"].as_array().unwrap();
+    let chain_ids: Vec<&str> = chain.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(chain_ids, vec!["3", "3.1"]);
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_dir_all(&test_dir);
+}
+
 

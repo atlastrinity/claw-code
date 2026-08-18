@@ -33,17 +33,14 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
             }
         }
 
-        // 1. Upward InProgress propagation
+        // 1. Upward InProgress propagation: if a child is InProgress,
+        // its parent must also be InProgress.
         let mut parents_to_update = Vec::new();
         for node in &*current_nodes {
-            if node.status == Some(TaskStatus::InProgress)
-                || node.status == Some(TaskStatus::Completed)
-            {
+            if node.status == Some(TaskStatus::InProgress) {
                 if let Some(ref p_id) = node.parent_id {
                     if let Some(parent) = current_nodes.iter().find(|n| n.id == *p_id) {
-                        if parent.status != Some(TaskStatus::InProgress)
-                            && parent.status != Some(TaskStatus::Completed)
-                        {
+                        if parent.status != Some(TaskStatus::InProgress) {
                             parents_to_update.push(p_id.clone());
                         }
                     }
