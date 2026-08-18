@@ -346,6 +346,8 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
             .and_then(|v| v.parse().ok())
             .unwrap_or(25);
         let start = std::time::Instant::now();
+        // Give background voice narrator a 300ms grace window to detect the new turn and acquire lock
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         while lock_path.exists() {
             if start.elapsed().as_secs() > max_wait_secs {
                 let _ = std::fs::remove_file(&lock_path);

@@ -549,8 +549,21 @@ class VoicePlayer:
         if voice == "tetiana" and os.environ.get("CLAW_TTS_TETIANA", "true").lower() == "false":
             return
 
+        # Acquire narration lock immediately at the start of speak() to prevent CLI from advancing
+        lock_path = Path.home() / ".claw" / "narration.lock"
+        try:
+            lock_path.parent.mkdir(parents=True, exist_ok=True)
+            lock_path.touch(exist_ok=True)
+        except Exception:
+            pass
+
         natural_text = make_natural_speech(voice, title, text)
         if not natural_text.strip():
+            if self.play_queue.empty() and lock_path.exists():
+                try:
+                    lock_path.unlink()
+                except Exception:
+                    pass
             return
 
         # Translate English/mixed natural text to Ukrainian for BOTH display and TTS!
