@@ -1699,4 +1699,116 @@ fn test_parent_with_failed_and_completed_children_stays_failed_and_advances() {
     let _ = std::fs::remove_dir_all(&test_dir);
 }
 
+#[test]
+fn test_recursive_recovery_workflow_on_failed_step() {
+    let _guard = env_guard();
+    let test_dir = std::env::temp_dir().join(format!("claw_test_rec_recovery_{}", std::process::id()));
+    let _ = std::fs::create_dir_all(&test_dir);
+    let path = test_dir.join(".clawd-task-graph.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", path.to_str().unwrap());
+
+    // 1. Initial plan: Phase 1 (Completed), Phase 2 (2.1 with subtasks, 2.2), Phase 3
+    let _ = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Phase 1: Config", "status": "completed"},
+                {"id": "2", "content": "Phase 2: Build and Test", "status": "in_progress"},
+                {"id": "2.1", "parent_id": "2", "content": "Build project", "status": "in_progress"},
+                {"id": "2.1.1", "parent_id": "2.1", "content": "Inspect error logs", "status": "completed"},
+                {"id": "2.1.2", "parent_id": "2.1", "content": "Apply patch", "status": "completed"},
+                {"id": "2.1.3", "parent_id": "2.1", "content": "Verify fix by rebuilding", "status": "in_progress"},
+                {"id": "2.2", "parent_id": "2", "content": "Run unit tests", "status": "pending"},
+                {"id": "3", "content": "Phase 3: Deploy & Verify", "status": "pending"},
+                {"id": "3.1", "parent_id": "3", "content": "Install app in simulator", "status": "pending"}
+            ]
+        }),
+    ).expect("Add initial graph should succeed");
+
+    // 2. Step 2.1.3 fails (e.g. xcodebuild fails again due to missing xcodeproj path)
+    let fail_out_str = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [
+                {"id": "2.1.3", "status": "failed"}
+            ]
+        }),
+    ).expect("Marking 2.1.3 failed should trigger Grisha advisory and auto-advance 2.2");
+
+    let fail_out: serde_json::Value = serde_json::from_str(&fail_out_str).expect("parse fail output");
+    assert!(fail_out["alert"].as_str().unwrap().contains("Grisha Root-Cause Recovery Advisory"));
+
+    // 3. Recursive Recovery: Decompose failed step 2.1.3 into deeper level-4 diagnostic & fix subtasks!
+    let rec_out_str = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "2.1.3.1", "parent_id": "2.1.3", "content": "Diagnose root cause: check xcodeproj location", "status": "pending"},
+                {"id": "2.1.3.2", "parent_id": "2.1.3", "content": "Apply path fix: specify NetPulsePro/NetPulsePro.xcodeproj", "status": "pending"},
+                {"id": "2.1.3.3", "parent_id": "2.1.3", "content": "Verify build succeeded", "status": "pending"}
+            ]
+        }),
+    ).expect("Adding recursive subtasks under 2.1.3 should reopen 2.1.3, 2.1, and 2 to InProgress");
+
+    let rec_out: serde_json::Value = serde_json::from_str(&rec_out_str).expect("parse rec output");
+    // Verify that active leaf is now 2.1.3.1 and the full parent chain is InProgress!
+    assert_eq!(rec_out["active_leaf_id"].as_str().unwrap(), "2.1.3.1");
+    let chain = rec_out["active_recursion_chain"].as_array().unwrap();
+    let chain_ids: Vec<&str> = chain.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(chain_ids, vec!["2", "2.1", "2.1.3", "2.1.3.1"]);
+
+    // 4. Complete 2.1.3.1 -> auto-advances to 2.1.3.2
+    let step1_out_str = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [{"id": "2.1.3.1", "status": "completed"}]
+        }),
+    ).expect("Complete 2.1.3.1");
+    let step1_out: serde_json::Value = serde_json::from_str(&step1_out_str).unwrap();
+    assert_eq!(step1_out["active_leaf_id"].as_str().unwrap(), "2.1.3.2");
+
+    // 5. Complete 2.1.3.2 -> auto-advances to 2.1.3.3
+    let step2_out_str = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [{"id": "2.1.3.2", "status": "completed"}]
+        }),
+    ).expect("Complete 2.1.3.2");
+    let step2_out: serde_json::Value = serde_json::from_str(&step2_out_str).unwrap();
+    assert_eq!(step2_out["active_leaf_id"].as_str().unwrap(), "2.1.3.3");
+
+    // 6. Complete 2.1.3.3 -> completes 2.1.3, completes 2.1, and auto-advances to sibling 2.2!
+    let step3_out_str = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [{"id": "2.1.3.3", "status": "completed"}]
+        }),
+    ).expect("Complete 2.1.3.3");
+    let step3_out: serde_json::Value = serde_json::from_str(&step3_out_str).unwrap();
+    assert_eq!(step3_out["active_leaf_id"].as_str().unwrap(), "2.2");
+
+    // 7. Complete 2.2 -> Phase 2 is 100% completed, auto-advances to Phase 3 (3.1)!
+    let final_out_str = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [{"id": "2.2", "status": "completed"}]
+        }),
+    ).expect("Complete 2.2");
+    let final_out: serde_json::Value = serde_json::from_str(&final_out_str).unwrap();
+    assert_eq!(final_out["active_leaf_id"].as_str().unwrap(), "3.1");
+    let final_chain = final_out["active_recursion_chain"].as_array().unwrap();
+    let final_chain_ids: Vec<&str> = final_chain.iter().filter_map(|v| v.as_str()).collect();
+    assert_eq!(final_chain_ids, vec!["3", "3.1"]);
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_dir_all(&test_dir);
+}
+
 
