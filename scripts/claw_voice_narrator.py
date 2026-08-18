@@ -1155,7 +1155,7 @@ def call_narration_llm_chain(system_prompt: str, user_prompt: str) -> str:
                 headers=headers,
                 method='POST'
             )
-            with urllib.request.urlopen(req, timeout=5) as response:
+            with urllib.request.urlopen(req, timeout=10) as response:
                 res_data = json.loads(response.read().decode('utf-8'))
                 choices = res_data.get("choices", [])
                 if choices:
@@ -1411,11 +1411,11 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
 
     if title == "Запит":
         gender_rules = (
-            "IMPORTANT: Translate the user's request directly and literally into Ukrainian. "
-            "Do NOT rewrite the request as actions you have already taken. "
-            "Do NOT write in the first person (do NOT use 'я зробив', 'я знайшов' etc.). "
+            "IMPORTANT: Summarize the user's request into 1-2 natural, concise Ukrainian sentences for voice narration (under 25 words). "
+            "Highlight the core goal clearly and what needs to be done. "
+            "Do NOT write in the first person. "
             "NEVER include agent names (Атлас, Тетяна, Гріша). "
-            "Just translate what the user is asking to be done directly. Do NOT add any prefixes or introductory phrases."
+            "Output ONLY the concise Ukrainian summary with no extra text or prefixes."
         )
     elif voice == "tetiana":
         gender_rules = (
@@ -1463,9 +1463,12 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
         f"4. IMPORTANT FOR SPEECH SYNTHESIS (TTS): Strip out markdown tables and technical code noise, but PRESERVE all core facts. Output ONLY clean, speech-friendly Ukrainian text."
     )
 
-    translated = call_narration_llm_chain(system_prompt, text)
+    prompt_payload = text[:1500] if len(text) > 1500 else text
+    translated = call_narration_llm_chain(system_prompt, prompt_payload)
     if translated:
         return translated
+    if title == "Запит":
+        return "Отримано завдання від користувача на налаштування та реалізацію проекту."
     return text
 
 def translate_to_english(text: str) -> str:
