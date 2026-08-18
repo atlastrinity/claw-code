@@ -1171,7 +1171,7 @@ def translate_and_summarize_thinking(text: str) -> str:
 
 
 def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool, output_val: str) -> str:
-    if not output_val.strip() and not is_error:
+    if not output_val.strip():
         return ""
 
     output_summary = output_val.strip()
@@ -1179,14 +1179,21 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
     try:
         parsed_out = json.loads(output_val)
         if isinstance(parsed_out, dict):
-            stdout = parsed_out.get("stdout", "")
-            stderr = parsed_out.get("stderr", "")
-            if stdout or stderr:
-                output_summary = f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}".strip()
-            elif "nodes_updated" in parsed_out:
-                output_summary = f"TaskGraph roadmap updated ({parsed_out['nodes_updated']} total nodes in tree structure)."
-            elif "output" in parsed_out:
-                output_summary = str(parsed_out["output"]).strip()
+            if parsed_out.get("grisha_review"):
+                reviews = parsed_out["grisha_review"]
+                if isinstance(reviews, list):
+                    output_summary = " ".join(str(r) for r in reviews)
+                else:
+                    output_summary = str(reviews)
+            elif parsed_out.get("alert"):
+                output_summary = str(parsed_out["alert"])
+            else:
+                stdout = parsed_out.get("stdout", "")
+                stderr = parsed_out.get("stderr", "")
+                if stdout or stderr:
+                    output_summary = f"STDOUT:\n{stdout}\nSTDERR:\n{stderr}".strip()
+                elif "output" in parsed_out:
+                    output_summary = str(parsed_out["output"]).strip()
     except Exception:
         pass
 
@@ -1194,22 +1201,16 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
         output_summary = output_summary[:4000] + "... [вивід скорочено]"
 
     prompt_system = (
-        "You are a male Ukrainian security/operations specialist reporting tool execution results. "
-        "Summarize the concrete outcome with specific technical facts (e.g. what data was retrieved, key metrics, files checked, or status confirmed) in a single informative sentence in Ukrainian (UA). "
+        "You are Grisha, a male Ukrainian quality control and operations specialist intervening because an issue, advisory, or error was detected. "
+        "Summarize the problem, required correction, or diagnostic outcome directly in 1 informative sentence in Ukrainian (UA). "
         "RULES: 1. NEVER use agent names (Атлас, Атласе, Тетяна, Тетяно, Гріша, Грішо). "
-        "2. Do NOT say generic phrases like 'операцію виконано' or 'все пройшло'. State the actual finding or result concretely. "
-        "3. Always use masculine verbs (e.g. 'перевірив', 'отримав', 'зафіксував', 'виявив'). "
+        "2. State what went wrong or what correction is needed concretely with specific details. "
+        "3. Always use masculine verbs (e.g. 'виявив', 'зафіксував', 'потрібно'). "
         "4. Do NOT use English words or Latin letters. Translate every English term into its phonetic Ukrainian equivalent. "
-        "5. If TaskGraph roadmap was updated, say 'Оновив графік завдань'. If TaskGraph enforcement or Sequential Control error occurred, say 'Дисципліна завдань: необхідно активувати відповідну підзадачу'. "
-        "6. Keep it under 18 words. Output ONLY the Ukrainian sentence."
+        "5. Keep it under 18 words. Output ONLY the Ukrainian sentence."
     )
     
-    if is_error:
-        error_context = "CRITICAL: The tool failed with an ERROR."
-    else:
-        error_context = "The tool executed normally and SUCCESSFULLY. DO NOT report any errors, even if the raw output contains source code with 'error' or 'exception'."
-        
-    prompt_user = f"The tool was run for: '{action_desc}'. {error_context} The raw output was: '{output_summary}'."
+    prompt_user = f"Tool: '{action_desc}'. Output / issue detected: '{output_summary}'."
     return call_narration_llm_chain(prompt_system, prompt_user)
 
 
@@ -1749,16 +1750,29 @@ def process_session_entry(data: dict, player: VoicePlayer):
                     is_error = block.get("is_error", False)
                     output_val = block.get("output", "")
                     
-                    if not is_error:
-                        # Skip successful tool results to keep narration clean and fast
+                    # Detect if an actual problem, error, or Grisha advisory was returned
+                    has_problem = is_error
+                    lower_val = output_val.lower() if output_val else ""
+                    if not has_problem and output_val:
+                        if any(k in lower_val for k in ["grisha_review", "alert", "error", "failed", "permission denied", "non-zero exit code"]):
+                            try:
+                                parsed = json.loads(output_val)
+                                if isinstance(parsed, dict) and (parsed.get("grisha_review") or parsed.get("alert") or parsed.get("is_error")):
+                                    has_problem = True
+                            except Exception:
+                                pass
+                    
+                    if not has_problem:
+                        # Skip smooth successful results to save TTS time and keep narration fast
                         continue
                     
                     action_desc = getattr(player, "last_action_desc", "")
                     if not action_desc or getattr(player, "last_action_tool", "") != tool_name:
                         action_desc = TOOL_NAMES_UA.get(tool_name, tool_name)
                         
-                    speech = player.get_tool_verdict_speech(tool_name, action_desc, is_error, output_val)
-                    player.speak("grisha", "Результат інструменту", speech)
+                    speech = player.get_tool_verdict_speech(tool_name, action_desc, is_error=True, output_val=output_val)
+                    if speech and speech.strip():
+                        player.speak("grisha", "Зауваження контролю", speech)
 
 def tail_session_loop():
     import signal
