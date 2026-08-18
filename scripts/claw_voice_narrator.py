@@ -626,16 +626,13 @@ class VoicePlayer:
                     wait_start = time.time()
                     warned = False
                     while api_lock_path.exists():
-                        if time.time() - wait_start > 60.0:
-                            print(f"\n⚠️  Попередження: виявлено застаріле блокування api.lock. Продовжуємо без очікування.")
+                        if time.time() - wait_start > 3.0:
+                            print(f"\n⚠️  Попередження: очищено застаріле блокування api.lock.")
                             try:
                                 api_lock_path.unlink()
                             except Exception:
                                 pass
                             break
-                        if time.time() - wait_start > 5.0 and not warned:
-                            print(f"\n⏳ Очікування завершення API запиту Claw (блокування api.lock)...")
-                            warned = True
                         time.sleep(0.1)
                         
                     self.tts_engine.synthesize_to_wav(
