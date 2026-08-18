@@ -437,6 +437,17 @@ class VoicePlayer:
             if item is None:
                 self.play_queue.task_done()
                 break
+                
+            # If the agent generated a rapid flurry of actions, skip stale backlog and take the freshest item
+            while not self.play_queue.empty() and self.play_queue.qsize() >= 1:
+                try:
+                    # Drain older intermediate item
+                    stale_item = item
+                    item = self.play_queue.get_nowait()
+                    self.play_queue.task_done()
+                except Exception:
+                    break
+
             wav_path = item
             try:
                 # Ensure narration lock exists while playback is running
