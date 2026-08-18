@@ -568,9 +568,9 @@ class VoicePlayer:
             
             # Map narrator agents to Edge-TTS voices with distinct rate/pitch settings
             voice_settings = {
-                "tetiana": ("uk-UA-PolinaNeural", "+5%", "+5Hz"),
-                "atlas":   ("uk-UA-OstapNeural", "+6%", "+3Hz"),
-                "grisha":  ("uk-UA-OstapNeural", "+0%", "-15Hz"),
+                "tetiana": ("uk-UA-PolinaNeural", "+15%", "+5Hz"),
+                "atlas":   ("uk-UA-OstapNeural", "+18%", "+3Hz"),
+                "grisha":  ("uk-UA-OstapNeural", "+10%", "-15Hz"),
             }
             # Allow overriding the voice settings via environment variables (e.g. CLAW_TTS_ATLAS_VOICE="tetiana")
             voice_override = os.environ.get(f"CLAW_TTS_{voice.upper()}_VOICE", voice)
@@ -1384,34 +1384,36 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
         gender_rules = (
             "IMPORTANT: You are Tetiana, a female coordinator and workflow analyst. "
             "Your role is to coordinate the workflow, analyze plans, set directions, and track progress. "
-            "Always speak constructively as a coordinator. Use feminine verbs (e.g., 'координую', 'запланувала', 'проаналізувала'). "
+            "Always speak constructively as a coordinator in 1 short sentence (under 12 words). "
+            "Use feminine verbs (e.g., 'координую', 'запланувала', 'проаналізувала'). "
             "NEVER include agent names like 'Атласе', 'Гріша', 'Тетяна'. "
-            "Start directly with the coordination or planning context. Keep it under 15 words, constructive and direct."
+            "Start directly with the coordination or planning context. Keep it strictly concise and direct."
         )
     elif voice == "atlas":
         if title == "Результат":
             gender_rules = (
-                "IMPORTANT: You are Atlas, a male action executor and research assistant. "
-                "Your role is to report full, thorough execution results and analysis to the user. "
-                "Always use masculine verbs (e.g., 'виконав', 'підготував', 'проаналізував', 'зібрав'). "
+                "IMPORTANT: You are Atlas, a male action executor. "
+                "Your role is to report the final execution result to the user. "
+                "Summarize the key outcomes clearly in 2-3 concise sentences (under 40 words). "
+                "Always use masculine verbs (e.g., 'виконав', 'підготував', 'проаналізував'). "
                 "NEVER include agent names like 'Тетяно', 'Гріша', 'Атлас'. "
-                "CRITICAL: Do NOT truncate or skip detailed analysis points. Summarize smoothly and completely into natural Ukrainian speech. Do NOT repeat formal names or titles unnecessarily."
+                "Keep direct and speech-friendly without rambling."
             )
         else:
             gender_rules = (
                 "IMPORTANT: You are Atlas, a male action executor. "
                 "Your role is to perform tasks, run commands, and implement solutions. "
-                "Describe the action you are taking and why. "
+                "Describe the immediate action you are taking in 1-2 SHORT sentences (under 20 words). "
                 "Always use masculine verbs (e.g., 'виконую', 'запускаю', 'завантажую', 'редагую'). "
-                "NEVER include agent names. Keep concise and direct."
+                "NEVER include agent names. NEVER write long philosophical essays or hypothetical plans. Keep strictly concise and direct so voice stays synchronized with real-time execution."
             )
     else:
         gender_rules = (
             "IMPORTANT: You are Grisha, a male operations, quality control, and verification specialist. "
             "Your role is to verify tool execution results, inspect outputs, check for errors, and ensure everything went well. "
-            "State the outcome of your quality or safety verification directly. "
+            "State the outcome of your quality or safety verification directly in 1 short sentence (under 15 words). "
             "Always use masculine verbs (e.g., 'перевірив', 'підтвердив', 'виявив'). "
-            "NEVER include agent names. Keep under 15 words, highly constructive and professional."
+            "NEVER include agent names. Keep highly constructive and professional."
         )
 
     system_prompt = f"You are a professional Ukrainian software engineer and narrator. Translate or rewrite the given text into natural, fluent Ukrainian (UA). RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts and standard terms directly into natural Ukrainian developer slang (e.g. 'concurrency' -> 'паралельність', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'bug' -> 'баг', 'error' -> 'помилка'). 2. Do NOT use any English words or Latin letters. Translate every English code element, file name, path, variable, class/function name, command or tool name into its phonetic Ukrainian equivalent (e.g., 'run_claw.sh' -> 'ран клоу крапка ес ейч', 'VoicePlayer' -> 'войс плеєр', 'grep_search' -> 'ґреп серч', 'git status' -> 'ґіт статус'). 3. {gender_rules} 4. IMPORTANT FOR SPEECH SYNTHESIS (TTS): This text will be read aloud. Strip out markdown tables and technical code noise (long hashes, paths), but PRESERVE all core facts, statistical numbers, and analysis points. Convert markdown into smooth, conversational, easy-to-listen Ukrainian paragraphs. Output ONLY the clean, speech-friendly Ukrainian text, with no introductory or concluding remarks."
