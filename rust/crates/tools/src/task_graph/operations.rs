@@ -84,7 +84,10 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                         && (n.status == Some(TaskStatus::InProgress)
                             || n.status == Some(TaskStatus::Pending))
                 });
-                if has_active_children && current_nodes[i].status == Some(TaskStatus::Completed) {
+                if has_active_children
+                    && (current_nodes[i].status == Some(TaskStatus::Completed)
+                        || current_nodes[i].status == Some(TaskStatus::Failed))
+                {
                     current_nodes[i].status = Some(TaskStatus::InProgress);
                 }
             }

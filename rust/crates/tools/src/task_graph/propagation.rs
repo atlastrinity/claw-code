@@ -60,6 +60,7 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
         // 2. Upward Completed & Failed propagation (when all children are finished)
         let mut parents_to_complete = Vec::new();
         let mut parents_to_fail = Vec::new();
+        let mut parents_to_reopen = Vec::new();
 
         for parent_node in &*current_nodes {
             let children: Vec<&TaskNode> = current_nodes
@@ -85,6 +86,11 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
                     && parent_node.status != Some(TaskStatus::Failed)
                 {
                     parents_to_fail.push(parent_node.id.clone());
+                } else if !all_finished
+                    && (parent_node.status == Some(TaskStatus::Completed)
+                        || parent_node.status == Some(TaskStatus::Failed))
+                {
+                    parents_to_reopen.push(parent_node.id.clone());
                 }
             }
         }
@@ -98,6 +104,12 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
         for p_id in parents_to_fail {
             if let Some(parent) = current_nodes.iter_mut().find(|n| n.id == p_id) {
                 parent.status = Some(TaskStatus::Failed);
+                changed = true;
+            }
+        }
+        for p_id in parents_to_reopen {
+            if let Some(parent) = current_nodes.iter_mut().find(|n| n.id == p_id) {
+                parent.status = Some(TaskStatus::InProgress);
                 changed = true;
             }
         }
