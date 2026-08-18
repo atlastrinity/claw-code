@@ -180,10 +180,62 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
                 }
             }
         }
-        for sib_id in siblings_to_advance {
-            if let Some(sib) = current_nodes.iter_mut().find(|n| n.id == sib_id) {
-                sib.status = Some(TaskStatus::InProgress);
-                changed = true;
+        for s_id in siblings_to_advance {
+            if let Some(next_sibling) = current_nodes.iter_mut().find(|n| n.id == s_id) {
+                if next_sibling.status == Some(TaskStatus::Pending) {
+                    next_sibling.status = Some(TaskStatus::InProgress);
+                    changed = true;
+                }
+            }
+        }
+
+        // 5. Enforce single active sibling branch:
+        // If an earlier sibling is InProgress (or has active children), all subsequent siblings
+        // (and their descendant trees) must be Pending to prevent concurrent active phases and satisfy Sequential Control.
+        let mut nodes_to_reset_to_pending = Vec::new();
+        let unique_parents: std::collections::HashSet<Option<String>> =
+            current_nodes.iter().map(|n| n.parent_id.clone()).collect();
+
+        for pid in unique_parents {
+            let mut siblings: Vec<&TaskNode> = current_nodes
+                .iter()
+                .filter(|n| n.parent_id == pid)
+                .collect();
+            siblings.sort_by(|a, b| {
+                let a_parts: Vec<u32> = a.id.split('.').filter_map(|s| s.parse().ok()).collect();
+                let b_parts: Vec<u32> = b.id.split('.').filter_map(|s| s.parse().ok()).collect();
+                a_parts.cmp(&b_parts)
+            });
+
+            let mut found_active = false;
+            for sib in siblings {
+                let is_active = sib.status == Some(TaskStatus::InProgress);
+                if is_active {
+                    if !found_active {
+                        found_active = true;
+                    } else {
+                        nodes_to_reset_to_pending.push(sib.id.clone());
+                    }
+                }
+            }
+        }
+
+        while !nodes_to_reset_to_pending.is_empty() {
+            let to_reset = std::mem::take(&mut nodes_to_reset_to_pending);
+            for n in &mut *current_nodes {
+                if to_reset.contains(&n.id) {
+                    if n.status == Some(TaskStatus::InProgress) {
+                        n.status = Some(TaskStatus::Pending);
+                        changed = true;
+                    }
+                }
+                if let Some(ref pid) = n.parent_id {
+                    if to_reset.contains(pid) && n.status == Some(TaskStatus::InProgress) {
+                        n.status = Some(TaskStatus::Pending);
+                        nodes_to_reset_to_pending.push(n.id.clone());
+                        changed = true;
+                    }
+                }
             }
         }
     }
