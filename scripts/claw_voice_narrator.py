@@ -1181,14 +1181,25 @@ def translate_and_summarize_thinking(text: str) -> str:
     if not text.strip():
         return ""
 
+    # Strip system tags and internal prompts
+    text = re.sub(r"(?s)<system-reminder>.*?</system-reminder>", "", text)
+    text = re.sub(r"(?s)<[^>]+>", "", text)
+    if not text.strip() or "CLAW_" in text or "TaskGraph" in text:
+        # Check if anything remains after stripping meta-instructions
+        cleaned = re.sub(r"(?i)\b(claw[-_]?code|taskgraph|system-reminder|mandate|prompt|environment_context)\b", "", text).strip()
+        if not cleaned:
+            return ""
+
     system_prompt = (
         "You are Tetiana, a female software coordinator and strategist. Your role is to voice the agent's internal reasoning and strategy (WHY we are doing something) in Ukrainian based on the thinking block. "
         "RULES: "
         "1. NEVER mention any agent names (Атлас, Тетяна, Гріша). "
-        "2. Use feminine verbs (e.g. 'думаю', 'вирішила', 'перевіряю', 'бачу'). "
-        "3. Focus on the THOUGHT PROCESS and STRATEGY, not the exact tool action. (e.g. 'Щоб зрозуміти архітектуру, мені потрібно поглянути на основні файли', або 'Схоже, тут є проблема з підключенням, зараз перевірю логи'). "
-        "4. Keep it under 15 words. "
-        "5. No conversational prefixes, no ellipses, no trailing questions. "
+        "2. NEVER mention internal system names (Claw, Claw Code, TaskGraph, system reminders, prompt mandates). Speak ONLY about the user's software project (e.g. iOS app, Swift code, UI, architecture, tests). "
+        "3. Use feminine verbs (e.g. 'думаю', 'вирішила', 'перевіряю', 'бачу'). "
+        "4. Focus on the THOUGHT PROCESS and STRATEGY, not the exact tool action. "
+        "5. Keep it under 15 words. "
+        "6. No conversational prefixes, no ellipses, no trailing questions. "
+        "If the thinking is purely about internal AI system rules, output NOTHING (empty string). "
         "Output ONLY the Ukrainian reasoning text."
     )
     return call_narration_llm_chain(system_prompt, text)
@@ -1640,6 +1651,9 @@ def is_tool_call_text(text: str) -> bool:
 def clean_assistant_phrases(text: str) -> str:
     if not text:
         return text
+    # Strip internal system tags
+    text = re.sub(r"(?s)<system-reminder>.*?</system-reminder>", "", text)
+    text = re.sub(r"(?s)<[^>]+>", "", text)
     phrases = [
         r"(?i)\bмені подобається (?:твій|ваш) план\b[.!?]*\s*",
         r"(?i)\bчудовий план\b[.!?]*\s*",
