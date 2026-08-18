@@ -1451,17 +1451,23 @@ fn is_protected_extra_body_key(key: &str) -> bool {
 }
 
 /// Returns true for models that do NOT support the `is_error` field in tool results.
-/// kimi models (via Moonshot AI/Dashscope) reject this field with 400 Bad Request.
-/// Returns true for models that do NOT support the `is_error` field in tool results.
-/// kimi models (via Moonshot AI/Dashscope) reject this field with 400 Bad Request.
+/// Kimi and Mistral models reject this non-standard field with 400 / 422 errors.
 /// Public for benchmarking and testing purposes.
 #[must_use]
 pub fn model_rejects_is_error_field(model: &str) -> bool {
     let lowered = model.to_ascii_lowercase();
     // Strip any provider/ prefix for the check
     let canonical = lowered.rsplit('/').next().unwrap_or(lowered.as_str());
-    // kimi models (kimi-k2.5, kimi-k1.5, kimi-moonshot, etc.)
+    // Kimi models (kimi-k2.5, kimi-k1.5, kimi-moonshot, etc.)
+    // Mistral models (codestral, mistral, ministral, pixtral, devstral, open-mistral, open-mixtral)
     canonical.starts_with("kimi")
+        || canonical.starts_with("mistral")
+        || canonical.starts_with("codestral")
+        || canonical.starts_with("ministral")
+        || canonical.starts_with("pixtral")
+        || canonical.starts_with("devstral")
+        || canonical.starts_with("open-mistral")
+        || canonical.starts_with("open-mixtral")
 }
 
 /// Translates an `InputMessage` into OpenAI-compatible message format.
@@ -3004,7 +3010,14 @@ mod tests {
         assert!(super::model_rejects_is_error_field("dashscope/kimi-k2.5")); // with prefix
         assert!(super::model_rejects_is_error_field("moonshot/kimi-k2.5")); // different prefix
 
-        // Non-kimi models should NOT be detected
+        // Mistral models should be detected (strictly OpenAI-compliant, rejects is_error with 422)
+        assert!(super::model_rejects_is_error_field("codestral"));
+        assert!(super::model_rejects_is_error_field("codestral-latest"));
+        assert!(super::model_rejects_is_error_field("mistral-large-latest"));
+        assert!(super::model_rejects_is_error_field("mistral/mistral-large-latest"));
+        assert!(super::model_rejects_is_error_field("ministral-8b-latest"));
+
+        // Other non-strict models should NOT be detected
         assert!(!super::model_rejects_is_error_field("gpt-4o"));
         assert!(!super::model_rejects_is_error_field("gpt-4"));
         assert!(!super::model_rejects_is_error_field("claude-sonnet-4-6"));
