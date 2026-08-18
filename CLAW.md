@@ -27,6 +27,11 @@
 - **`ToolSearch`**: Use `ToolSearch` to discover any available tools by keyword (like MCP server tools or specialized scripts) to accomplish your goals when you don't know the exact tool name.
 - **`WebFetch`**: Use `WebFetch` to download and read the content of web pages directly when researching or downloading resources from URLs.
 - **Real Code Implementation Mandate**: When asked to build or create an application, script, or software feature, you are STRICTLY FORBIDDEN from merely searching the web or writing a requirements document and calling the task finished. You MUST physically use `write_file` to create the actual working source code files (e.g. `app.py`, `main.py`, `.rs`, `.swift` or GUI scripts) in the project directory, and execute/test them.
+- **Recursive Root-Cause Recovery Mandate**: When ANY action, command, or tool execution fails on a leaf task (e.g. step `2.3.1` fails with an error or non-zero exit code):
+  1. You are STRICTLY FORBIDDEN from immediately marking the task as failed `[-]` or skipping the phase.
+  2. You MUST immediately deepen into the next recursive hierarchy level by creating child subtasks under the failing task (e.g. `2.3.1.1` [Diagnose Root Cause: inspect logs, query environment/devices/files], `2.3.1.2` [Apply System Adjustment / Parameter Fix], `2.3.1.3` [Verify Resolution]).
+  3. If `2.3.1.2` encounters an obstacle, deepen again to recursion level 2 (`2.3.1.2.1`, `2.3.1.2.2`).
+  4. If and ONLY IF after attempting 2 full levels of recursive deepening from the failure point, the problem is proven impossible on the host system, you may mark the 2-level subtree as failed `[-]` and bubble up to an alternative branch.
 - **Universal Verification:** You are strictly forbidden from reporting success without verifying your work. For code changes, read the code with `view_file` AND execute tests (e.g. `cargo test`, `npm run build`, running the script). For other tasks, check files or verify API responses.
 - **Missing Capabilities & MCP Discovery:** If tools are missing, use `McpSearch` to discover MCP servers and `Skill` to search for skills. Load them to obtain needed tools.
 

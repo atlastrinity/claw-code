@@ -50,6 +50,7 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
 
     let mut updated_count = 0;
     let mut grisha_remarks = None;
+    let mut newly_failed_nodes = Vec::new();
 
     match input.operation {
         TaskGraphOperation::Add => {
@@ -104,6 +105,7 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                             cascade_completed.push(node.id.clone());
                         } else if new_status == TaskStatus::Failed {
                             cascade_failed.push(node.id.clone());
+                            newly_failed_nodes.push(node.id.clone());
                         }
                     }
                 } else {
@@ -130,6 +132,7 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                         cascade_completed.push(node.id.clone());
                     } else if new_status == TaskStatus::Failed {
                         cascade_failed.push(node.id.clone());
+                        newly_failed_nodes.push(node.id.clone());
                     }
                 }
             }
@@ -249,6 +252,18 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
     }
 
     let mut alerts = Vec::new();
+    if !newly_failed_nodes.is_empty() {
+        for fid in &newly_failed_nodes {
+            let has_children = current_nodes.iter().any(|n| n.parent_id.as_ref() == Some(fid));
+            if !has_children {
+                alerts.push(format!(
+                    "🛡️ Grisha Root-Cause Recovery Advisory: Task '{}' failed. You MUST NOT abandon this phase immediately. Decompose '{}' into deeper subtasks (e.g. '{}.1' [Diagnose Root Cause: inspect logs/environment/devices], '{}.2' [Apply Parameter Fix/Alternative], '{}.3' [Verify]) to attempt root-cause resolution before admitting permanent failure.",
+                    fid, fid, fid, fid, fid
+                ));
+            }
+        }
+    }
+
     if !finished_parent_ids.is_empty() {
         alerts.push(format!(
             "⚠️ Alert: All subtasks under parent task(s) [{}] are completed or failed. Please verify the work, update the parent task status using 'update_status', and proceed to the next sibling task.",
