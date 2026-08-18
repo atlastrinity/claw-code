@@ -8,6 +8,10 @@ pub enum GrishaErrorCode {
     SimUnverifiedCompletion,
     /// Fake metric or security state declaration via echo.
     SimFakeDiagnostic,
+    /// Plain text imitating a tool call instead of sending real API tool_use.
+    SimTextualToolCall,
+    /// Target is remote client but command runs locally without transport.
+    SimRemoteMismatch,
     /// Plan lacks sufficient recursive leaf breakdown.
     PlanMissingLeafNodes,
     /// Plan lacks verification steps.
@@ -21,6 +25,8 @@ impl GrishaErrorCode {
             Self::SimFauxExecution => "GRISHA_SIM_001",
             Self::SimUnverifiedCompletion => "GRISHA_SIM_002",
             Self::SimFakeDiagnostic => "GRISHA_SIM_003",
+            Self::SimTextualToolCall => "GRISHA_SIM_004",
+            Self::SimRemoteMismatch => "GRISHA_SIM_005",
             Self::PlanMissingLeafNodes => "GRISHA_PLAN_001",
             Self::PlanMissingVerification => "GRISHA_PLAN_002",
         }

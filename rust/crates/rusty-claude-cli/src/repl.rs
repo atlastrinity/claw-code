@@ -21,6 +21,15 @@ fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
     let trimmed = last_assistant_text.trim();
     let is_question = trimmed.ends_with('?') || trimmed.contains("Please review") || trimmed.contains("let me know");
 
+    // Grisha Simulation Check: detect plain-text simulated tool calls
+    if let Err(sim_err) = tools::grisha::GrishaSimulationDetector::check_assistant_text_for_simulated_tool_call(&last_assistant_text) {
+        let prompt = format!(
+            "<system-reminder>GRISHA SUPERVISOR ALARM [{}]:\n{}\n\nHOW TO PROCEED:\n{}\n\nCRITICAL: Plain text descriptions or fake JSON strings are NEVER executed by the system. You MUST execute the tool directly through the structured JSON tool call (function call) interface right now.</system-reminder>",
+            sim_err.code, sim_err.description, sim_err.remedy
+        );
+        return (true, prompt);
+    }
+
     let task_md_path = runtime::workspace::workspace_root().join("task.md");
     if let Ok(content) = std::fs::read_to_string(&task_md_path) {
         if content.contains("- [ ]") || content.contains("- [/]") {
