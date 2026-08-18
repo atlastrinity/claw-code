@@ -20,7 +20,18 @@
     "qwen-14b": "Qwen/Qwen3-14B",
     "qwen-coder-7b": "Qwen/Qwen3-Coder-30B-A3B-Instruct",
     "llama-8b": "deepseek-ai/DeepSeek-V3",
-    "deepseek-qwen-7b": "deepseek-ai/DeepSeek-R1"
+    "deepseek-qwen-7b": "deepseek-ai/DeepSeek-R1",
+    "codestral": "codestral-latest",
+    "codestral-2508": "codestral-2508",
+    "mistral": "mistral-large-latest",
+    "mistral-large": "mistral-large-latest",
+    "mistral-large-2512": "mistral-large-2512",
+    "mistral-medium": "mistral-medium-latest",
+    "mistral-small": "mistral-small-latest",
+    "ministral": "ministral-8b-latest",
+    "ministral-14b": "ministral-14b-latest",
+    "ministral-3b": "ministral-3b-latest",
+    "mistral-code": "mistral-code-latest"
   },
   "injectedTools": [
     "bash",

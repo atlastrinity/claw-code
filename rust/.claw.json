@@ -75,14 +75,14 @@
       "description": "Server for reading, editing, and managing Jupyter notebooks.",
       "command": "node",
       "args": [
-        "/Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.8.0-universal/mcp_servers/cli/mcp_proxy_bundle.js"
+        "/Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.9.0-universal/mcp_servers/cli/mcp_proxy_bundle.js"
       ]
     },
     "visualization": {
       "description": "Server for generating visual charts and graphs from structured data.",
       "command": "node",
       "args": [
-        "/Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.8.0-universal/mcp_servers/cli/mcp_proxy_bundle.js"
+        "/Users/dev/.antigravity-ide/extensions/googlecloudtools.datacloud-0.9.0-universal/mcp_servers/cli/mcp_proxy_bundle.js"
       ]
     },
     "pyscn-mcp": {
