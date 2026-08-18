@@ -191,17 +191,17 @@ def make_natural_speech(voice: str, title: str, raw_text: str) -> str:
     # 2. TETIANA (Coordinator / Other)
     elif voice == "tetiana":
         if "Системний запуск" in title or "System Start" in title:
-            return f"Model {clean_text}"
+            return f"Запускаю сесію з моделлю {clean_text}."
             
         elif "Ініціалізація системи" in title or "System Init" in title:
             if "порожня" in clean_text.lower() or not clean_text:
-                return "Initialization complete, system is ready."
+                return "Ініціалізацію завершено, система готова до роботи."
             cmds = extract_value(raw_text, r"(?:Завантажені записи команд|Loaded command entries):\s*(\d+)") or "207"
             tools = extract_value(raw_text, r"(?:Завантажені записи інструментів|Loaded tool entries):\s*(\d+)") or "184"
-            return f"System initialized. Loaded {cmds} commands and {tools} tools."
+            return f"Систему ініціалізовано. Завантажено {cmds} команд та {tools} інструментів."
         
         elif "Статус виконання" in title or "Execution Status" in title:
-            return f"Executing turn number {clean_text}."
+            return f"Виконую крок номер {clean_text}."
 
         elif "Потокові події" in title or "Stream Events" in title:
             return "Receiving data from the language model."
@@ -1401,13 +1401,16 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
     if not text.strip():
         return text
 
+    # If the text is already Ukrainian (e.g. from preview_msg or summarize_thinking_ua), do NOT re-translate through LLM
+    if text.startswith("Планую наступний крок:") or title in ("Аналіз", "Системний запуск", "Статус виконання", "Ініціалізація системи", "Статус процесу", "Завершення роботи"):
+        return text
+
     # Always process text through LLM narration model for Atlas to guarantee clean interactive Ukrainian
-    if voice != "atlas" and not re.search(r'[a-zA-Z]', text) and not re.search(r'[ыЫэЭъЪёЁ]', text) and not re.search(r'[|#*`_─━]', text):
+    if voice != "atlas" and not re.search(r'[ыЫэЭъЪёЁ]', text) and not re.search(r'[|#*`_─━]', text):
         cyrillic_chars = len(re.findall(r'[а-яА-ЯёЁєЄіІїЇґҐ]', text))
         total_chars = len(re.sub(r'\s+', '', text))
-        if total_chars > 0 and (cyrillic_chars / total_chars) > 0.6:
-            if re.search(r'[єЄіІїЇґҐ]', text):
-                return text
+        if total_chars > 0 and (cyrillic_chars / total_chars) > 0.5:
+            return text
 
     if title == "Запит":
         gender_rules = (
@@ -1419,12 +1422,11 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
         )
     elif voice == "tetiana":
         gender_rules = (
-            "IMPORTANT: You are Tetiana, a female coordinator and workflow analyst. "
-            "Your role is to coordinate the workflow, analyze plans, set directions, and track progress. "
-            "State the specific goal or planned step concretely in 1 short sentence (under 12 words). "
-            "Use feminine verbs (e.g., 'координую', 'запланувала', 'проаналізувала'). "
-            "NEVER include agent names like 'Атласе', 'Гріша', 'Тетяна'. "
-            "Start directly with the coordination context. Keep it substantive, concise, and direct."
+            "IMPORTANT: You are Tetiana, a female coordinator. "
+            "Translate the strategy or preview directly into 1 concise Ukrainian sentence (under 12 words). "
+            "Use feminine verbs (e.g., 'планую', 'перевіряю', 'координую'). "
+            "NEVER invent unmentioned tools, scripts, git commands, databases, or actions. "
+            "NEVER include agent names. Keep strictly faithful to the input text."
         )
     elif voice == "atlas":
         if title == "Результат":
@@ -1456,7 +1458,13 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
             "NEVER include agent names. Keep highly informative, constructive, and professional."
         )
 
-    system_prompt = f"You are a professional Ukrainian software engineer and narrator. Translate or rewrite the given text into natural, fluent Ukrainian (UA). RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts and standard terms directly into natural Ukrainian developer slang (e.g. 'concurrency' -> 'паралельність', 'performance' -> 'продуктивність', 'cache' -> 'кеш', 'bug' -> 'баг', 'error' -> 'помилка'). 2. Do NOT use any English words or Latin letters. Translate every English code element, file name, path, variable, class/function name, command or tool name into its phonetic Ukrainian equivalent (e.g., 'run_claw.sh' -> 'ран клоу крапка ес ейч', 'VoicePlayer' -> 'войс плеєр', 'grep_search' -> 'ґреп серч', 'git status' -> 'ґіт статус'). 3. {gender_rules} 4. IMPORTANT FOR SPEECH SYNTHESIS (TTS): This text will be read aloud. Strip out markdown tables and technical code noise (long hashes, paths), but PRESERVE all core facts, statistical numbers, and analysis points. Convert markdown into smooth, conversational, easy-to-listen Ukrainian paragraphs. Output ONLY the clean, speech-friendly Ukrainian text, with no introductory or concluding remarks."
+    system_prompt = (
+        f"You are a professional Ukrainian software engineer and narrator. Translate or rewrite the given text into natural, fluent Ukrainian (UA). "
+        f"RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts directly into natural Ukrainian developer terminology. "
+        f"2. Do NOT use any Latin letters. Transliterate English terms, tool names, and filenames phonetically into Ukrainian. NEVER invent or mention unmentioned tools, scripts, or git commands. "
+        f"3. {gender_rules} "
+        f"4. IMPORTANT FOR SPEECH SYNTHESIS (TTS): Strip out markdown tables and technical code noise, but PRESERVE all core facts. Output ONLY clean, speech-friendly Ukrainian text."
+    )
 
     translated = call_narration_llm_chain(system_prompt, text)
     if translated:
