@@ -272,6 +272,96 @@ const MODEL_REGISTRY: &[(&str, ProviderMetadata)] = &[
             default_base_url: openai_compat::DEFAULT_SILICONFLOW_BASE_URL,
         },
     ),
+    (
+        "codestral",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        },
+    ),
+    (
+        "mistral",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        },
+    ),
+    (
+        "mistral-large",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        },
+    ),
+    (
+        "mistral-small",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        },
+    ),
+    (
+        "ministral",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        },
+    ),
+    (
+        "ministral-14b",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        },
+    ),
+    (
+        "ministral-3b",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        },
+    ),
+    (
+        "mistral-medium",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        },
+    ),
+    (
+        "mistral-code",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        },
+    ),
+    (
+        "pixtral",
+        ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        },
+    ),
 ];
 
 #[must_use]
@@ -302,6 +392,15 @@ pub fn resolve_model_alias(model: &str) -> String {
                     "gemini-live" => "gemini-3.1-flash-live-preview",
                     "gemini-preview" => "gemini-3-flash-preview",
                     "silicon" => "Qwen/Qwen3-8B",
+                    "codestral" => "codestral-latest",
+                    "mistral" | "mistral-large" => "mistral-large-latest",
+                    "mistral-small" => "mistral-small-latest",
+                    "mistral-medium" => "mistral-medium-latest",
+                    "ministral" => "ministral-8b-latest",
+                    "ministral-14b" => "ministral-14b-latest",
+                    "ministral-3b" => "ministral-3b-latest",
+                    "mistral-code" => "mistral-code-latest",
+                    "pixtral" => "pixtral-large-latest",
                     _ => trimmed,
                 },
             })
@@ -430,6 +529,23 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
             default_base_url: openai_compat::DEFAULT_SILICONFLOW_BASE_URL,
         });
     }
+    // Mistral AI models (Codestral, Mistral Large, Mistral Small, Ministral, Pixtral)
+    if canonical.starts_with("mistral/")
+        || canonical.starts_with("codestral/")
+        || canonical.starts_with("mistral-")
+        || canonical.starts_with("codestral")
+        || canonical.starts_with("ministral")
+        || canonical.starts_with("pixtral")
+        || canonical.starts_with("open-mistral")
+        || canonical.starts_with("open-mixtral")
+    {
+        return Some(ProviderMetadata {
+            provider: ProviderKind::OpenAi,
+            auth_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: openai_compat::DEFAULT_MISTRAL_BASE_URL,
+        });
+    }
     None
 }
 
@@ -497,14 +613,14 @@ fn looks_like_local_openai_model(model: &str) -> bool {
 
 #[must_use]
 pub fn detect_provider_kind(model: &str) -> ProviderKind {
-    // OLLAMA_HOST takes priority: if set, route all models through the local
-    // OpenAI-compatible endpoint regardless of model name or other env vars.
-    if std::env::var_os("OLLAMA_HOST").is_some() {
-        return ProviderKind::OpenAi;
-    }
     let resolved_model = resolve_model_alias(model);
     if let Some(metadata) = metadata_for_model(&resolved_model) {
         return metadata.provider;
+    }
+    // OLLAMA_HOST takes priority for unknown models: if set, route through local
+    // OpenAI-compatible endpoint.
+    if std::env::var_os("OLLAMA_HOST").is_some() {
+        return ProviderKind::OpenAi;
     }
     // When OPENAI_BASE_URL is set and the unknown model name looks like a
     // local server tag (for example `llama3.2` or `qwen2.5-coder:7b`), prefer
@@ -836,6 +952,42 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
             max_output_tokens: 32_768,
             context_window_tokens: 131_072,
         }),
+        // Mistral AI models
+        // Codestral has 256k context window; Mistral Large, Medium, Small, Ministral, Pixtral, Nemo have 128k context window.
+        "codestral-latest" | "codestral-2508" | "codestral-2501" | "codestral-2405" => Some(ModelTokenLimit {
+            max_output_tokens: 32_768,
+            context_window_tokens: 256_000,
+        }),
+        "mistral-large-latest"
+        | "mistral-large-2512"
+        | "mistral-large-2411"
+        | "mistral-large-2407"
+        | "mistral-medium-latest"
+        | "mistral-medium-3.5"
+        | "mistral-medium-3-5"
+        | "mistral-medium-2604"
+        | "mistral-medium-2508"
+        | "mistral-medium-2505"
+        | "mistral-small-latest"
+        | "mistral-small-2603"
+        | "mistral-small-2409"
+        | "mistral-small-2402"
+        | "mistral-code-latest"
+        | "ministral-14b-latest"
+        | "ministral-14b-2512"
+        | "ministral-8b-latest"
+        | "ministral-8b-2512"
+        | "ministral-3b-latest"
+        | "ministral-3b-2512"
+        | "pixtral-large-latest"
+        | "pixtral-12b-2409"
+        | "open-mistral-nemo"
+        | "open-mistral-7b"
+        | "open-mixtral-8x7b"
+        | "open-mixtral-8x22b" => Some(ModelTokenLimit {
+            max_output_tokens: 32_768,
+            context_window_tokens: 128_000,
+        }),
         _ => None,
     }
 }
@@ -918,6 +1070,11 @@ const FOREIGN_PROVIDER_ENV_VARS: &[(&str, &str, &str)] = &[
         "SILICONFLOW_API_KEY",
         "SiliconFlow",
         "prefix your model name with `siliconflow/` or `silicon/` (e.g. `--model silicon`) so prefix routing selects the SiliconFlow backend",
+    ),
+    (
+        "MISTRAL_API_KEY",
+        "Mistral AI",
+        "prefix your model name with `mistral/` or `codestral` (e.g. `--model codestral` or `--model mistral-large-latest`) so prefix routing selects the Mistral AI backend",
     ),
 ];
 
@@ -1215,6 +1372,71 @@ mod tests {
             provider_capabilities_for_model("meta-llama/Meta-Llama-3.1-8B-Instruct").auth_env,
             "SILICONFLOW_API_KEY"
         );
+    }
+
+    #[test]
+    fn test_mistral_routing_and_token_limits() {
+        assert_eq!(
+            resolve_model_alias("codestral"),
+            "codestral-latest"
+        );
+        assert_eq!(
+            resolve_model_alias("mistral"),
+            "mistral-large-latest"
+        );
+        assert_eq!(
+            resolve_model_alias("mistral-small"),
+            "mistral-small-latest"
+        );
+        assert_eq!(
+            resolve_model_alias("ministral"),
+            "ministral-8b-latest"
+        );
+        assert_eq!(
+            resolve_model_alias("pixtral"),
+            "pixtral-large-latest"
+        );
+
+        let codestral_caps = provider_capabilities_for_model("codestral");
+        assert_eq!(codestral_caps.provider, ProviderKind::OpenAi);
+        assert_eq!(codestral_caps.auth_env, "MISTRAL_API_KEY");
+        assert_eq!(codestral_caps.base_url_env, "MISTRAL_BASE_URL");
+        assert_eq!(codestral_caps.default_base_url, "https://api.mistral.ai/v1");
+
+        let mistral_caps = provider_capabilities_for_model("mistral-large-latest");
+        assert_eq!(mistral_caps.auth_env, "MISTRAL_API_KEY");
+
+        // Token limits: Codestral has 256k context, Mistral Large has 128k context
+        let codestral_limit = model_token_limit("codestral-latest").expect("codestral limit");
+        assert_eq!(codestral_limit.context_window_tokens, 256_000);
+
+        let mistral_limit = model_token_limit("mistral-large-latest").expect("mistral-large limit");
+        assert_eq!(mistral_limit.context_window_tokens, 128_000);
+
+        let mistral_small_limit = model_token_limit("mistral-small-latest").expect("mistral-small limit");
+        assert_eq!(mistral_small_limit.context_window_tokens, 128_000);
+
+        // Key rotation support test
+        std::env::set_var("MISTRAL_API_KEY", "key1,key2,key3");
+        std::env::set_var("MISTRAL_BASE_URL", "https://api.mistral.ai/v1");
+        assert_eq!(
+            crate::key_rotation::parse_keys("MISTRAL_API_KEY"),
+            vec!["key1", "key2", "key3"]
+        );
+        assert!(crate::key_rotation::has_key_at_index("MISTRAL_API_KEY", 1));
+        assert!(crate::key_rotation::has_key_at_index("MISTRAL_API_KEY", 2));
+        assert!(crate::key_rotation::has_key_at_index("MISTRAL_API_KEY", 3));
+        assert!(!crate::key_rotation::has_key_at_index("MISTRAL_API_KEY", 4));
+        assert_eq!(
+            crate::key_rotation::key_at_index("MISTRAL_API_KEY", 2),
+            Some("key2".to_string())
+        );
+
+        let _client = crate::client::ProviderClient::from_model("codestral").expect("from_model codestral");
+        let _client2 = crate::client::ProviderClient::from_model_with_key_index("codestral", 2).expect("from_model_with_key_index codestral 2");
+
+        std::env::remove_var("MISTRAL_API_KEY");
+        std::env::remove_var("MISTRAL_BASE_URL");
     }
 
     #[test]

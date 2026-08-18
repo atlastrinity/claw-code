@@ -26,6 +26,7 @@ pub const DEFAULT_CLOUDFLARE_BASE_URL: &str = "https://api.cloudflare.com/client
 pub const DEFAULT_NVIDIA_BASE_URL: &str = "https://integrate.api.nvidia.com/v1";
 pub const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai/";
 pub const DEFAULT_SILICONFLOW_BASE_URL: &str = "https://api.siliconflow.com/v1";
+pub const DEFAULT_MISTRAL_BASE_URL: &str = "https://api.mistral.ai/v1";
 const REQUEST_ID_HEADER: &str = "request-id";
 const ALT_REQUEST_ID_HEADER: &str = "x-request-id";
 const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
@@ -53,6 +54,7 @@ const CLOUDFLARE_ENV_VARS: &[&str] = &["CLOUDFLARE_API_TOKEN"];
 const NVIDIA_ENV_VARS: &[&str] = &["NVIDIA_API_KEY"];
 const GEMINI_ENV_VARS: &[&str] = &["GEMINI_API_KEY"];
 const SILICONFLOW_ENV_VARS: &[&str] = &["SILICONFLOW_API_KEY"];
+const MISTRAL_ENV_VARS: &[&str] = &["MISTRAL_API_KEY"];
 
 // Provider-specific request body size limits in bytes
 const XAI_MAX_REQUEST_BODY_BYTES: usize = 52_428_800; // 50MB
@@ -63,6 +65,7 @@ const CLOUDFLARE_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const NVIDIA_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const GEMINI_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 const SILICONFLOW_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
+const MISTRAL_MAX_REQUEST_BODY_BYTES: usize = 104_857_600; // 100MB
 
 pub const OLLAMA_CONFIG: OpenAiCompatConfig = OpenAiCompatConfig {
     provider_name: "Ollama",
@@ -167,6 +170,18 @@ impl OpenAiCompatConfig {
         }
     }
 
+    /// Mistral AI official API (Codestral, Mistral Large, Mistral Small, Ministral, Pixtral).
+    #[must_use]
+    pub const fn mistral() -> Self {
+        Self {
+            provider_name: "Mistral",
+            api_key_env: "MISTRAL_API_KEY",
+            base_url_env: "MISTRAL_BASE_URL",
+            default_base_url: DEFAULT_MISTRAL_BASE_URL,
+            max_request_body_bytes: MISTRAL_MAX_REQUEST_BODY_BYTES,
+        }
+    }
+
     #[must_use]
     pub fn credential_env_vars(self) -> &'static [&'static str] {
         match self.provider_name {
@@ -178,6 +193,7 @@ impl OpenAiCompatConfig {
             "NVIDIA" => NVIDIA_ENV_VARS,
             "Gemini" => GEMINI_ENV_VARS,
             "SiliconFlow" => SILICONFLOW_ENV_VARS,
+            "Mistral" => MISTRAL_ENV_VARS,
             _ => &[],
         }
     }
@@ -239,7 +255,13 @@ impl OpenAiCompatClient {
     pub fn from_ollama_env() -> Option<Self> {
         let host =
             std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "http://127.0.0.1:11434".to_string());
-        let base_url = format!("{}/v1", host.trim_end_matches('/'));
+        let trimmed = host.trim().trim_end_matches('/');
+        let host_url = if !trimmed.starts_with("http://") && !trimmed.starts_with("https://") {
+            format!("http://{trimmed}")
+        } else {
+            trimmed.to_string()
+        };
+        let base_url = format!("{host_url}/v1");
         Some(Self {
             http: build_http_client_or_default(),
             api_key: "ollama".to_string(),
@@ -255,7 +277,9 @@ impl OpenAiCompatClient {
     pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
         let url = base_url.into();
         let trimmed = url.trim();
-        self.base_url = if !trimmed.starts_with("http://")
+        self.base_url = if trimmed.is_empty() {
+            self.config.default_base_url.to_string()
+        } else if !trimmed.starts_with("http://")
             && !trimmed.starts_with("https://")
             && !trimmed.starts_with("mock://")
         {
@@ -984,7 +1008,7 @@ struct ChatMessage {
     reasoning_content: Option<String>,
     #[serde(default)]
     reasoning: Option<String>,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_null_as_empty_vec")]
     tool_calls: Vec<ResponseToolCall>,
 }
 
@@ -1241,7 +1265,7 @@ fn wire_model_for_base_url<'a>(
 
     if matches!(
         lowered_prefix.as_str(),
-        "xai" | "grok" | "qwen" | "kimi" | "glm" | "zhipu" | "zhipuai" | "cloudflare" | "nvidia" | "nim"
+        "xai" | "grok" | "qwen" | "kimi" | "glm" | "zhipu" | "zhipuai" | "cloudflare" | "nvidia" | "nim" | "mistral" | "codestral"
     ) {
         let mut stripped = &model[pos + 1..];
         if config.provider_name == "GLM" && stripped.ends_with(":free") {

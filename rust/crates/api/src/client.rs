@@ -171,18 +171,14 @@ impl ProviderClient {
                 OpenAiCompatConfig::xai(),
             )?)),
             ProviderKind::OpenAi => {
-                // OLLAMA_HOST takes priority: local Ollama needs no API key
-                // and ignores DashScope/OpenAI env-based dispatch.
-                if std::env::var_os("OLLAMA_HOST").is_some() {
+                let metadata = providers::metadata_for_model(&resolved_model);
+                if metadata.is_none() && std::env::var_os("OLLAMA_HOST").is_some() {
                     Ok(Self::OpenAi(
                         openai_compat::OpenAiCompatClient::from_ollama_env()
                             .expect("from_ollama_env always returns Some"),
                     ))
                 } else {
-                    // DashScope models (qwen-*) also return ProviderKind::OpenAi because they
-                    // speak the OpenAI wire format, but they need the DashScope config which
-                    // reads DASHSCOPE_API_KEY and points at dashscope.aliyuncs.com.
-                    let config = match providers::metadata_for_model(&resolved_model) {
+                    let config = match metadata {
                         Some(meta) if meta.auth_env == "DASHSCOPE_API_KEY" => {
                             OpenAiCompatConfig::dashscope()
                         }
@@ -191,6 +187,7 @@ impl ProviderClient {
                         Some(meta) if meta.auth_env == "NVIDIA_API_KEY" => OpenAiCompatConfig::nvidia(),
                         Some(meta) if meta.auth_env == "GEMINI_API_KEY" => OpenAiCompatConfig::gemini(),
                         Some(meta) if meta.auth_env == "SILICONFLOW_API_KEY" => OpenAiCompatConfig::siliconflow(),
+                        Some(meta) if meta.auth_env == "MISTRAL_API_KEY" => OpenAiCompatConfig::mistral(),
                         _ => OpenAiCompatConfig::openai(),
                     };
                     Ok(Self::OpenAi(OpenAiCompatClient::from_env(config)?))
@@ -269,13 +266,14 @@ impl ProviderClient {
                 Ok(Self::Xai(client))
             }
             ProviderKind::OpenAi => {
-                if std::env::var_os("OLLAMA_HOST").is_some() {
+                let metadata = providers::metadata_for_model(&resolved_model);
+                if metadata.is_none() && std::env::var_os("OLLAMA_HOST").is_some() {
                     Ok(Self::OpenAi(
                         openai_compat::OpenAiCompatClient::from_ollama_env()
                             .expect("from_ollama_env always returns Some"),
                     ))
                 } else {
-                    let config = match providers::metadata_for_model(&resolved_model) {
+                    let config = match metadata {
                         Some(meta) if meta.auth_env == "DASHSCOPE_API_KEY" => {
                             OpenAiCompatConfig::dashscope()
                         }
@@ -284,6 +282,7 @@ impl ProviderClient {
                         Some(meta) if meta.auth_env == "NVIDIA_API_KEY" => OpenAiCompatConfig::nvidia(),
                         Some(meta) if meta.auth_env == "GEMINI_API_KEY" => OpenAiCompatConfig::gemini(),
                         Some(meta) if meta.auth_env == "SILICONFLOW_API_KEY" => OpenAiCompatConfig::siliconflow(),
+                        Some(meta) if meta.auth_env == "MISTRAL_API_KEY" => OpenAiCompatConfig::mistral(),
                         _ => OpenAiCompatConfig::openai(),
                     };
                     
@@ -294,14 +293,8 @@ impl ProviderClient {
                         return Err(ApiError::Auth(format!("Missing credentials for provider: {}", config.provider_name)));
                     }
                     
-                    let base_url_keys = key_rotation::parse_keys(config.base_url_env);
-                    let base_url = base_url_keys
-                        .into_iter()
-                        .nth(key_index.saturating_sub(1))
-                        .unwrap_or_else(|| {
-                            std::env::var(config.base_url_env)
-                                .unwrap_or_else(|_| config.default_base_url.to_string())
-                        });
+                    let base_url = key_rotation::key_at_index(config.base_url_env, key_index)
+                        .unwrap_or_else(|| openai_compat::read_base_url(config));
                     
                     let client = OpenAiCompatClient::new(api_key, config).with_base_url(base_url);
                     Ok(Self::OpenAi(client))

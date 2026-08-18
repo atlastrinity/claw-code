@@ -493,15 +493,16 @@ fn tcp_ping(host: &str, port: u16) -> Result<(), String> {
 fn http_checks_print(embeddings_check: bool) {
     println!("HTTP/TLS checks (auth + TLS validation + quota headers when available):");
 
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build();
-    let Ok(rt) = rt else {
-        println!("  runtime: FAIL (could not build tokio runtime)");
-        return;
-    };
+    let _ = std::thread::spawn(move || {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build();
+        let Ok(rt) = rt else {
+            println!("  runtime: FAIL (could not build tokio runtime)");
+            return;
+        };
 
-    rt.block_on(async {
+        rt.block_on(async {
         // OpenAI-compatible providers (OPENAI_BASE_URL, OPENAI_API_KEY)
         if let Ok(key) = std::env::var("OPENAI_API_KEY") {
             if !key.trim().is_empty() {
@@ -572,6 +573,25 @@ fn http_checks_print(embeddings_check: bool) {
             println!("  anthropic: skipped (no API key/token)");
         }
 
+        // Mistral AI (MISTRAL_BASE_URL, MISTRAL_API_KEY)
+        if let Ok(key) = std::env::var("MISTRAL_API_KEY") {
+            if !key.trim().is_empty() {
+                let base = std::env::var("MISTRAL_BASE_URL")
+                    .ok()
+                    .unwrap_or_else(|| "https://api.mistral.ai/v1".to_string());
+                let url = openai_models_url(base.as_str());
+                let mut headers = HeaderMap::new();
+                if let Ok(v) = HeaderValue::from_str(format!("Bearer {}", key.trim()).as_str()) {
+                    headers.insert(reqwest::header::AUTHORIZATION, v);
+                }
+                let _ = http_check_and_print("mistral", url.as_str(), headers).await;
+            } else {
+                println!("  mistral: skipped (MISTRAL_API_KEY empty)");
+            }
+        } else {
+            println!("  mistral: skipped (MISTRAL_API_KEY unset)");
+        }
+
         // RAG service (RAG_BASE_URL) — just basic health + stats.
         if let Ok(base) = std::env::var("RAG_BASE_URL") {
             let base = base.trim().trim_end_matches('/');
@@ -585,6 +605,7 @@ fn http_checks_print(embeddings_check: bool) {
             }
         }
     });
+    }).join();
 
     println!("  (TLS validation is performed by the HTTP client; certificate errors surface as request failures.)");
 }
