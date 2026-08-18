@@ -2,7 +2,10 @@ use crate::task_graph::types::{TaskNode, TaskStatus};
 
 pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
     let mut changed = true;
-    while changed {
+    let mut iterations = 0;
+    // Cap propagation iterations to prevent infinite oscillation loops in cyclic/conflicting graphs
+    while changed && iterations < 50 {
+        iterations += 1;
         changed = false;
 
         // 0. Demote Completed parents back to InProgress when they have
