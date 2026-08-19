@@ -257,10 +257,18 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         for fid in &newly_failed_nodes {
             let has_children = current_nodes.iter().any(|n| n.parent_id.as_ref() == Some(fid));
             if !has_children {
-                alerts.push(format!(
-                    "🛡️ Grisha Root-Cause Recovery Advisory: Task '{}' failed. You MUST NOT abandon this phase immediately. Decompose '{}' into deeper subtasks (e.g. '{}.1' [Diagnose Root Cause: inspect logs/environment/devices], '{}.2' [Apply Parameter Fix/Alternative], '{}.3' [Verify]) to attempt root-cause resolution before admitting permanent failure.",
-                    fid, fid, fid, fid, fid
-                ));
+                let depth = fid.split('.').count();
+                if depth < 4 {
+                    alerts.push(format!(
+                        "🛡️ Grisha Root-Cause Recovery Advisory: Task '{}' failed. You MUST NOT abandon this phase immediately. Decompose '{}' into deeper subtasks (e.g. '{}.1' [Diagnose Root Cause: inspect logs/environment/devices], '{}.2' [Apply Parameter Fix/Alternative], '{}.3' [Verify]) to attempt root-cause resolution before admitting permanent failure.",
+                        fid, fid, fid, fid, fid
+                    ));
+                } else {
+                    alerts.push(format!(
+                        "🛡️ Grisha Root-Cause Recovery Advisory: Maximum decomposition depth reached (level {} for '{}'). Do NOT create deeper subtasks. Apply the direct corrective action, or mark this task completed after verification, or proceed to the next sibling task.",
+                        depth, fid
+                    ));
+                }
             }
         }
     }

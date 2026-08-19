@@ -491,7 +491,7 @@ where
             };
             let mut retries = 0;
             let max_retries = 2;
-            let (assistant_message, usage, turn_prompt_cache_events) = loop {
+            let (mut assistant_message, usage, turn_prompt_cache_events) = loop {
                 let stream_res = self
                     .api_client
                     .stream(request.clone())
@@ -525,6 +525,7 @@ where
                 self.usage_tracker.record(usage);
             }
             prompt_cache_events.extend(turn_prompt_cache_events);
+            recover_textual_tool_calls(&mut assistant_message);
             let pending_tool_uses = assistant_message
                 .blocks
                 .iter()
@@ -912,6 +913,130 @@ impl ToolExecutor for StaticToolExecutor {
         handlers
             .get_mut(tool_name)
             .ok_or_else(|| ToolError::new(format!("unknown tool: {tool_name}")))?(input)
+    }
+}
+
+/// Fallback extractor for models that emit tool calls as plain text or pseudo-JSON
+/// rather than structured API tool_use blocks (e.g. Codestral, DeepSeek, Qwen).
+fn recover_textual_tool_calls(message: &mut ConversationMessage) {
+    let has_structured_tool_use = message
+        .blocks
+        .iter()
+        .any(|b| matches!(b, ContentBlock::ToolUse { .. }));
+    if has_structured_tool_use {
+        return;
+    }
+
+    let mut recovered_blocks = Vec::new();
+    for block in &message.blocks {
+        if let ContentBlock::Text { text } = block {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+
+            // Pattern 1: <tool_call> ... </tool_call>
+            if let Some(start_idx) = trimmed.find("<tool_call>") {
+                if let Some(end_idx) = trimmed[start_idx..].find("</tool_call>") {
+                    let inner = trimmed[start_idx + 11..start_idx + end_idx].trim();
+                    if let Ok(val) = serde_json::from_str::<serde_json::Value>(inner) {
+                        if let Some(name) = val.get("name").and_then(|n| n.as_str()) {
+                            let input = val
+                                .get("arguments")
+                                .or_else(|| val.get("input"))
+                                .cloned()
+                                .unwrap_or_else(|| serde_json::json!({}));
+                            let id = format!(
+                                "tool_rec_{}_{}",
+                                std::time::SystemTime::now()
+                                    .duration_since(std::time::UNIX_EPOCH)
+                                    .unwrap_or_default()
+                                    .as_millis(),
+                                recovered_blocks.len()
+                            );
+                            recovered_blocks.push(ContentBlock::ToolUse {
+                                id,
+                                name: name.to_string(),
+                                input: input.to_string(),
+                                signature: None,
+                            });
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // Pattern 2: Markdown code block ```json ... ```
+            if trimmed.starts_with("```") {
+                let stripped = trimmed
+                    .trim_start_matches('`')
+                    .trim_start_matches("json")
+                    .trim_end_matches('`')
+                    .trim();
+                if let Ok(val) = serde_json::from_str::<serde_json::Value>(stripped) {
+                    if let Some(name) = val.get("name").or_else(|| val.get("tool")).and_then(|n| n.as_str()) {
+                        let input = val
+                            .get("arguments")
+                            .or_else(|| val.get("input"))
+                            .or_else(|| val.get("parameters"))
+                            .cloned()
+                            .unwrap_or_else(|| serde_json::json!({}));
+                        let id = format!(
+                            "tool_rec_{}_{}",
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_millis(),
+                            recovered_blocks.len()
+                        );
+                        recovered_blocks.push(ContentBlock::ToolUse {
+                            id,
+                            name: name.to_string(),
+                            input: input.to_string(),
+                            signature: None,
+                        });
+                        continue;
+                    }
+                }
+            }
+
+            // Pattern 3: Line-based tool invocation:
+            // "read_file\n{\"path\": \"...\"}" or "bash\n{\"command\": \"...\"}"
+            if let Some((first_line, rest)) = trimmed.split_once('\n') {
+                let tool_name = first_line.trim().trim_end_matches(':').trim();
+                let is_valid_tool_name = !tool_name.is_empty()
+                    && tool_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+
+                if is_valid_tool_name {
+                    let rest_trimmed = rest.trim();
+                    if rest_trimmed.starts_with('{') && rest_trimmed.ends_with('}') {
+                        if let Ok(input) = serde_json::from_str::<serde_json::Value>(rest_trimmed) {
+                            if input.is_object() {
+                                let id = format!(
+                                    "tool_rec_{}_{}",
+                                    std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_millis(),
+                                    recovered_blocks.len()
+                                );
+                                recovered_blocks.push(ContentBlock::ToolUse {
+                                    id,
+                                    name: tool_name.to_string(),
+                                    input: input.to_string(),
+                                    signature: None,
+                                });
+                                continue;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if !recovered_blocks.is_empty() {
+        message.blocks.extend(recovered_blocks);
     }
 }
 
@@ -1954,5 +2079,49 @@ mod tests {
 
         // then
         assert_eq!(error.to_string(), "upstream failed");
+    }
+
+    #[test]
+    fn test_recover_textual_tool_calls_line_based() {
+        use super::recover_textual_tool_calls;
+        use crate::session::session::{ContentBlock, ConversationMessage};
+
+        let mut msg = ConversationMessage::assistant(vec![
+            ContentBlock::Text {
+                text: "read_file\n{\"description\": \"Read build logs\", \"path\": \"/path/to/log.txt\"}".to_string(),
+            }
+        ]);
+
+        recover_textual_tool_calls(&mut msg);
+
+        assert_eq!(msg.blocks.len(), 2);
+        if let ContentBlock::ToolUse { name, input, .. } = &msg.blocks[1] {
+            assert_eq!(name, "read_file");
+            assert!(input.contains("/path/to/log.txt"));
+        } else {
+            panic!("Expected recovered ToolUse block");
+        }
+    }
+
+    #[test]
+    fn test_recover_textual_tool_calls_markdown_json() {
+        use super::recover_textual_tool_calls;
+        use crate::session::session::{ContentBlock, ConversationMessage};
+
+        let mut msg = ConversationMessage::assistant(vec![
+            ContentBlock::Text {
+                text: "```json\n{\n  \"name\": \"bash\",\n  \"arguments\": {\"command\": \"xcodebuild -version\"}\n}\n```".to_string(),
+            }
+        ]);
+
+        recover_textual_tool_calls(&mut msg);
+
+        assert_eq!(msg.blocks.len(), 2);
+        if let ContentBlock::ToolUse { name, input, .. } = &msg.blocks[1] {
+            assert_eq!(name, "bash");
+            assert!(input.contains("xcodebuild -version"));
+        } else {
+            panic!("Expected recovered ToolUse block");
+        }
     }
 }
