@@ -608,7 +608,12 @@ fn format_grisha_tool_failure_directive(tool_name: &str, output: &str) -> String
 
     let mut action_items = Vec::new();
 
-    let diagnosis = if lower.contains("old_string not found in file") || lower.contains("target not matched") {
+    let diagnosis = if lower.contains("old_string and new_string must differ") || lower.contains("must differ") {
+        action_items.push("1. The target file already contains the replacement content, or `old_string` and `new_string` are identical.");
+        action_items.push("2. Use `read_file` to verify the actual file content on disk.");
+        action_items.push("3. Do NOT repeat the edit_file call with identical strings. Move to the next task or verify the build.");
+        "File edit parameter error: `old_string` and `new_string` are identical (no-op edit).".to_string()
+    } else if lower.contains("old_string not found in file") || lower.contains("target not matched") {
         action_items.push("1. Use `read_file` to inspect the exact lines and formatting of the target file.");
         action_items.push("2. Copy the exact character sequence from the file into `old_string` without assuming or guessing contents.");
         "The `old_string` exact text was not found in the target file.".to_string()
@@ -630,14 +635,14 @@ fn format_grisha_tool_failure_directive(tool_name: &str, output: &str) -> String
         action_items.push("1. Check the active leaf task via `TaskGraph` operation: `view` or read `task.md`.");
         action_items.push("2. Focus only on the active leaf task, or update/decompose tasks before executing mutating actions.");
         "Action is blocked by TaskGraph plan enforcement rules.".to_string()
-    } else if lower.contains("mcp server") || lower.contains("timed out") || lower.contains("connection refused") {
+    } else if (lower.contains("mcp server") && !lower.contains("fallback mcp server")) || lower.contains("timed out") || lower.contains("connection refused") {
         action_items.push("1. Check if the required MCP server or simulator device is booted and responsive.");
         action_items.push("2. Use diagnostic or discovery tools to re-verify connectivity.");
         "MCP server or external subsystem communication failed or timed out.".to_string()
     } else {
         action_items.push("1. Analyze the exact error output and root cause step-by-step.");
         action_items.push("2. Do not repeat the identical failing command without addressing the underlying cause.");
-        action_items.push("3. If complex, break down the current task into diagnostic subtasks using `TaskGraph`.");
+        action_items.push("3. If this is a tool parameter or validation error, adjust parameters directly rather than decomposing into redundant subtasks.");
         format!("Tool `{}` returned an execution error.", tool_name)
     };
 
@@ -964,4 +969,26 @@ mod rag_middleware_tests {
         assert!(directive.contains("Build, compilation, or test command failed"));
         assert!(directive.contains("RECURSIVE ROOT-CAUSE RECOVERY MANDATE"));
     }
+
+    #[test]
+    fn format_grisha_tool_failure_directive_diagnoses_identical_strings() {
+        let directive = format_grisha_tool_failure_directive(
+            "edit_file",
+            "ExecutionError { message: \"old_string and new_string must differ\" }",
+        );
+        assert!(directive.contains("GRISHA QUALITY & ROOT-CAUSE RECOVERY DIRECTIVE"));
+        assert!(directive.contains("`old_string` and `new_string` are identical"));
+        assert!(directive.contains("read_file"));
+    }
+
+    #[test]
+    fn format_grisha_tool_failure_directive_repetition_blocker_does_not_falsely_diagnose_mcp() {
+        let directive = format_grisha_tool_failure_directive(
+            "edit_file",
+            "old_string and new_string must differ\n\n⚠️ REPETITION BLOCKER & FALLBACK CASCADE: Tool 'edit_file' failed. (e.g. use fallback MCP server or fix underlying source files before retrying).",
+        );
+        assert!(directive.contains("`old_string` and `new_string` are identical"));
+        assert!(!directive.contains("MCP server or external subsystem communication failed"));
+    }
 }
+

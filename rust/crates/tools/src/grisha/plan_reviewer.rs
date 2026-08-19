@@ -69,6 +69,56 @@ impl GrishaPlanReviewer {
             }
         }
 
+        // 4. Max recursion depth check: prevent pathological infinite task tree recursion (depth > 5)
+        for node in &enriched {
+            let depth = node.id.split('.').count();
+            if depth > 5 {
+                return Err(GrishaExecutionError::new(
+                    GrishaErrorCode::PlanMaxDepthExceeded,
+                    format!("Task '{}' exceeds maximum allowed hierarchy depth (depth {} > 5).", node.id, depth),
+                    "Do NOT recursively decompose tasks beyond 5 levels. Execute the action directly under the existing leaf task.",
+                ));
+            }
+        }
+
+        // 5. Duplicate child & ancestor cycle check: prevent recreating identical tasks under parent
+        for node in &enriched {
+            if let Some(node_content) = &node.content {
+                let norm_node_content = node_content.trim().to_lowercase();
+                if norm_node_content.is_empty() {
+                    continue;
+                }
+
+                // Check ancestor chain in input + existing nodes
+                let mut current_parent_id = node.parent_id.clone();
+                while let Some(pid) = current_parent_id {
+                    let parent_node = enriched
+                        .iter()
+                        .find(|n| n.id == pid)
+                        .or_else(|| existing_nodes.iter().find(|n| n.id == pid));
+
+                    if let Some(parent) = parent_node {
+                        if let Some(parent_content) = &parent.content {
+                            let norm_parent_content = parent_content.trim().to_lowercase();
+                            if norm_node_content == norm_parent_content {
+                                return Err(GrishaExecutionError::new(
+                                    GrishaErrorCode::PlanRecursiveDuplicate,
+                                    format!(
+                                        "Task '{}' (\"{}\") is a recursive duplicate of ancestor task '{}' (\"{}\").",
+                                        node.id, node_content, parent.id, parent_content
+                                    ),
+                                    "Decomposing a task into a child with an identical description is not permitted. Execute the necessary actions directly instead of creating duplicate subtasks.",
+                                ));
+                            }
+                        }
+                        current_parent_id = parent.parent_id.clone();
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+
         Ok(GrishaPlanReviewOutcome {
             is_approved: true,
             enriched_nodes: enriched,
@@ -93,6 +143,38 @@ mod tests {
         let res = GrishaPlanReviewer::review_and_enhance(&nodes, &[]);
         assert!(res.is_err());
         assert_eq!(res.unwrap_err().code, GrishaErrorCode::PlanMissingLeafNodes);
+    }
+
+    #[test]
+    fn test_rejects_max_depth_exceeded() {
+        let nodes = vec![TaskNode {
+            id: "1.2.2.3.3.1".to_string(),
+            parent_id: Some("1.2.2.3.3".to_string()),
+            content: Some("Apply fix".to_string()),
+            status: Some(TaskStatus::Pending),
+        }];
+        let res = GrishaPlanReviewer::review_and_enhance(&nodes, &[]);
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err().code, GrishaErrorCode::PlanMaxDepthExceeded);
+    }
+
+    #[test]
+    fn test_rejects_recursive_duplicate_of_ancestor() {
+        let existing = vec![TaskNode {
+            id: "1.2".to_string(),
+            parent_id: Some("1".to_string()),
+            content: Some("Fix SpeedTrafficService.swift".to_string()),
+            status: Some(TaskStatus::InProgress),
+        }];
+        let nodes = vec![TaskNode {
+            id: "1.2.1".to_string(),
+            parent_id: Some("1.2".to_string()),
+            content: Some("Fix SpeedTrafficService.swift".to_string()),
+            status: Some(TaskStatus::Pending),
+        }];
+        let res = GrishaPlanReviewer::review_and_enhance(&nodes, &existing);
+        assert!(res.is_err());
+        assert_eq!(res.unwrap_err().code, GrishaErrorCode::PlanRecursiveDuplicate);
     }
 
     #[test]

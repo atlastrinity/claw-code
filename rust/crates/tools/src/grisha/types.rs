@@ -16,6 +16,10 @@ pub enum GrishaErrorCode {
     PlanMissingLeafNodes,
     /// Plan lacks verification steps.
     PlanMissingVerification,
+    /// Plan contains recursive duplicates or cycles.
+    PlanRecursiveDuplicate,
+    /// Plan exceeds max allowed hierarchy depth.
+    PlanMaxDepthExceeded,
 }
 
 impl GrishaErrorCode {
@@ -29,6 +33,8 @@ impl GrishaErrorCode {
             Self::SimRemoteMismatch => "GRISHA_SIM_005",
             Self::PlanMissingLeafNodes => "GRISHA_PLAN_001",
             Self::PlanMissingVerification => "GRISHA_PLAN_002",
+            Self::PlanRecursiveDuplicate => "GRISHA_PLAN_003",
+            Self::PlanMaxDepthExceeded => "GRISHA_PLAN_004",
         }
     }
 }

@@ -488,6 +488,10 @@ pub fn auto_create_recovery_subtask(failed_tool: &str, error_msg: &str) -> Resul
 
     let Some(leaf_idx) = active_leaf_idx else { return Ok(()); };
     let parent_id = nodes[leaf_idx].id.clone();
+    let depth = parent_id.split('.').count();
+    if depth >= 5 {
+        return Ok(());
+    }
 
     // Count existing children under parent_id
     let child_count = nodes.iter().filter(|n| n.parent_id.as_deref() == Some(&parent_id)).count();

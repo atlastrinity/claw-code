@@ -1811,4 +1811,75 @@ fn test_recursive_recovery_workflow_on_failed_step() {
     let _ = std::fs::remove_dir_all(&test_dir);
 }
 
+#[test]
+fn test_task_graph_rejects_duplicate_ancestor_task() {
+    let _guard = env_guard();
+    let path = temp_path("dup_ancestor_test.json");
+    let _ = std::fs::remove_file(&path);
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    // 1. Add parent task
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Root phase"},
+                {"id": "1.1", "parent_id": "1", "content": "Apply fix to SpeedTrafficService.swift"}
+            ]
+        }),
+    )
+    .expect("Add parent should succeed");
+
+    // 2. Attempt to add child with identical content to parent -> should be rejected!
+    let res = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1.1.1", "parent_id": "1.1", "content": "Apply fix to SpeedTrafficService.swift"}
+            ]
+        }),
+    );
+
+    assert!(res.is_err());
+    let err = res.unwrap_err();
+    assert!(err.contains("GRISHA_PLAN_003") || err.contains("recursive duplicate of ancestor task"));
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn test_task_graph_rejects_depth_exceeded() {
+    let _guard = env_guard();
+    let path = temp_path("depth_exceeded_test.json");
+    let _ = std::fs::remove_file(&path);
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    // Attempt to add a 6-level deep node (1.2.3.4.5.6)
+    let res = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Phase 1"},
+                {"id": "1.1", "parent_id": "1", "content": "Phase 1.1"},
+                {"id": "1.1.1", "parent_id": "1.1", "content": "Phase 1.1.1"},
+                {"id": "1.1.1.1", "parent_id": "1.1.1", "content": "Phase 1.1.1.1"},
+                {"id": "1.1.1.1.1", "parent_id": "1.1.1.1", "content": "Phase 1.1.1.1.1"},
+                {"id": "1.1.1.1.1.1", "parent_id": "1.1.1.1.1", "content": "Phase 1.1.1.1.1.1"}
+            ]
+        }),
+    );
+
+    assert!(res.is_err());
+    let err = res.unwrap_err();
+    assert!(err.contains("GRISHA_PLAN_004") || err.contains("exceeds maximum allowed hierarchy depth"));
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(&path);
+}
+
+
 
