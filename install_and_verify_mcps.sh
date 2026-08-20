@@ -134,8 +134,8 @@ verify_command() {
 
 # 1. playwright
 verify_command "Playwright Cross-Browser MCP" \
-    "npx --prefer-offline --package @executeautomation/playwright-mcp-server playwright-mcp-server --help 2>&1 | grep -q 'Playwright MCP' || [ -d \"\$HOME/Library/Caches/ms-playwright/chromium-\"* ]" \
-    "npm install -g @executeautomation/playwright-mcp-server && npx -y playwright install chromium webkit"
+    "npx --prefer-offline --package @executeautomation/playwright-mcp-server playwright-mcp-server --help 2>&1 | grep -q 'Playwright MCP' || [ -d \"\$HOME/Library/Caches/ms-playwright/chromium-1200\" ]" \
+    "npm install -g @executeautomation/playwright-mcp-server && npx -y playwright@1.57.0 install chromium webkit firefox"
 
 # 2. appstore-connect
 verify_command "App Store Connect (asc-mcp)" \
