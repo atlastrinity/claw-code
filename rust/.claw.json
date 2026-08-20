@@ -63,6 +63,14 @@
     }
   },
   "availableMcpServers": {
+    "playwright": {
+      "description": "Cross-browser automation (Chromium, Apple Safari WebKit, Firefox) via Playwright. Use for interactive web navigation, clicking elements, video playback, form filling, and taking screenshots.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@executeautomation/playwright-mcp-server"
+      ]
+    },
     "appstore-connect": {
       "description": "Server for interacting with the App Store Connect API (e.g. uploading builds, managing metadata, testflight).",
       "command": "npx",

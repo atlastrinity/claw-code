@@ -144,7 +144,12 @@ impl RuntimeMcpState {
         runtime_config: &runtime::RuntimeConfig,
     ) -> Result<Option<(Self, runtime::McpToolDiscoveryReport)>, Box<dyn std::error::Error>> {
         let mut manager = McpServerManager::from_runtime_config(runtime_config);
-        let available_servers = runtime_config.available_mcp().servers().clone();
+        let mut available_servers = runtime_config.available_mcp().servers().clone();
+        for (name, config) in runtime_config.mcp().servers() {
+            if !available_servers.contains_key(name) {
+                available_servers.insert(name.clone(), config.clone());
+            }
+        }
         if manager.server_names().is_empty() && manager.unsupported_servers().is_empty() && available_servers.is_empty() {
             return Ok(None);
         }
@@ -260,10 +265,6 @@ impl RuntimeMcpState {
     }
 
     pub fn load_server(&mut self, name: &str) -> Result<Vec<runtime::ManagedMcpTool>, String> {
-        let Some(config) = self.available_servers.get(name).cloned() else {
-            return Err(format!("Server '{}' is not defined in availableMcpServers", name));
-        };
-
         // If the server is already loaded with tools, return the existing tools
         // instead of restarting the process. Prevents unnecessary restarts when
         // AI calls McpSearch(load_server) multiple times.
@@ -273,6 +274,10 @@ impl RuntimeMcpState {
                 return Ok(existing_tools);
             }
         }
+
+        let Some(config) = self.available_servers.get(name).cloned() else {
+            return Err(format!("Server '{}' is not defined in availableMcpServers", name));
+        };
 
         self.runtime.block_on(async {
             self.manager.load_and_discover_server(name.to_string(), config).await
