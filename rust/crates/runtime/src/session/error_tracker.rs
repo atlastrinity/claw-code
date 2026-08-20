@@ -114,11 +114,19 @@ fn now_ms() -> u64 {
 /// per-actual-MCP-tool, not under the generic wrapper name.
 #[must_use]
 pub fn resolve_effective_tool_name<'a>(tool_name: &'a str, input: &'a str) -> std::borrow::Cow<'a, str> {
-    if tool_name == "MCPTool" {
+    if tool_name == "MCPTool" || tool_name == "call_mcp_tool" || tool_name == "McpTool" {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
             if let Some(name) = v.get("qualifiedName").and_then(|v| v.as_str())
                 .or_else(|| v.get("tool").and_then(|v| v.as_str()))
+                .or_else(|| v.get("ToolName").and_then(|v| v.as_str()))
+                .or_else(|| v.get("name").and_then(|v| v.as_str()))
             {
+                let server = v.get("ServerName").and_then(|v| v.as_str())
+                    .or_else(|| v.get("server").and_then(|v| v.as_str()))
+                    .unwrap_or("");
+                if !server.is_empty() {
+                    return std::borrow::Cow::Owned(format!("mcp:{server}:{name}"));
+                }
                 return std::borrow::Cow::Owned(format!("mcp:{name}"));
             }
         }
@@ -418,7 +426,7 @@ fn extract_solution_from_skill_md(content: &str) -> String {
 
 /// Helper function to construct a consistent dynamic skill name from tool_name and category.
 pub(crate) fn make_dynamic_skill_name(tool_name: &str, category: &str) -> String {
-    let safe_tool = tool_name.to_lowercase().replace(' ', "-");
+    let safe_tool = tool_name.to_lowercase().replace(' ', "-").replace(':', "-");
     let safe_category: String = category
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
@@ -793,6 +801,15 @@ mod tests {
         assert_eq!(
             super::resolve_effective_tool_name("MCPTool", input).as_ref(),
             "mcp:firebase/deploy"
+        );
+    }
+
+    #[test]
+    fn resolve_effective_tool_name_extracts_server_and_tool_from_call_mcp_tool() {
+        let input = r#"{"ServerName": "puppeteer", "ToolName": "puppeteer_navigate", "Arguments": {"url": "https://example.com"}}"#;
+        assert_eq!(
+            super::resolve_effective_tool_name("call_mcp_tool", input).as_ref(),
+            "mcp:puppeteer:puppeteer_navigate"
         );
     }
 
