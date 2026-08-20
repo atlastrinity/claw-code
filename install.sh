@@ -344,12 +344,11 @@ info "Synchronizing configurations..."
 sync_all "${SCRIPT_DIR}"
 update_mcp_paths
 
-
 # ---------------------------------------------------------------------------
 # Step 6: post-install verification
 # ---------------------------------------------------------------------------
 
-step "Verifying the installed binary"
+step "Verifying the installed binary and MCP servers"
 
 if [ "${SKIP_VERIFY}" = "1" ]; then
     warn "verification skipped (--no-verify or CLAW_SKIP_VERIFY=1)"
@@ -369,6 +368,11 @@ else
     else
         error "claw --help failed"
         exit 1
+    fi
+
+    if [ -f "${SCRIPT_DIR}/install_and_verify_mcps.sh" ]; then
+        info "verifying all 11 MCP servers..."
+        "${SCRIPT_DIR}/install_and_verify_mcps.sh" || warn "Some MCP servers require manual authentication"
     fi
 fi
 
