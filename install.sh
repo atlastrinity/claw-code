@@ -40,7 +40,9 @@ else
 fi
 
 info()    { printf '%s==>%s %s%s%s\n' "${COLOR_CYAN}" "${COLOR_RESET}" "${COLOR_BOLD}" "$*" "${COLOR_RESET}"; }
+step()    { printf '%s==>%s %s%s%s\n' "${COLOR_CYAN}" "${COLOR_RESET}" "${COLOR_BOLD}" "$*" "${COLOR_RESET}"; }
 success() { printf '%s==>%s %s%s%s\n' "${COLOR_GREEN}" "${COLOR_RESET}" "${COLOR_BOLD}" "$*" "${COLOR_RESET}"; }
+ok()      { printf '%s==>%s %s%s%s\n' "${COLOR_GREEN}" "${COLOR_RESET}" "${COLOR_BOLD}" "$*" "${COLOR_RESET}"; }
 warn()    { printf '%s==>%s %s%s%s\n' "${COLOR_YELLOW}" "${COLOR_RESET}" "${COLOR_BOLD}" "$*" "${COLOR_RESET}" >&2; }
 error()   { printf '%s==>%s %s%s%s\n' "${COLOR_RED}" "${COLOR_RESET}" "${COLOR_BOLD}" "$*" "${COLOR_RESET}" >&2; }
 
