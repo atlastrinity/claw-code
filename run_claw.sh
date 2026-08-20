@@ -62,6 +62,9 @@ if [ "$CLAW_NEW_SESSION" = "true" ]; then
     echo "🧹 Очищення файлів завдань попередньої сесії..."
     rm -f "${CLAW_CALLER_CWD:-.}/task.md" "${CLAW_CALLER_CWD:-.}/.clawd-task-graph.json" "${CLAW_CALLER_CWD:-.}/.clawd-action-history.json"
     rm -f "${SCRIPT_DIR}/task.md" "${SCRIPT_DIR}/.clawd-task-graph.json" "${SCRIPT_DIR}/.clawd-action-history.json"
+    rm -f "$HOME/.claw/narration_offsets.json" "$HOME/.claw/narration.lock" "$HOME/.claw/api.lock"
+    pkill -f "afplay" 2>/dev/null || true
+    pkill -f "claw_voice_narrator.py" 2>/dev/null || true
 fi
 
 # 0. Прибираємо зомбі-процеси, якщо минулого разу термінал впав
@@ -70,6 +73,8 @@ pkill -f "claw-rag-service" 2>/dev/null
 pkill -f "mcpbridge" 2>/dev/null
 pkill -f "ios-simulator-mcp" 2>/dev/null
 pkill -f "playwright-mcp-server" 2>/dev/null
+pkill -f "afplay" 2>/dev/null || true
+pkill -f "claw_voice_narrator.py" 2>/dev/null || true
 sleep 0.5
 
 # 1. Вибір моделі з .claw.json

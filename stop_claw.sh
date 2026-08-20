@@ -69,8 +69,9 @@ kill_process "ios-simulator-mcp" false
 kill_process "idb_companion" false
 kill_process "bin/idb " false
 
-# Remove stale lock files
-rm -f ~/.claw/api.lock ~/.claw/narration.lock ~/.claw/voice_narrator.pid
+# Remove stale lock files and narration state
+rm -f ~/.claw/api.lock ~/.claw/narration.lock ~/.claw/voice_narrator.pid ~/.claw/narration_offsets.json
+killall -9 afplay 2>/dev/null || true
 
 # Restore .claw.json from backup if stop was called before cleanup trap
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

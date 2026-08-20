@@ -1750,14 +1750,19 @@ def tail_session_loop():
         print(f"{COLORS['system']}👀 Стеження за файлом сесії: {latest_file}{COLORS['reset']}\n")
         
         # Open file and restore offset if present
+        is_new_session = os.environ.get("CLAW_NEW_SESSION", "").lower() == "true"
         f = open(latest_file, "r", encoding="utf-8")
-        start_offset = get_narration_offset(latest_file)
-        if start_offset > 0:
-            print(f"{COLORS['system']}↩️ Відновлюємо озвучку з позиції {start_offset} у файлі сесії.{COLORS['reset']}")
-            f.seek(start_offset)
-        else:
+        if is_new_session:
             f.seek(0, 2)
             save_narration_offset(latest_file, f.tell())
+        else:
+            start_offset = get_narration_offset(latest_file)
+            if start_offset > 0:
+                print(f"{COLORS['system']}↩️ Відновлюємо озвучку з позиції {start_offset} у файлі сесії.{COLORS['reset']}")
+                f.seek(start_offset)
+            else:
+                f.seek(0, 2)
+                save_narration_offset(latest_file, f.tell())
                 
         try:
             while True:
