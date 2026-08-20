@@ -53,12 +53,12 @@
     "*"
   ],
   "mcpServers": {
-    "puppeteer": {
-      "description": "Headless and GUI browser automation via Puppeteer. Use for interactive web navigation, clicking elements, form filling, taking screenshots, or full screen visual media playback.",
+    "playwright": {
+      "description": "Cross-browser automation (Chromium, Apple Safari WebKit, Firefox) via Playwright. Use for interactive web navigation, clicking elements, video playback, form filling, and taking screenshots.",
       "command": "npx",
       "args": [
         "-y",
-        "@modelcontextprotocol/server-puppeteer"
+        "@executeautomation/playwright-mcp-server"
       ]
     }
   },
@@ -152,14 +152,6 @@
       "command": "uvx",
       "args": [
         "pyscn-mcp"
-      ]
-    },
-    "puppeteer": {
-      "description": "Headless browser automation via Puppeteer. Use for interactive web browsing, navigating JS-rendered Single Page Applications (SPAs), clicking buttons/links, filling forms, taking screenshots, or when static WebFetch/WebSearch is insufficient.",
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-puppeteer"
       ]
     }
   },
