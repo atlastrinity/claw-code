@@ -10,7 +10,7 @@
       "role": "user"
     }
   ],
-  "model": "grok-3",
+  "model": "openai/gpt-4.1-mini",
   "stream": false,
   "tool_choice": "auto",
   "tools": [
@@ -23,15 +23,10 @@
           "properties": {
             "city": {
               "type": "string"
-            },
-            "description": {
-              "description": "MANDATORY: A brief explanation of what this tool call does to match the active TaskGraph node. MUST be in English.",
-              "type": "string"
             }
           },
           "required": [
-            "city",
-            "description"
+            "city"
           ],
           "type": "object"
         }

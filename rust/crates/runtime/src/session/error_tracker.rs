@@ -1065,10 +1065,10 @@ mod tests {
 
     #[test]
     fn resolve_effective_tool_name_extracts_server_and_tool_from_call_mcp_tool() {
-        let input = r#"{"ServerName": "puppeteer", "ToolName": "puppeteer_navigate", "Arguments": {"url": "https://example.com"}}"#;
+        let input = r#"{"ServerName": "playwright", "ToolName": "playwright_navigate", "Arguments": {"url": "https://example.com"}}"#;
         assert_eq!(
             super::resolve_effective_tool_name("call_mcp_tool", input).as_ref(),
-            "mcp:puppeteer:puppeteer_navigate"
+            "mcp:playwright:playwright_navigate"
         );
     }
 
@@ -1163,11 +1163,11 @@ mod tests {
     fn test_skill_persisted_to_claw_skills_omc_learned() {
         run_isolated_test(|| {
             let mut tracker = ErrorTracker::new();
-            tracker.record_error("puppeteer_navigate", "Navigation timeout of 30000 ms exceeded", r#"{"url": "https://slow.site"}"#);
-            tracker.record_error("puppeteer_navigate", "TimeoutError: timed out", r#"{"url": "https://slow.site"}"#);
+            tracker.record_error("playwright_navigate", "Navigation timeout of 30000 ms exceeded", r#"{"url": "https://slow.site"}"#);
+            tracker.record_error("playwright_navigate", "TimeoutError: timed out", r#"{"url": "https://slow.site"}"#);
 
             let skill = tracker.record_success(
-                "puppeteer_navigate",
+                "playwright_navigate",
                 r#"{"url": "https://slow.site", "timeout": 60000, "waitUntil": "domcontentloaded"}"#,
                 "Page loaded in 45s"
             );
@@ -1180,7 +1180,7 @@ mod tests {
             assert!(expected_path.is_file(), "SKILL.md should be written to ~/.claw/skills/omc-learned/");
 
             let content = std::fs::read_to_string(&expected_path).unwrap();
-            assert!(content.contains("name: autolearn-puppeteer_navigate-timeout"));
+            assert!(content.contains("name: autolearn-playwright_navigate-timeout"));
             assert!(content.contains("effectiveness_score: 1.00"));
             assert!(content.contains("## 🎯 Trigger Conditions"));
             assert!(content.contains("## 💡 Recommended Solution & Correct Parameters"));
@@ -1189,11 +1189,11 @@ mod tests {
 
             // Verify get_skill_hint finds this persisted skill
             let tracker2 = ErrorTracker::new();
-            let hint = tracker2.get_skill_hint("puppeteer_navigate", "timeout exceeded");
+            let hint = tracker2.get_skill_hint("playwright_navigate", "timeout exceeded");
             assert!(hint.is_some());
             let hint_text = hint.unwrap();
             assert!(hint_text.contains("LEARNED FIX"));
-            assert!(hint_text.contains("puppeteer_navigate"));
+            assert!(hint_text.contains("playwright_navigate"));
         });
     }
 }
