@@ -1122,6 +1122,51 @@ def translate_and_summarize_thinking(text: str) -> str:
     return call_narration_llm_chain(system_prompt, text)
 
 
+def summarize_tool_action_via_llm(tool_name: str, params: dict) -> str:
+    """
+    Uses the secondary narration model (Gemini-lite / Mistral / user-selected model)
+    to transform technical tool actions and parameters into concise, natural Ukrainian action phrases (4 to 9 words).
+    NEVER reads whole files, raw tool names, or JSON parameters.
+    """
+    if not tool_name:
+        return ""
+
+    # Sanitize and extract only high-level parameters for narration
+    clean_params = {}
+    if isinstance(params, dict):
+        for k in ("url", "URL", "command", "CommandLine", "path", "AbsolutePath", "TargetFile", "Query", "query", "pattern", "Pattern", "DirectoryPath", "selector", "text", "key", "operation"):
+            if k in params and params[k]:
+                val = str(params[k]).strip()
+                if len(val) > 150:
+                    val = val[:150] + "..."
+                clean_params[k] = val
+        if "description" in params and params["description"]:
+            clean_params["description"] = str(params["description"])[:150]
+        if "Description" in params and params["Description"]:
+            clean_params["Description"] = str(params["Description"])[:150]
+
+    system_prompt = (
+        "You are the voice narrator for Atlas, an autonomous AI agent. "
+        "Summarize the technical tool invocation into a single lively, concise, natural Ukrainian action phrase (4 to 9 words). "
+        "CRITICAL RULES: "
+        "1. NEVER say raw tool names (e.g. 'mcp__playwright__playwright_navigate', 'bash', 'run_command', 'read_file', 'replace_file_content', 'TaskGraph', 'grep_search'). "
+        "2. NEVER read JSON keys, syntax, code blocks, or file bodies. "
+        "3. Focus strictly on WHAT is being accomplished in simple, clean Ukrainian: "
+        "   - Browser navigation/open -> 'Відкриваю сайт/Google у браузері' "
+        "   - Browser click/page -> 'Переходжу на наступну сторінку пошуку' / 'Клікаю на фільм' "
+        "   - Browser read/scrape -> 'Зчитую результати та рейтинги зі сторінки' "
+        "   - File view/read -> 'Переглядаю файл {filename}' "
+        "   - File edit/write -> 'Вношу зміни у файл {filename}' "
+        "   - Command/tests/build -> 'Запускаю тести' / 'Виконую збірку проекту' "
+        "   - Task list -> 'Оновлюю статус завдань у графіку' "
+        "4. Start with an active first-person present-tense verb (e.g. 'Відкриваю', 'Переглядаю', 'Шукаю', 'Запускаю', 'Клікаю', 'Зчитую', 'Оновлюю'). "
+        "5. Keep it under 10 words. Output ONLY the Ukrainian phrase with no extra quotes, prefixes, or commentary."
+    )
+    
+    user_payload = f"Tool: {tool_name}\nContext: {json.dumps(clean_params, ensure_ascii=False)}"
+    return call_narration_llm_chain(system_prompt, user_payload)
+
+
 def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool, output_val: str) -> str:
     if not output_val.strip():
         return ""
@@ -1403,76 +1448,113 @@ def translate_to_english(text: str) -> str:
         
     return text
 
-def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
-    try:
-        params = json.loads(input_str)
-    except Exception:
-        params = {}
-        
-    cmd = params.get("command", params.get("CommandLine", ""))
-    desc = params.get("description", params.get("Description", params.get("toolSummary", params.get("toolAction", ""))))
+def get_heuristic_tool_use_ua(tool_name: str, params: dict) -> tuple[str, str]:
+    t_lower = tool_name.lower()
     
-    action_desc = ""
-    spoken_text = f"Tool: {tool_name}. "
-    if desc:
-        spoken_text += f"Context: {desc}. "
-    
-    if tool_name in ("bash", "run_command"):
-        cmd_str = str(cmd).strip()
-        desc_str = str(desc).strip()
-        action_desc = get_command_description_ua(cmd_str, desc_str)
-        spoken_text += f"Command: {cmd_str}"
-        
-    elif tool_name in ("read_file", "view_file"):
+    # 1. Playwright / Browser automation tools
+    if "playwright" in t_lower or "browser" in t_lower:
+        if "navigate" in t_lower or "goto" in t_lower or "open" in t_lower:
+            url = params.get("url", params.get("Url", ""))
+            if "google" in url.lower():
+                return "Відкриваю Google у вікні браузера", "відкриття Google у браузері"
+            domain = re.sub(r'^https?://(www\.)?', '', url).split('/')[0] if url else "сторінку"
+            return f"Відкриваю {domain} у браузері", f"відкриття {domain} у браузері"
+        elif "click" in t_lower:
+            text = params.get("text", params.get("selector", ""))
+            target = f"'{text}'" if text and len(text) < 30 else "елемент"
+            return f"Клікаю на {target}", f"клік по {target}"
+        elif "visible_text" in t_lower or "get_text" in t_lower or "extract" in t_lower:
+            return "Зчитую текст та результати зі сторінки", "зчитування результатів зі сторінки"
+        elif "screenshot" in t_lower:
+            return "Роблю знімок екрана браузера для перевірки", "створення знімка екрана"
+        elif "fill" in t_lower or "type" in t_lower:
+            text = params.get("text", params.get("value", ""))
+            if text:
+                return f"Вводжу '{text}' у поле пошуку", f"введення тексту '{text}'"
+            return "Вводжу необхідні дані у форму", "введення даних у форму"
+        elif "press_key" in t_lower or "keyboard" in t_lower:
+            key = params.get("key", "")
+            return f"Натискаю клавішу {key}", f"натискання клавіші {key}"
+        elif "hover" in t_lower:
+            return "Наводжу курсор на елемент сторінки", "наведення курсора"
+        elif "evaluate" in t_lower or "eval" in t_lower:
+            return "Перевіряю стан сторінки та відеоплеєра", "перевірка стану сторінки"
+        elif "select" in t_lower:
+            return "Обираю опцію зі списку", "вибір опції"
+        elif "close" in t_lower:
+            return "Закриваю вікно браузера", "закриття вікна браузера"
+        else:
+            return "Виконую дію у браузері", "дія у браузері"
+
+    # 2. MCP / Server management
+    if t_lower in ("mcpsearch", "mcp_search", "load_server"):
+        server = params.get("load_server", params.get("server", ""))
+        if server:
+            return f"Підключаю сервіс {server}", f"підключення сервісу {server}"
+        return "Шукаю доступні інструменти", "пошук інструментів"
+
+    # 3. Web Search / Fetch
+    if t_lower in ("websearch", "search_web"):
+        q = params.get("query", params.get("Query", ""))
+        if q:
+            return f"Шукаю '{q}' в інтернеті", f"пошук '{q}' в інтернеті"
+        return "Виконую пошук в інтернеті", "пошук в інтернеті"
+
+    if t_lower in ("webfetch", "read_url_content"):
+        return "Завантажую вміст веб-сторінки", "завантаження веб-сторінки"
+
+    # 4. Command line & Bash
+    if t_lower in ("bash", "run_command"):
+        cmd = params.get("command", params.get("CommandLine", ""))
+        desc = params.get("description", params.get("Description", params.get("toolSummary", params.get("toolAction", ""))))
+        action_desc = get_command_description_ua(str(cmd).strip(), str(desc).strip())
+        return f"Запускаю {action_desc}", action_desc
+
+    # 5. File Operations
+    if t_lower in ("read_file", "view_file"):
         path = params.get("AbsolutePath", params.get("path", ""))
         filename = Path(path).name if path else "файлу"
-        action_desc = f"читання файлу {filename}"
-        spoken_text += f"Target: {filename}"
-        
-    elif tool_name in ("write_to_file", "write_file", "create_file"):
+        return f"Переглядаю файл {filename}", f"читання файлу {filename}"
+
+    if t_lower in ("write_to_file", "write_file", "create_file"):
         path = params.get("TargetFile", params.get("path", ""))
         filename = Path(path).name if path else "файлу"
-        action_desc = f"запису у файл {filename}"
-        spoken_text += f"Target: {filename}"
-        
-    elif tool_name in ("replace_file_content", "multi_replace_file_content", "edit_file"):
+        return f"Записую дані у файл {filename}", f"запис у файл {filename}"
+
+    if t_lower in ("replace_file_content", "multi_replace_file_content", "edit_file"):
         path = params.get("TargetFile", params.get("path", ""))
         filename = Path(path).name if path else "файлу"
-        action_desc = f"редагування файлу {filename}"
-        spoken_text += f"Target: {filename}"
-        
-    elif tool_name == "grep_search":
+        return f"Вношу зміни у файл {filename}", f"редагування файлу {filename}"
+
+    if t_lower == "grep_search":
         query = params.get("Query", params.get("query", ""))
-        action_desc = f"пошуку тексту '{query}' у коді"
-        spoken_text += f"Query: '{query}'"
-        
-    elif tool_name == "glob_search":
+        if query:
+            return f"Шукаю '{query}' у коді", f"пошук '{query}' у коді"
+        return "Шукаю збіги у коді", "пошук у коді"
+
+    if t_lower == "glob_search":
         pattern = params.get("Pattern", params.get("pattern", ""))
-        action_desc = f"пошуку файлів за шаблоном '{pattern}'"
-        spoken_text += f"Pattern: '{pattern}'"
-        
-    elif tool_name == "list_dir":
+        if pattern:
+            return f"Шукаю файли за шаблоном '{pattern}'", f"пошук файлів '{pattern}'"
+        return "Шукаю файли у проекті", "пошук файлів"
+
+    if t_lower == "list_dir":
         path = params.get("DirectoryPath", params.get("path", ""))
         dirname = Path(path).name if path else "директорії"
-        action_desc = f"перегляду вмісту папки {dirname}"
-        spoken_text += f"Target: {dirname}"
-        
-    elif tool_name == "TaskGraph":
+        return f"Переглядаю файли у папці {dirname}", f"перегляд папки {dirname}"
+
+    # 6. TaskGraph
+    if t_lower == "taskgraph":
         op = params.get("operation", "")
         nodes = params.get("nodes", [])
         
-        # Load task descriptions for lookup
         descriptions = load_task_descriptions()
-        
-        # Determine updated or added task descriptions
         details = []
         for n in nodes:
             nid = n.get("id")
             content = n.get("content")
-            # If not in params, lookup from JSON
             if not content and nid:
                 content = descriptions.get(str(nid))
-            
             status = n.get("status")
             status_str = ""
             if status:
@@ -1485,15 +1567,14 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
                     status_str = "провалено"
                 elif "pending" in status_val:
                     status_str = "в очікуванні"
-            
             if content:
                 cleaned_desc = clean_for_speech(content)
-                if len(cleaned_desc) > 60:
-                    cleaned_desc = cleaned_desc[:60].strip() + "..."
+                if len(cleaned_desc) > 50:
+                    cleaned_desc = cleaned_desc[:50].strip() + "..."
                 if status_str:
-                    details.append(f"'{cleaned_desc}' ({status_str})")
+                    details.append(f"«{cleaned_desc}» ({status_str})")
                 else:
-                    details.append(f"'{cleaned_desc}'")
+                    details.append(f"«{cleaned_desc}»")
             elif nid:
                 if status_str:
                     details.append(f"завдання {nid} ({status_str})")
@@ -1503,19 +1584,48 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         if op == "update_status":
             action_desc = "оновлення статусу завдань"
             if details:
-                spoken_text = f"Оновив статус: {', '.join(details[:3])}."
+                spoken_text = f"Оновив статус: {', '.join(details[:2])}."
             else:
                 spoken_text = "Оновив статус завдань у графіку."
+            return spoken_text, action_desc
+        elif op == "add":
+            action_desc = "формування плану"
+            return "Сформував покроковий план завдань.", action_desc
         else:
             action_desc = "оновлення планування"
-            spoken_text = "Оновив графік завдань."
-            
-    else:
-        tool_name_ua = TOOL_NAMES_UA.get(tool_name, tool_name)
-        action_desc = f"виконання інструменту {tool_name_ua}"
-        spoken_text += f"Executing {tool_name}."
-        
-    return spoken_text, action_desc
+            return "Оновив графік завдань.", action_desc
+
+    # Default fallback: Never use raw 'mcp__' or raw technical identifiers
+    clean_name = re.sub(r'^mcp__[^_]+__', '', tool_name)
+    clean_name = clean_name.replace('_', ' ').strip()
+    return f"Виконую дію: {clean_name}", f"виконання {clean_name}"
+
+
+def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
+    try:
+        params = json.loads(input_str) if isinstance(input_str, str) else (input_str or {})
+    except Exception:
+        params = {}
+    if not isinstance(params, dict):
+        params = {}
+
+    # 1. Fast heuristic baseline
+    spoken_heuristic, action_desc_heuristic = get_heuristic_tool_use_ua(tool_name, params)
+
+    # 2. For rich custom tools, enhance into a lively phrase via the narration LLM
+    if tool_name not in ("TaskGraph",):
+        try:
+            llm_spoken = summarize_tool_action_via_llm(tool_name, params)
+            if llm_spoken and len(llm_spoken.strip()) > 3:
+                clean_llm = clean_for_speech(llm_spoken.strip())
+                clean_llm = strip_agent_names(clean_llm)
+                # Verify no raw identifier leaked in
+                if clean_llm and not any(k in clean_llm.lower() for k in ("mcp__", "tool:", "called tool", "executing")):
+                    return clean_llm, action_desc_heuristic
+        except Exception:
+            pass
+
+    return spoken_heuristic, action_desc_heuristic
 
 def is_tool_call_text(text: str) -> bool:
     text_lower = text.lower().strip()
@@ -1607,7 +1717,7 @@ def process_session_entry(data: dict, player: VoicePlayer):
                         if t_name:
                             _, act_desc = make_natural_tool_use(t_name, t_in)
                             if act_desc:
-                                preview_msg = f"Планую наступний крок: {act_desc[0].lower()}{act_desc[1:]}."
+                                preview_msg = f"Планую: {act_desc[0].lower()}{act_desc[1:]}."
                                 player.speak("tetiana", "Аналіз", preview_msg)
                                 break
             
