@@ -125,7 +125,11 @@ impl CliToolExecutor {
 
         let mut results = Vec::new();
         for (name, config) in available {
-            if name.to_lowercase().contains(&query) || format!("{:?}", config.transport()).to_lowercase().contains(&query) {
+            let desc = config.description.as_deref().unwrap_or("");
+            if name.to_lowercase().contains(&query)
+                || desc.to_lowercase().contains(&query)
+                || format!("{:?}", config.transport()).to_lowercase().contains(&query)
+            {
                 let is_loaded = loaded.contains(name);
                 results.push(serde_json::json!({
                     "name": name,

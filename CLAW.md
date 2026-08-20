@@ -25,7 +25,10 @@
 ## 3. Tool Discovery
 
 - **`ToolSearch`**: Use `ToolSearch` to discover any available tools by keyword (like MCP server tools or specialized scripts) to accomplish your goals when you don't know the exact tool name.
-- **`WebFetch`**: Use `WebFetch` to download and read the content of web pages directly when researching or downloading resources from URLs.
+- **`WebFetch` & `WebSearch` vs. `puppeteer` MCP (Web Strategy)**:
+  - Use **`WebSearch`** for fast information retrieval, finding links, checking facts, and searching documentation quickly.
+  - Use **`WebFetch`** for quickly downloading and reading static text from specific URLs.
+  - Use **`puppeteer` MCP** (discovered via `McpSearch` / `ToolSearch`) whenever you need **interactive browser actions** — navigating JavaScript-rendered SPAs, clicking buttons/links, submitting forms, taking screenshots, or full multi-step browser automation.
 - **Real Code Implementation Mandate**: When asked to build or create an application, script, or software feature, you are STRICTLY FORBIDDEN from merely searching the web or writing a requirements document and calling the task finished. You MUST physically use `write_file` to create the actual working source code files (e.g. `app.py`, `main.py`, `.rs`, `.swift` or GUI scripts) in the project directory, and execute/test them.
 - **Recursive Root-Cause Recovery Mandate**: When ANY action, command, or tool execution fails on ANY task ID `X` at ANY depth in the hierarchy (whether level 1, 2, 3, 4, or deeper; e.g. `1.2`, `2.1.3`, `3.4.1.2`):
   1. **Universal Applicability:** This mandate strictly applies to ALL tasks and all levels of recursion without exception.
