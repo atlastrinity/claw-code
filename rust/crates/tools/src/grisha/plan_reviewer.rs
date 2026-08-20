@@ -28,14 +28,15 @@ impl GrishaPlanReviewer {
             });
         }
 
-        // 1. Language check: ensure titles are not in non-ASCII/Ukrainian scripts if possible
+        // 1. Language check: ensure titles are primarily in English (allow Cyrillic literals within quotes)
         for node in &enriched {
             if let Some(content) = &node.content {
-                if content.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c)) {
+                let unquoted = strip_quotes_for_lang_check(content);
+                if unquoted.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c)) {
                     return Err(GrishaExecutionError::new(
                         GrishaErrorCode::PlanMissingLeafNodes,
                         format!("Task '{}' has Ukrainian/Cyrillic content: \"{}\".", node.id, content),
-                        "All task titles, descriptions, and IDs in TaskGraph MUST be written strictly in English.",
+                        "All task titles, descriptions, and IDs in TaskGraph MUST be written strictly in English (except for quoted user search literals).",
                     ));
                 }
             }
@@ -127,10 +128,50 @@ impl GrishaPlanReviewer {
     }
 }
 
+fn strip_quotes_for_lang_check(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_guillemet = false;
+    let mut in_fancy_single = false;
+    let mut in_fancy_double = false;
+
+    for c in s.chars() {
+        match c {
+            '\'' => in_single = !in_single,
+            '"' => in_double = !in_double,
+            '«' => in_guillemet = true,
+            '»' => in_guillemet = false,
+            '‘' => in_fancy_single = true,
+            '’' => in_fancy_single = false,
+            '“' => in_fancy_double = true,
+            '”' => in_fancy_double = false,
+            _ => {
+                if !in_single && !in_double && !in_guillemet && !in_fancy_single && !in_fancy_double {
+                    result.push(c);
+                }
+            }
+        }
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::task_graph::types::TaskStatus;
+
+    #[test]
+    fn test_allows_cyrillic_search_literal_in_quotes() {
+        let nodes = vec![TaskNode {
+            id: "1.4".to_string(),
+            parent_id: Some("1".to_string()),
+            content: Some("Search for 'фільми онлайн' on Google".to_string()),
+            status: Some(TaskStatus::Pending),
+        }];
+        let res = GrishaPlanReviewer::review_and_enhance(&nodes, &[]);
+        assert!(res.is_ok());
+    }
 
     #[test]
     fn test_rejects_cyrillic_task_content() {
