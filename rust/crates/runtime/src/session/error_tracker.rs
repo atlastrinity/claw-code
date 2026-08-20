@@ -1115,4 +1115,85 @@ mod tests {
         assert!(!name2.contains('%'));
         assert!(name2.len() <= 50);
     }
+
+    #[test]
+    fn test_skill_creation_and_refinement_cycle() {
+        run_isolated_test(|| {
+            let mut tracker = ErrorTracker::new();
+            // 1. First error - not recurring yet
+            assert!(!tracker.record_error("read_file", "No such file or directory: /tmp/missing.txt", r#"{"path": "/tmp/missing.txt"}"#));
+            // 2. Second error - becomes recurring
+            assert!(tracker.record_error("read_file", "File not found: /tmp/missing.txt", r#"{"path": "/tmp/missing.txt"}"#));
+
+            // 3. Success - generates dynamic skill with parameter diff
+            let skill = tracker.record_success(
+                "read_file",
+                r#"{"path": "/tmp/existing.txt"}"#,
+                "File content loaded successfully"
+            );
+            assert!(skill.is_some(), "Dynamic skill should be created");
+            let s = skill.unwrap();
+            assert_eq!(s.tool_name, "read_file");
+            assert_eq!(s.success_count, 1);
+            assert_eq!(s.effectiveness_score(), 1.0);
+            assert!(s.input_diff.is_some());
+            assert!(s.input_diff.as_ref().unwrap().contains("Changed `path`"));
+
+            // 4. Second success - reinforces existing skill
+            let second_skill = tracker.record_success(
+                "read_file",
+                r#"{"path": "/tmp/another.txt"}"#,
+                "Another content loaded"
+            );
+            assert!(second_skill.is_none(), "Should not create duplicate skill");
+            let skills = tracker.dynamic_skills();
+            assert_eq!(skills.len(), 1);
+            assert_eq!(skills[0].success_count, 2);
+            assert_eq!(skills[0].effectiveness_score(), 1.0);
+
+            // 5. Subsequent error - decreases effectiveness score
+            tracker.record_error("read_file", "File not found: /tmp/bad.txt", r#"{"path": "/tmp/bad.txt"}"#);
+            let updated_skills = tracker.dynamic_skills();
+            assert_eq!(updated_skills[0].errors_after_creation, 1);
+            assert_eq!(updated_skills[0].effectiveness_score(), 2.0 / 3.0);
+        });
+    }
+
+    #[test]
+    fn test_skill_persisted_to_claw_skills_omc_learned() {
+        run_isolated_test(|| {
+            let mut tracker = ErrorTracker::new();
+            tracker.record_error("puppeteer_navigate", "Navigation timeout of 30000 ms exceeded", r#"{"url": "https://slow.site"}"#);
+            tracker.record_error("puppeteer_navigate", "TimeoutError: timed out", r#"{"url": "https://slow.site"}"#);
+
+            let skill = tracker.record_success(
+                "puppeteer_navigate",
+                r#"{"url": "https://slow.site", "timeout": 60000, "waitUntil": "domcontentloaded"}"#,
+                "Page loaded in 45s"
+            );
+            assert!(skill.is_some());
+            let s = skill.unwrap();
+
+            // Verify file was written to disk in ~/.claw/skills/omc-learned
+            let home = std::env::var("HOME").map(PathBuf::from).unwrap();
+            let expected_path = home.join(".claw").join("skills").join("omc-learned").join(&s.name).join("SKILL.md");
+            assert!(expected_path.is_file(), "SKILL.md should be written to ~/.claw/skills/omc-learned/");
+
+            let content = std::fs::read_to_string(&expected_path).unwrap();
+            assert!(content.contains("name: autolearn-puppeteer_navigate-timeout"));
+            assert!(content.contains("effectiveness_score: 1.00"));
+            assert!(content.contains("## 🎯 Trigger Conditions"));
+            assert!(content.contains("## 💡 Recommended Solution & Correct Parameters"));
+            assert!(content.contains("Added parameter `timeout`"));
+            assert!(content.contains("Added parameter `waitUntil`"));
+
+            // Verify get_skill_hint finds this persisted skill
+            let tracker2 = ErrorTracker::new();
+            let hint = tracker2.get_skill_hint("puppeteer_navigate", "timeout exceeded");
+            assert!(hint.is_some());
+            let hint_text = hint.unwrap();
+            assert!(hint_text.contains("LEARNED FIX"));
+            assert!(hint_text.contains("puppeteer_navigate"));
+        });
+    }
 }

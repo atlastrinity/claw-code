@@ -1604,6 +1604,61 @@ use std::collections::BTreeMap;
     }
 
     #[test]
+    fn skill_loads_learned_skill_from_claw_skills_omc_learned() {
+        let _guard = env_guard();
+        let root = temp_path("claw-skills-omc-learned-skill");
+        let home = root.join("home");
+        let learned_skill_dir = home
+            .join(".claw")
+            .join("skills")
+            .join("omc-learned")
+            .join("autolearn-test-fix");
+        fs::create_dir_all(&learned_skill_dir).expect("learned skill dir should exist");
+        fs::write(
+            learned_skill_dir.join("SKILL.md"),
+            "---\nname: autolearn-test-fix\ndescription: \"Auto-learned fix from claw skills\"\n---\n# autolearn-test-fix\n",
+        )
+        .expect("learned skill file should exist");
+
+        let original_home = std::env::var("HOME").ok();
+        let original_config_home = std::env::var("CLAW_CONFIG_HOME").ok();
+        let original_codex_home = std::env::var("CODEX_HOME").ok();
+        let original_claude_config_dir = std::env::var("CLAUDE_CONFIG_DIR").ok();
+        std::env::set_var("HOME", &home);
+        std::env::remove_var("CLAW_CONFIG_HOME");
+        std::env::remove_var("CODEX_HOME");
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
+
+        let result = execute_tool("Skill", &json!({ "skill": "autolearn-test-fix" }))
+            .expect("learned skill in ~/.claw/skills/omc-learned should resolve");
+
+        let output: serde_json::Value = serde_json::from_str(&result).expect("valid json");
+        assert!(output["path"]
+            .as_str()
+            .expect("path")
+            .ends_with(".claw/skills/omc-learned/autolearn-test-fix/SKILL.md"));
+        assert_eq!(output["description"], "Auto-learned fix from claw skills");
+
+        match original_home {
+            Some(value) => std::env::set_var("HOME", value),
+            None => std::env::remove_var("HOME"),
+        }
+        match original_config_home {
+            Some(value) => std::env::set_var("CLAW_CONFIG_HOME", value),
+            None => std::env::remove_var("CLAW_CONFIG_HOME"),
+        }
+        match original_codex_home {
+            Some(value) => std::env::set_var("CODEX_HOME", value),
+            None => std::env::remove_var("CODEX_HOME"),
+        }
+        match original_claude_config_dir {
+            Some(value) => std::env::set_var("CLAUDE_CONFIG_DIR", value),
+            None => std::env::remove_var("CLAUDE_CONFIG_DIR"),
+        }
+        fs::remove_dir_all(root).expect("temp tree should clean up");
+    }
+
+    #[test]
     fn skill_loads_direct_skill_and_legacy_command_from_claude_config_dir() {
         let _guard = env_guard();
         let root = temp_path("claude-config-direct-skill");
