@@ -703,7 +703,7 @@ def run_narrated_session(prompt: str, max_turns: int = 3):
             player.speak("atlas", "Виконання інструментів", f"Запускаю відповідні інструменти: {', '.join(result.matched_tools)}")
 
         # Narrate turn results (Tetiana)
-        player.speak("tetiana", "Результат ходу", f"stop_reason={result.stop_reason}\nВідмови доступу={len(result.permission_denials)}")
+        player.speak("tetiana", "Результат ходу", "Обробила результати поточного кроку.")
         
         # Check if the process is finished
         if result.stop_reason == 'completed':
@@ -1167,6 +1167,42 @@ def summarize_tool_action_via_llm(tool_name: str, params: dict) -> str:
     return call_narration_llm_chain(system_prompt, user_payload)
 
 
+def summarize_taskgraph_via_llm(op: str, nodes: list, descriptions: dict) -> str:
+    """Summarize task graph status updates for Tetiana via the narration LLM into natural, concise Ukrainian."""
+    if op == "add" and (not nodes or len(nodes) > 3):
+        return "Склала покроковий план завдань."
+
+    task_items = []
+    for n in (nodes or []):
+        nid = n.get("id", "")
+        content = n.get("content") or descriptions.get(str(nid), "")
+        status = n.get("status", "")
+        if content:
+            task_items.append(f"Task: '{content}', Status: '{status}'")
+
+    if not task_items:
+        return "Оновила структуру завдань у графіку."
+
+    system_prompt = (
+        "You are Tetiana, a female Ukrainian project coordinator and strategist. "
+        "Summarize the task graph update into a single concise, elegant Ukrainian status phrase (4 to 8 words). "
+        "CRITICAL RULES: "
+        "1. NEVER use English words, Latin letters, or raw technical identifiers (no 'MCP', 'Playwright', 'Chrome', 'JSON', 'TaskGraph', 'node', 'load'). "
+        "2. Translate all English concepts into pure, natural Ukrainian: "
+        "   - Loading tools/servers -> 'Підключаю інструменти автоматизації' "
+        "   - Opening browser/Google -> 'Переходимо до відкриття Google' / 'Зафіксувала відкриття сторінки' "
+        "   - Searching films -> 'Розпочинаємо пошук фільмів онлайн' / 'Зафіксувала пошук фільмів' "
+        "   - Analyzing results -> 'Аналізуємо результати пошуку та рейтинги' "
+        "   - Fullscreen / movie -> 'Переходимо до перегляду фільму на весь екран' / 'Зафіксувала запуск відео' "
+        "3. If completed: start with 'Зафіксувала...' or 'Виконано: ...'. "
+        "4. If in progress: start with 'Переходимо до...' or 'Розпочинаю...'. "
+        "5. Always use feminine verbs ('Склала', 'Оновила', 'Зафіксувала', 'Розпочинаю'). "
+        "6. Keep it strictly under 8 words. Output ONLY the Ukrainian phrase with no Latin characters."
+    )
+    user_payload = f"Operation: {op}\nTasks: {'; '.join(task_items[:2])}"
+    return call_narration_llm_chain(system_prompt, user_payload)
+
+
 def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool, output_val: str) -> str:
     if not output_val.strip():
         return ""
@@ -1547,58 +1583,57 @@ def get_heuristic_tool_use_ua(tool_name: str, params: dict) -> tuple[str, str]:
     if t_lower == "taskgraph":
         op = params.get("operation", "")
         nodes = params.get("nodes", [])
-        
         descriptions = load_task_descriptions()
-        details = []
-        for n in nodes:
-            nid = n.get("id")
-            content = n.get("content")
-            if not content and nid:
-                content = descriptions.get(str(nid))
-            status = n.get("status")
-            status_str = ""
-            if status:
-                status_val = str(status).lower()
-                if "in_progress" in status_val or "inprogress" in status_val:
-                    status_str = "у процесі"
-                elif "completed" in status_val:
-                    status_str = "виконано"
-                elif "failed" in status_val:
-                    status_str = "провалено"
-                elif "pending" in status_val:
-                    status_str = "в очікуванні"
-            if content:
-                cleaned_desc = clean_for_speech(content)
-                if len(cleaned_desc) > 50:
-                    cleaned_desc = cleaned_desc[:50].strip() + "..."
-                if status_str:
-                    details.append(f"«{cleaned_desc}» ({status_str})")
-                else:
-                    details.append(f"«{cleaned_desc}»")
-            elif nid:
-                if status_str:
-                    details.append(f"завдання {nid} ({status_str})")
-                else:
-                    details.append(f"завдання {nid}")
-        
-        if op == "update_status":
-            action_desc = "оновлення статусу завдань"
-            if details:
-                spoken_text = f"Оновила статус: {', '.join(details[:2])}."
-            else:
-                spoken_text = "Оновила статус завдань у графіку."
-            return spoken_text, action_desc
-        elif op == "add":
-            action_desc = "формування плану"
-            return "Склала покроковий план завдань.", action_desc
-        else:
-            action_desc = "оновлення планування"
-            return "Оновила структуру завдань у графіку.", action_desc
+        return get_heuristic_taskgraph_ua(op, nodes, descriptions)
 
     # Default fallback: Never use raw 'mcp__' or raw technical identifiers
     clean_name = re.sub(r'^mcp__[^_]+__', '', tool_name)
     clean_name = clean_name.replace('_', ' ').strip()
     return f"Виконую дію: {clean_name}", f"виконання {clean_name}"
+
+
+def get_heuristic_taskgraph_ua(op: str, nodes: list, descriptions: dict) -> tuple[str, str]:
+    if op == "add":
+        # Check if adding the initial roadmap
+        has_progress = any(n.get("status") in ("in_progress", "completed") for n in (nodes or []))
+        if not has_progress or len(nodes) > 2:
+            return "Склала покроковий план завдань.", "формування плану"
+
+    for n in (nodes or []):
+        nid = n.get("id")
+        content = n.get("content") or descriptions.get(str(nid), "")
+        status = str(n.get("status", "")).lower()
+        if content:
+            c_low = content.lower()
+            if "playwright" in c_low or "mcp" in c_low:
+                topic = "підключення інструментів браузера"
+            elif "open google" in c_low or "navigate to google" in c_low:
+                topic = "відкриття пошуку Google"
+            elif "search" in c_low or "фільм" in c_low or "movie" in c_low:
+                topic = "пошук фільмів онлайн"
+            elif "analy" in c_low or "rating" in c_low or "page" in c_low:
+                topic = "аналіз результатів та рейтингів"
+            elif "full" in c_low or "screen" in c_low:
+                topic = "розгортання фільму на весь екран"
+            elif "verify" in c_low or "ad" in c_low or "play" in c_low:
+                topic = "перевірка відтворення відео"
+            else:
+                # Extract clean cyrillic words
+                cyrillic = re.findall(r'[\u0400-\u04FF\w]+', content)
+                topic = " ".join(cyrillic[:4]) if cyrillic else "виконання кроку"
+
+            if "completed" in status:
+                return f"Зафіксувала виконання: {topic}.", "оновлення статусу завдань"
+            elif "in_progress" in status or "inprogress" in status:
+                return f"Переходимо до: {topic}.", "оновлення статусу завдань"
+            elif "failed" in status:
+                return f"Зафіксувала проблему: {topic}.", "оновлення статусу завдань"
+            else:
+                return f"Оновила статус: {topic}.", "оновлення статусу завдань"
+
+    if op == "update_status":
+        return "Оновила статус завдань у графіку.", "оновлення статусу завдань"
+    return "Склала покроковий план завдань.", "формування плану"
 
 
 def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
@@ -1609,21 +1644,40 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
     if not isinstance(params, dict):
         params = {}
 
-    # 1. Fast heuristic baseline
+    # 1. Handle TaskGraph specifically for Tetiana (Coordinator)
+    if tool_name == "TaskGraph":
+        op = params.get("operation", "")
+        nodes = params.get("nodes", [])
+        descriptions = load_task_descriptions()
+        spoken_heuristic, action_desc = get_heuristic_taskgraph_ua(op, nodes, descriptions)
+
+        if nodes:
+            try:
+                llm_spoken = summarize_taskgraph_via_llm(op, nodes, descriptions)
+                if llm_spoken and len(llm_spoken.strip()) > 3:
+                    clean_llm = clean_for_speech(llm_spoken.strip())
+                    clean_llm = strip_agent_names(clean_llm)
+                    # Strictly verify NO Latin letters leaked into Tetiana's speech
+                    if clean_llm and not re.search(r'[a-zA-Z]{3,}', clean_llm):
+                        return clean_llm, action_desc
+            except Exception:
+                pass
+        return spoken_heuristic, action_desc
+
+    # 2. Fast heuristic baseline for other tools (Atlas)
     spoken_heuristic, action_desc_heuristic = get_heuristic_tool_use_ua(tool_name, params)
 
-    # 2. For rich custom tools, enhance into a lively phrase via the narration LLM
-    if tool_name not in ("TaskGraph",):
-        try:
-            llm_spoken = summarize_tool_action_via_llm(tool_name, params)
-            if llm_spoken and len(llm_spoken.strip()) > 3:
-                clean_llm = clean_for_speech(llm_spoken.strip())
-                clean_llm = strip_agent_names(clean_llm)
-                # Verify no raw identifier leaked in
-                if clean_llm and not any(k in clean_llm.lower() for k in ("mcp__", "tool:", "called tool", "executing")):
-                    return clean_llm, action_desc_heuristic
-        except Exception:
-            pass
+    # 3. For rich custom tools, enhance into a lively phrase via the narration LLM
+    try:
+        llm_spoken = summarize_tool_action_via_llm(tool_name, params)
+        if llm_spoken and len(llm_spoken.strip()) > 3:
+            clean_llm = clean_for_speech(llm_spoken.strip())
+            clean_llm = strip_agent_names(clean_llm)
+            # Verify no raw identifier leaked in
+            if clean_llm and not any(k in clean_llm.lower() for k in ("mcp__", "tool:", "called tool", "executing")):
+                return clean_llm, action_desc_heuristic
+    except Exception:
+        pass
 
     return spoken_heuristic, action_desc_heuristic
 
