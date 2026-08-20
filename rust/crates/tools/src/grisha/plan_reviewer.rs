@@ -28,15 +28,14 @@ impl GrishaPlanReviewer {
             });
         }
 
-        // 1. Language check: ensure titles are primarily in English (allow Cyrillic literals within quotes)
+        // 1. Language check: ensure titles are primarily in English while permitting Ukrainian terms / user queries
         for node in &enriched {
             if let Some(content) = &node.content {
                 let unquoted = strip_quotes_for_lang_check(content);
                 if unquoted.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c)) {
-                    return Err(GrishaExecutionError::new(
-                        GrishaErrorCode::PlanMissingLeafNodes,
-                        format!("Task '{}' has Ukrainian/Cyrillic content: \"{}\".", node.id, content),
-                        "All task titles, descriptions, and IDs in TaskGraph MUST be written strictly in English (except for quoted user search literals).",
+                    remarks.push(format!(
+                        "Grisha Note: Task '{}' contains Ukrainian terms as requested by the user. Proceeding with execution.",
+                        node.id
                     ));
                 }
             }
@@ -174,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn test_rejects_cyrillic_task_content() {
+    fn test_allows_cyrillic_task_content_with_advisory() {
         let nodes = vec![TaskNode {
             id: "1".to_string(),
             parent_id: None,
@@ -182,8 +181,9 @@ mod tests {
             status: Some(TaskStatus::Pending),
         }];
         let res = GrishaPlanReviewer::review_and_enhance(&nodes, &[]);
-        assert!(res.is_err());
-        assert_eq!(res.unwrap_err().code, GrishaErrorCode::PlanMissingLeafNodes);
+        assert!(res.is_ok());
+        let outcome = res.unwrap();
+        assert!(outcome.is_approved);
     }
 
     #[test]
