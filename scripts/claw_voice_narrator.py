@@ -1584,16 +1584,16 @@ def get_heuristic_tool_use_ua(tool_name: str, params: dict) -> tuple[str, str]:
         if op == "update_status":
             action_desc = "оновлення статусу завдань"
             if details:
-                spoken_text = f"Оновив статус: {', '.join(details[:2])}."
+                spoken_text = f"Оновила статус: {', '.join(details[:2])}."
             else:
-                spoken_text = "Оновив статус завдань у графіку."
+                spoken_text = "Оновила статус завдань у графіку."
             return spoken_text, action_desc
         elif op == "add":
             action_desc = "формування плану"
-            return "Сформував покроковий план завдань.", action_desc
+            return "Склала покроковий план завдань.", action_desc
         else:
             action_desc = "оновлення планування"
-            return "Оновив графік завдань.", action_desc
+            return "Оновила структуру завдань у графіку.", action_desc
 
     # Default fallback: Never use raw 'mcp__' or raw technical identifiers
     clean_name = re.sub(r'^mcp__[^_]+__', '', tool_name)
@@ -1704,39 +1704,25 @@ def process_session_entry(data: dict, player: VoicePlayer):
                     if text_val and not is_tool_call_text(text_val):
                         real_text_blocks.append(text_val)
             
-            has_real_text = len(real_text_blocks) > 0
-            taskgraph_pending_speech = None
-            
-            # Generate synthetic thinking for non-reasoning models (so Tetiana previews upcoming actions)
-            has_thinking = any(b.get("type") == "thinking" and b.get("thinking", "").strip() for b in blocks)
-            if not has_thinking:
-                for b in blocks:
-                    if b.get("type") == "tool_use":
-                        t_name = b.get("name", "")
-                        t_in = b.get("input", "")
-                        if t_name:
-                            _, act_desc = make_natural_tool_use(t_name, t_in)
-                            if act_desc:
-                                preview_msg = f"Планую: {act_desc[0].lower()}{act_desc[1:]}."
-                                player.speak("tetiana", "Аналіз", preview_msg)
-                                break
-            
             for block in blocks:
                 block_type = block.get("type")
+                
+                # 🎙️ TETIANA: Internal reasoning, strategy, and strategic thinking
                 if block_type == "thinking":
                     thinking_val = block.get("thinking", "")
                     natural_thinking = summarize_thinking_ua(thinking_val)
                     if natural_thinking:
                         player.speak("tetiana", "Аналіз", natural_thinking)
+                        
+                # ⚙️ ATLAS: Conversational answers and final results to the user
                 elif block_type == "text":
                     text_content = block.get("text", "")
                     if text_content and not is_tool_call_text(text_content):
-                        if taskgraph_pending_speech:
-                            text_content = f"{taskgraph_pending_speech}. {text_content}"
-                            taskgraph_pending_speech = None
                         text_content = clean_assistant_phrases(text_content)
                         if text_content.strip():
                             player.speak("atlas", "Результат", text_content)
+                            
+                # 🛠️ TOOLS: Distinct separation of concerns
                 elif block_type == "tool_use":
                     tool_name = block.get("name", "")
                     input_str = block.get("input", "")
@@ -1745,25 +1731,12 @@ def process_session_entry(data: dict, player: VoicePlayer):
                         player.last_action_desc = action_desc
                         player.last_action_tool = tool_name
                         
+                        # TaskGraph belongs exclusively to Tetiana (Coordinator)
                         if tool_name == "TaskGraph":
-                            # Buffer TaskGraph speech instead of speaking immediately
-                            taskgraph_pending_speech = natural_tool.rstrip('.') if natural_tool else None
+                            player.speak("tetiana", "План", natural_tool)
                         else:
-                            if taskgraph_pending_speech:
-                                # Pair it with the next action
-                                if natural_tool:
-                                    first_char = natural_tool[0].lower()
-                                    rest = natural_tool[1:]
-                                    combined_tool = f"{taskgraph_pending_speech}, а тепер {first_char}{rest}"
-                                else:
-                                    combined_tool = f"{taskgraph_pending_speech}, а тепер виконую наступну дію"
-                                taskgraph_pending_speech = None
-                                player.speak("atlas", "Дія", combined_tool)
-                            else:
-                                player.speak("atlas", "Дія", natural_tool)
-                                
-            if taskgraph_pending_speech:
-                player.speak("atlas", "Дія", taskgraph_pending_speech)
+                            # Physical execution actions (Browser, Files, Terminal, etc.) belong to Atlas (Executor)
+                            player.speak("atlas", "Дія", natural_tool)
                         
         elif role == "tool":
             for block in blocks:
