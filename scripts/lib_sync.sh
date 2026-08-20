@@ -107,9 +107,12 @@ sync_all() {
     sync_file "${project_root}/CLAW.md"      "${GLOBAL_CLAW_DIR}/CLAW.md" "CLAW.md"
     sync_file "${project_root}/.env"         "${GLOBAL_CLAW_DIR}/.env"    ".env"
 
-    # Also keep ~/.claw/claw.json in sync with settings.json
+    # Also keep ~/.claw/claw.json and rust/.claw.json in sync with settings.json
     if [ -f "$GLOBAL_SETTINGS" ]; then
         cp "$GLOBAL_SETTINGS" "${GLOBAL_CLAW_DIR}/claw.json" 2>/dev/null || true
+        if [ -d "${project_root}/rust" ]; then
+            cp "$GLOBAL_SETTINGS" "${project_root}/rust/.claw.json" 2>/dev/null || true
+        fi
     fi
 
     # Bidirectional skills sync via rsync for .claw/skills and .agents/skills
