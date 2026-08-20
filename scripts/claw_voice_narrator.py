@@ -1604,36 +1604,35 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
         op = params.get("operation", "")
         nodes = params.get("nodes", [])
         descriptions = load_task_descriptions()
-        spoken_heuristic, action_desc = get_heuristic_taskgraph_ua(op, nodes, descriptions)
 
-        if nodes:
-            try:
-                llm_spoken = summarize_taskgraph_via_llm(op, nodes, descriptions)
-                if llm_spoken and len(llm_spoken.strip()) > 3:
-                    clean_llm = clean_for_speech(llm_spoken.strip())
-                    clean_llm = strip_agent_names(clean_llm)
-                    # Strictly verify NO Latin letters leaked into Tetiana's speech
-                    if clean_llm and not re.search(r'[a-zA-Z]{3,}', clean_llm):
-                        return clean_llm, action_desc
-            except Exception:
-                pass
+        # PRIMARY: Dedicated narration LLM creates natural context
+        try:
+            llm_spoken = summarize_taskgraph_via_llm(op, nodes, descriptions)
+            if llm_spoken and len(llm_spoken.strip()) > 3:
+                clean_llm = clean_for_speech(llm_spoken.strip())
+                clean_llm = strip_agent_names(clean_llm)
+                if clean_llm and not re.search(r'[a-zA-Z]{3,}', clean_llm):
+                    return clean_llm, "план"
+        except Exception:
+            pass
+
+        # FALLBACK: Only if narration LLM is unavailable/fails
+        spoken_heuristic, action_desc = get_heuristic_taskgraph_ua(op, nodes, descriptions)
         return spoken_heuristic, action_desc
 
-    # 2. Fast heuristic baseline for other tools (Atlas)
-    spoken_heuristic, action_desc_heuristic = get_heuristic_tool_use_ua(tool_name, params)
-
-    # 3. For rich custom tools, enhance into a lively phrase via the narration LLM
+    # 2. Other tools (Atlas): PRIMARY is Dedicated Narration LLM
     try:
         llm_spoken = summarize_tool_action_via_llm(tool_name, params)
         if llm_spoken and len(llm_spoken.strip()) > 3:
             clean_llm = clean_for_speech(llm_spoken.strip())
             clean_llm = strip_agent_names(clean_llm)
-            # Verify no raw identifier leaked in
             if clean_llm and not any(k in clean_llm.lower() for k in ("mcp__", "tool:", "called tool", "executing")):
-                return clean_llm, action_desc_heuristic
+                return clean_llm, "дія"
     except Exception:
         pass
 
+    # FALLBACK: Only if narration LLM is unavailable/fails
+    spoken_heuristic, action_desc_heuristic = get_heuristic_tool_use_ua(tool_name, params)
     return spoken_heuristic, action_desc_heuristic
 
 def is_tool_call_text(text: str) -> bool:
