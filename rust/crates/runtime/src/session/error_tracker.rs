@@ -331,15 +331,24 @@ impl ErrorTracker {
 
         // 2. Check persisted skills from omc-learned/ (cross-session memory).
         let expected_name = make_dynamic_skill_name(tool_name, &category);
-        let persisted_path = learned_skills_dir().join(&expected_name).join("SKILL.md");
-        if persisted_path.is_file() {
-            if let Ok(content) = std::fs::read_to_string(&persisted_path) {
-                // Extract the Solution section from the SKILL.md.
-                let solution = extract_solution_from_skill_md(&content);
-                return Some(format!(
-                    "\n\n💡 LEARNED FIX (from `{}`, persisted skill):\n{}\n",
-                    expected_name, solution,
-                ));
+        let home = std::env::var("HOME")
+            .or_else(|_| std::env::var("USERPROFILE"))
+            .unwrap_or_else(|_| ".".to_string());
+        let candidate_paths = [
+            PathBuf::from(&home).join(".claw").join("skills").join("omc-learned").join(&expected_name).join("SKILL.md"),
+            PathBuf::from(&home).join(".claude").join("skills").join("omc-learned").join(&expected_name).join("SKILL.md"),
+            learned_skills_dir().join(&expected_name).join("SKILL.md"),
+        ];
+        for persisted_path in &candidate_paths {
+            if persisted_path.is_file() {
+                if let Ok(content) = std::fs::read_to_string(persisted_path) {
+                    // Extract the Solution section from the SKILL.md.
+                    let solution = extract_solution_from_skill_md(&content);
+                    return Some(format!(
+                        "\n\n💡 LEARNED FIX (from `{}`, persisted skill):\n{}\n",
+                        expected_name, solution,
+                    ));
+                }
             }
         }
 
@@ -493,10 +502,15 @@ pub fn learned_skills_dir() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home)
-        .join(".claude")
-        .join("skills")
-        .join("omc-learned")
+    let claw_dir = PathBuf::from(&home).join(".claw").join("skills").join("omc-learned");
+    if claw_dir.exists() {
+        return claw_dir;
+    }
+    let claude_dir = PathBuf::from(&home).join(".claude").join("skills").join("omc-learned");
+    if claude_dir.exists() {
+        return claude_dir;
+    }
+    claw_dir
 }
 
 // ──────────────────── Tests ────────────────────

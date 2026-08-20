@@ -154,6 +154,11 @@ pub(crate) fn push_home_skill_lookup_roots(roots: &mut Vec<SkillLookupRoot>, hom
         home.join(".claude").join("skills").join("omc-learned"),
         SkillLookupOrigin::SkillsDir,
     );
+    push_skill_lookup_root(
+        roots,
+        home.join(".claw").join("skills").join("omc-learned"),
+        SkillLookupOrigin::SkillsDir,
+    );
 }
 
 pub(crate) fn push_prefixed_skill_lookup_roots(roots: &mut Vec<SkillLookupRoot>, prefix: &std::path::Path) {
