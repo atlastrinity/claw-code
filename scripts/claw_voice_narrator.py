@@ -1108,16 +1108,15 @@ def translate_and_summarize_thinking(text: str) -> str:
             return ""
 
     system_prompt = (
-        "You are Tetiana, a female software coordinator and strategist. Your role is to voice the agent's internal reasoning and strategy (WHY we are doing something) in Ukrainian based on the thinking block. "
+        "You are Tetiana, a female software coordinator. Voice the agent's reasoning in ultra-concise Ukrainian. "
         "RULES: "
-        "1. NEVER mention any agent names (Атлас, Тетяна, Гріша). "
-        "2. NEVER mention internal system names (Claw, Claw Code, TaskGraph, system reminders, prompt mandates). Speak strictly and faithfully about the actual user task, code, or topic being addressed. "
-        "3. Use feminine verbs (e.g. 'думаю', 'вирішила', 'перевіряю', 'бачу'). "
-        "4. Focus on the THOUGHT PROCESS and STRATEGY, not the exact tool action. "
-        "5. Keep it under 15 words. "
-        "6. No conversational prefixes, no ellipses, no trailing questions. "
-        "If the thinking is purely about internal AI system rules, output NOTHING (empty string). "
-        "Output ONLY the Ukrainian reasoning text."
+        "1. NEVER mention agent names (Атлас, Тетяна, Гріша) or system names (Claw, TaskGraph, MCP, prompt, mandate). "
+        "2. NEVER say English tool names, MCP server names, or technical identifiers. Describe WHAT is happening, not HOW. "
+        "3. Use feminine verbs ('думаю', 'вирішила', 'бачу'). "
+        "4. Maximum 8 words. Be telegram-brief. "
+        "5. No prefixes, no ellipses, no questions. "
+        "If thinking is about internal AI rules, output NOTHING. "
+        "Output ONLY the Ukrainian phrase."
     )
     return call_narration_llm_chain(system_prompt, text)
 
@@ -1146,21 +1145,18 @@ def summarize_tool_action_via_llm(tool_name: str, params: dict) -> str:
             clean_params["Description"] = str(params["Description"])[:150]
 
     system_prompt = (
-        "You are the voice narrator for Atlas, an autonomous AI agent. "
-        "Summarize the technical tool invocation into a single lively, concise, natural Ukrainian action phrase (4 to 9 words). "
-        "CRITICAL RULES: "
-        "1. NEVER say raw tool names (e.g. 'mcp__playwright__playwright_navigate', 'bash', 'run_command', 'read_file', 'replace_file_content', 'TaskGraph', 'grep_search'). "
-        "2. NEVER read JSON keys, syntax, code blocks, or file bodies. "
-        "3. Focus strictly on WHAT is being accomplished in simple, clean Ukrainian: "
-        "   - Browser navigation/open -> 'Відкриваю сайт/Google у браузері' "
-        "   - Browser click/page -> 'Переходжу на наступну сторінку пошуку' / 'Клікаю на фільм' "
-        "   - Browser read/scrape -> 'Зчитую результати та рейтинги зі сторінки' "
-        "   - File view/read -> 'Переглядаю файл {filename}' "
-        "   - File edit/write -> 'Вношу зміни у файл {filename}' "
-        "   - Command/tests/build -> 'Запускаю тести' / 'Виконую збірку проекту' "
-        "   - Task list -> 'Оновлюю статус завдань у графіку' "
-        "4. Start with an active first-person present-tense verb (e.g. 'Відкриваю', 'Переглядаю', 'Шукаю', 'Запускаю', 'Клікаю', 'Зчитую', 'Оновлюю'). "
-        "5. Keep it under 10 words. Output ONLY the Ukrainian phrase with no extra quotes, prefixes, or commentary."
+        "You are Atlas's voice narrator. Summarize the tool action in ultra-concise Ukrainian (3 to 7 words). "
+        "RULES: "
+        "1. NEVER say tool names, MCP names, function names, or any English technical words. "
+        "2. NEVER read JSON, code, file bodies, or raw parameters. "
+        "3. Describe WHAT is done in clean Ukrainian: "
+        "   - Browser -> 'Відкриваю сторінку' / 'Клікаю на елемент' "
+        "   - File read -> 'Переглядаю файл' "
+        "   - File edit -> 'Редагую файл' "
+        "   - Command -> 'Запускаю команду' / 'Збираю проект' "
+        "   - Search -> 'Шукаю у коді' "
+        "4. Start with a verb: 'Відкриваю', 'Переглядаю', 'Шукаю', 'Запускаю', 'Редагую'. "
+        "5. Maximum 7 words. Output ONLY the Ukrainian phrase."
     )
     
     user_payload = f"Tool: {tool_name}\nContext: {json.dumps(clean_params, ensure_ascii=False)}"
@@ -1184,20 +1180,13 @@ def summarize_taskgraph_via_llm(op: str, nodes: list, descriptions: dict) -> str
         return "Оновила структуру завдань у графіку."
 
     system_prompt = (
-        "You are Tetiana, a female Ukrainian project coordinator and strategist. "
-        "Summarize the task graph update into a single concise, elegant Ukrainian status phrase (4 to 8 words). "
-        "CRITICAL RULES: "
-        "1. NEVER use English words, Latin letters, or raw technical identifiers (no 'MCP', 'Playwright', 'Chrome', 'JSON', 'TaskGraph', 'node', 'load'). "
-        "2. Translate all English concepts into pure, natural Ukrainian: "
-        "   - Loading tools/servers -> 'Підключаю інструменти автоматизації' "
-        "   - Opening browser/Google -> 'Переходимо до відкриття Google' / 'Зафіксувала відкриття сторінки' "
-        "   - Searching films -> 'Розпочинаємо пошук фільмів онлайн' / 'Зафіксувала пошук фільмів' "
-        "   - Analyzing results -> 'Аналізуємо результати пошуку та рейтинги' "
-        "   - Fullscreen / movie -> 'Переходимо до перегляду фільму на весь екран' / 'Зафіксувала запуск відео' "
-        "3. If completed: start with 'Зафіксувала...' or 'Виконано: ...'. "
-        "4. If in progress: start with 'Переходимо до...' or 'Розпочинаю...'. "
-        "5. Always use feminine verbs ('Склала', 'Оновила', 'Зафіксувала', 'Розпочинаю'). "
-        "6. Keep it strictly under 8 words. Output ONLY the Ukrainian phrase with no Latin characters."
+        "You are Tetiana, a female Ukrainian coordinator. "
+        "Summarize the task update in 3 to 6 Ukrainian words. "
+        "RULES: "
+        "1. ZERO English words or Latin letters. No 'MCP', 'Playwright', 'TaskGraph', 'JSON', 'node'. "
+        "2. Completed -> 'Зафіксувала...' / In progress -> 'Переходимо до...' "
+        "3. Feminine verbs only ('Склала', 'Зафіксувала', 'Оновила'). "
+        "4. Maximum 6 words. Output ONLY Ukrainian."
     )
     user_payload = f"Operation: {op}\nTasks: {'; '.join(task_items[:2])}"
     return call_narration_llm_chain(system_prompt, user_payload)
@@ -1234,13 +1223,13 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
         output_summary = output_summary[:4000] + "... [вивід скорочено]"
 
     prompt_system = (
-        "You are Grisha, a male Ukrainian quality control and operations specialist intervening because an issue, advisory, or error was detected. "
-        "Summarize the problem, required correction, or diagnostic outcome directly in 1 informative sentence in Ukrainian (UA). "
-        "RULES: 1. NEVER use agent names (Атлас, Атласе, Тетяна, Тетяно, Гріша, Грішо). "
-        "2. State what went wrong or what correction is needed concretely with specific details. "
-        "3. Always use masculine verbs (e.g. 'виявив', 'зафіксував', 'потрібно'). "
-        "4. Do NOT use English words or Latin letters. Translate every English term into its phonetic Ukrainian equivalent. "
-        "5. Keep it under 18 words. Output ONLY the Ukrainian sentence."
+        "You are Grisha, a male Ukrainian quality control specialist. "
+        "Summarize the problem or correction in 1 concise Ukrainian sentence. "
+        "RULES: 1. NO agent names (Атлас, Тетяна, Гріша). "
+        "2. State what went wrong concretely. "
+        "3. Masculine verbs ('виявив', 'зафіксував', 'потрібно'). "
+        "4. ZERO English words or Latin letters. "
+        "5. Maximum 12 words. Output ONLY Ukrainian."
     )
     
     prompt_user = f"Tool: '{action_desc}'. Output / issue detected: '{output_summary}'."
@@ -1351,47 +1340,47 @@ def summarize_thinking_ua(thinking_text: str) -> str:
     commands = [c for c in commands if any(cmd in c.lower() for cmd in ["cargo", "test", "git", "xcodebuild", "run", "python", "sh", "npm", "npm run"])]
     commands = list(dict.fromkeys(commands))
 
-    # Словник для транслітерації назв інструментів для приємнішого озвучення
-    tool_pronunciation = {
-        "taskgraph": "таск граф",
-        "replace_file_content": "реплейс файл контент",
-        "read_file": "рід файл",
-        "view_file": "в'ю файл",
-        "run_command": "ран команд",
-        "grep_search": "греп серч",
-        "list_dir": "ліст дір",
-        "write_to_file": "райт ту файл",
-        "multi_replace_file_content": "мульті реплейс файл контент",
-        "search_web": "серч веб",
-        "read_url_content": "рід ю-ар-ел контент"
+    # Чисті українські описи дій замість транслітерованих назв інструментів
+    tool_ua_desc = {
+        "taskgraph": "Оновлюю план.",
+        "replace_file_content": "Редагую файл.",
+        "read_file": "Читаю файл.",
+        "view_file": "Переглядаю файл.",
+        "run_command": "Виконую команду.",
+        "grep_search": "Шукаю у коді.",
+        "list_dir": "Переглядаю директорію.",
+        "write_to_file": "Записую файл.",
+        "multi_replace_file_content": "Редагую файл.",
+        "search_web": "Шукаю в інтернеті.",
+        "read_url_content": "Читаю сторінку."
     }
 
     if tools and files:
-        t_name = tools[0]
-        t_pron = tool_pronunciation.get(t_name.lower(), t_name)
-        return f"Використовую {t_pron} для {files[0]}."
+        t_desc = tool_ua_desc.get(tools[0].lower(), "Працюю з")
+        # Strip the period if combining with filename
+        if t_desc.endswith('.'):
+            t_desc = t_desc[:-1]
+        return f"{t_desc} {files[0]}."
     elif tools:
-        t_name = tools[0]
-        t_pron = tool_pronunciation.get(t_name.lower(), t_name)
-        return f"Запуск інструменту {t_pron}."
+        return tool_ua_desc.get(tools[0].lower(), "Виконую дію.")
     elif files:
         return f"Аналіз файлу {files[0]}."
     elif commands:
-        return f"Запуск команди {commands[0]}."
+        return f"Виконую команду."
         
-    # Identify agent intent based on keywords
+    # Визначення наміру за ключовими словами — чисті українські фрази
     if any(k in text_lower for k in ["read", "view", "file", "content", "open"]):
-        brief = "Аналіз вмісту файлів."
+        brief = "Аналіз файлів."
     elif any(k in text_lower for k in ["search", "find", "glob", "grep", "locate"]):
-        brief = "Пошук файлів або коду."
+        brief = "Пошук у коді."
     elif any(k in text_lower for k in ["task", "plan", "graph", "roadmap", "todo"]):
-        brief = "Оновлення чек-листа."
+        brief = "Оновлюю план."
     elif any(k in text_lower for k in ["test", "run", "build", "execute", "compile"]):
-        brief = "Тестування або збірка проекту."
+        brief = "Збираю проект."
     elif any(k in text_lower for k in ["fix", "bug", "error", "modify", "replace", "edit"]):
-        brief = "Редагування коду."
+        brief = "Редагую код."
     else:
-        brief = "Аналіз стану системи."
+        brief = "Аналіз системи."
         
     return brief
 
