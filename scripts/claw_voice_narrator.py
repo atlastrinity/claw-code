@@ -131,108 +131,19 @@ def clean_for_speech(text: str) -> str:
 
 def make_natural_speech(voice: str, title: str, raw_text: str) -> str:
     """
-    Transforms dry, technical execution text into natural, flowing English.
+    Cleans raw text for natural Ukrainian speech output without hardcoded templates.
     """
     clean_text = clean_for_speech(raw_text)
+    if not clean_text:
+        return ""
     
-    # 1. ATLAS (Main Agent)
-    if voice == "atlas":
-        if "Сесія" in title or "Session" in title or "Запит" in title:
-            prompt = extract_value(raw_text, r"(?:Запит|Prompt|Отримано новий запит від користувача):\s*(.*)") or clean_text
-            prompt = re.sub(r"^Отримано новий запит від користувача:\s*", "", prompt).strip()
-            return prompt
-        
-        elif "Контекст" in title or "Context" in title:
-            py_files = extract_value(raw_text, r"(?:Файли Пайтон|Python files):\s*(\d+)") or "68"
-            test_files = extract_value(raw_text, r"(?:Тестові файли|Test files):\s*(\d+)") or "7"
-            archive = "local code archive is fully available" if "Так" in raw_text or "True" in raw_text or "yes" in raw_text.lower() else "local code archive is not available"
-            return f"Project context: {py_files} python files, {test_files} test files. {archive}."
-            
-        elif "Налаштування" in title or "Setup" in title:
-            py_ver = extract_value(raw_text, r"(?:Python):\s*([^\s(]*)") or "3.11"
-            platform = "macOS" if "macOS" in raw_text or "mac" in raw_text.lower() else "current system"
-            test_cmd = extract_value(raw_text, r"(?:Команда тестування|Test command):\s*(.*)")
-            
-            speech = f"Python version {py_ver}, running on {platform}."
-            if test_cmd:
-                speech += f" Test command: {test_cmd}."
-            return speech
-            
-        elif "Кроки запуску" in title or "Startup Steps" in title:
-            return "Starting initialization and preparing the environment."
+    if voice == "grisha" and ("alert" in title.lower() or "зауваження" in title.lower()):
+        if not clean_text.lower().startswith("security alert:") and not clean_text.lower().startswith("зауваження"):
+            return f"Зауваження контролю: {clean_text}"
+        return clean_text
 
-        elif "Знайдені маршрути" in title or "Routed Matches" in title:
-            if "нічого" in clean_text.lower() or "none" in clean_text.lower() or not clean_text:
-                return "No matching routes or commands found."
-            
-            matches = []
-            for line in raw_text.split('\n'):
-                if '—' in line or '(' in line:
-                    parts = line.replace('•', '').replace('-', '').strip().split(' ')
-                    if len(parts) > 1:
-                        matches.append(parts[1])
-            if matches:
-                return f"Found matching routes: {', '.join(matches)}."
-            return "Found matching system routes."
-            
-        elif "Виконання команд" in title or "Command Execution" in title:
-            if "нічого" in clean_text.lower() or "none" in clean_text.lower() or not clean_text:
-                return "No commands executed at this step."
-            return f"Executing command: {clean_text}"
-            
-        elif "Виконання інструментів" in title or "Tool Execution" in title:
-            if "нічого" in clean_text.lower() or "none" in clean_text.lower() or not clean_text:
-                return "No tools used at this step."
-            return f"Tool execution result: {clean_text}"
-
-        elif "Дія" in title or "Action" in title or "Результат" in title or "Result" in title:
-            return raw_text
-
-    # 2. TETIANA (Coordinator / Other)
-    elif voice == "tetiana":
-        if "Системний запуск" in title or "System Start" in title:
-            return f"Запускаю сесію з моделлю {clean_text}."
-            
-        elif "Ініціалізація системи" in title or "System Init" in title:
-            if "порожня" in clean_text.lower() or not clean_text:
-                return "Ініціалізацію завершено, система готова до роботи."
-            cmds = extract_value(raw_text, r"(?:Завантажені записи команд|Loaded command entries):\s*(\d+)") or "207"
-            tools = extract_value(raw_text, r"(?:Завантажені записи інструментів|Loaded tool entries):\s*(\d+)") or "184"
-            return f"Систему ініціалізовано. Завантажено {cmds} команд та {tools} інструментів."
-        
-        elif "Статус виконання" in title or "Execution Status" in title:
-            return f"Виконую крок номер {clean_text}."
-
-        elif "Потокові події" in title or "Stream Events" in title:
-            return "Receiving data from the language model."
-            
-        elif "Результат ходу" in title or "Turn Result" in title:
-            stop_reason = extract_value(raw_text, r"(?:stop_reason|причина зупинки)=\s*(\w+)") or "completed"
-            denials = extract_value(raw_text, r"(?:Відмови доступу|Permission denials):\s*(\d+)") or "0"
-            
-            speech = f"Turn analysis: Stop reason: {stop_reason}."
-            if denials and int(denials) > 0:
-                speech += f" Found {denials} permission denials."
-            return speech
-            
-        elif "Історія сесії" in title or "Session History" in title:
-            return "Session history analysis completed."
-
-        elif "Аналіз" in title or "Analysis" in title:
-            return raw_text
-
-        elif "Результат" in title or "Result" in title:
-            return raw_text
-
-    # 3. GRISHA (Security Specialist)
-    elif voice == "grisha":
-        if "Результат інструменту" in title or "Tool Result" in title:
-            return raw_text
-            
-        return f"Security alert: {clean_text}"
-
-    # Fallback directly
     return clean_text
+
 
 
 # ──────────────────────────── TTS Phonetic Transcription ─────────────────
@@ -731,25 +642,9 @@ def run_narrated_session(prompt: str, max_turns: int = 3):
     audio_dir = project_root / "audio_output"
     player = VoicePlayer(audio_dir)
 
-    # --- 1. Startup & Setup (Atlas & Tetiana) ---
-    player.speak("atlas", "Запит", f"Запит: {prompt}")
-    
-    # Context
+    # --- 1. Startup & Setup ---
+    # Session starts cleanly without hardcoded strings
     context = build_port_context()
-    raw_ctx = f"Файли Пайтон: {context.python_file_count}\nТестові файли: {context.test_files_count if hasattr(context, 'test_files_count') else 7}\nАрхів доступний: {'Так' if context.archive_available else 'Ні'}"
-    player.speak("atlas", "Контекст", raw_ctx)
-
-    # Setup
-    setup_report = run_setup(trusted=True)
-    setup = setup_report.setup
-    raw_setup = f"Python: {setup.python_version}\nPlatform: {setup.platform_name}\nTest command: {setup.test_command}"
-    player.speak("atlas", "Налаштування", raw_setup)
-    
-    # Startup steps
-    player.speak("atlas", "Кроки запуску", "")
-
-    # System Init
-    player.speak("tetiana", "Ініціалізація системи", "Loaded command entries: 207\nLoaded tool entries: 184")
 
     # --- 2. Execution Loop ---
     runtime = PortRuntime()
@@ -1191,7 +1086,7 @@ def translate_and_summarize_thinking(text: str) -> str:
         "You are Tetiana, a female software coordinator and strategist. Your role is to voice the agent's internal reasoning and strategy (WHY we are doing something) in Ukrainian based on the thinking block. "
         "RULES: "
         "1. NEVER mention any agent names (Атлас, Тетяна, Гріша). "
-        "2. NEVER mention internal system names (Claw, Claw Code, TaskGraph, system reminders, prompt mandates). Speak ONLY about the user's software project (e.g. iOS app, Swift code, UI, architecture, tests). "
+        "2. NEVER mention internal system names (Claw, Claw Code, TaskGraph, system reminders, prompt mandates). Speak strictly and faithfully about the actual user task, code, or topic being addressed. "
         "3. Use feminine verbs (e.g. 'думаю', 'вирішила', 'перевіряю', 'бачу'). "
         "4. Focus on the THOUGHT PROCESS and STRATEGY, not the exact tool action. "
         "5. Keep it under 15 words. "
@@ -1398,78 +1293,28 @@ def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -
     if not text.strip():
         return text
 
-    # If the text is already Ukrainian (e.g. from preview_msg or summarize_thinking_ua), do NOT re-translate through LLM
-    if text.startswith("Планую наступний крок:") or title in ("Аналіз", "Системний запуск", "Статус виконання", "Ініціалізація системи", "Статус процесу", "Завершення роботи"):
-        return text
-
-    # Always process text through LLM narration model for Atlas to guarantee clean interactive Ukrainian
-    if voice != "atlas" and not re.search(r'[ыЫэЭъЪёЁ]', text) and not re.search(r'[|#*`_─━]', text):
-        cyrillic_chars = len(re.findall(r'[а-яА-ЯёЁєЄіІїЇґҐ]', text))
-        total_chars = len(re.sub(r'\s+', '', text))
-        if total_chars > 0 and (cyrillic_chars / total_chars) > 0.5:
-            return text
-
-    if title == "Запит":
-        gender_rules = (
-            "IMPORTANT: Summarize the user's request into 1-2 natural, concise Ukrainian sentences for voice narration (under 25 words). "
-            "Highlight the core goal clearly and what needs to be done. "
-            "Do NOT write in the first person. "
-            "NEVER include agent names (Атлас, Тетяна, Гріша). "
-            "Output ONLY the concise Ukrainian summary with no extra text or prefixes."
-        )
-    elif voice == "tetiana":
-        gender_rules = (
-            "IMPORTANT: You are Tetiana, a female coordinator. "
-            "Translate the strategy or preview directly into 1 concise Ukrainian sentence (under 12 words). "
-            "Use feminine verbs (e.g., 'планую', 'перевіряю', 'координую'). "
-            "NEVER invent unmentioned tools, scripts, git commands, databases, or actions. "
-            "NEVER include agent names. Keep strictly faithful to the input text."
-        )
-    elif voice == "atlas":
-        if title == "Результат":
-            gender_rules = (
-                "IMPORTANT: You are Atlas, a male action executor. "
-                "Your role is to report the final execution result to the user with rich substantive details. "
-                "Highlight key findings, specific numbers, hardware/software metrics, filenames, or decisions made. "
-                "Do NOT give empty answers like 'я виконав'. Give an informative summary in 2-3 substantive sentences (30-50 words). "
-                "Always use masculine verbs (e.g., 'зібрав', 'підготував', 'виявив', 'перевірив'). "
-                "NEVER include agent names like 'Тетяно', 'Гріша', 'Атлас'. "
-                "Keep direct, fact-filled, and speech-friendly without rambling."
-            )
-        else:
-            gender_rules = (
-                "IMPORTANT: You are Atlas, a male action executor. "
-                "Your role is to perform tasks and describe what you are doing with concrete specifics. "
-                "State the specific tool, file, command, or component being investigated (e.g. 'Зчитую конфігурацію системи через системний профайлер'). "
-                "Do NOT use vague phrases like 'виконую дію' or generic essays. State the concrete action in 1 clear, substantive sentence (10-18 words). "
-                "Always use masculine verbs (e.g., 'аналізую', 'зчитую', 'запускаю', 'редагую'). "
-                "NEVER include agent names. Keep strictly concrete, informative, and synchronized with execution."
-            )
-    else:
-        gender_rules = (
-            "IMPORTANT: You are Grisha, a male operations, quality control, and verification specialist. "
-            "Your role is to verify tool execution results and highlight concrete outcomes or findings. "
-            "State what was verified or discovered with specific technical facts (under 15 words). "
-            "Do NOT use generic phrases like 'перевірка пройшла'. Give the concrete verdict. "
-            "Always use masculine verbs (e.g., 'підтвердив', 'перевірив', 'виявив'). "
-            "NEVER include agent names. Keep highly informative, constructive, and professional."
-        )
+    # If the text is already predominantly Ukrainian/Cyrillic, speak it directly as-is!
+    clean_text = clean_for_speech(text)
+    cyrillic_chars = len(re.findall(r'[а-яА-ЯёЁєЄіІїЇґҐ]', clean_text))
+    total_chars = len(re.sub(r'\s+', '', clean_text))
+    if total_chars > 0 and (cyrillic_chars / total_chars) > 0.4:
+        return clean_text
 
     system_prompt = (
-        f"You are a professional Ukrainian software engineer and narrator. Translate or rewrite the given text into natural, fluent Ukrainian (UA). "
-        f"RULES: 1. Talk like a friendly tech teammate speaking to a colleague. Translate programming concepts directly into natural Ukrainian developer terminology. "
-        f"2. Do NOT use any Latin letters. Transliterate English terms, tool names, and filenames phonetically into Ukrainian. NEVER invent or mention unmentioned tools, scripts, or git commands. "
-        f"3. {gender_rules} "
-        f"4. IMPORTANT FOR SPEECH SYNTHESIS (TTS): Strip out markdown tables and technical code noise, but PRESERVE all core facts. Output ONLY clean, speech-friendly Ukrainian text."
+        "You are a professional Ukrainian translator and narrator. "
+        "Translate the given text accurately and faithfully into natural, fluent Ukrainian (UA). "
+        "CRITICAL RULES: "
+        "1. Do NOT invent, fabricate, or add any facts, numbers, hardware/software metrics, or actions not present in the original text. "
+        "2. Do NOT pretend to have performed actions if the text is simple conversation or questions. "
+        "3. Maintain the exact meaning, tone, and intent of the input text. "
+        "4. Output ONLY the clean Ukrainian translation with no extra commentary, prefixes, or explanations."
     )
 
-    prompt_payload = text[:1500] if len(text) > 1500 else text
+    prompt_payload = clean_text[:1500] if len(clean_text) > 1500 else clean_text
     translated = call_narration_llm_chain(system_prompt, prompt_payload)
-    if translated:
-        return translated
-    if title == "Запит":
-        return "Отримано завдання від користувача на налаштування та реалізацію проекту."
-    return text
+    if translated and translated.strip():
+        return translated.strip()
+    return clean_text
 
 def translate_to_english(text: str) -> str:
     if not text.strip():
@@ -1705,13 +1550,10 @@ def strip_agent_names(text: str) -> str:
 def process_session_entry(data: dict, player: VoicePlayer):
     entry_type = data.get("type")
     if entry_type == "session_meta":
-        model = data.get("model", "невідома модель")
-        player.speak("tetiana", "Системний запуск", model)
+        pass
         
     elif entry_type == "prompt_history":
-        text = data.get("text", "")
-        if text:
-            player.speak("atlas", "Запит", text)
+        pass
             
     elif entry_type == "message":
         message = data.get("message", {})
