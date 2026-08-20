@@ -93,6 +93,9 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
             }
         }
         TaskGraphOperation::UpdateStatus => {
+            // Grisha Phase Transition Gate: prevent starting Phase N if Phase N-1 is incomplete
+            crate::grisha::GrishaSupervisor::validate_phase_transition(&input.nodes, &current_nodes)?;
+
             let mut cascade_completed = Vec::new();
 
             for node in input.nodes {

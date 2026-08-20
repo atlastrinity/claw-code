@@ -20,6 +20,8 @@ pub enum GrishaErrorCode {
     PlanRecursiveDuplicate,
     /// Plan exceeds max allowed hierarchy depth.
     PlanMaxDepthExceeded,
+    /// Phase transition attempted with incomplete prerequisites.
+    PhaseTransitionIncomplete,
 }
 
 impl GrishaErrorCode {
@@ -35,6 +37,7 @@ impl GrishaErrorCode {
             Self::PlanMissingVerification => "GRISHA_PLAN_002",
             Self::PlanRecursiveDuplicate => "GRISHA_PLAN_003",
             Self::PlanMaxDepthExceeded => "GRISHA_PLAN_004",
+            Self::PhaseTransitionIncomplete => "GRISHA_PHASE_001",
         }
     }
 }
