@@ -115,8 +115,30 @@ def extract_value(text: str, pattern: str) -> str:
     match = re.search(pattern, text)
     return match.group(1).strip() if match else ""
 
+def strip_emojis(text: str) -> str:
+    """Removes all emojis, dingbats, pictographs and symbols from text to prevent TTS from vocalizing emoji names."""
+    if not text:
+        return ""
+    # Strip variation selectors, zero-width joiners, skin tones, keycap combining characters
+    text = re.sub(r"[\ufe00-\ufe0f\u200d\u20e3\U0001f3fb-\U0001f3ff]", "", text)
+    # Strip emojis and pictographic Unicode ranges
+    emoji_pattern = re.compile(
+        r"[\U00010000-\U0010ffff]"  # SMP: All modern emojis (Faces, objects, symbols, etc.)
+        r"|[\u2600-\u27bf]"         # Dingbats, Misc Symbols (⚙, ⚠️, ✨, 🎙, 🛡, ⚡, ☕, ✅, ❌, etc.)
+        r"|[\u2300-\u23ff]"         # Misc Technical (⌚, ⏰, ⌛, ⏱, ⏳, etc.)
+        r"|[\u2b00-\u2bff]"         # Misc Symbols and Arrows (⭐, ⭕, etc.)
+        r"|[\u25a0-\u25ff]"         # Geometric Shapes (■, □, ▲, ▼, ◆, ●, etc.)
+        r"|[\u3297\u3299\u3030\u303d\u00a9\u00ae]"
+    )
+    text = emoji_pattern.sub("", text)
+    # Fix spacing around punctuation and collapse whitespace
+    text = re.sub(r"\s+([,.:;!?])", r"\1", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
 def clean_for_speech(text: str) -> str:
-    """Removes technical symbols, hashes, paths and cleans text for TTS."""
+    """Removes technical symbols, hashes, paths, emojis and cleans text for TTS."""
+    text = strip_emojis(text)
     text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
     text = text.replace('`', '')
@@ -248,7 +270,10 @@ def simplify_path_for_speech(text: str) -> str:
     return text
 
 def prepare_text_for_tts(text: str) -> str:
-    # 0. Спрощення шляхів та прибирання розширень (.py, .sh тощо)
+    # 0. Прибирання емодзі та символів перед синтезом мови
+    text = strip_emojis(text)
+
+    # 1. Спрощення шляхів та прибирання розширень (.py, .sh тощо)
     text = simplify_path_for_speech(text)
 
     # 1. Ukrainian (English) -> Ukrainian (e.g. Кізима Олег Миколайович (Oleh Mykolayovych Kizyma) -> Кізима Олег Миколайович)

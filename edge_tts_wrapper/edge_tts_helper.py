@@ -1,8 +1,26 @@
 import os
+import re
 import subprocess
 import tempfile
 import numpy as np
 import soundfile as sf
+
+def strip_emojis(text: str) -> str:
+    """Strips emojis and pictographs to prevent TTS from reading out emoji names."""
+    if not text:
+        return ""
+    text = re.sub(r"[\ufe00-\ufe0f\u200d\u20e3\U0001f3fb-\U0001f3ff]", "", text)
+    emoji_pattern = re.compile(
+        r"[\U00010000-\U0010ffff]"
+        r"|[\u2600-\u27bf]"
+        r"|[\u2300-\u23ff]"
+        r"|[\u2b00-\u2bff]"
+        r"|[\u25a0-\u25ff]"
+        r"|[\u3297\u3299\u3030\u303d\u00a9\u00ae]"
+    )
+    text = emoji_pattern.sub("", text)
+    text = re.sub(r"\s+([,.:;!?])", r"\1", text)
+    return re.sub(r"\s+", " ", text).strip()
 
 class EdgeTTSHelper:
     def __init__(self, default_voice="uk-UA-OstapNeural", sample_rate=44100):
@@ -66,6 +84,7 @@ class EdgeTTSHelper:
         Supports rate (e.g. '+10%') and pitch (e.g. '-5Hz') parameters.
         Automatically chunks long text to prevent timeouts and audio truncation.
         """
+        text = strip_emojis(text)
         voice = voice or self.default_voice
         chunks = self._split_text_chunks(text, max_chunk_len=1200)
 
