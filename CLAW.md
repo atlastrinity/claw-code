@@ -29,6 +29,9 @@
   - Use **`WebSearch`** for fast information retrieval, finding links, checking facts, and searching documentation quickly.
   - Use **`WebFetch`** for quickly downloading and reading static text from specific URLs.
   - Use **`playwright` MCP** (discovered via `McpSearch` / `ToolSearch`) whenever you need **interactive browser actions** — navigating JavaScript-rendered SPAs, clicking buttons/links, submitting forms, taking screenshots, or full multi-step browser automation across Chromium, Safari (WebKit), and Firefox.
+  - **Browser Mode Selection (GUI vs. Headless)**:
+    - **Visible GUI Mode (`headless: false`)**: When the user asks to "open", "show me", "watch", "play video/movie", or see a website on screen, you MUST pass `"headless": false` to `mcp__playwright__playwright_navigate` so the real browser window opens visibly on macOS (or use `open -a "Google Chrome" "URL"` / `open -a "Safari" "URL"` to launch standard native macOS apps).
+    - **Headless Mode (`headless: true`)**: Use `headless: true` ONLY for background web scraping, reading text from complex SPAs, or automated testing without disturbing the user.
 - **Real Code Implementation Mandate**: When asked to build or create an application, script, or software feature, you are STRICTLY FORBIDDEN from merely searching the web or writing a requirements document and calling the task finished. You MUST physically use `write_file` to create the actual working source code files (e.g. `app.py`, `main.py`, `.rs`, `.swift` or GUI scripts) in the project directory, and execute/test them.
 - **Recursive Root-Cause Recovery Mandate**: When ANY action, command, or tool execution fails on ANY task ID `X` at ANY depth in the hierarchy (whether level 1, 2, 3, 4, or deeper; e.g. `1.2`, `2.1.3`, `3.4.1.2`):
   1. **Universal Applicability:** This mandate strictly applies to ALL tasks and all levels of recursion without exception.
