@@ -631,11 +631,12 @@ fn extract_solution_from_skill_md(content: &str) -> String {
     let mut lines = Vec::new();
 
     for line in content.lines() {
-        if line.starts_with("## Solution") {
+        let trimmed = line.trim();
+        if trimmed.starts_with("## ") && (trimmed.contains("Solution") || trimmed.contains("Recommended Solution")) {
             in_solution = true;
             continue;
         }
-        if in_solution && line.starts_with("## ") {
+        if in_solution && trimmed.starts_with("## ") {
             break; // Next section starts.
         }
         if in_solution {

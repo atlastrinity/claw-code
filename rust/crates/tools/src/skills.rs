@@ -318,7 +318,7 @@ pub(crate) const DEFAULT_AGENT_MAX_ITERATIONS: usize = 50;
 pub(crate) fn parse_skill_description(contents: &str) -> Option<String> {
     for line in contents.lines() {
         if let Some(value) = line.strip_prefix("description:") {
-            let trimmed = value.trim();
+            let trimmed = value.trim().trim_matches('"').trim_matches('\'');
             if !trimmed.is_empty() {
                 return Some(trimmed.to_string());
             }
