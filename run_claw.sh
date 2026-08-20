@@ -259,6 +259,11 @@ trap cleanup EXIT
 # 5. Запускаємо основний клієнт claw у циклі захисту
 echo "🚀 Запуск основного клієнта Claw ($SELECTED_MODEL)..."
 
+# На macOS оновлюємо підпис ad-hoc, якщо бінарний файл було перезаписано
+if [[ "$OSTYPE" == "darwin"* ]] && command -v codesign >/dev/null 2>&1; then
+  codesign -s - -f "$HOME/.claw/bin/claw" >/dev/null 2>&1 || true
+fi
+
 while true; do
   "$HOME/.claw/bin/claw" \
     --model "$SELECTED_MODEL" \
