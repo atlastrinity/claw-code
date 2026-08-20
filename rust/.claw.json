@@ -57,6 +57,14 @@
         "-y",
         "@executeautomation/playwright-mcp-server"
       ]
+    },
+    "sequential-thinking": {
+      "description": "Dynamic reasoning and step-by-step sequential thinking tool to plan complex tasks, structure root anchor phases, and prevent logic loops.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ]
     }
   },
   "availableMcpServers": {
