@@ -50,6 +50,9 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
         "WorkerResolveTrust",
         // NOTE: WorkerCreate, WorkerSendPrompt, WorkerTerminate, WorkerRestart
         // are MUTATING and must pass TaskGraph enforcement.
+        // Sequential Thinking MCP — reasoning/planning tool, always allowed
+        "mcp__sequential-thinking__sequentialthinking",
+        "sequentialthinking",
     ];
 
     if READ_ONLY_TOOLS

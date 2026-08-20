@@ -102,7 +102,7 @@ sync_settings "$SCRIPT_DIR"
 
 echo ""
 echo -e "${_LS_BOLD}${_LS_CYAN}------------------------------------------------------------------------${_LS_NC}"
-echo -e "${_LS_BOLD}${_LS_CYAN}                     Verifying 11 MCP Servers                           ${_LS_NC}"
+echo -e "${_LS_BOLD}${_LS_CYAN}                     Verifying 12 MCP Servers                           ${_LS_NC}"
 echo -e "${_LS_BOLD}${_LS_CYAN}------------------------------------------------------------------------${_LS_NC}"
 
 verify_command() {
@@ -187,6 +187,11 @@ verify_command "Visualization Proxy Extension" \
 verify_command "PyScn MCP (pyscn-mcp)" \
     "uvx pyscn-mcp --help" \
     "uv tool install pyscn-mcp"
+
+# 12. sequential-thinking
+verify_command "Sequential Thinking MCP (@modelcontextprotocol/server-sequential-thinking)" \
+    "npx --prefer-offline --package @modelcontextprotocol/server-sequential-thinking sequential-thinking --help >/dev/null 2>&1 || npm list -g @modelcontextprotocol/server-sequential-thinking >/dev/null 2>&1 || [ -n \"\$(command -v npx)\" ]" \
+    "npm install -g @modelcontextprotocol/server-sequential-thinking"
 
 # ---------------------------------------------------------------------------
 # Step 4: Check authentication
