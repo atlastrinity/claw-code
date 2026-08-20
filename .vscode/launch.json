@@ -89,6 +89,24 @@
             "name": "Release SirenUA (serena/SirenUA)",
             "program": "${workspaceFolder:claw-code}/serena/SirenUA/.build/release/SirenUA",
             "preLaunchTask": "swift: Build Release SirenUA (serena/SirenUA)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:claw-code}/raund/SentinelAI",
+            "name": "Debug SentinelAI (raund/SentinelAI)",
+            "program": "${workspaceFolder:claw-code}/raund/SentinelAI/.build/debug/SentinelAI",
+            "preLaunchTask": "swift: Build Debug SentinelAI (raund/SentinelAI)"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "args": [],
+            "cwd": "${workspaceFolder:claw-code}/raund/SentinelAI",
+            "name": "Release SentinelAI (raund/SentinelAI)",
+            "program": "${workspaceFolder:claw-code}/raund/SentinelAI/.build/release/SentinelAI",
+            "preLaunchTask": "swift: Build Release SentinelAI (raund/SentinelAI)"
         }
     ]
 }

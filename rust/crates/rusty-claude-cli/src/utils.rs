@@ -2349,7 +2349,7 @@ pub fn build_runtime_with_plugin_state(
         session,
         AnthropicRuntimeClient::new(
             session_id,
-            model,
+            model.clone(),
             enable_tools,
             output_format,
             tool_registry.clone(),
@@ -2364,6 +2364,12 @@ pub fn build_runtime_with_plugin_state(
         system_prompt,
         &feature_config,
     );
+    if let Some(limit) = api::model_token_limit(&model) {
+        let dynamic_threshold = ((limit.context_window_tokens as f64 * 0.65).round() as u32)
+            .min(runtime::auto_compaction_threshold_from_env())
+            .max(4_000);
+        runtime.set_auto_compaction_input_tokens_threshold(dynamic_threshold);
+    }
     if output_format == CliOutputFormat::Text {
         runtime = runtime.with_hook_progress_reporter(Box::new(CliHookProgressReporter));
     }

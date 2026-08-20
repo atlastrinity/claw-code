@@ -10,11 +10,8 @@
       "role": "user"
     }
   ],
-  "model": "gpt-4o",
-  "stream": true,
-  "stream_options": {
-    "include_usage": true
-  },
+  "model": "grok-3",
+  "stream": false,
   "tool_choice": "auto",
   "tools": [
     {
@@ -26,10 +23,15 @@
           "properties": {
             "city": {
               "type": "string"
+            },
+            "description": {
+              "description": "MANDATORY: A brief explanation of what this tool call does to match the active TaskGraph node. MUST be in English.",
+              "type": "string"
             }
           },
           "required": [
-            "city"
+            "city",
+            "description"
           ],
           "type": "object"
         }

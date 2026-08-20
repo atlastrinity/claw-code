@@ -438,6 +438,7 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
         let models_to_try = vec![request.model.clone()];
         
         let mut last_error = None;
+        let mut context_window_params: Option<(String, u32, u32, u32, u32)> = None;
         
         for model in &models_to_try {
             let mut key_index = get_active_key_index(model);
@@ -496,6 +497,25 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                             model, key_index, err
                         );
                         
+                        if let ApiError::ContextWindowExceeded {
+                            model,
+                            estimated_input_tokens,
+                            requested_output_tokens,
+                            estimated_total_tokens,
+                            context_window_tokens,
+                        } = &err
+                        {
+                            if context_window_params.is_none() {
+                                context_window_params = Some((
+                                    model.clone(),
+                                    *estimated_input_tokens,
+                                    *requested_output_tokens,
+                                    *estimated_total_tokens,
+                                    *context_window_tokens,
+                                ));
+                            }
+                        }
+
                         let err_str = format!("{:?}", err);
                         let is_rate_limit = err.is_rate_limit() 
                             || err_str.contains("1305") 
@@ -555,6 +575,16 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
             }
         }
         
+        if let Some((model, estimated_input_tokens, requested_output_tokens, estimated_total_tokens, context_window_tokens)) = context_window_params {
+            return Err(ApiError::ContextWindowExceeded {
+                model,
+                estimated_input_tokens,
+                requested_output_tokens,
+                estimated_total_tokens,
+                context_window_tokens,
+            });
+        }
+
         Err(last_error.unwrap_or_else(|| ApiError::Auth(format!("Missing credentials for model: {}", request.model))))
     }
 
@@ -574,6 +604,7 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
         let models_to_try = build_fallback_model_cascade(&request.model);
         
         let mut last_error = None;
+        let mut context_window_params: Option<(String, u32, u32, u32, u32)> = None;
         for model in &models_to_try {
             let mut key_index = get_active_key_index(model);
             if !Self::has_key_for_index(model, key_index) {
@@ -640,6 +671,25 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
                             "⚠️ Model '{}' with API key index {} returned error in streaming: {}.",
                             model, key_index, err
                         );
+
+                        if let ApiError::ContextWindowExceeded {
+                            model,
+                            estimated_input_tokens,
+                            requested_output_tokens,
+                            estimated_total_tokens,
+                            context_window_tokens,
+                        } = &err
+                        {
+                            if context_window_params.is_none() {
+                                context_window_params = Some((
+                                    model.clone(),
+                                    *estimated_input_tokens,
+                                    *requested_output_tokens,
+                                    *estimated_total_tokens,
+                                    *context_window_tokens,
+                                ));
+                            }
+                        }
                         
                         let status_code = err.status_code().unwrap_or(0);
                         let err_str = format!("{:?}", err);
@@ -704,6 +754,16 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
             }
         }
         
+        if let Some((model, estimated_input_tokens, requested_output_tokens, estimated_total_tokens, context_window_tokens)) = context_window_params {
+            return Err(ApiError::ContextWindowExceeded {
+                model,
+                estimated_input_tokens,
+                requested_output_tokens,
+                estimated_total_tokens,
+                context_window_tokens,
+            });
+        }
+
         Err(last_error.unwrap_or_else(|| ApiError::Auth(format!("Missing credentials for model: {}", request.model))))
     }
 }
