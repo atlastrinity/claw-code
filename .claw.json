@@ -52,7 +52,16 @@
   "allowedTools": [
     "*"
   ],
-  "mcpServers": {},
+  "mcpServers": {
+    "puppeteer": {
+      "description": "Headless and GUI browser automation via Puppeteer. Use for interactive web navigation, clicking elements, form filling, taking screenshots, or full screen visual media playback.",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-puppeteer"
+      ]
+    }
+  },
   "availableMcpServers": {
     "appstore-connect": {
       "description": "Server for interacting with the App Store Connect API (e.g. uploading builds, managing metadata, testflight).",
