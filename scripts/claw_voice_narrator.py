@@ -1111,7 +1111,7 @@ def translate_and_summarize_thinking(text: str) -> str:
         "You are Tetiana, a female software coordinator. Voice the agent's reasoning concisely in Ukrainian. "
         "RULES: "
         "1. NEVER mention agent names (Атлас, Тетяна, Гріша) or system names (Claw, TaskGraph, MCP, prompt, mandate). "
-        "2. NEVER say English tool names, MCP server names, filenames, or technical identifiers. Describe WHAT is happening, not HOW. "
+        "2. NEVER say tool names or function names (grep_search, replace_file_content, run_command, mcp__*, McpSearch). You MAY mention filenames if relevant. "
         "3. Use feminine verbs ('думаю', 'вирішила', 'бачу'). "
         "4. Keep it between 5 and 15 words. Be natural but concise. "
         "5. No prefixes, no ellipses, no questions. "
@@ -1147,12 +1147,12 @@ def summarize_tool_action_via_llm(tool_name: str, params: dict) -> str:
     system_prompt = (
         "You are Atlas's voice narrator. Describe the action naturally in Ukrainian. "
         "RULES: "
-        "1. NEVER name tools, functions, MCP servers, filenames, paths, or any English words. "
-        "2. NEVER read JSON, code, or parameters. "
-        "3. Say ONLY the pure action: "
-        "   'Переглядаю код', 'Редагую файл', 'Відкриваю сторінку', "
-        "   'Запускаю збірку', 'Шукаю у коді', 'Клікаю на елемент'. "
-        "4. Start with a verb. Keep between 5 and 12 words. Output ONLY Ukrainian."
+        "1. NEVER name tools or functions (grep_search, replace_file_content, run_command, mcp__*, McpSearch, TaskGraph). "
+        "2. You MAY mention filenames for context (e.g. 'Переглядаю prompt.rs', 'Редагую settings.json'). "
+        "3. NEVER read JSON, code blocks, or raw parameters. "
+        "4. Describe the pure action: "
+        "   'Переглядаю код у prompt.rs', 'Редагую конфігурацію', 'Відкриваю сторінку'. "
+        "5. Start with a verb. Keep between 5 and 12 words. Output ONLY Ukrainian."
     )
     
     # Only pass description context, never raw tool name
@@ -1184,7 +1184,7 @@ def summarize_taskgraph_via_llm(op: str, nodes: list, descriptions: dict) -> str
         "You are Tetiana, a female Ukrainian coordinator. "
         "Summarize the task update concisely in Ukrainian. "
         "RULES: "
-        "1. ZERO English words, Latin letters, tool names, filenames. No 'MCP', 'Playwright', 'TaskGraph', 'JSON', 'node'. "
+        "1. ZERO tool names, function names, MCP names (no 'MCP', 'Playwright', 'TaskGraph', 'McpSearch', 'grep_search'). You MAY mention filenames. "
         "2. Completed -> 'Зафіксувала...' / In progress -> 'Переходимо до...' "
         "3. Feminine verbs only ('Склала', 'Зафіксувала', 'Оновила'). "
         "4. Keep between 4 and 10 words. Output ONLY Ukrainian."
@@ -1226,10 +1226,10 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
     prompt_system = (
         "You are Grisha, a male Ukrainian quality control specialist. "
         "Summarize the problem or correction in 1 concise Ukrainian sentence. "
-        "RULES: 1. NO agent names (Атлас, Тетяна, Гріша), no tool names, no filenames. "
+        "RULES: 1. NO agent names (Атлас, Тетяна, Гріша), no tool names (grep_search, mcp__*, TaskGraph). You MAY mention filenames. "
         "2. State what went wrong concretely. "
         "3. Masculine verbs ('виявив', 'зафіксував', 'потрібно'). "
-        "4. ZERO English words or Latin letters. "
+        "4. ZERO tool or function names. "
         "5. Keep between 8 and 15 words. Output ONLY Ukrainian."
     )
     
