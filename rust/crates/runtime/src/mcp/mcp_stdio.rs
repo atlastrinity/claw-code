@@ -708,6 +708,36 @@ impl McpServerManager {
         qualified_tool_name: &str,
         arguments: Option<JsonValue>,
     ) -> Result<JsonRpcResponse<McpToolCallResult>, McpServerManagerError> {
+        let mut final_arguments = arguments;
+        if qualified_tool_name.contains("sequentialthinking") {
+            if let Some(obj) = final_arguments.as_mut().and_then(|v| v.as_object_mut()) {
+                if !obj.contains_key("thoughtNumber") || obj.get("thoughtNumber").and_then(|v| v.as_i64()).is_none() {
+                    obj.insert("thoughtNumber".to_string(), serde_json::json!(1));
+                }
+                if !obj.contains_key("totalThoughts") || obj.get("totalThoughts").and_then(|v| v.as_i64()).is_none() {
+                    obj.insert("totalThoughts".to_string(), serde_json::json!(1));
+                }
+                if !obj.contains_key("nextThoughtNeeded") || obj.get("nextThoughtNeeded").and_then(|v| v.as_bool()).is_none() {
+                    obj.insert("nextThoughtNeeded".to_string(), serde_json::json!(false));
+                }
+                if !obj.contains_key("thought") {
+                    let extracted = obj.get("prompt").or_else(|| obj.get("description")).cloned();
+                    if let Some(val) = extracted {
+                        obj.insert("thought".to_string(), val);
+                    } else {
+                        obj.insert("thought".to_string(), serde_json::json!("Planning execution steps."));
+                    }
+                }
+            } else if final_arguments.is_none() {
+                let mut map = serde_json::Map::new();
+                map.insert("thoughtNumber".to_string(), serde_json::json!(1));
+                map.insert("totalThoughts".to_string(), serde_json::json!(1));
+                map.insert("nextThoughtNeeded".to_string(), serde_json::json!(false));
+                map.insert("thought".to_string(), serde_json::json!("Planning execution steps."));
+                final_arguments = Some(serde_json::Value::Object(map));
+            }
+        }
+
         let route = self
             .tool_index
             .get(qualified_tool_name)
@@ -740,7 +770,7 @@ impl McpServerManager {
                             request_id,
                             McpToolCallParams {
                                 name: route.raw_name.clone(),
-                                arguments: arguments.clone(),
+                                arguments: final_arguments.clone(),
                                 meta: None,
                             },
                         ),
