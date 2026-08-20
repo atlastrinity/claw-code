@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# NIMDA Code installer
+# ATLAS Code installer
 #
 # Detects the host OS, verifies the Rust toolchain (rustc + cargo),
 # builds the `claw` binary from the `rust/` workspace, and runs a
@@ -24,49 +24,37 @@ set -euo pipefail
 if [ -t 1 ] && command -v tput >/dev/null 2>&1 && [ "$(tput colors 2>/dev/null || echo 0)" -ge 8 ]; then
     COLOR_RESET="$(tput sgr0)"
     COLOR_BOLD="$(tput bold)"
-    COLOR_DIM="$(tput dim)"
+    COLOR_DIM="$(tput dim 2>/dev/null || echo '')"
     COLOR_RED="$(tput setaf 1)"
     COLOR_GREEN="$(tput setaf 2)"
     COLOR_YELLOW="$(tput setaf 3)"
-    COLOR_BLUE="$(tput setaf 4)"
     COLOR_CYAN="$(tput setaf 6)"
 else
-    COLOR_RESET=""
-    COLOR_BOLD=""
-    COLOR_DIM=""
-    COLOR_RED=""
-    COLOR_GREEN=""
-    COLOR_YELLOW=""
-    COLOR_BLUE=""
-    COLOR_CYAN=""
+    COLOR_RESET=''
+    COLOR_BOLD=''
+    COLOR_DIM=''
+    COLOR_RED=''
+    COLOR_GREEN=''
+    COLOR_YELLOW=''
+    COLOR_CYAN=''
 fi
 
-CURRENT_STEP=0
-TOTAL_STEPS=7
-
-step() {
-    CURRENT_STEP=$((CURRENT_STEP + 1))
-    printf '\n%s[%d/%d]%s %s%s%s\n' \
-        "${COLOR_BLUE}" "${CURRENT_STEP}" "${TOTAL_STEPS}" "${COLOR_RESET}" \
-        "${COLOR_BOLD}" "$1" "${COLOR_RESET}"
-}
-
-info()  { printf '%s  ->%s %s\n' "${COLOR_CYAN}" "${COLOR_RESET}" "$1"; }
-ok()    { printf '%s  ok%s %s\n' "${COLOR_GREEN}" "${COLOR_RESET}" "$1"; }
-warn()  { printf '%s  warn%s %s\n' "${COLOR_YELLOW}" "${COLOR_RESET}" "$1"; }
-error() { printf '%s  error%s %s\n' "${COLOR_RED}" "${COLOR_RESET}" "$1" 1>&2; }
+info()    { printf '%s==>%s %s%s%s\n' "${COLOR_CYAN}" "${COLOR_RESET}" "${COLOR_BOLD}" "$*" "${COLOR_RESET}"; }
+success() { printf '%s==>%s %s%s%s\n' "${COLOR_GREEN}" "${COLOR_RESET}" "${COLOR_BOLD}" "$*" "${COLOR_RESET}"; }
+warn()    { printf '%s==>%s %s%s%s\n' "${COLOR_YELLOW}" "${COLOR_RESET}" "${COLOR_BOLD}" "$*" "${COLOR_RESET}" >&2; }
+error()   { printf '%s==>%s %s%s%s\n' "${COLOR_RED}" "${COLOR_RESET}" "${COLOR_BOLD}" "$*" "${COLOR_RESET}" >&2; }
 
 print_banner() {
+    printf '%sATLAS Code installer%s\n' "${COLOR_DIM}" "${COLOR_RESET}"
     printf '%s' "${COLOR_BOLD}"
     cat <<'EOF'
- _   _ ___ __  __ ____    _      ____          _
-| \ | |_ _|  \/  |  _ \  / \    / ___|___   __| | ___
-|  \| || || |\/| | | | |/ _ \  | |   / _ \ / _` |/ _ \
-| |\  || || |  | | |_| / ___ \ | |__| (_) | (_| |  __/
-|_| \_|___|_|  |_|____/_/   \_\ \____\___/ \__,_|\___|
+    _  _____ _        _    ____  
+   / \|_   _| |      / \  / ___| 
+  / _ \ | | | |     / _ \ \___ \ 
+ / ___ \| | | |___ / ___ \ ___) |
+/_/   \_\_| |_____/_/   \_\____/ 
 EOF
     printf '%s\n' "${COLOR_RESET}"
-    printf '%sNIMDA Code installer%s\n' "${COLOR_DIM}" "${COLOR_RESET}"
 }
 
 print_usage() {
