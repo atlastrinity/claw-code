@@ -120,6 +120,8 @@ def clean_for_speech(text: str) -> str:
     text = re.sub(r'^#+\s*', '', text, flags=re.MULTILINE)
     text = re.sub(r'\*{1,2}([^*]+)\*{1,2}', r'\1', text)
     text = text.replace('`', '')
+    # Strip parenthetical English transliterations e.g. (Oleh Mykolayovych Kizyma)
+    text = re.sub(r'\([a-zA-Z\s,.-]+\)', '', text)
     text = re.sub(r'/[\w/.-]+/(\w+\.?\w*)', r'\1', text)
     text = re.sub(r"\{[^}]+\}", "", text)
     text = re.sub(r'[a-f0-9]{16,}', '', text)
@@ -249,15 +251,13 @@ def prepare_text_for_tts(text: str) -> str:
     # 0. Спрощення шляхів та прибирання розширень (.py, .sh тощо)
     text = simplify_path_for_speech(text)
 
-    # 1. English (Ukrainian) -> Ukrainian (e.g. cache (кеш) -> кеш)
-    # We match any English term followed by parentheses containing NO English letters
-    pattern_eng_ukr = r'[a-zA-Z0-9_./\\#@$%^&*()+-]+\s*\(([^a-zA-Z]+)\)'
-    processed = re.sub(pattern_eng_ukr, r'\1', text)
-    
-    # 2. Ukrainian (English) -> Ukrainian (e.g. звіт (report) -> звіт)
-    # We match any non-English text followed by parentheses containing English term
-    pattern_ukr_eng = r'([^a-zA-Z]+)\s*\([a-zA-Z0-9_./\\#@$%^&*()+-]+\)'
-    processed = re.sub(pattern_ukr_eng, r'\1', processed)
+    # 1. Ukrainian (English) -> Ukrainian (e.g. Кізима Олег Миколайович (Oleh Mykolayovych Kizyma) -> Кізима Олег Миколайович)
+    pattern_ukr_eng = r'([^\na-zA-Z]+?)\s*\([a-zA-Z0-9_./\\#@$%^&*()+\-\s]+\)'
+    processed = re.sub(pattern_ukr_eng, r'\1', text)
+
+    # 2. English (Ukrainian) -> Ukrainian (e.g. cache (кеш) -> кеш)
+    pattern_eng_ukr = r'[a-zA-Z0-9_./\\#@$%^&*()+\-\s]+\s*\(([^a-zA-Z]+)\)'
+    processed = re.sub(pattern_eng_ukr, r'\1', processed)
     
     # 3. Замінюємо популярні терміни за словником
     for eng, ua in TECH_GLOSSARY.items():
