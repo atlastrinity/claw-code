@@ -5,24 +5,17 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
-fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
-    let auto_decide = cli.goal_mode || std::env::var("CLAW_AUTO_DECIDE").map(|v| v.to_lowercase() == "true").unwrap_or(false);
-    
-    let mut last_assistant_text = String::new();
-    if let Some(last_msg) = cli.runtime.session().messages.last() {
-        if last_msg.role == runtime::MessageRole::Assistant {
-            for block in &last_msg.blocks {
-                if let runtime::ContentBlock::Text { text } = block {
-                    last_assistant_text.push_str(text);
-                }
-            }
-        }
-    }
+pub(crate) fn decide_autonomous_continuation(
+    last_assistant_text: &str,
+    task_md_content: Option<&str>,
+    goal_mode: bool,
+    auto_decide_env: bool,
+) -> (bool, String) {
     let trimmed = last_assistant_text.trim();
     let is_question = trimmed.ends_with('?') || trimmed.contains("Please review") || trimmed.contains("let me know");
 
     // Grisha Simulation Check: detect plain-text simulated tool calls
-    if let Err(sim_err) = tools::grisha::GrishaSimulationDetector::check_assistant_text_for_simulated_tool_call(&last_assistant_text) {
+    if let Err(sim_err) = tools::grisha::GrishaSimulationDetector::check_assistant_text_for_simulated_tool_call(last_assistant_text) {
         let prompt = format!(
             "<system-reminder>GRISHA SUPERVISOR ALARM [{}]:\n{}\n\nHOW TO PROCEED:\n{}\n\nCRITICAL: Plain text descriptions or fake JSON strings are NEVER executed by the system. You MUST execute the tool directly through the structured JSON tool call (function call) interface right now.</system-reminder>",
             sim_err.code, sim_err.description, sim_err.remedy
@@ -30,9 +23,9 @@ fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
         return (true, prompt);
     }
 
-    let task_md_path = runtime::workspace::workspace_root().join("task.md");
-    if let Ok(content) = std::fs::read_to_string(&task_md_path) {
+    if let Some(content) = task_md_content {
         if content.contains("- [ ]") || content.contains("- [/]") {
+            let auto_decide = goal_mode || auto_decide_env;
             if is_question {
                 if auto_decide {
                     let prompt = "<system-reminder>CLAW_AUTO_DECIDE is enabled. You just asked the user a question or offered options. Do NOT wait for user input. Analyze the current state, session history, and task summaries. Pick the option that leads to the best progress and results (prioritizing forward momentum over extreme safety), and proceed immediately using the appropriate tools.</system-reminder>".to_string();
@@ -40,7 +33,7 @@ fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
                 }
                 return (false, String::new());
             }
-            let nodes = tools::task_graph::parse_task_md_to_nodes(&content);
+            let nodes = tools::task_graph::parse_task_md_to_nodes(content);
             let (_active_leaf, _chain, branch_summary) = tools::task_graph::compute_active_recursion_branch(&nodes);
             let task_context = branch_summary.unwrap_or_else(|| {
                 content
@@ -56,12 +49,35 @@ fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
         }
     }
     
-    if auto_decide && is_question {
-        let prompt = "<system-reminder>CLAW_AUTO_DECIDE is enabled. You just asked the user a question or offered options. Do NOT wait for user input. Analyze the current state, session history, and task summaries. Pick the option that leads to the best progress and results (prioritizing forward momentum over extreme safety), and proceed immediately using the appropriate tools.</system-reminder>".to_string();
-        return (true, prompt);
-    }
-    
+    // In conversational / interactive chat mode (no active tasks in task.md), never auto-continue.
+    // The system has completed its turn and presented output/questions to the user.
     (false, String::new())
+}
+
+fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
+    let mut last_assistant_text = String::new();
+    if let Some(last_msg) = cli.runtime.session().messages.last() {
+        if last_msg.role == runtime::MessageRole::Assistant {
+            for block in &last_msg.blocks {
+                if let runtime::ContentBlock::Text { text } = block {
+                    last_assistant_text.push_str(text);
+                }
+            }
+        }
+    }
+
+    let task_md_path = runtime::workspace::workspace_root().join("task.md");
+    let task_md_content = std::fs::read_to_string(&task_md_path).ok();
+    let auto_decide_env = std::env::var("CLAW_AUTO_DECIDE")
+        .map(|v| v.to_lowercase() == "true")
+        .unwrap_or(false);
+
+    decide_autonomous_continuation(
+        &last_assistant_text,
+        task_md_content.as_deref(),
+        cli.goal_mode,
+        auto_decide_env,
+    )
 }
 
 pub fn run_repl(
@@ -365,7 +381,6 @@ impl LiveCli {
             None,
         )?;
         let goal_mode = std::env::var("CLAW_GOAL_MODE")
-            .or_else(|_| std::env::var("CLAW_AUTO_DECIDE"))
             .map(|v| v.to_lowercase() == "true" || v == "1")
             .unwrap_or(false);
         let cli = Self {
@@ -1962,3 +1977,62 @@ impl LiveCli {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_conversational_greeting_does_not_auto_continue() {
+        let text = "Привіт! Як я можу допомогти вам сьогодні?";
+        // No task.md, auto_decide_env is true
+        let (should_continue, prompt) = decide_autonomous_continuation(text, None, false, true);
+        assert!(!should_continue);
+        assert!(prompt.is_empty());
+    }
+
+    #[test]
+    fn test_conversational_answer_with_clarifying_question_does_not_auto_continue() {
+        let text = "Ось як працює система. Чи хочете ви, щоб я це реалізував?";
+        let (should_continue, prompt) = decide_autonomous_continuation(text, None, false, true);
+        assert!(!should_continue);
+        assert!(prompt.is_empty());
+    }
+
+    #[test]
+    fn test_active_task_with_question_and_auto_decide_triggers_prompt() {
+        let text = "Чи слід мені обрати варіант А чи варіант Б?";
+        let task_md = "# Tasks\n- [ ] Implement feature A\n";
+        let (should_continue, prompt) = decide_autonomous_continuation(text, Some(task_md), false, true);
+        assert!(should_continue);
+        assert!(prompt.contains("CLAW_AUTO_DECIDE is enabled"));
+    }
+
+    #[test]
+    fn test_active_task_with_question_without_auto_decide_waits_for_user() {
+        let text = "Чи слід мені обрати варіант А чи варіант Б?";
+        let task_md = "# Tasks\n- [ ] Implement feature A\n";
+        let (should_continue, prompt) = decide_autonomous_continuation(text, Some(task_md), false, false);
+        assert!(!should_continue);
+        assert!(prompt.is_empty());
+    }
+
+    #[test]
+    fn test_active_task_without_question_triggers_task_graph_prompt() {
+        let text = "Я виконав перший крок і підготував структури.";
+        let task_md = "# Tasks\n- [ ] Implement feature A\n";
+        let (should_continue, prompt) = decide_autonomous_continuation(text, Some(task_md), false, false);
+        assert!(should_continue);
+        assert!(prompt.contains("TaskGraph"));
+    }
+
+    #[test]
+    fn test_completed_tasks_do_not_auto_continue() {
+        let text = "Всі завдання завершено!";
+        let task_md = "# Tasks\n- [x] Implement feature A\n";
+        let (should_continue, prompt) = decide_autonomous_continuation(text, Some(task_md), false, true);
+        assert!(!should_continue);
+        assert!(prompt.is_empty());
+    }
+}
+
