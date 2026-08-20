@@ -1145,22 +1145,23 @@ def summarize_tool_action_via_llm(tool_name: str, params: dict) -> str:
             clean_params["Description"] = str(params["Description"])[:150]
 
     system_prompt = (
-        "You are Atlas's voice narrator. Summarize the tool action in ultra-concise Ukrainian (3 to 7 words). "
+        "You are Atlas's voice narrator. Describe the action in 2 to 5 Ukrainian words. "
         "RULES: "
-        "1. NEVER say tool names, MCP names, function names, or any English technical words. "
-        "2. NEVER read JSON, code, file bodies, or raw parameters. "
-        "3. Describe WHAT is done in clean Ukrainian: "
-        "   - Browser -> 'Відкриваю сторінку' / 'Клікаю на елемент' "
-        "   - File read -> 'Переглядаю файл' "
-        "   - File edit -> 'Редагую файл' "
-        "   - Command -> 'Запускаю команду' / 'Збираю проект' "
-        "   - Search -> 'Шукаю у коді' "
-        "4. Start with a verb: 'Відкриваю', 'Переглядаю', 'Шукаю', 'Запускаю', 'Редагую'. "
-        "5. Maximum 7 words. Output ONLY the Ukrainian phrase."
+        "1. NEVER name tools, functions, MCP servers, filenames, paths, or any English words. "
+        "2. NEVER read JSON, code, or parameters. "
+        "3. Say ONLY the pure action: "
+        "   'Переглядаю код', 'Редагую файл', 'Відкриваю сторінку', "
+        "   'Запускаю збірку', 'Шукаю у коді', 'Клікаю на елемент'. "
+        "4. Start with a verb. Maximum 5 words. Output ONLY Ukrainian."
     )
     
-    user_payload = f"Tool: {tool_name}\nContext: {json.dumps(clean_params, ensure_ascii=False)}"
-    return call_narration_llm_chain(system_prompt, user_payload)
+    # Only pass description context, never raw tool name
+    desc = clean_params.get("Description") or clean_params.get("description") or ""
+    cmd = clean_params.get("command") or clean_params.get("CommandLine") or ""
+    context_hint = desc or cmd or "action"
+    if len(context_hint) > 80:
+        context_hint = context_hint[:80]
+    return call_narration_llm_chain(system_prompt, context_hint)
 
 
 def summarize_taskgraph_via_llm(op: str, nodes: list, descriptions: dict) -> str:
@@ -1326,63 +1327,30 @@ def summarize_thinking_ua(thinking_text: str) -> str:
         
     # Якщо LLM не відповіла, використовуємо покращений евристичний fallback
     text_lower = clean_text.lower()
-    
-    # 1. Пошук файлів
-    files = re.findall(r'\b([\w_-]+\.(?:py|rs|swift|sh|json|toml|md|txt|yml|yaml))\b', clean_text)
-    files = list(dict.fromkeys(files))
-    
-    # 2. Пошук інструментів
-    tools = re.findall(r'\b(TaskGraph|replace_file_content|read_file|view_file|run_command|grep_search|list_dir|write_to_file|multi_replace_file_content|search_web|read_url_content)\b', clean_text)
-    tools = list(dict.fromkeys(tools))
-    
-    # 3. Пошук команд у бектіках
-    commands = re.findall(r'`([^`]+)`', clean_text)
-    commands = [c for c in commands if any(cmd in c.lower() for cmd in ["cargo", "test", "git", "xcodebuild", "run", "python", "sh", "npm", "npm run"])]
-    commands = list(dict.fromkeys(commands))
 
-    # Чисті українські описи дій замість транслітерованих назв інструментів
-    tool_ua_desc = {
-        "taskgraph": "Оновлюю план.",
-        "replace_file_content": "Редагую файл.",
-        "read_file": "Читаю файл.",
-        "view_file": "Переглядаю файл.",
-        "run_command": "Виконую команду.",
-        "grep_search": "Шукаю у коді.",
-        "list_dir": "Переглядаю директорію.",
-        "write_to_file": "Записую файл.",
-        "multi_replace_file_content": "Редагую файл.",
-        "search_web": "Шукаю в інтернеті.",
-        "read_url_content": "Читаю сторінку."
-    }
-
-    if tools and files:
-        t_desc = tool_ua_desc.get(tools[0].lower(), "Працюю з")
-        # Strip the period if combining with filename
-        if t_desc.endswith('.'):
-            t_desc = t_desc[:-1]
-        return f"{t_desc} {files[0]}."
-    elif tools:
-        return tool_ua_desc.get(tools[0].lower(), "Виконую дію.")
-    elif files:
-        return f"Аналіз файлу {files[0]}."
-    elif commands:
-        return f"Виконую команду."
-        
-    # Визначення наміру за ключовими словами — чисті українські фрази
-    if any(k in text_lower for k in ["read", "view", "file", "content", "open"]):
-        brief = "Аналіз файлів."
-    elif any(k in text_lower for k in ["search", "find", "glob", "grep", "locate"]):
-        brief = "Пошук у коді."
+    # Визначаємо чисту дію без назв інструментів чи файлів
+    if any(k in text_lower for k in ["replace", "edit", "write", "modify"]):
+        return "Редагую код."
+    elif any(k in text_lower for k in ["read", "view", "open", "file", "content"]):
+        return "Переглядаю код."
+    elif any(k in text_lower for k in ["search", "find", "grep", "locate", "glob"]):
+        return "Шукаю у коді."
+    elif any(k in text_lower for k in ["test", "build", "compile", "cargo"]):
+        return "Збираю проект."
+    elif any(k in text_lower for k in ["run", "command", "execute", "bash", "shell"]):
+        return "Виконую команду."
     elif any(k in text_lower for k in ["task", "plan", "graph", "roadmap", "todo"]):
-        brief = "Оновлюю план."
-    elif any(k in text_lower for k in ["test", "run", "build", "execute", "compile"]):
-        brief = "Збираю проект."
-    elif any(k in text_lower for k in ["fix", "bug", "error", "modify", "replace", "edit"]):
-        brief = "Редагую код."
+        return "Оновлюю план."
+    elif any(k in text_lower for k in ["browser", "navigate", "click", "page", "url"]):
+        return "Переходжу на сторінку."
+    elif any(k in text_lower for k in ["list", "dir", "directory"]):
+        return "Переглядаю структуру."
+    elif any(k in text_lower for k in ["web", "internet", "http"]):
+        return "Шукаю в інтернеті."
+    elif any(k in text_lower for k in ["fix", "bug", "error"]):
+        return "Виправляю помилку."
     else:
-        brief = "Аналіз системи."
-        
-    return brief
+        return "Аналізую."
 
 def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -> str:
     if not text.strip():
