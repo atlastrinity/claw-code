@@ -1544,9 +1544,7 @@ def get_heuristic_tool_use_ua(tool_name: str, params: dict) -> tuple[str, str]:
         return get_heuristic_taskgraph_ua(op, nodes, descriptions)
 
     # Default fallback: Never use raw 'mcp__' or raw technical identifiers
-    clean_name = re.sub(r'^mcp__[^_]+__', '', tool_name)
-    clean_name = clean_name.replace('_', ' ').strip()
-    return f"Виконую дію: {clean_name}", f"виконання {clean_name}"
+    return "Виконую дію.", "виконання дії"
 
 
 def get_heuristic_taskgraph_ua(op: str, nodes: list, descriptions: dict) -> tuple[str, str]:
@@ -1640,12 +1638,29 @@ def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
 
 def is_tool_call_text(text: str) -> bool:
     text_lower = text.lower().strip()
-    return (
+    if (
         text_lower.startswith("[assistant called") or 
         text_lower.startswith("[асистент викликав") or
         "called tool '" in text_lower or
-        "викликав інструмент" in text_lower
-    )
+        "викликав інструмент" in text_lower or
+        "mcp__" in text_lower or
+        "taskgraph(" in text_lower or
+        "taskgraph:" in text_lower or
+        "sequentialthinking" in text_lower or
+        "playwright_" in text_lower or
+        "grep_search" in text_lower or
+        "replace_file_content" in text_lower or
+        "view_file" in text_lower or
+        "run_command" in text_lower or
+        "read_file" in text_lower or
+        "write_to_file" in text_lower
+    ):
+        return True
+    if (text.strip().startswith("{") and text.strip().endswith("}")) or ("\"description\":" in text_lower and "\"url\":" in text_lower):
+        return True
+    if re.search(r'mcp__\w+|useeland|\b(?:playwright|sequentialthinking)\b\s*\{', text_lower):
+        return True
+    return False
 
 def clean_assistant_phrases(text: str) -> str:
     if not text:

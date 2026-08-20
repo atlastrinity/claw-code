@@ -270,10 +270,30 @@ impl McpToolRegistry {
             .cloned()
             .ok_or_else(|| "MCP server manager is not configured".to_string())?;
 
+        let mut final_arguments = arguments.clone();
+        if tool_name == "sequentialthinking" || tool_name.ends_with("sequentialthinking") {
+            if let Some(obj) = final_arguments.as_object_mut() {
+                if !obj.contains_key("thoughtNumber") || obj.get("thoughtNumber").and_then(|v| v.as_i64()).is_none() {
+                    obj.insert("thoughtNumber".to_string(), serde_json::json!(1));
+                }
+                if !obj.contains_key("totalThoughts") || obj.get("totalThoughts").and_then(|v| v.as_i64()).is_none() {
+                    obj.insert("totalThoughts".to_string(), serde_json::json!(1));
+                }
+                if !obj.contains_key("nextThoughtNeeded") || obj.get("nextThoughtNeeded").and_then(|v| v.as_bool()).is_none() {
+                    obj.insert("nextThoughtNeeded".to_string(), serde_json::json!(false));
+                }
+                if !obj.contains_key("thought") {
+                    if let Some(desc) = obj.get("description").cloned() {
+                        obj.insert("thought".to_string(), desc);
+                    }
+                }
+            }
+        }
+
         Self::spawn_tool_call(
             manager,
             mcp_tool_name(server_name, tool_name),
-            (!arguments.is_null()).then(|| arguments.clone()),
+            (!final_arguments.is_null()).then(|| final_arguments),
         )
     }
 
