@@ -659,7 +659,7 @@ fn extract_solution_from_skill_md(content: &str) -> String {
 
 /// Helper function to construct a consistent dynamic skill name from tool_name and category.
 pub(crate) fn make_dynamic_skill_name(tool_name: &str, category: &str) -> String {
-    let safe_tool = tool_name.to_lowercase().replace(' ', "-").replace(':', "-");
+    let safe_tool = tool_name.to_lowercase().replace([' ', ':'], "-");
     let safe_category: String = category
         .chars()
         .filter(|c| c.is_ascii_alphanumeric() || *c == '_' || *c == '-')
