@@ -259,6 +259,9 @@ impl SystemPromptBuilder {
 
         if let Some(config) = &self.config {
             sections.push(render_config_section(config));
+            if let Some(active_mcp_section) = render_active_mcp_section(config) {
+                sections.push(active_mcp_section);
+            }
             if let Some(mcp_section) = render_available_mcp_section(config) {
                 sections.push(mcp_section);
             }
@@ -753,6 +756,24 @@ fn render_available_mcp_section(config: &RuntimeConfig) -> Option<String> {
     }
     lines.push(String::new());
     lines.push("MANDATE FOR MCP TOOL USAGE: Whenever your task involves any of the domain capabilities above (e.g., iOS simulator, Xcode build/test, GitHub PRs/issues, Firebase backend, Render, Swift analysis), you MUST call `McpSearch(load_server: \"<server_name>\")` BEFORE executing raw shell commands. Calling `McpSearch` dynamically connects to the server and activates all its dedicated MCP tools for your session.".to_string());
+    Some(lines.join("\n"))
+}
+
+fn render_active_mcp_section(config: &RuntimeConfig) -> Option<String> {
+    let active = config.mcp().servers();
+    if active.is_empty() {
+        return None;
+    }
+    let mut lines = vec![
+        "# Auto-Started MCP Servers (Always Available)".to_string(),
+        "The following MCP servers are auto-started with your session. Their tools are ALREADY REGISTERED and available for immediate use — no `McpSearch(load_server)` needed:".to_string(),
+    ];
+    for (name, scoped_config) in active {
+        let desc = scoped_config.description.as_deref().unwrap_or("MCP server");
+        lines.push(format!(" - `{name}`: {desc}"));
+    }
+    lines.push(String::new());
+    lines.push("You can call these tools directly (e.g. `mcp__<server-name>__<tool-name>`) without loading them first.".to_string());
     Some(lines.join("\n"))
 }
 
