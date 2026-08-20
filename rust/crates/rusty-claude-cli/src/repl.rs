@@ -512,10 +512,6 @@ impl LiveCli {
                     TerminalRenderer::new().color_theme(),
                     &mut stdout,
                 )?;
-                let final_text = final_assistant_text(&summary);
-                if !final_text.is_empty() {
-                    println!("{final_text}");
-                }
                 println!();
                 if let Some(event) = summary.auto_compaction {
                     println!(
@@ -768,10 +764,6 @@ impl LiveCli {
                                     TerminalRenderer::new().color_theme(),
                                     &mut stdout,
                                 )?;
-                                let final_text = final_assistant_text(&summary);
-                                if !final_text.is_empty() {
-                                    println!("{final_text}");
-                                }
                                 println!();
                                 if let Some(event) = summary.auto_compaction {
                                     println!(
