@@ -9,6 +9,141 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Fine-grained error classification for autonomous agent troubleshooting.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+pub enum ErrorCategory {
+    PermissionDenied,
+    FileNotFound,
+    AlreadyExists,
+    InvalidArguments,
+    NetworkOrTimeout,
+    ConnectionError,
+    RateLimitOrQuota,
+    OutOfMemory,
+    ResourceBusyOrLocked,
+    SyntaxOrParseError,
+    MissingDependency,
+    UnknownTool,
+    ToolSpecific(String),
+}
+
+impl ErrorCategory {
+    /// Maps an error message string to a structured `ErrorCategory`.
+    #[must_use]
+    pub fn from_error_message(error_msg: &str) -> Self {
+        let lower = error_msg.to_lowercase();
+
+        let patterns: &[(&[&str], Self)] = &[
+            (&["permission denied", "access denied", "not permitted", "eacces", "operation not permitted"], Self::PermissionDenied),
+            (&["no such file", "file not found", "not found", "does not exist", "enoent"], Self::FileNotFound),
+            (&["already exists", "eexist", "file exists"], Self::AlreadyExists),
+            (&["invalid argument", "invalid input", "invalid parameter", "missing required", "type mismatch", "validation error", "schema validation"], Self::InvalidArguments),
+            (&["timeout", "timed out", "deadline exceeded", "etimedout", "navigation timeout"], Self::NetworkOrTimeout),
+            (&["connection refused", "connection reset", "econnrefused", "econnreset", "socket hang up", "network unreachable"], Self::ConnectionError),
+            (&["rate limit", "too many requests", "429", "quota exceeded", "resource exhausted"], Self::RateLimitOrQuota),
+            (&["out of memory", "oom", "heap limit", "javascript heap out of memory"], Self::OutOfMemory),
+            (&["resource busy", "locked", "ebusy", "database is locked", "file is locked"], Self::ResourceBusyOrLocked),
+            (&["syntax error", "parse error", "invalid syntax", "unexpected token", "json parse error"], Self::SyntaxOrParseError),
+            (&["command not found", "executable not found", "module not found", "cannot find module", "no such command"], Self::MissingDependency),
+            (&["unknown tool"], Self::UnknownTool),
+        ];
+
+        for (keywords, category) in patterns {
+            if keywords.iter().any(|kw| lower.contains(kw)) {
+                return category.clone();
+            }
+        }
+
+        // Fallback: use first 80 clean characters as tool-specific category.
+        let stripped = lower
+            .chars()
+            .filter(|c| c.is_alphanumeric() || *c == ' ')
+            .take(80)
+            .collect::<String>();
+        let cat = stripped.split_whitespace().take(8).collect::<Vec<_>>().join("_");
+        if cat.is_empty() {
+            Self::ToolSpecific("general_error".to_string())
+        } else {
+            Self::ToolSpecific(cat)
+        }
+    }
+
+    /// Normalized category identifier string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match self {
+            Self::PermissionDenied => "permission_denied",
+            Self::FileNotFound => "file_not_found",
+            Self::AlreadyExists => "already_exists",
+            Self::InvalidArguments => "invalid_argument",
+            Self::NetworkOrTimeout => "timeout",
+            Self::ConnectionError => "connection_error",
+            Self::RateLimitOrQuota => "rate_limit",
+            Self::OutOfMemory => "out_of_memory",
+            Self::ResourceBusyOrLocked => "resource_locked",
+            Self::SyntaxOrParseError => "syntax_error",
+            Self::MissingDependency => "missing_dependency",
+            Self::UnknownTool => "unknown_tool",
+            Self::ToolSpecific(s) => s.as_str(),
+        }
+    }
+
+    /// Explains the root cause in actionable terms.
+    #[must_use]
+    pub fn root_cause_explanation(&self) -> &'static str {
+        match self {
+            Self::PermissionDenied => "The operation was rejected due to insufficient filesystem, process, or execution permissions.",
+            Self::FileNotFound => "The target file or directory path does not exist, or parent directories were not created.",
+            Self::AlreadyExists => "The resource or file already exists and overwrite flag was not specified.",
+            Self::InvalidArguments => "The parameters provided did not match the expected schema or contained invalid field types/names.",
+            Self::NetworkOrTimeout => "The request or command timed out waiting for network response, DOM rendering, or process completion.",
+            Self::ConnectionError => "Failed to establish or maintain connection to the remote endpoint or subprocess.",
+            Self::RateLimitOrQuota => "API rate limit, concurrency ceiling, or quota limit was reached.",
+            Self::OutOfMemory => "The process exhausted available memory limits.",
+            Self::ResourceBusyOrLocked => "The file, port, or database is currently locked by another process.",
+            Self::SyntaxOrParseError => "Syntax or parsing error occurred when evaluating command or structured arguments.",
+            Self::MissingDependency => "The required CLI binary, package, or tool executable is not installed or missing from PATH.",
+            Self::UnknownTool => "The invoked tool is not registered or supported in the runtime environment.",
+            Self::ToolSpecific(_) => "The tool encountered an operational error during execution.",
+        }
+    }
+
+    /// High-level guidance of what NOT to do.
+    #[must_use]
+    pub fn anti_patterns(&self) -> &'static [&'static str] {
+        match self {
+            Self::PermissionDenied => &[
+                "- ❌ Do NOT repeatedly retry without elevated permissions or using an allowed writable directory.",
+                "- ❌ Do NOT try to write directly into protected system paths without explicit elevation.",
+            ],
+            Self::FileNotFound => &[
+                "- ❌ Do NOT assume parent directories exist without checking or creating them.",
+                "- ❌ Do NOT use relative paths without verifying the current workspace root.",
+            ],
+            Self::AlreadyExists => &[
+                "- ❌ Do NOT fail silently; specify overwrite options or inspect existing files first.",
+            ],
+            Self::InvalidArguments => &[
+                "- ❌ Do NOT guess or hallucinate parameter names not defined in the tool schema.",
+                "- ❌ Do NOT pass mismatched data types (e.g. strings where arrays or numbers are required).",
+            ],
+            Self::NetworkOrTimeout => &[
+                "- ❌ Do NOT perform blocking network calls without specifying a reasonable timeout.",
+                "- ❌ Do NOT wait indefinitely on dynamic SPAs without explicit wait states (e.g. domcontentloaded).",
+            ],
+            Self::RateLimitOrQuota => &[
+                "- ❌ Do NOT bombard the API with immediate parallel retries when throttled.",
+            ],
+            Self::MissingDependency => &[
+                "- ❌ Do NOT attempt to run uninstalled binaries; verify prerequisites or use fallback tools.",
+            ],
+            _ => &[
+                "- ❌ Do NOT repeat identical failing inputs without parameter adjustments.",
+            ],
+        }
+    }
+}
+
 /// A single recorded tool error.
 #[derive(Debug, Clone)]
 pub struct ToolErrorRecord {
@@ -19,75 +154,154 @@ pub struct ToolErrorRecord {
     pub timestamp_ms: u64,
 }
 
-/// A dynamically generated skill derived from a recurring error pattern.
+/// A dynamically generated skill / rule derived from an error-recovery pattern.
 #[derive(Debug, Clone)]
 pub struct DynamicSkill {
     pub name: String,
     pub tool_name: String,
     pub error_pattern: String,
     pub solution: String,
+    pub input_diff: Option<String>,
     pub created_at_ms: u64,
     pub was_effective: bool,
     pub temp_path: PathBuf,
     /// Number of errors that occurred after this skill was created.
     pub errors_after_creation: usize,
+    /// Number of successful invocations reinforcing this skill.
+    pub success_count: usize,
 }
 
 impl DynamicSkill {
-    /// Renders this skill as a SKILL.md file.
+    /// Computes dynamic effectiveness score [0.0..1.0].
+    #[must_use]
+    pub fn effectiveness_score(&self) -> f64 {
+        let total = self.success_count + self.errors_after_creation;
+        if total == 0 {
+            1.0
+        } else {
+            self.success_count as f64 / total as f64
+        }
+    }
+
+    /// Renders this skill as a comprehensive, standards-compliant SKILL.md file.
     #[must_use]
     pub fn to_skill_md(&self) -> String {
+        let category_enum = ErrorCategory::from_error_message(&self.error_pattern);
+        let category_str = category_enum.as_str();
+        let root_cause = category_enum.root_cause_explanation();
+        let anti_patterns = category_enum.anti_patterns().join("\n");
+        let server_line = if let Some(server) = extract_server_from_tool_name(&self.tool_name) {
+            format!("\nserver: {server}")
+        } else {
+            String::new()
+        };
+
+        let diff_section = if let Some(diff) = &self.input_diff {
+            format!("\n### 🔄 Parameter Adjustments\n{diff}\n")
+        } else {
+            String::new()
+        };
+
         format!(
-            "---\nname: {name}\ndescription: \"Auto-learned fix for {tool} error: {error}\"\n---\n\
-             # Auto-learned: {tool}\n\n\
-             ## Problem\n\
-             When using `{tool}`, the following error occurs:\n\
-             > {error}\n\n\
-             ## Solution\n\
-             The correct approach is:\n\
-             > {solution}\n",
+            "---\n\
+             name: {name}\n\
+             description: \"Auto-learned rule for {tool} dealing with {category_str}\"\n\
+             version: 1.0.0\n\
+             category: {category_str}\n\
+             tool: {tool}{server_line}\n\
+             effectiveness_score: {score:.2}\n\
+             success_count: {success_count}\n\
+             failure_count: {errors_after}\n\
+             ---\n\n\
+             # Auto-Learned Skill: `{tool}`\n\n\
+             ## 🎯 Trigger Conditions\n\
+             Apply this skill when invoking `{tool}` and encountering `{category_str}` errors (e.g. \"{error_sample}\").\n\n\
+             ## 🔍 Root Cause Analysis\n\
+             {root_cause}\n\n\
+             ## 💡 Recommended Solution & Correct Parameters\n\
+             The verified successful execution pattern is:\n\n\
+             ```json\n\
+             {solution}\n\
+             ```\n\
+             {diff_section}\n\
+             ## ⚠️ Anti-Patterns & Common Mistakes\n\
+             {anti_patterns}\n",
             name = self.name,
             tool = self.tool_name,
-            error = self.error_pattern,
+            category_str = category_str,
+            server_line = server_line,
+            score = self.effectiveness_score(),
+            success_count = self.success_count.max(1),
+            errors_after = self.errors_after_creation,
+            error_sample = truncate(&self.error_pattern, 100),
+            root_cause = root_cause,
             solution = self.solution,
+            diff_section = diff_section,
+            anti_patterns = anti_patterns,
         )
     }
 }
 
-/// Normalizes an error message into a category key for deduplication.
-///
-/// This extracts a stable signature from error messages so that superficially
-/// different messages that refer to the same root cause are grouped together.
+/// Helper function to extract server name from qualified MCP tool names (e.g. `mcp:server:tool` or `mcp__server__tool`).
+fn extract_server_from_tool_name(tool_name: &str) -> Option<&str> {
+    if let Some(rest) = tool_name.strip_prefix("mcp:") {
+        return rest.split(':').next();
+    }
+    if let Some(rest) = tool_name.strip_prefix("mcp__") {
+        return rest.split("__").next();
+    }
+    None
+}
+
+/// Semantic input diffing between failed input and winning input.
 #[must_use]
-pub fn normalize_error_category(error_msg: &str) -> String {
-    let lower = error_msg.to_lowercase();
+pub fn diff_tool_inputs(failed_input: &str, successful_input: &str) -> Option<String> {
+    if failed_input.trim() == successful_input.trim() {
+        return None;
+    }
+    let failed_val = serde_json::from_str::<serde_json::Value>(failed_input).ok();
+    let succ_val = serde_json::from_str::<serde_json::Value>(successful_input).ok();
 
-    // Map known error patterns to stable categories.
-    let patterns: &[(&[&str], &str)] = &[
-        (&["permission denied", "access denied", "not permitted"], "permission_denied"),
-        (&["no such file", "file not found", "not found", "does not exist"], "file_not_found"),
-        (&["already exists"], "already_exists"),
-        (&["syntax error", "parse error", "invalid syntax"], "syntax_error"),
-        (&["timeout", "timed out", "deadline exceeded"], "timeout"),
-        (&["connection refused", "connection reset"], "connection_error"),
-        (&["out of memory", "oom"], "out_of_memory"),
-        (&["invalid argument", "invalid input", "invalid parameter"], "invalid_argument"),
-        (&["unknown tool"], "unknown_tool"),
-    ];
-
-    for (keywords, category) in patterns {
-        if keywords.iter().any(|kw| lower.contains(kw)) {
-            return (*category).to_string();
+    match (failed_val, succ_val) {
+        (Some(serde_json::Value::Object(f_obj)), Some(serde_json::Value::Object(s_obj))) => {
+            let mut diffs = Vec::new();
+            for (k, v_succ) in &s_obj {
+                match f_obj.get(k) {
+                    Some(v_fail) if v_fail != v_succ => {
+                        diffs.push(format!("- Changed `{k}`: `{}` ➔ `{}`", truncate_val(v_fail), truncate_val(v_succ)));
+                    }
+                    None => {
+                        diffs.push(format!("- Added parameter `{k}`: `{}`", truncate_val(v_succ)));
+                    }
+                    _ => {}
+                }
+            }
+            for (k, v_fail) in &f_obj {
+                if !s_obj.contains_key(k) {
+                    diffs.push(format!("- Removed parameter `{k}` (was `{}`)", truncate_val(v_fail)));
+                }
+            }
+            if diffs.is_empty() {
+                None
+            } else {
+                Some(diffs.join("\n"))
+            }
+        }
+        _ => {
+            Some(format!("- Adjusted input payload to: `{}`", truncate(successful_input, 150)))
         }
     }
+}
 
-    // Fallback: use the first 80 characters, stripped of paths/hashes.
-    let stripped = lower
-        .chars()
-        .filter(|c| c.is_alphanumeric() || *c == ' ')
-        .take(80)
-        .collect::<String>();
-    stripped.split_whitespace().take(8).collect::<Vec<_>>().join("_")
+fn truncate_val(v: &serde_json::Value) -> String {
+    let s = v.to_string();
+    truncate(&s, 60)
+}
+
+/// Normalizes an error message into a category key for deduplication.
+#[must_use]
+pub fn normalize_error_category(error_msg: &str) -> String {
+    ErrorCategory::from_error_message(error_msg).as_str().to_string()
 }
 
 /// Truncates tool input JSON to a short summary for storage.
@@ -202,22 +416,25 @@ impl ErrorTracker {
         input: &str,
         output: &str,
     ) -> Option<DynamicSkill> {
-        // Find any error categories for this tool with >= 2 occurrences
-        // that don't already have a dynamic skill.
+        // Find any error categories for this tool with >= 2 occurrences.
         let mut candidate_key = None;
         for ((name, category), records) in &self.error_counts {
             if name != tool_name || records.len() < 2 {
                 continue;
             }
-            // Check if we already have a skill for this.
-            let already_has_skill = self.dynamic_skills.iter().any(|s| {
+            // Check if we already have a skill for this. If so, reinforce it.
+            if let Some(existing) = self.dynamic_skills.iter_mut().find(|s| {
                 s.tool_name == tool_name
                     && normalize_error_category(&s.error_pattern) == *category
-            });
-            if !already_has_skill {
-                candidate_key = Some((name.clone(), category.clone()));
-                break;
+            }) {
+                existing.success_count += 1;
+                existing.was_effective = true;
+                let _ = write_temp_skill(existing);
+                let _ = persist_skill_to_learned(existing);
+                return None;
             }
+            candidate_key = Some((name.clone(), category.clone()));
+            break;
         }
 
         let (_, category) = candidate_key?;
@@ -231,14 +448,18 @@ impl ErrorTracker {
             return None;
         }
 
-        // Get the representative error message from the records.
-        let error_msg = self
-            .error_counts
-            .get(&(tool_name.to_string(), category.clone()))
-            .and_then(|records| records.last())
+        // Get the representative error message and failing input from the records.
+        let records = self.error_counts.get(&(tool_name.to_string(), category.clone()));
+        let error_msg = records
+            .and_then(|r| r.last())
             .map(|r| r.error_message.clone())
             .unwrap_or_default();
+        let failing_input = records
+            .and_then(|r| r.last())
+            .map(|r| r.input_summary.as_str())
+            .unwrap_or("");
 
+        let input_diff = diff_tool_inputs(failing_input, input);
         let solution_summary = truncate(output, 1024);
 
         let name = make_dynamic_skill_name(tool_name, &category);
@@ -256,10 +477,12 @@ impl ErrorTracker {
                 summarize_input(input),
                 solution_summary,
             ),
+            input_diff,
             created_at_ms: now_ms(),
-            was_effective: false,
+            was_effective: true,
             temp_path,
             errors_after_creation: 0,
+            success_count: 1,
         };
 
         // Write to temporary storage.
@@ -306,12 +529,14 @@ impl ErrorTracker {
         ];
 
         for skill in &self.dynamic_skills {
+            let diff_note = skill.input_diff.as_deref().map(|d| format!(" (Adjusted: {d})")).unwrap_or_default();
             lines.push(format!(
-                "- **{}** (`{}`): Error pattern: \"{}\". Fix: {}",
+                "- **{}** (`{}`): Error pattern: \"{}\". Fix: {}{}",
                 skill.name,
                 skill.tool_name,
                 truncate(&skill.error_pattern, 100),
                 truncate(&skill.solution, 200),
+                diff_note
             ));
         }
 
@@ -331,9 +556,16 @@ impl ErrorTracker {
             s.tool_name == tool_name
                 && normalize_error_category(&s.error_pattern) == category
         }) {
+            let cat_enum = ErrorCategory::from_error_message(error_msg);
+            let root_cause = cat_enum.root_cause_explanation();
+            let diff_hint = if let Some(diff) = &skill.input_diff {
+                format!("\n▶ Verified parameter adjustments:\n{diff}\n")
+            } else {
+                String::new()
+            };
             return Some(format!(
-                "\n\n💡 AUTO-LEARNED FIX (from session errors on `{}`):\n{}\n",
-                tool_name, skill.solution,
+                "\n\n💡 AUTO-LEARNED FIX (from session errors on `{}`):\n▶ Root Cause: {}\n▶ Verified Solution:\n{}\n{}",
+                tool_name, root_cause, skill.solution, diff_hint
             ));
         }
 
@@ -658,16 +890,42 @@ mod tests {
             tool_name: "bash".to_string(),
             error_pattern: "command timed out".to_string(),
             solution: "Use --timeout flag".to_string(),
+            input_diff: Some("- Added parameter `timeout`: `30000`".to_string()),
             created_at_ms: 0,
-            was_effective: false,
+            was_effective: true,
             temp_path: PathBuf::from("/tmp/test"),
             errors_after_creation: 0,
+            success_count: 2,
         };
         let md = skill.to_skill_md();
         assert!(md.starts_with("---\n"));
         assert!(md.contains("name: autolearn-bash-timeout"));
-        assert!(md.contains("## Problem"));
-        assert!(md.contains("## Solution"));
+        assert!(md.contains("effectiveness_score: 1.00"));
+        assert!(md.contains("## 🎯 Trigger Conditions"));
+        assert!(md.contains("## 🔍 Root Cause Analysis"));
+        assert!(md.contains("## 💡 Recommended Solution & Correct Parameters"));
+        assert!(md.contains("## ⚠️ Anti-Patterns & Common Mistakes"));
+        assert!(md.contains("Parameter Adjustments"));
+    }
+
+    #[test]
+    fn diff_tool_inputs_detects_parameter_changes() {
+        let failed = r#"{"url": "https://example.com"}"#;
+        let success = r#"{"url": "https://example.com", "timeout": 30000, "waitUntil": "domcontentloaded"}"#;
+        let diff = diff_tool_inputs(failed, success);
+        assert!(diff.is_some());
+        let d = diff.unwrap();
+        assert!(d.contains("Added parameter `timeout`"));
+        assert!(d.contains("Added parameter `waitUntil`"));
+    }
+
+    #[test]
+    fn error_category_provides_actionable_context() {
+        let cat = ErrorCategory::from_error_message("EACCES: permission denied to /etc/hosts");
+        assert_eq!(cat, ErrorCategory::PermissionDenied);
+        assert_eq!(cat.as_str(), "permission_denied");
+        assert!(cat.root_cause_explanation().contains("permissions"));
+        assert!(!cat.anti_patterns().is_empty());
     }
 
     fn run_isolated_test<F: FnOnce()>(test_fn: F) {
