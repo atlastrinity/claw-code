@@ -69,6 +69,7 @@ echo "🧹 Перевірка та очищення завислих проце�
 pkill -f "claw-rag-service" 2>/dev/null
 pkill -f "mcpbridge" 2>/dev/null
 pkill -f "ios-simulator-mcp" 2>/dev/null
+pkill -f "playwright-mcp-server" 2>/dev/null
 sleep 0.5
 
 # 1. Вибір моделі з .claw.json

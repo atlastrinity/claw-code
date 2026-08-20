@@ -102,7 +102,7 @@ sync_settings "$SCRIPT_DIR"
 
 echo ""
 echo -e "${_LS_BOLD}${_LS_CYAN}------------------------------------------------------------------------${_LS_NC}"
-echo -e "${_LS_BOLD}${_LS_CYAN}                     Verifying 10 MCP Servers                           ${_LS_NC}"
+echo -e "${_LS_BOLD}${_LS_CYAN}                     Verifying 11 MCP Servers                           ${_LS_NC}"
 echo -e "${_LS_BOLD}${_LS_CYAN}------------------------------------------------------------------------${_LS_NC}"
 
 verify_command() {
@@ -132,53 +132,58 @@ verify_command() {
     fi
 }
 
-# 1. appstore-connect
+# 1. playwright
+verify_command "Playwright Cross-Browser MCP" \
+    "npx --prefer-offline --package @executeautomation/playwright-mcp-server playwright-mcp-server --help 2>&1 | grep -q 'Playwright MCP' || [ -d \"\$HOME/Library/Caches/ms-playwright/chromium-\"* ]" \
+    "npm install -g @executeautomation/playwright-mcp-server && npx -y playwright install chromium webkit"
+
+# 2. appstore-connect
 verify_command "App Store Connect (asc-mcp)" \
     "npx --prefer-offline --package @pofky/asc-mcp asc-mcp --help" \
     "npm install -g @pofky/asc-mcp"
 
-# 2. firebase-mcp-server
+# 3. firebase-mcp-server
 export FIREBASE_CLI_NO_PROMPT=1
 verify_command "Firebase Tools MCP" \
     "npx --prefer-offline --package firebase-tools firebase --version --non-interactive" \
     "npm install -g firebase-tools"
 
-# 3. github
+# 4. github
 verify_command "GitHub MCP Server" \
     "npx --prefer-offline --package @modelcontextprotocol/server-github mcp-server-github --help" \
     "npm install -g @modelcontextprotocol/server-github"
 
-# 4. ios-simulator
+# 5. ios-simulator
 verify_command "iOS Simulator MCP" \
     "npx --prefer-offline --package ios-simulator-mcp ios-simulator-mcp --help" \
     "npm install -g ios-simulator-mcp"
 
-# 5. render (mcp-remote)
+# 6. render (mcp-remote)
 verify_command "Render MCP Client (mcp-remote)" \
     "npx --prefer-offline --package mcp-remote mcp-remote --version >/dev/null 2>&1 || [ -n \"\$(command -v npx)\" ]" \
     "npm install -g mcp-remote"
 
-# 6. xcode-bridge (mcpbridge)
+# 7. xcode-bridge (mcpbridge)
 verify_command "Xcode Bridge (mcpbridge)" \
     "[ -f /Applications/Xcode.app/Contents/Developer/usr/bin/mcpbridge ]" \
     "echo 'Please make sure Xcode and its Command Line Tools are installed.'"
 
-# 7. swiftlens
+# 8. swiftlens
 verify_command "SwiftLens (uvx swiftlens)" \
     "uvx --python 3.13 swiftlens --help" \
     "uv tool install --python 3.13 swiftlens"
 
-# 8. notebooks
+# 9. notebooks
 verify_command "Notebooks Proxy Extension" \
-    "[ -f \"\$HOME/.antigravity-ide/extensions/googlecloudtools.datacloud-\"*/\"/mcp_servers/cli/mcp_proxy_bundle.js\" ]" \
+    "ls \$HOME/.antigravity-ide/extensions/googlecloudtools.datacloud-*/mcp_servers/cli/mcp_proxy_bundle.js >/dev/null 2>&1" \
     "echo 'Please verify the Google Cloud Tools extension is installed in your IDE.'"
 
-# 9. visualization
+# 10. visualization
 verify_command "Visualization Proxy Extension" \
-    "[ -f \"\$HOME/.antigravity-ide/extensions/googlecloudtools.datacloud-\"*/\"/mcp_servers/cli/mcp_proxy_bundle.js\" ]" \
+    "ls \$HOME/.antigravity-ide/extensions/googlecloudtools.datacloud-*/mcp_servers/cli/mcp_proxy_bundle.js >/dev/null 2>&1" \
     "echo 'Please verify the Google Cloud Tools extension is installed in your IDE.'"
 
-# 10. pyscn-mcp
+# 11. pyscn-mcp
 verify_command "PyScn MCP (pyscn-mcp)" \
     "uvx pyscn-mcp --help" \
     "uv tool install pyscn-mcp"

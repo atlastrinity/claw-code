@@ -62,8 +62,9 @@ kill_process "deps/claw-" false
 kill_process "edge.tts" false
 kill_process "edge_tts" false
 
-# Kill MCP bridge and iOS simulator auxiliary daemon processes
+# Kill MCP bridge, Playwright, and iOS simulator auxiliary daemon processes
 kill_process "mcpbridge" false
+kill_process "playwright-mcp-server" false
 kill_process "ios-simulator-mcp" false
 kill_process "idb_companion" false
 kill_process "bin/idb " false
