@@ -1369,7 +1369,21 @@ impl McpStdioProcess {
     }
 
     pub async fn read_response<T: DeserializeOwned>(&mut self) -> io::Result<JsonRpcResponse<T>> {
-        self.read_jsonrpc_message().await
+        loop {
+            let payload = self.read_frame().await?;
+            let value: serde_json::Value = match serde_json::from_slice(&payload) {
+                Ok(v) => v,
+                Err(error) => return Err(io::Error::new(io::ErrorKind::InvalidData, error)),
+            };
+
+            // If the message is a JSON-RPC notification (has method and no id, or no id field), skip it
+            if value.get("id").is_none() || value.get("method").is_some() {
+                continue;
+            }
+
+            return serde_json::from_value(value)
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error));
+        }
     }
 
     pub async fn request<TParams: Serialize, TResult: DeserializeOwned>(
