@@ -112,7 +112,7 @@ pub fn validate_task_graph(nodes: &[TaskNode]) -> Result<(), String> {
                             "Error: Sequential Control Enforcement. You cannot start or complete task '{}' because a preceding sibling task '{}' is currently '{:?}'{}.\n\n\
                              HOW TO PROCEED:\n\
                              1. Execute preceding task '{}' (\"{}\") first.\n\
-                             2. If preceding task '{}' is unnecessary or unneeded, update its status to 'failed' (or remove it) to mark it as skipped (-).\n\
+                             2. If the work for preceding task '{}' was already fulfilled in a subtask or earlier step, mark '{}' as 'completed' (or 'failed' to skip) in the same TaskGraph 'update_status' call.\n\
                              3. If task '{}' needs further breakdown, add sub-tasks under it using operation: \"add\" (with parent_id: \"{}\").",
                             sibling.id,
                             prev_sibling.id,
@@ -120,6 +120,7 @@ pub fn validate_task_graph(nodes: &[TaskNode]) -> Result<(), String> {
                             parent_info,
                             prev_sibling.id,
                             prev_sibling.content.as_deref().unwrap_or(""),
+                            prev_sibling.id,
                             prev_sibling.id,
                             prev_sibling.id,
                             prev_sibling.id
