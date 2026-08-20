@@ -83,7 +83,7 @@ use api::{
 };
 
 use crate::init::initialize_repo;
-use crate::render::{MarkdownStreamState, Spinner, TerminalRenderer};
+use crate::render::{Spinner, TerminalRenderer};
 use commands::{
     classify_skills_slash_command, handle_agents_slash_command, handle_agents_slash_command_json,
     handle_mcp_slash_command, handle_mcp_slash_command_json, handle_plugins_slash_command,
@@ -9219,8 +9219,6 @@ impl AnthropicRuntimeClient {
             &mut sink
         };
         let emit_ndjson = self.output_format == CliOutputFormat::Ndjson;
-        let renderer = TerminalRenderer::new();
-        let mut markdown_stream = MarkdownStreamState::default();
         let mut events = Vec::new();
         let mut pending_tool: Option<(String, String, String, Option<String>)> = None;
         // 累积 reasoning_content 到 Thinking 块（修复 DeepSeek V4 reasoning_content 协议 bug）
@@ -9296,11 +9294,9 @@ impl AnthropicRuntimeClient {
                                     serde_json::json!({ "type": "assistant_text_delta", "text": &text })
                                 );
                             }
-                            if let Some(rendered) = markdown_stream.push(&renderer, &text) {
-                                write!(out, "{rendered}")
-                                    .and_then(|()| out.flush())
-                                    .map_err(|error| RuntimeError::new(error.to_string()))?;
-                            }
+                            write!(out, "{text}")
+                                .and_then(|()| out.flush())
+                                .map_err(|error| RuntimeError::new(error.to_string()))?;
                             events.push(AssistantEvent::TextDelta(text));
                         }
                     }
@@ -9330,11 +9326,6 @@ impl AnthropicRuntimeClient {
                 },
                 ApiStreamEvent::ContentBlockStop(_) => {
                     block_has_thinking_summary = false;
-                    if let Some(rendered) = markdown_stream.flush(&renderer) {
-                        write!(out, "{rendered}")
-                            .and_then(|()| out.flush())
-                            .map_err(|error| RuntimeError::new(error.to_string()))?;
-                    }
                     // 把累积的 thinking 转成 AssistantEvent::Thinking（让 build_assistant_message 写入 session）
                     if let Some((thinking, signature)) = pending_thinking.take() {
                         events.push(AssistantEvent::Thinking {
@@ -9363,14 +9354,14 @@ impl AnthropicRuntimeClient {
                 }
                 ApiStreamEvent::MessageStop(_) => {
                     saw_stop = true;
-                    if let Some(rendered) = markdown_stream.flush(&renderer) {
-                        write!(out, "{rendered}")
-                            .and_then(|()| out.flush())
-                            .map_err(|error| RuntimeError::new(error.to_string()))?;
-                    }
                     events.push(AssistantEvent::MessageStop);
                 }
             }
+        }
+
+        if events.iter().any(|event| matches!(event, AssistantEvent::TextDelta(text) if !text.is_empty())) {
+            let _ = writeln!(out);
+            let _ = out.flush();
         }
 
         push_prompt_cache_record(&self.client, &mut events);
