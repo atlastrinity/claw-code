@@ -366,6 +366,24 @@ impl LiveCli {
         permission_mode: PermissionMode,
         extra_sections: Vec<String>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
+        Self::new_with_output_format(
+            model,
+            enable_tools,
+            tools,
+            permission_mode,
+            extra_sections,
+            crate::cli::CliOutputFormat::Text,
+        )
+    }
+
+    pub fn new_with_output_format(
+        model: String,
+        enable_tools: bool,
+        tools: Option<AllowedToolSet>,
+        permission_mode: PermissionMode,
+        extra_sections: Vec<String>,
+        output_format: crate::cli::CliOutputFormat,
+    ) -> Result<Self, Box<dyn std::error::Error>> {
         let session_state = new_cli_session()?;
         let session = create_managed_session_handle(&session_state.session_id)?;
         let system_prompt = build_system_prompt(&model, Some(&session.id), extra_sections)?;
@@ -375,7 +393,7 @@ impl LiveCli {
             model.clone(),
             system_prompt.clone(),
             enable_tools,
-            crate::cli::CliOutputFormat::Text,
+            output_format,
             tools.clone(),
             permission_mode,
             None,
@@ -459,27 +477,6 @@ impl LiveCli {
                 .collect(),
         ))
     }
-    fn prepare_turn_runtime(
-        &self,
-        output_format: crate::cli::CliOutputFormat,
-    ) -> Result<(BuiltRuntime, HookAbortMonitor), Box<dyn std::error::Error>> {
-        let hook_abort_signal = runtime::HookAbortSignal::new();
-        let runtime = build_runtime(
-            self.runtime.session().clone(),
-            &self.session.id,
-            self.model.clone(),
-            self.system_prompt.clone(),
-            true,
-            output_format,
-            self.tools.clone(),
-            self.permission_mode,
-            None,
-        )?
-        .with_hook_abort_signal(hook_abort_signal.clone());
-        let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
-
-        Ok((runtime, hook_abort_monitor))
-    }
     fn replace_runtime(&mut self, runtime: BuiltRuntime) -> Result<(), Box<dyn std::error::Error>> {
         self.runtime.shutdown_plugins()?;
         self.runtime = runtime;
@@ -487,8 +484,9 @@ impl LiveCli {
     }
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(input_len = input.len(), session_id = %self.session.id, "starting turn");
-        let (mut runtime, hook_abort_monitor) =
-            self.prepare_turn_runtime(crate::cli::CliOutputFormat::Text)?;
+        let hook_abort_signal = runtime::HookAbortSignal::new();
+        self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
+        let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
         let mut spinner = Spinner::new();
         let mut stdout = io::stdout();
         spinner.tick(
@@ -497,11 +495,10 @@ impl LiveCli {
             &mut stdout,
         )?;
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
-        let result = runtime.run_turn(input, Some(&mut permission_prompter));
+        let result = self.runtime.run_turn(input, Some(&mut permission_prompter));
         hook_abort_monitor.stop();
         match result {
             Ok(summary) => {
-                self.replace_runtime(runtime)?;
                 tracing::info!(
                     iterations = summary.iterations,
                     tool_results = summary.tool_results.len(),
@@ -512,6 +509,10 @@ impl LiveCli {
                     TerminalRenderer::new().color_theme(),
                     &mut stdout,
                 )?;
+                let final_text = final_assistant_text(&summary);
+                if !final_text.is_empty() {
+                    println!("{final_text}");
+                }
                 println!();
                 if let Some(event) = summary.auto_compaction {
                     println!(
@@ -523,7 +524,6 @@ impl LiveCli {
                 Ok(())
             }
             Err(error) => {
-                runtime.shutdown_plugins()?;
                 tracing::warn!(error = %error, "turn failed");
                 spinner.fail(
                     "❌ Request failed",
@@ -580,7 +580,7 @@ impl LiveCli {
                             "  Server context window: {} tokens — setting auto-compaction threshold to {}",
                             window, threshold
                         );
-                        runtime.set_auto_compaction_input_tokens_threshold(threshold);
+                        self.runtime.set_auto_compaction_input_tokens_threshold(threshold);
                     }
 
                     // A single compaction pass may not free enough context space.
@@ -604,7 +604,7 @@ impl LiveCli {
 
                         // Run Trident pipeline then summary-based compaction
                         let result = runtime::session::trident::trident_compact_session(
-                            runtime.session(),
+                            self.runtime.session(),
                             CompactionConfig {
                                 preserve_recent_messages: preserve,
                                 max_estimated_tokens: 0,
@@ -630,20 +630,18 @@ impl LiveCli {
                             );
                         }
 
-                        // Without this, prepare_turn_runtime() reads from self.runtime.session()
-                        // which still holds the ORIGINAL un-compacted session, so every retry round
-                        // would send the same bloated request — compaction was wasted.
+                        // Update session in-place
                         *self.runtime.session_mut() = result.compacted_session.clone();
 
-                        // Build a new runtime with the compacted session and retry
-                        let (mut new_runtime, hook_abort_monitor) =
-                            self.prepare_turn_runtime(crate::cli::CliOutputFormat::Text)?;
-                        drop(hook_abort_monitor);
-
+                        let hook_abort_signal = runtime::HookAbortSignal::new();
+                        self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
+                        let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
                         let mut rp = CliPermissionPrompter::new(self.permission_mode);
-                        match new_runtime.run_turn(input, Some(&mut rp)) {
+                        let retry_result = self.runtime.run_turn(input, Some(&mut rp));
+                        hook_abort_monitor.stop();
+
+                        match retry_result {
                             Ok(summary) => {
-                                self.replace_runtime(new_runtime)?;
                                 spinner.finish(
                                     if round == 0 {
                                         "✨ Done (after auto-compact)"
@@ -685,19 +683,13 @@ impl LiveCli {
                                         extract_context_window_tokens_from_error(&retry_str)
                                     {
                                         let threshold: u32 = (window as f64 * 0.7).round() as u32;
-                                        new_runtime
+                                        self.runtime
                                             .set_auto_compaction_input_tokens_threshold(threshold);
                                     }
-
-                                    // The compacted session was still too large for the model's context.
-                                    // Shut down the old runtime, adopt the partially-compacted one,
-                                    // and loop — the next round will compact more aggressively.
-                                    runtime.shutdown_plugins()?;
-                                    runtime = new_runtime;
                                     continue;
                                 }
 
-                                // Not a context window error, or out of rounds
+                                self.persist_session()?;
                                 return Err(Box::new(retry_error));
                             }
                         }
@@ -735,8 +727,9 @@ impl LiveCli {
                             current_timeout_secs.to_string(),
                         );
 
-                        let (mut new_runtime, new_monitor) =
-                            self.prepare_turn_runtime(crate::cli::CliOutputFormat::Text)?;
+                        let hook_abort_signal = runtime::HookAbortSignal::new();
+                        self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
+                        let new_monitor = HookAbortMonitor::spawn(hook_abort_signal);
                         let mut new_prompter = CliPermissionPrompter::new(self.permission_mode);
 
                         let mut spinner = Spinner::new();
@@ -747,7 +740,7 @@ impl LiveCli {
                             &mut stdout,
                         )?;
 
-                        let retry_result = new_runtime.run_turn(input, Some(&mut new_prompter));
+                        let retry_result = self.runtime.run_turn(input, Some(&mut new_prompter));
                         new_monitor.stop();
 
                         match retry_result {
@@ -758,7 +751,6 @@ impl LiveCli {
                                     std::env::remove_var("CLAW_API_REQUEST_TIMEOUT");
                                 }
 
-                                self.replace_runtime(new_runtime)?;
                                 spinner.finish(
                                     "✨ Done",
                                     TerminalRenderer::new().color_theme(),
@@ -775,7 +767,6 @@ impl LiveCli {
                                 return Ok(());
                             }
                             Err(retry_error) => {
-                                new_runtime.shutdown_plugins()?;
                                 spinner.fail(
                                     "❌ Request failed",
                                     TerminalRenderer::new().color_theme(),
@@ -809,6 +800,7 @@ impl LiveCli {
                                 } else {
                                     std::env::remove_var("CLAW_API_REQUEST_TIMEOUT");
                                 }
+                                self.persist_session()?;
                                 return Err(Box::new(retry_error));
                             }
                         }
@@ -816,6 +808,7 @@ impl LiveCli {
                 }
 
                 // If not a context window or network error, return original error
+                self.persist_session()?;
                 Err(Box::new(error))
             }
         }
@@ -838,13 +831,13 @@ impl LiveCli {
         }
     }
     fn run_prompt_compact(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
-        let (mut runtime, hook_abort_monitor) =
-            self.prepare_turn_runtime(crate::cli::CliOutputFormat::Json)?;
+        let hook_abort_signal = runtime::HookAbortSignal::new();
+        self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
+        let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
-        let result = runtime.run_turn(input, Some(&mut permission_prompter));
+        let result = self.runtime.run_turn(input, Some(&mut permission_prompter));
         hook_abort_monitor.stop();
         let summary = result?;
-        self.replace_runtime(runtime)?;
         self.persist_session()?;
         let final_text = final_assistant_text(&summary);
         println!("{final_text}");
@@ -855,12 +848,13 @@ impl LiveCli {
         input: &str,
         output_format: crate::cli::CliOutputFormat,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(output_format)?;
+        let hook_abort_signal = runtime::HookAbortSignal::new();
+        self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
+        let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
-        let result = runtime.run_turn(input, Some(&mut permission_prompter));
+        let result = self.runtime.run_turn(input, Some(&mut permission_prompter));
         hook_abort_monitor.stop();
         let summary = result?;
-        self.replace_runtime(runtime)?;
         self.persist_session()?;
 
         if output_format == crate::cli::CliOutputFormat::Ndjson {
@@ -901,12 +895,13 @@ impl LiveCli {
         input: &str,
         output_format: crate::cli::CliOutputFormat,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let (mut runtime, hook_abort_monitor) = self.prepare_turn_runtime(output_format)?;
+        let hook_abort_signal = runtime::HookAbortSignal::new();
+        self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
+        let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
-        let result = runtime.run_turn(input, Some(&mut permission_prompter));
+        let result = self.runtime.run_turn(input, Some(&mut permission_prompter));
         hook_abort_monitor.stop();
         let summary = result?;
-        self.replace_runtime(runtime)?;
         self.persist_session()?;
 
         if output_format == crate::cli::CliOutputFormat::Ndjson {

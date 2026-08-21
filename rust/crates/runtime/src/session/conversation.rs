@@ -220,6 +220,10 @@ where
         self
     }
 
+    pub fn set_hook_abort_signal(&mut self, hook_abort_signal: HookAbortSignal) {
+        self.hook_abort_signal = hook_abort_signal;
+    }
+
     #[must_use]
     pub fn with_hook_progress_reporter(
         mut self,

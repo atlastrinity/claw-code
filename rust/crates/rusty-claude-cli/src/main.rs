@@ -699,7 +699,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 extra_sections.push(content);
             }
             
-            let mut cli = LiveCli::new(resolved_model, true, tools, permission_mode, extra_sections)?;
+            let runtime_format = if compact && output_format == CliOutputFormat::Text {
+                CliOutputFormat::Json
+            } else {
+                output_format
+            };
+            let mut cli = LiveCli::new_with_output_format(resolved_model, true, tools, permission_mode, extra_sections, runtime_format)?;
             cli.set_reasoning_effort(reasoning_effort);
             cli.run_turn_with_output(&effective_prompt, output_format, compact)?;
         }
@@ -813,20 +818,47 @@ fn cleanup_orphaned_processes() {
     sys.refresh_all();
     let current_pid = std::process::id();
     
-    let targets = ["claw", "xcodebuildmcp", "mcp-server-macos-use", "claw-analog"];
+    // Only target known background MCP helper servers, NOT the main CLI binaries (claw, claw-analog).
+    // Killing "claw" or "claw-analog" causes child commands or parallel terminal sessions to kill their parent!
+    let targets = [
+        "playwright-mcp-server",
+        "server-sequential-thinking",
+        "asc-mcp",
+        "firebase-tools",
+        "mcp-server-github",
+        "server-github",
+        "ios-simulator-mcp",
+        "mcp-remote",
+        "xcode_mcp_wrapper",
+        "swiftlens",
+        "mcp_proxy_bundle.js",
+        "pyscn-mcp",
+    ];
     
     for (pid, process) in sys.processes() {
         if pid.as_u32() == current_pid {
             continue;
         }
         let name_str = process.name().to_string_lossy().to_lowercase();
+        let cmd_str = process
+            .cmd()
+            .iter()
+            .map(|s| s.to_string_lossy().to_lowercase())
+            .collect::<Vec<_>>()
+            .join(" ");
+
         let is_target = targets.iter().any(|&t| {
-            name_str == t || name_str.ends_with(&format!("/{}", t))
+            name_str == t
+                || name_str.ends_with(&format!("/{}", t))
+                || cmd_str.contains(t)
         });
         
         if is_target {
-            tracing::info!("Killing zombie process: {} (PID: {})", name_str, pid);
-            process.kill();
+            let is_orphaned = process.parent().map_or(true, |ppid| ppid.as_u32() == 1);
+            if is_orphaned {
+                tracing::info!("Killing orphaned daemon process: {} (PID: {})", name_str, pid);
+                process.kill();
+            }
         }
     }
 }

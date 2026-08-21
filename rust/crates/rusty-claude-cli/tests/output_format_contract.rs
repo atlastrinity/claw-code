@@ -3173,7 +3173,7 @@ fn tools_errors_have_typed_json_and_alias_map_432() {
     let missing = run_claw(
         &root,
         &["--allowedTools", "status", "--output-format", "json"],
-        &[],
+        &[("HOME", root.to_str().expect("utf8"))],
     );
     assert_eq!(missing.status.code(), Some(1));
     assert!(
@@ -3191,7 +3191,7 @@ fn tools_errors_have_typed_json_and_alias_map_432() {
     let invalid = run_claw(
         &root,
         &["--output-format", "json", "--allowedTools", "teleport"],
-        &[],
+        &[("HOME", root.to_str().expect("utf8"))],
     );
     assert_eq!(invalid.status.code(), Some(1));
     assert!(

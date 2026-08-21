@@ -561,14 +561,19 @@ fn strip_ansi_codes(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
     while let Some(ch) = chars.next() {
-        if ch == '\u{1b}' && matches!(chars.peek(), Some('[')) {
-            chars.next();
-            while let Some(next) = chars.next() {
-                if ('@'..='~').contains(&next) {
-                    break;
+        if ch == '\u{1b}' {
+            if matches!(chars.peek(), Some('[')) {
+                chars.next();
+                while let Some(next) = chars.next() {
+                    if ('@'..='~').contains(&next) {
+                        break;
+                    }
                 }
+                continue;
+            } else if matches!(chars.peek(), Some('7' | '8' | '=' | '>')) {
+                chars.next();
+                continue;
             }
-            continue;
         }
         output.push(ch);
     }
