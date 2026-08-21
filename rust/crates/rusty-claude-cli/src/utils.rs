@@ -9366,6 +9366,39 @@ impl AnthropicRuntimeClient {
 
         push_prompt_cache_record(&self.client, &mut events);
 
+        let has_tool_use = events.iter().any(|event| matches!(event, AssistantEvent::ToolUse { .. }));
+        if !has_tool_use {
+            let full_text: String = events
+                .iter()
+                .filter_map(|event| match event {
+                    AssistantEvent::TextDelta(t) => Some(t.as_str()),
+                    _ => None,
+                })
+                .collect();
+            if let Some((recovered_name, recovered_input)) = runtime::parse_textual_tool_call(&full_text) {
+                let id = format!(
+                    "tool_rec_{}",
+                    std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_millis()
+                );
+                let input_str = recovered_input.to_string();
+                if let Some(progress_reporter) = &self.progress_reporter {
+                    progress_reporter.mark_tool_phase(&recovered_name, &input_str);
+                }
+                let _ = writeln!(out, "\n{}", format_tool_call_start(&recovered_name, &input_str));
+                let _ = out.flush();
+                events.retain(|e| !matches!(e, AssistantEvent::TextDelta(_)));
+                events.push(AssistantEvent::ToolUse {
+                    id,
+                    name: recovered_name,
+                    input: input_str,
+                    signature: None,
+                });
+            }
+        }
+
         if !saw_stop
             && events.iter().any(|event| {
                 matches!(event, AssistantEvent::TextDelta(text) if !text.is_empty())

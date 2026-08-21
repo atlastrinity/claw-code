@@ -76,7 +76,7 @@ pub use config_validate::{
     DiagnosticKind, ValidationResult,
 };
 pub use crate::session::conversation::{
-    auto_compaction_threshold_from_env, ApiClient, ApiRequest, AssistantEvent, AutoCompactionEvent,
+    auto_compaction_threshold_from_env, parse_textual_tool_call, ApiClient, ApiRequest, AssistantEvent, AutoCompactionEvent,
     ConversationRuntime, PromptCacheEvent, RuntimeError, StaticToolExecutor, ToolError,
     ToolExecutor, TurnSummary,
 };
