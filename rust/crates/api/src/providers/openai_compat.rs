@@ -334,6 +334,9 @@ impl OpenAiCompatClient {
         };
         request.model = canonical;
 
+        let estimated_tokens = crate::client::estimate_request_tokens(&request);
+        let _lock = crate::client::ProviderClient::apply_api_pause(&request.model, estimated_tokens).await;
+
         preflight_message_request(&request)?;
         let response = self.send_with_retry(&request).await?;
         let request_id = request_id_from_headers(response.headers());
@@ -388,6 +391,9 @@ impl OpenAiCompatClient {
 
         let mut streaming_request = request.clone().with_streaming();
         streaming_request.model = canonical;
+
+        let estimated_tokens = crate::client::estimate_request_tokens(&streaming_request);
+        let _lock = crate::client::ProviderClient::apply_api_pause(&streaming_request.model, estimated_tokens).await;
 
         preflight_message_request(&streaming_request)?;
         let response = self.send_with_retry(&streaming_request).await?;

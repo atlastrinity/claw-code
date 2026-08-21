@@ -75,7 +75,7 @@ static GLM_LIMITER: OnceLock<TpmRateLimiter> = OnceLock::new();
 static GEMINI_LIMITER: OnceLock<TpmRateLimiter> = OnceLock::new();
 static DEFAULT_LIMITER: OnceLock<TpmRateLimiter> = OnceLock::new();
 
-fn estimate_request_tokens(request: &MessageRequest) -> usize {
+pub(crate) fn estimate_request_tokens(request: &MessageRequest) -> usize {
     let mut total_bytes = 0;
     if let Some(ref system) = request.system {
         total_bytes += system.len();
@@ -110,7 +110,7 @@ fn estimate_request_tokens(request: &MessageRequest) -> usize {
     total_bytes / 2
 }
 
-struct ApiLockGuard {
+pub(crate) struct ApiLockGuard {
     lock_path: std::path::PathBuf,
 }
 
@@ -337,23 +337,23 @@ impl ProviderClient {
     }
 
 
-async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLockGuard> {
+pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLockGuard> {
     let home = std::env::var("HOME").unwrap_or_default();
     if !home.is_empty() {
         let lock_path = std::path::Path::new(&home).join(".claw/narration.lock");
         let max_wait_secs: u64 = std::env::var("CLAW_TTS_WAIT_SECS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or(25);
+            .unwrap_or(30);
         let start = std::time::Instant::now();
-        // Give background voice narrator a 300ms grace window to detect the new turn and acquire lock
-        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        // Give background voice narrator a brief window to detect new session entry and touch lock
+        tokio::time::sleep(std::time::Duration::from_millis(40)).await;
         while lock_path.exists() {
             if start.elapsed().as_secs() > max_wait_secs {
                 let _ = std::fs::remove_file(&lock_path);
                 break;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
     }
 
@@ -364,9 +364,6 @@ async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLock
             }
         }
     }
-
-    // Default rate limit sleep of 1 second between requests
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
 
     // Apply model-specific TPM rate limiting
     let mut limit = if model.contains("glm") {
