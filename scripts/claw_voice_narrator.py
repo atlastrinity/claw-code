@@ -1221,7 +1221,7 @@ def summarize_tool_action_via_llm(tool_name: str, params: dict) -> str:
 def summarize_taskgraph_via_llm(op: str, nodes: list, descriptions: dict) -> str:
     """Summarize task graph status updates for Tetiana via the narration LLM into natural, concise Ukrainian."""
     if op == "add" and (not nodes or len(nodes) > 3):
-        return "Склала покроковий план завдань."
+        return "Склала покроковий план завдань та розпочинаю координацію."
 
     task_items = []
     for n in (nodes or []):
@@ -1232,16 +1232,17 @@ def summarize_taskgraph_via_llm(op: str, nodes: list, descriptions: dict) -> str
             task_items.append(f"Task: '{content}', Status: '{status}'")
 
     if not task_items:
-        return "Оновила структуру завдань у графіку."
+        return "Оновила порядок виконання завдань."
 
     system_prompt = (
-        "You are Tetiana, a female Ukrainian coordinator. "
-        "Summarize the task update concisely in Ukrainian. "
+        "You are Tetiana, a professional female Ukrainian task coordinator. "
+        "Summarize the task progression naturally and elegantly in 1 short Ukrainian sentence. "
         "RULES: "
-        "1. ZERO tool names, function names, MCP names (no 'MCP', 'Playwright', 'TaskGraph', 'McpSearch', 'grep_search'). You MAY mention filenames. "
-        "2. Completed -> 'Зафіксувала...' / In progress -> 'Переходимо до...' "
-        "3. Feminine verbs only ('Склала', 'Зафіксувала', 'Оновила'). "
-        "4. Keep between 4 and 10 words. Output ONLY Ukrainian."
+        "1. ZERO technical keywords or tool names (no 'TaskGraph', 'MCP', 'node', 'функція', 'скрипт'). "
+        "2. Avoid rigid robotic templates like 'Зафіксувала виконання:' or 'Переходимо до:'. "
+        "3. Speak naturally, like a real coordinator updating a team (e.g. 'Пошук завершено, тепер переглядаємо фільми на сайті', 'Перший крок готовий, переходимо до порівняння рейтингів'). "
+        "4. Feminine grammatical gender, confident and pleasant tone. "
+        "5. Length: 5-12 words. Output ONLY Ukrainian text."
     )
     user_payload = f"Operation: {op}\nTasks: {'; '.join(task_items[:2])}"
     return call_narration_llm_chain(system_prompt, user_payload)
@@ -1279,15 +1280,16 @@ def narrate_tool_result_via_llm(tool_name: str, action_desc: str, is_error: bool
 
     prompt_system = (
         "You are Grisha, a male Ukrainian quality control specialist. "
-        "Summarize the problem or correction in 1 concise Ukrainian sentence. "
-        "RULES: 1. NO agent names (Атлас, Тетяна, Гріша), no tool names (grep_search, mcp__*, TaskGraph). You MAY mention filenames. "
-        "2. State what went wrong concretely. "
-        "3. Masculine verbs ('виявив', 'зафіксував', 'потрібно'). "
-        "4. ZERO tool or function names. "
+        "Summarize the actual problem or correction in 1 concise Ukrainian sentence. "
+        "RULES: "
+        "1. NO agent names (Атлас, Тетяна, Гріша), no tool names (grep_search, mcp__*, TaskGraph). You MAY mention relevant filenames from the output. "
+        "2. Do NOT invent or hallucinate unrelated errors, files, or languages (e.g. Swift, C++, tests) that are not present in the output. Stick strictly to the provided output. "
+        "3. State what went wrong concretely and clearly. "
+        "4. Masculine verbs ('виявив', 'зафіксував', 'потрібно'). "
         "5. Keep between 8 and 15 words. Output ONLY Ukrainian."
     )
     
-    prompt_user = f"Tool: '{action_desc}'. Output / issue detected: '{output_summary}'."
+    prompt_user = f"Action: '{action_desc}'. Output / issue detected: '{output_summary}'."
     return call_narration_llm_chain(prompt_system, prompt_user)
 
 
@@ -1603,10 +1605,9 @@ def get_heuristic_tool_use_ua(tool_name: str, params: dict) -> tuple[str, str]:
 
 def get_heuristic_taskgraph_ua(op: str, nodes: list, descriptions: dict) -> tuple[str, str]:
     if op == "add":
-        # Check if adding the initial roadmap
         has_progress = any(n.get("status") in ("in_progress", "completed") for n in (nodes or []))
         if not has_progress or len(nodes) > 2:
-            return "Склала покроковий план завдань.", "формування плану"
+            return "Сформувала покроковий план завдань та розпочинаю координацію.", "формування плану"
 
     for n in (nodes or []):
         nid = n.get("id")
@@ -1621,28 +1622,37 @@ def get_heuristic_taskgraph_ua(op: str, nodes: list, descriptions: dict) -> tupl
             elif "search" in c_low or "фільм" in c_low or "movie" in c_low:
                 topic = "пошук фільмів онлайн"
             elif "analy" in c_low or "rating" in c_low or "page" in c_low:
-                topic = "аналіз результатів та рейтингів"
+                topic = "аналіз рейтингів"
             elif "full" in c_low or "screen" in c_low:
-                topic = "розгортання фільму на весь екран"
+                topic = "розгортання відео на повний екран"
             elif "verify" in c_low or "ad" in c_low or "play" in c_low:
-                topic = "перевірка відтворення відео"
+                topic = "перевірка відтворення"
             else:
-                # Extract clean cyrillic words
                 cyrillic = re.findall(r'[\u0400-\u04FF\w]+', content)
-                topic = " ".join(cyrillic[:4]) if cyrillic else "виконання кроку"
+                topic = " ".join(cyrillic[:4]) if cyrillic else "поточного етапу"
 
             if "completed" in status:
-                return f"Зафіксувала виконання: {topic}.", "оновлення статусу завдань"
+                phrases = [
+                    f"Цей етап завершено: {topic}.",
+                    f"Успішно виконали: {topic}.",
+                    f"Крок готовий: {topic}."
+                ]
+                return random.choice(phrases), "оновлення статусу завдань"
             elif "in_progress" in status or "inprogress" in status:
-                return f"Переходимо до: {topic}.", "оновлення статусу завдань"
+                phrases = [
+                    f"Тепер виконуємо: {topic}.",
+                    f"Наступне завдання: {topic}.",
+                    f"Беремо в роботу: {topic}."
+                ]
+                return random.choice(phrases), "оновлення статусу завдань"
             elif "failed" in status:
-                return f"Зафіксувала проблему: {topic}.", "оновлення статусу завдань"
+                return f"На цьому кроці виникла перешкода, коригуємо план.", "оновлення статусу завдань"
             else:
-                return f"Оновила статус: {topic}.", "оновлення статусу завдань"
+                return f"Оновила статус завдання: {topic}.", "оновлення статусу завдань"
 
     if op == "update_status":
         return "Оновила статус завдань у графіку.", "оновлення статусу завдань"
-    return "Склала покроковий план завдань.", "формування плану"
+    return "Сформувала покроковий план завдань та розпочинаю координацію.", "формування плану"
 
 
 def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
