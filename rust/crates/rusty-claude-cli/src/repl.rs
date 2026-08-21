@@ -12,7 +12,20 @@ pub(crate) fn decide_autonomous_continuation(
     auto_decide_env: bool,
 ) -> (bool, String) {
     let trimmed = last_assistant_text.trim();
-    let is_question = trimmed.ends_with('?') || trimmed.contains("Please review") || trimmed.contains("let me know");
+    let lower = trimmed.to_lowercase();
+    let is_question = trimmed.contains('?')
+        || lower.contains("please review")
+        || lower.contains("let me know")
+        || lower.contains("waiting for")
+        || lower.contains("confirm")
+        || lower.contains("дайте знати")
+        || lower.contains("дайте мені знати")
+        || lower.contains("повідомте")
+        || lower.contains("підтвердіть")
+        || lower.contains("підтвердження")
+        || lower.contains("чекаю на")
+        || lower.contains("чекаю вашого")
+        || lower.contains("чекаю");
 
     // Grisha Simulation Check: detect plain-text simulated tool calls
     if let Err(sim_err) = tools::grisha::GrishaSimulationDetector::check_assistant_text_for_simulated_tool_call(last_assistant_text) {
@@ -2011,6 +2024,15 @@ mod tests {
         let (should_continue, prompt) = decide_autonomous_continuation(text, Some(task_md), false, false);
         assert!(should_continue);
         assert!(prompt.contains("TaskGraph"));
+    }
+
+    #[test]
+    fn test_active_task_with_ukrainian_question_and_emoji_waits_for_user() {
+        let text = "Ви підтвердили вік у спливаючому вікні? Дайте мені знати, коли буде готово! 🚀";
+        let task_md = "# Tasks\n- [ ] Implement feature A\n";
+        let (should_continue, prompt) = decide_autonomous_continuation(text, Some(task_md), false, false);
+        assert!(!should_continue);
+        assert!(prompt.is_empty());
     }
 
     #[test]

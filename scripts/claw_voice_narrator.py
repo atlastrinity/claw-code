@@ -397,7 +397,7 @@ class VoicePlayer:
                 )
                 try:
                     stdout, stderr = self.current_proc.communicate(timeout=120.0)  # Timeout after 120 seconds
-                    if self.current_proc.returncode != 0:
+                    if self.current_proc.returncode not in (0, -2, -15):
                         print(f"\n{COLORS['grisha']}⚠️ afplay повернув код {self.current_proc.returncode}{COLORS['reset']}")
                         if stderr:
                             print(f"  Помилка: {stderr.strip()}")

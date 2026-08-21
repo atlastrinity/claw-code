@@ -187,6 +187,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                             || path_str.ends_with(".sqlite-journal")
                             || path_str.ends_with(".sqlite-wal")
                             || path_str.ends_with(".sqlite-shm")
+                            || path_str.ends_with("task.md")
+                            || path_str.ends_with(".lock")
                     });
                     if !should_ignore {
                         let _ = tx.blocking_send(());
@@ -232,16 +234,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     std::thread::sleep(std::time::Duration::from_secs(backoff_secs));
                 }
 
-                eprintln!(
-                    "[claw-rag-service] Detected file changes. Triggering automatic ingest..."
-                );
-                tracing::info!("detected file changes, triggering auto-ingest");
                 if let Ok(cfg) = resolve_embed_config() {
                     let client = new_http_client();
                     match handle.block_on(run_ingest(&serve_workspaces, &db_path, &cfg, &client)) {
                         Ok(st) => {
                             consecutive_failures = 0;
-                            if st.chunks_total > 0 || st.files_indexed > 0 {
+                            if st.embeddings_written > 0 {
                                 tracing::info!(
                                     files = st.files_indexed,
                                     chunks = st.chunks_total,

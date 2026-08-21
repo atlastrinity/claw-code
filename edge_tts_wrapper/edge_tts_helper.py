@@ -54,15 +54,26 @@ class EdgeTTSHelper:
             temp_mp3_path = temp_mp3.name
 
         try:
-            # 1. Run edge-tts to generate mp3
-            subprocess.run([
-                "edge-tts",
-                "--voice", voice,
-                "--text", text,
-                f"--rate={rate}",
-                f"--pitch={pitch}",
-                "--write-media", temp_mp3_path
-            ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120.0)
+            # 1. Run edge-tts to generate mp3 with up to 3 retries
+            import time
+            last_err = None
+            for attempt in range(3):
+                try:
+                    subprocess.run([
+                        "edge-tts",
+                        "--voice", voice,
+                        "--text", text,
+                        f"--rate={rate}",
+                        f"--pitch={pitch}",
+                        "--write-media", temp_mp3_path
+                    ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=120.0)
+                    last_err = None
+                    break
+                except Exception as e:
+                    last_err = e
+                    time.sleep(0.5 * (attempt + 1))
+            if last_err is not None:
+                raise last_err
             
             # 2. Convert mp3 to WAV using ffmpeg, appending 400ms tail silence to prevent audio clipping
             subprocess.run([
