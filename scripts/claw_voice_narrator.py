@@ -1132,10 +1132,14 @@ def translate_and_summarize_thinking(text: str) -> str:
 
 def summarize_assistant_response_via_llm(text: str, is_final: bool = False) -> str:
     """
-    Uses the secondary narration model to prepare assistant user-facing text for Atlas TTS.
-    - If is_final == True (Final conclusion before Done): Provides a full, rich, conversational conclusion (up to 4000 chars, up to 300 words),
-      preserving all key findings and structured points without abrupt cutting.
-    - If is_final == False (Intermediate step): Formulates a concise 1-2 sentence intermediate progress update (10-25 words).
+    Prepares assistant user-facing text for Atlas TTS:
+    1. Short/conversational answers (greetings, direct short replies <= 50 words):
+       - Directly voiced verbatim without alteration (only cleaned of emojis and formatting).
+    2. Long responses / reports before Done:
+       - Structured into a clear, laconic spoken summary via LLM (up to 200 words),
+         preserving all actual conclusions and key findings without cutting.
+    3. Intermediate steps during tool turns:
+       - Summarized into 1 concise sentence.
     """
     if not text or not text.strip():
         return ""
@@ -1144,31 +1148,44 @@ def summarize_assistant_response_via_llm(text: str, is_final: bool = False) -> s
     if not clean_text or not clean_text.strip():
         return ""
 
-    # Replace markdown code blocks with a speech-friendly indicator
+    has_complex_formatting = bool(
+        "```" in text or "http" in text or "###" in text or "|" in text or 
+        re.search(r'^\s*[-*]\s+', text, re.MULTILINE) or 
+        re.search(r'^\s*\d+\.\s+', text, re.MULTILINE)
+    )
+    words = clean_text.split()
+
+    # Pre-clean text for speech
     clean_prompt_text = re.sub(r'```[\s\S]*?```', ' [фрагмент коду наведено на екрані] ', clean_text)
-    # Strip markdown links [text](url) -> text
     clean_prompt_text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', clean_prompt_text)
-    # Strip raw URLs
     clean_prompt_text = re.sub(r'https?://\S+', '', clean_prompt_text)
-    # Strip markdown formatting headers / pipes / asterisks
     clean_prompt_text = re.sub(r'^[ \t]*[#*-]+[ \t]*', '', clean_prompt_text, flags=re.MULTILINE)
     clean_prompt_text = clean_prompt_text.replace("|", " ").replace("---", " ").replace("###", " ")
     clean_prompt_text = re.sub(r'\s+', ' ', clean_prompt_text).strip()
 
-    if len(clean_prompt_text) < 5:
+    if len(clean_prompt_text) < 3:
         return ""
 
+    # 1. Пряме зачитування без змін для коротких/діалогових повідомлень (привітання, короткі відповіді)
+    if len(words) <= 50 and not ("```" in text or "|" in text):
+        return prepare_text_for_tts(clean_prompt_text)
+
+    # 2. Фінальне заключення перед Done
     if is_final:
-        # Full, thorough conclusion for the final answer before Done
+        # Якщо текст помірної довжини і без складного форматування — зачитуємо прямо
+        if len(words) <= 100 and not has_complex_formatting:
+            return smart_truncate_sentence(prepare_text_for_tts(clean_prompt_text), max_chars=4000)
+
+        # Для довгих звітів та аналізів — лаконічна, структурована подача через модель
         system_prompt = (
             "You are Atlas, the lead AI software engineer speaking to the user. "
-            "Convert the assistant's final response / conclusion into natural, fluent, spoken Ukrainian for text-to-speech. "
+            "Convert the assistant's long final answer / report into a clear, laconic, well-structured spoken Ukrainian delivery. "
             "RULES: "
-            "1. Preserve ALL key insights, findings, structural points, and conclusions without cutting off important context. "
-            "2. Do NOT compress this into a single sentence. Speak thoroughly, clearly, and engagingly (up to 6 to 10 complete sentences, up to 300 words). "
-            "3. Do NOT say raw code blocks, raw markdown tables, URLs, or technical syntax (express them naturally in conversational speech). "
-            "4. Masculine confident tone, professional Ukrainian. "
-            "5. Output ONLY the clean spoken Ukrainian text."
+            "1. Stick STRICTLY to the provided text context. Do NOT invent new facts or step outside the given content. "
+            "2. Preserve all core conclusions, findings, and key points in a clear spoken form (3 to 8 complete sentences, up to 200 words). "
+            "3. Do NOT read raw code, raw markdown tables, URLs, or file paths (express them naturally in speech). "
+            "4. Confident, pleasant, professional masculine Ukrainian voice. "
+            "5. Output ONLY the spoken Ukrainian text."
         )
         llm_spoken = call_narration_llm_chain(system_prompt, clean_prompt_text[:3500])
         if llm_spoken and len(llm_spoken.strip()) > 10:
@@ -1177,15 +1194,15 @@ def summarize_assistant_response_via_llm(text: str, is_final: bool = False) -> s
         # Fallback if LLM is unavailable: return full cleaned text up to 4000 characters
         return smart_truncate_sentence(prepare_text_for_tts(clean_prompt_text), max_chars=4000)
 
+    # 3. Проміжні кроки під час роботи інструментів
     else:
-        # Intermediate commentary during multi-step tool turns
-        if len(clean_prompt_text.split()) <= 15 and not any(k in text for k in ("http", "###", "|", ".net", ".com", ".org", "1.", "2.", "3.")):
-            return clean_prompt_text
+        if len(words) <= 15 and not has_complex_formatting:
+            return prepare_text_for_tts(clean_prompt_text)
 
         system_prompt = (
             "You are Atlas's voice narrator (software engineer). Summarize what was found or decided into 1-2 natural, conversational Ukrainian sentences (10 to 25 words). "
             "RULES: "
-            "1. NEVER read raw URLs, markdown links, website domain extensions (.net, .com.ua, .org), markdown headers, bullet points, or tables. "
+            "1. Stick strictly to the context. NEVER read raw URLs, domain extensions, markdown headers, bullet points, or tables. "
             "2. State the key finding or decision smoothly (e.g. 'Знайшов фільми на популярних сайтах, переходимо до перегляду.'). "
             "3. Output ONLY the clean spoken Ukrainian sentence."
         )
@@ -1193,7 +1210,6 @@ def summarize_assistant_response_via_llm(text: str, is_final: bool = False) -> s
         if llm_spoken and len(llm_spoken.strip()) > 3:
             return llm_spoken.strip()
 
-        # Emergency fallback: take first 2 sentences
         sentences = [s.strip() for s in clean_prompt_text.split('.') if s.strip()]
         if sentences:
             return ". ".join(sentences[:2]) + "."
