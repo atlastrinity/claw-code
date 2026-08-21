@@ -61,12 +61,15 @@
   },
   "availableMcpServers": {
     "playwright": {
-      "description": "Cross-browser automation (Chromium, Apple Safari WebKit, Firefox) via Playwright. Use for interactive web navigation, clicking elements, video playback, form filling, and taking screenshots.",
+      "description": "Cross-browser automation (Real Google Chrome on macOS, WebKit, Firefox) via Playwright. Uses real Google Chrome binary to prevent CAPTCHA. Use for interactive web navigation, clicking video players, filling forms, and fullscreen playback.",
       "command": "npx",
       "args": [
         "-y",
         "@executeautomation/playwright-mcp-server"
-      ]
+      ],
+      "env": {
+        "CHROME_EXECUTABLE_PATH": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+      }
     },
     "sequential-thinking": {
       "description": "Dynamic reasoning and step-by-step sequential thinking tool to plan complex tasks, structure root anchor phases, and prevent logic loops.",

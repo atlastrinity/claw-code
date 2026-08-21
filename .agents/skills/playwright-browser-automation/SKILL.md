@@ -12,11 +12,13 @@ This skill guides the agent in using Playwright MCP tools (`mcp__playwright__*`)
 > [!TIP]
 > **Dynamic Server Coupling:** Loading this skill automatically loads and connects the `playwright` MCP server. If browser binaries are ever reported missing by Playwright, the host environment installs them via `npx -y playwright@1.57.0 install chromium webkit firefox`.
 
-## 1. Supported Browsers
+## 1. Supported Browsers & Native macOS Chrome
 
-Playwright supports three major engine families on macOS:
+Playwright MCP is preconfigured to use your **official native macOS Google Chrome** (`/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` via `CHROME_EXECUTABLE_PATH`) with anti-bot detection prevention and real rendering fingerprints.
 
-- **`chromium`** (Default): Google Chrome, Microsoft Edge, Brave, Arc.
+Three major engine families are supported on macOS:
+
+- **`chromium`** (Default): Official Google Chrome on macOS.
 - **`webkit`**: Native Apple Safari engine for macOS.
 - **`firefox`**: Mozilla Firefox Gecko engine.
 
