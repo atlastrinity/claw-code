@@ -273,29 +273,39 @@ def prepare_text_for_tts(text: str) -> str:
     # 0. Прибирання емодзі та символів перед синтезом мови
     text = strip_emojis(text)
 
-    # 1. Спрощення шляхів та прибирання розширень (.py, .sh тощо)
+    # 1. Прибирання Markdown посилань [text](url) -> text
+    text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', text)
+
+    # 2. Прибирання сирих URL (https://... / http://...)
+    text = re.sub(r'https?://\S+', '', text)
+
+    # 3. Прибирання маркдаун синтаксису (###, ---, таблиці |, списки)
+    text = re.sub(r'^[ \t]*[#*-]+[ \t]*', '', text, flags=re.MULTILINE)
+    text = text.replace("|", " ").replace("---", " ").replace("###", " ")
+
+    # 4. Спрощення шляхів та прибирання розширень (.py, .sh тощо)
     text = simplify_path_for_speech(text)
 
-    # 1. Ukrainian (English) -> Ukrainian (e.g. Кізима Олег Миколайович (Oleh Mykolayovych Kizyma) -> Кізима Олег Миколайович)
+    # 5. Ukrainian (English) -> Ukrainian (e.g. Кізима Олег Миколайович (Oleh Mykolayovych Kizyma) -> Кізима Олег Миколайович)
     pattern_ukr_eng = r'([^\na-zA-Z]+?)\s*\([a-zA-Z0-9_./\\#@$%^&*()+\-\s]+\)'
     processed = re.sub(pattern_ukr_eng, r'\1', text)
 
-    # 2. English (Ukrainian) -> Ukrainian (e.g. cache (кеш) -> кеш)
+    # 6. English (Ukrainian) -> Ukrainian (e.g. cache (кеш) -> кеш)
     pattern_eng_ukr = r'[a-zA-Z0-9_./\\#@$%^&*()+\-\s]+\s*\(([^a-zA-Z]+)\)'
     processed = re.sub(pattern_eng_ukr, r'\1', processed)
     
-    # 3. Замінюємо популярні терміни за словником
+    # 7. Замінюємо популярні терміни за словником
     for eng, ua in TECH_GLOSSARY.items():
         processed = re.sub(r'\b' + re.escape(eng) + r'\b', ua, processed, flags=re.IGNORECASE)
         
-    # 4. Транслітеруємо решту англійських слів, щоб вони читалися українськими буквами
+    # 8. Транслітеруємо решту англійських слів, щоб вони читалися українськими буквами
     processed = transliterate_eng_to_ukr(processed)
     
-    # 5. Прибираємо зайві пробіли перед розділовими знаками
+    # 9. Прибираємо зайві пробіли перед розділовими знаками
     processed = re.sub(r'\s+([,.:;!?])', r'\1', processed)
     
-    # 6. Прибираємо символи дужок та зайві пробіли
-    processed = processed.replace("(", "").replace(")", "")
+    # 10. Прибираємо символи дужок та зайві пробіли
+    processed = processed.replace("(", "").replace(")", "").replace("[", "").replace("]", "")
     processed = re.sub(r'\s+', ' ', processed).strip()
     return processed
 
@@ -1120,6 +1130,50 @@ def translate_and_summarize_thinking(text: str) -> str:
     )
     return call_narration_llm_chain(system_prompt, text)
 
+def summarize_assistant_response_via_llm(text: str) -> str:
+    """
+    Uses the secondary narration model to summarize assistant user-facing text
+    into a natural, spoken Ukrainian sentence for Atlas TTS (5 to 15 words).
+    Eliminates raw URLs, markdown lists, bullet points, domain names, tables.
+    """
+    if not text or not text.strip():
+        return ""
+
+    clean_text = clean_assistant_phrases(text)
+    if not clean_text or not clean_text.strip():
+        return ""
+
+    # Strip markdown syntax and URLs for clean prompt context
+    clean_prompt_text = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', clean_text)
+    clean_prompt_text = re.sub(r'https?://\S+', '', clean_prompt_text)
+    clean_prompt_text = re.sub(r'[#*`_|\-~]+', ' ', clean_prompt_text)
+    clean_prompt_text = re.sub(r'\s+', ' ', clean_prompt_text).strip()
+
+    if len(clean_prompt_text) < 5:
+        return ""
+
+    # If it is already short and simple without complex markdown/URLs
+    if len(clean_prompt_text.split()) <= 12 and not any(k in text for k in ("http", "###", "|", ".net", ".com", ".org", "1.", "2.", "3.")):
+        return clean_prompt_text
+
+    system_prompt = (
+        "You are Atlas's voice narrator (software engineer). Summarize what was found, decided, or answered into 1 natural, conversational Ukrainian sentence (5 to 15 words). "
+        "RULES: "
+        "1. NEVER read raw URLs, markdown links, website domain extensions (.net, .com.ua, .org), markdown headers, bullet points, or tables. "
+        "2. State the key finding or decision smoothly (e.g. 'Знайшов фільми на популярних сайтах, переходимо до перегляду.'). "
+        "3. Output ONLY the clean spoken Ukrainian sentence."
+    )
+    llm_spoken = call_narration_llm_chain(system_prompt, clean_prompt_text[:1500])
+    if llm_spoken and len(llm_spoken.strip()) > 3:
+        return llm_spoken.strip()
+
+    # Emergency fallback if LLM is unavailable: take first sentence, strip markdown
+    first_sent = clean_prompt_text.split('.')[0].strip()
+    if first_sent:
+        words = first_sent.split()[:14]
+        return " ".join(words) + "."
+    return "Отримав результати, продовжую роботу."
+
 
 def summarize_tool_action_via_llm(tool_name: str, params: dict) -> str:
     """
@@ -1743,9 +1797,9 @@ def process_session_entry(data: dict, player: VoicePlayer):
                 elif block_type == "text":
                     text_content = block.get("text", "")
                     if text_content and not is_tool_call_text(text_content):
-                        text_content = clean_assistant_phrases(text_content)
-                        if text_content.strip():
-                            player.speak("atlas", "Результат", text_content)
+                        spoken_text = summarize_assistant_response_via_llm(text_content)
+                        if spoken_text and spoken_text.strip():
+                            player.speak("atlas", "Результат", spoken_text)
                             
                 # 🛠️ TOOLS: Distinct separation of concerns
                 elif block_type == "tool_use":
