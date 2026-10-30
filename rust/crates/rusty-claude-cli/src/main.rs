@@ -152,9 +152,24 @@ pub use utils::*;
 
 use runtime::session_control::LATEST_SESSION_REFERENCE;
 
+/// Load environment from a local `.env` (cwd or ancestors); when none exists,
+/// fall back to the user-level `~/.claw/.env` so credentials work regardless
+/// of the directory claw is launched from.
+fn load_env_files() {
+    if dotenvy::dotenv().is_ok() {
+        return;
+    }
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from);
+    if let Some(env_path) = home.map(|dir| dir.join(".claw").join(".env")) {
+        let _ = dotenvy::from_filename(env_path);
+    }
+}
+
 fn main() {
     let _logger_guard = claw_logger::init_logger("claw");
-    let _ = dotenvy::dotenv();
+    load_env_files();
     tracing::info!(
         version = VERSION,
         git_sha = GIT_SHA.unwrap_or("unknown"),
@@ -650,6 +665,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             tools.as_ref(),
         )?,
         CliAction::Sandbox { output_format } => print_sandbox_status_snapshot(output_format)?,
+        CliAction::Fractal { output_format } => print_fractal_status_snapshot(output_format)?,
         CliAction::Prompt {
             prompt,
             model,
@@ -854,7 +870,9 @@ fn cleanup_orphaned_processes() {
         });
         
         if is_target {
-            let is_orphaned = process.parent().map_or(true, |ppid| ppid.as_u32() == 1);
+            let is_orphaned = process
+                .parent()
+                .is_none_or(|ppid| ppid.as_u32() == 1);
             if is_orphaned {
                 tracing::info!("Killing orphaned daemon process: {} (PID: {})", name_str, pid);
                 process.kill();
@@ -885,7 +903,7 @@ fn parse_single_word_command_alias(
     let verb = &rest[0];
     let is_diagnostic = matches!(
         verb.as_str(),
-        "help" | "version" | "status" | "sandbox" | "doctor" | "setup" | "state"
+        "help" | "version" | "status" | "sandbox" | "fractal" | "doctor" | "setup" | "state"
     );
 
     if is_diagnostic && rest.len() > 1 {
@@ -902,6 +920,7 @@ fn parse_single_word_command_alias(
             let topic = match topic_name {
                 "status" => Some(LocalHelpTopic::Status),
                 "sandbox" => Some(LocalHelpTopic::Sandbox),
+                "fractal" => Some(LocalHelpTopic::Status),
                 "doctor" => Some(LocalHelpTopic::Doctor),
                 "acp" => Some(LocalHelpTopic::Acp),
                 "init" => Some(LocalHelpTopic::Init),
@@ -957,6 +976,7 @@ fn parse_single_word_command_alias(
         let topic = match topic_name {
             "status" => Some(LocalHelpTopic::Status),
             "sandbox" => Some(LocalHelpTopic::Sandbox),
+            "fractal" => Some(LocalHelpTopic::Status),
             "doctor" => Some(LocalHelpTopic::Doctor),
             "acp" => Some(LocalHelpTopic::Acp),
             "init" => Some(LocalHelpTopic::Init),
@@ -998,7 +1018,7 @@ fn parse_single_word_command_alias(
     }
     // Known CLI subcommands that don't accept additional arguments
     const CLI_SUBCOMMANDS: &[&str] = &[
-        "help", "version", "status", "sandbox", "doctor", "state", "config", "diff",
+        "help", "version", "status", "sandbox", "fractal", "doctor", "state", "config", "diff",
     ];
     if rest.len() > 1 && !CLI_SUBCOMMANDS.contains(&rest[0].as_str()) {
         return None;
@@ -1017,6 +1037,7 @@ fn parse_single_word_command_alias(
             allowed_tools: tools,
         })),
         "sandbox" => Some(Ok(CliAction::Sandbox { output_format })),
+        "fractal" => Some(Ok(CliAction::Fractal { output_format })),
         "doctor" => Some(Ok(CliAction::Doctor {
             output_format,
             permission_mode: permission_mode_override
@@ -1146,6 +1167,7 @@ fn parse_direct_slash_cli_action(
             allowed_tools: tools,
         }),
         Ok(Some(SlashCommand::Sandbox)) => Ok(CliAction::Sandbox { output_format }),
+        Ok(Some(SlashCommand::Fractal)) => Ok(CliAction::Fractal { output_format }),
         Ok(Some(SlashCommand::Diff)) => Ok(CliAction::Diff { output_format }),
         Ok(Some(SlashCommand::Version)) => Ok(CliAction::Version { output_format }),
         Ok(Some(SlashCommand::Doctor)) => Ok(CliAction::Doctor {
@@ -1263,6 +1285,7 @@ pub fn suggest_similar_subcommand(input: &str) -> Option<Vec<String>> {
         "version",
         "status",
         "sandbox",
+        "fractal",
         "doctor",
         "setup",
         "state",
@@ -1308,6 +1331,7 @@ pub fn is_known_top_level_subcommand(value: &str) -> bool {
             | "version"
             | "status"
             | "sandbox"
+            | "fractal"
             | "doctor"
             | "state"
             | "dump-manifests"

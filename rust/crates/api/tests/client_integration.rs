@@ -974,3 +974,96 @@ fn sample_request(stream: bool) -> MessageRequest {
         ..Default::default()
     }
 }
+
+#[tokio::test]
+async fn fractal_circuit_breaker_sheds_after_consecutive_exhausted_chains() {
+    // Default policy: max_retries = 2 -> 3 attempts per chain. 500s are
+    // retryable, so each call burns a chain and escalates the δ-breaker by 1.
+    // max_level = max_retries + 2 = 4, so the fifth call must be shed as
+    // CircuitOpen without reaching the server (only 12 responses canned).
+    let state = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
+    let server = spawn_server(
+        state.clone(),
+        vec![
+            http_response("500 Internal Server Error", "application/json", "{}");
+            12
+        ],
+    )
+    .await;
+
+    let client = AnthropicClient::new("test-key")
+        .with_base_url(server.base_url())
+        .with_retry_policy(2, Duration::from_millis(1), Duration::from_millis(2));
+
+    for expected_chain in 1..=4 {
+        let error = client
+            .send_message(&sample_request(false))
+            .await
+            .expect_err("every chain should exhaust against a 500 server");
+        assert!(
+            matches!(error, ApiError::RetriesExhausted { .. }),
+            "chain {expected_chain} should exhaust retries"
+        );
+        assert_eq!(
+            client.breaker_state().current_level,
+            expected_chain,
+            "breaker should escalate to level {expected_chain}"
+        );
+    }
+
+    let error = client
+        .send_message(&sample_request(false))
+        .await
+        .expect_err("breaker must be open at the chaos point");
+    assert!(
+        matches!(error, ApiError::CircuitOpen { .. }),
+        "expected CircuitOpen, got {error:?}"
+    );
+    assert_eq!(client.breaker_state().breaker_trips, 1);
+    assert_eq!(
+        state.lock().await.len(),
+        12,
+        "shed request must not reach the server"
+    );
+}
+
+#[tokio::test]
+async fn fractal_circuit_breaker_de_escalates_on_success() {
+    let state = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
+    let ok_body = concat!(
+        "{\"id\":\"msg_ok\",\"type\":\"message\",\"role\":\"assistant\",",
+        "\"content\":[{\"type\":\"text\",\"text\":\"ok\"}],",
+        "\"model\":\"claude-3-7-sonnet-latest\",\"stop_reason\":\"end_turn\",",
+        "\"stop_sequence\":null,\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}"
+    );
+    let server = spawn_server(
+        state.clone(),
+        vec![
+            http_response("500 Internal Server Error", "application/json", "{}"),
+            http_response("500 Internal Server Error", "application/json", "{}"),
+            http_response("500 Internal Server Error", "application/json", "{}"),
+            http_response("200 OK", "application/json", ok_body),
+        ],
+    )
+    .await;
+
+    let client = AnthropicClient::new("test-key")
+        .with_base_url(server.base_url())
+        .with_retry_policy(2, Duration::from_millis(1), Duration::from_millis(2));
+
+    client
+        .send_message(&sample_request(false))
+        .await
+        .expect_err("first chain should exhaust");
+    assert_eq!(client.breaker_state().current_level, 1);
+
+    client
+        .send_message(&sample_request(false))
+        .await
+        .expect("second chain should succeed");
+    assert_eq!(
+        client.breaker_state().current_level,
+        0,
+        "success must de-escalate the breaker"
+    );
+}

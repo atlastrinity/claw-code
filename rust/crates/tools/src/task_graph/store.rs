@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use crate::task_graph::types::{TaskNode, TaskStatus, TaskGraphOutput};
 
 pub fn task_graph_store_path() -> Result<PathBuf, String> {
@@ -78,7 +78,7 @@ pub fn normalize_single_active_leaf(nodes: &mut [TaskNode]) {
     }
 }
 
-pub fn create_task_checkpoint(store_path: &PathBuf, completed_nodes: &[TaskNode]) {
+pub fn create_task_checkpoint(store_path: &Path, completed_nodes: &[TaskNode]) {
     if completed_nodes.is_empty() { return; }
     let Some(parent) = store_path.parent() else { return; };
     let checkpoints_dir = parent.join(".claw").join("checkpoints");

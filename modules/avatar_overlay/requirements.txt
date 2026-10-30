@@ -1,0 +1,21 @@
+# Avatar Overlay — Python dependencies
+# Install with:  pip install -r modules/avatar_overlay/requirements.txt
+
+# ── PyTorch (use MPS backend on Apple Silicon) ──────────────────────
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# ── HuggingFace Transformers (wav2vec2-base-960h) ──────────────────
+transformers>=4.30.0
+
+# ── Numerical / Audio ──────────────────────────────────────────────
+numpy>=1.24.0
+scipy>=1.10.0
+librosa>=0.10.0
+
+# ── 3D mesh I/O (replaces psbody.mesh — pure-Python, no Boost) ────
+trimesh>=4.0.0
+
+# ── GUI / Rendering ───────────────────────────────────────────────
+PySide6>=6.5.0
+PyOpenGL>=3.1.7

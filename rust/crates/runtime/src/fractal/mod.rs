@@ -1,26 +1,20 @@
 //! Universal Feigenbaum fractal system for Claw runtime.
+//!
+//! Live integrations: δ-geometric session-history sampling (`compact`),
+//! δ-scaled API circuit breakers (`rate_limiter`, wired into
+//! `api::providers`), and the model cascade aliases (`model_cascade`).
 
 pub mod compact;
 pub mod constants;
 pub mod model_cascade;
 pub mod rate_limiter;
-pub mod task_graph;
-pub mod telemetry;
 
 #[cfg(test)]
 mod tests;
 
-pub use compact::fractal_compact_messages;
-pub use constants::{
-    asymmetric_sibling_budget, asymmetric_sibling_weight, bifurcation_ratio, dynamic_max_depth,
-    is_atomic, is_atomic_dynamic, level_budget, level_fraction, optimal_children, FractalBudget,
-    CHAOS_THRESHOLD, ENTERPRISE_SCALE_THRESHOLD, FEIGENBAUM_ALPHA, FEIGENBAUM_DELTA,
-    MAX_ENTERPRISE_FRACTAL_DEPTH, MAX_FRACTAL_DEPTH,
+pub use compact::fractal_sample_indices;
+pub use constants::{FEIGENBAUM_ALPHA, FEIGENBAUM_DELTA};
+pub use model_cascade::{default_cascade, ModelTier};
+pub use rate_limiter::{
+    FractalRateLimiter, LevelParams, BREAKER_DECAY_PERIOD, MAX_BREAKER_PAUSE,
 };
-pub use model_cascade::{
-    default_cascade, select_model_for_budget, select_model_for_depth, ModelTier,
-};
-pub use rate_limiter::{FractalRateLimiter, LevelParams};
-pub use task_graph::{FractalTaskGraph, FractalTaskNode, FractalTaskStatus};
-pub use telemetry::BifurcationTelemetryReport;
-

@@ -1,4 +1,5 @@
-use crate::session::session::{ContentBlock, ConversationMessage, MessageRole, Session};
+use crate::fractal::fractal_sample_indices;
+use crate::session::state::{ContentBlock, ConversationMessage, MessageRole, Session};
 
 const COMPACT_CONTINUATION_PREAMBLE: &str =
     "This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\n";
@@ -171,6 +172,7 @@ pub fn compact_session(session: &Session, config: CompactionConfig) -> Compactio
     };
     let removed = &session.messages[compacted_prefix_len..keep_from];
     let preserved = session.messages[keep_from..].to_vec();
+    let fractal_kept = fractal_sample_removed(removed);
     let summary =
         merge_compact_summaries(existing_summary.as_deref(), &summarize_messages(removed));
     let formatted_summary = format_compact_summary(&summary);
@@ -181,11 +183,14 @@ pub fn compact_session(session: &Session, config: CompactionConfig) -> Compactio
         blocks: vec![ContentBlock::Text { text: continuation }],
         usage: None,
     }];
+    compacted_messages.extend(fractal_kept.iter().cloned());
     compacted_messages.extend(preserved);
+
+    let fully_removed_count = removed.len() - fractal_kept.len();
 
     let mut compacted_session = session.clone();
     compacted_session.messages = compacted_messages;
-    compacted_session.record_compaction(summary.clone(), removed.len());
+    compacted_session.record_compaction(summary.clone(), fully_removed_count);
 
     // Send summary to RAG by writing it to the workspace for auto-ingestion.
     // We write to `.claw/summaries/` because `.claw-rag` is ignored by both `.gitignore` and `SKIP_DIR_NAMES`,
@@ -241,8 +246,39 @@ pub fn compact_session(session: &Session, config: CompactionConfig) -> Compactio
         summary,
         formatted_summary,
         compacted_session,
-        removed_message_count: removed.len(),
+        removed_message_count: fully_removed_count,
     }
+}
+
+/// Minimum number of removable candidates before δ-sampling activates
+/// (⌈δ⌉ = 5); for small removals the summary timeline already covers history.
+const FRACTAL_SAMPLE_MIN_CANDIDATES: usize = 5;
+
+/// Select a δ-geometric fractal sample of removed messages to preserve
+/// verbatim, retaining a bounded "fractal memory" of the older trajectory
+/// (sample size grows as log_δ n). Messages carrying tool-use/tool-result
+/// blocks are never sampled so the compacted transcript cannot contain an
+/// orphaned tool pair.
+fn fractal_sample_removed(removed: &[ConversationMessage]) -> Vec<ConversationMessage> {
+    let candidates: Vec<&ConversationMessage> = removed
+        .iter()
+        .filter(|message| {
+            message.role != MessageRole::Tool
+                && !message.blocks.iter().any(|block| {
+                    matches!(
+                        block,
+                        ContentBlock::ToolUse { .. } | ContentBlock::ToolResult { .. }
+                    )
+                })
+        })
+        .collect();
+    if candidates.len() < FRACTAL_SAMPLE_MIN_CANDIDATES {
+        return Vec::new();
+    }
+    fractal_sample_indices(candidates.len())
+        .into_iter()
+        .map(|idx| (*candidates[idx]).clone())
+        .collect()
 }
 
 fn compacted_summary_prefix_len(session: &Session) -> usize {
@@ -631,7 +667,7 @@ mod tests {
         collect_key_files, compact_session, format_compact_summary,
         get_compact_continuation_message, infer_pending_work, should_compact, CompactionConfig,
     };
-    use crate::session::session::{ContentBlock, ConversationMessage, MessageRole, Session};
+    use crate::session::state::{ContentBlock, ConversationMessage, MessageRole, Session};
 
     #[test]
     fn formats_compact_summary_like_upstream() {
@@ -820,7 +856,7 @@ mod tests {
     /// OpenAI-compat path (gaebal-gajae repro 2026-04-09).
     #[test]
     fn compaction_does_not_split_tool_use_tool_result_pair() {
-        use crate::session::session::{ContentBlock, Session};
+        use crate::session::state::{ContentBlock, Session};
 
         let tool_id = "call_abc";
         let mut session = Session::default();
@@ -886,6 +922,49 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn retains_fractal_sample_of_removed_history() {
+        let mut session = Session::new();
+        for i in 0..20 {
+            let text = format!("message {i}");
+            if i % 2 == 0 {
+                session.messages.push(ConversationMessage::user_text(text));
+            } else {
+                session
+                    .messages
+                    .push(ConversationMessage::assistant(vec![ContentBlock::Text { text }]));
+            }
+        }
+
+        let result = compact_session(
+            &session,
+            CompactionConfig {
+                preserve_recent_messages: 2,
+                max_estimated_tokens: 1,
+            },
+        );
+
+        // 18 messages removed; δ-geometric thinning keeps a small verbatim
+        // sample (indices 12 and 17 of the removed range) after the summary.
+        let texts: Vec<String> = result
+            .compacted_session
+            .messages
+            .iter()
+            .filter_map(|message| {
+                message.blocks.iter().find_map(|block| match block {
+                    ContentBlock::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
+            })
+            .collect();
+        assert!(texts.iter().any(|t| t == "message 12"));
+        assert!(texts.iter().any(|t| t == "message 17"));
+        assert!(result.removed_message_count < 18);
+        assert!(result.removed_message_count >= 16);
+        // summary + 2 fractal samples + 2 preserved tail messages
+        assert_eq!(result.compacted_session.messages.len(), 5);
     }
 
     #[test]

@@ -187,10 +187,10 @@ pub(crate) fn run_testing_permission(input: TestingPermissionInput) -> Result<St
     }))
 }
 
+/// Report the MCP search contract from the static tool catalog. Live server
+/// discovery happens in the CLI runtime, so this runner only surfaces the
+/// `runtime_only` status the caller probes for.
 #[allow(clippy::needless_pass_by_value)]
-/// Execute `git status --short --branch` and return structured JSON output.
-/// Falls back to full `git status` if `short` is explicitly set to false.
-
 pub(crate) fn run_mcp_search(_input: McpSearchInput) -> Result<String, String> {
     to_pretty_json(json!({
         "status": "runtime_only",

@@ -284,7 +284,7 @@ impl GlobalToolRegistry {
             }
         }).collect::<Vec<_>>();
 
-        builtin.chain(plugins).chain(runtime.into_iter()).collect()
+        builtin.chain(plugins).chain(runtime).collect()
     }
 
     pub fn permission_specs(
@@ -325,7 +325,7 @@ impl GlobalToolRegistry {
                     .map(|permission| (tool.definition().name.clone(), permission))
             })
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(builtin.chain(runtime.into_iter()).chain(plugin).collect())
+        Ok(builtin.chain(runtime).chain(plugin).collect())
     }
 
     #[must_use]
@@ -340,7 +340,7 @@ impl GlobalToolRegistry {
                     .iter()
                     .map(|tool| tool.definition().name.clone()),
             )
-            .chain(runtime.into_iter())
+            .chain(runtime)
             .collect()
     }
 
@@ -529,7 +529,7 @@ impl GlobalToolRegistry {
                 name: tool.definition().name.clone(),
                 description: tool.definition().description.clone().unwrap_or_default(),
             });
-        builtin.chain(runtime.into_iter()).chain(plugin).collect()
+        builtin.chain(runtime).chain(plugin).collect()
     }
 }
 

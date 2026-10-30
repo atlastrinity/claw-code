@@ -1059,6 +1059,7 @@ pub enum SlashCommand {
     Help,
     Status,
     Sandbox,
+    Fractal,
     Compact,
     Bughunter {
         scope: Option<String>,
@@ -1303,6 +1304,7 @@ impl SlashCommand {
             Self::AddDir { .. } => "/add-dir",
             Self::Team { .. } => "/team",
             Self::Sandbox => "/sandbox",
+            Self::Fractal => "/fractal",
             Self::Mcp { .. } => "/mcp",
             Self::Export { .. } => "/export",
             #[allow(unreachable_patterns)]
@@ -1346,6 +1348,10 @@ pub fn validate_slash_command_input(
         "sandbox" => {
             validate_no_args(command, &args)?;
             SlashCommand::Sandbox
+        }
+        "fractal" => {
+            validate_no_args(command, &args)?;
+            SlashCommand::Fractal
         }
         "compact" => {
             validate_no_args(command, &args)?;
@@ -5420,6 +5426,7 @@ pub fn handle_slash_command(
         | SlashCommand::Teleport { .. }
         | SlashCommand::DebugToolCall
         | SlashCommand::Sandbox
+        | SlashCommand::Fractal
         | SlashCommand::Model { .. }
         | SlashCommand::Permissions { .. }
         | SlashCommand::Clear { .. }
@@ -5616,6 +5623,10 @@ mod tests {
         assert_eq!(
             SlashCommand::parse("/sandbox"),
             Ok(Some(SlashCommand::Sandbox))
+        );
+        assert_eq!(
+            SlashCommand::parse("/fractal"),
+            Ok(Some(SlashCommand::Fractal))
         );
         assert_eq!(
             SlashCommand::parse("/bughunter runtime"),

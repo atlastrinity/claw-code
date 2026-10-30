@@ -1291,7 +1291,7 @@ impl McpStdioProcess {
             .current_dir(crate::workspace::workspace_root())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit())
+            .stderr(Stdio::piped())
             .kill_on_drop(true);
             
         #[cfg(all(unix, not(test)))]
@@ -1311,6 +1311,18 @@ impl McpStdioProcess {
             .stdout
             .take()
             .ok_or_else(|| io::Error::other("stdio MCP process missing stdout pipe"))?;
+
+        // Route child stderr into the tracing log file instead of inheriting
+        // it, so server banners/trace output do not pollute CLI stdout/stderr.
+        if let Some(stderr) = child.stderr.take() {
+            let label = transport.command.clone();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(stderr).lines();
+                while let Ok(Some(line)) = lines.next_line().await {
+                    tracing::info!(target: "mcp::stderr", server = %label, "{line}");
+                }
+            });
+        }
 
         Ok(Self {
             child,

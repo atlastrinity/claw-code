@@ -12,7 +12,7 @@ use crate::config::RuntimeFeatureConfig;
 use crate::session::error_tracker::ErrorTracker;
 use crate::hooks::{HookAbortSignal, HookProgressReporter, HookRunner};
 use crate::security::permissions::{PermissionPolicy, PermissionPrompter};
-use crate::session::session::{ContentBlock, ConversationMessage, Session};
+use crate::session::state::{ContentBlock, ConversationMessage, Session};
 use crate::session::usage::{TokenUsage, UsageTracker};
 
 const DEFAULT_AUTO_COMPACTION_INPUT_TOKENS_THRESHOLD: u32 = 100_000;
@@ -625,7 +625,6 @@ where
     }
 
     /// Returns a reference to the error tracker for shutdown processing.
-    #[must_use]
     pub fn error_tracker(&self) -> std::sync::MutexGuard<'_, ErrorTracker> {
         self.error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
@@ -1069,7 +1068,7 @@ mod tests {
         PermissionRequest,
     };
     use crate::prompt::{ProjectContext, SystemPromptBuilder};
-    use crate::session::session::{ContentBlock, MessageRole, Session};
+    use crate::session::state::{ContentBlock, MessageRole, Session};
     use crate::session::usage::TokenUsage;
     use crate::ToolError;
     use std::fs;
@@ -1594,7 +1593,7 @@ mod tests {
         let mut session = Session::new();
         session
             .messages
-            .push(crate::session::session::ConversationMessage::assistant_with_usage(
+            .push(crate::session::state::ConversationMessage::assistant_with_usage(
                 vec![ContentBlock::Text {
                     text: "earlier".to_string(),
                 }],
@@ -1768,12 +1767,12 @@ mod tests {
 
         let mut session = Session::new();
         session.messages = vec![
-            crate::session::session::ConversationMessage::user_text("one"),
-            crate::session::session::ConversationMessage::assistant(vec![ContentBlock::Text {
+            crate::session::state::ConversationMessage::user_text("one"),
+            crate::session::state::ConversationMessage::assistant(vec![ContentBlock::Text {
                 text: "two".to_string(),
             }]),
-            crate::session::session::ConversationMessage::user_text("three"),
-            crate::session::session::ConversationMessage::assistant(vec![ContentBlock::Text {
+            crate::session::state::ConversationMessage::user_text("three"),
+            crate::session::state::ConversationMessage::assistant(vec![ContentBlock::Text {
                 text: "four".to_string(),
             }]),
         ];
@@ -2099,7 +2098,7 @@ mod tests {
     #[test]
     fn test_recover_textual_tool_calls_line_based() {
         use super::recover_textual_tool_calls;
-        use crate::session::session::{ContentBlock, ConversationMessage};
+        use crate::session::state::{ContentBlock, ConversationMessage};
 
         let mut msg = ConversationMessage::assistant(vec![
             ContentBlock::Text {
@@ -2121,7 +2120,7 @@ mod tests {
     #[test]
     fn test_recover_textual_tool_calls_markdown_json() {
         use super::recover_textual_tool_calls;
-        use crate::session::session::{ContentBlock, ConversationMessage};
+        use crate::session::state::{ContentBlock, ConversationMessage};
 
         let mut msg = ConversationMessage::assistant(vec![
             ContentBlock::Text {

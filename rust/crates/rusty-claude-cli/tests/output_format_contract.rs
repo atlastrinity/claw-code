@@ -442,6 +442,18 @@ fn status_and_sandbox_emit_json_when_requested() {
     let sandbox = assert_json_command(&root, &["--output-format", "json", "sandbox"]);
     assert_eq!(sandbox["kind"], "sandbox");
     assert!(sandbox["filesystem_mode"].as_str().is_some());
+
+    let fractal = assert_json_command(&root, &["--output-format", "json", "fractal"]);
+    assert_eq!(fractal["kind"], "fractal");
+    let delta = fractal["delta"].as_f64().expect("fractal delta");
+    assert!((delta - 4.669_201_6).abs() < 1e-6, "unexpected δ: {delta}");
+    assert!(fractal["cascade"].as_array().is_some_and(|c| !c.is_empty()));
+    assert!(fractal["limiter"]["levels"]
+        .as_array()
+        .is_some_and(|l| !l.is_empty()));
+    let slash_fractal =
+        assert_json_command(&root, &["--output-format", "json", "/fractal"]);
+    assert_eq!(slash_fractal["kind"], "fractal");
 }
 
 // #831: direct resume-safe slash commands should use the same local CliAction

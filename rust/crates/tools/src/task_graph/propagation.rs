@@ -220,11 +220,9 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
         while !nodes_to_reset_to_pending.is_empty() {
             let to_reset = std::mem::take(&mut nodes_to_reset_to_pending);
             for n in &mut *current_nodes {
-                if to_reset.contains(&n.id) {
-                    if n.status == Some(TaskStatus::InProgress) {
-                        n.status = Some(TaskStatus::Pending);
-                        changed = true;
-                    }
+                if to_reset.contains(&n.id) && n.status == Some(TaskStatus::InProgress) {
+                    n.status = Some(TaskStatus::Pending);
+                    changed = true;
                 }
                 if let Some(ref pid) = n.parent_id {
                     if to_reset.contains(pid) && n.status == Some(TaskStatus::InProgress) {

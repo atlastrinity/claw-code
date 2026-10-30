@@ -56,11 +56,12 @@ class EdgeTTSHelper:
         try:
             # 1. Run edge-tts to generate mp3 with up to 3 retries
             import time
+            import sys
             last_err = None
             for attempt in range(3):
                 try:
                     subprocess.run([
-                        "edge-tts",
+                        sys.executable, "-m", "edge_tts",
                         "--voice", voice,
                         "--text", text,
                         f"--rate={rate}",

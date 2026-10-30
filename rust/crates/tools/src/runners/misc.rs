@@ -59,7 +59,6 @@ pub(crate) fn run_ask_user_question(input: AskUserQuestionInput) -> Result<Strin
 }
 
 #[allow(clippy::needless_pass_by_value)]
-
 pub(crate) fn execute_sleep(input: SleepInput) -> Result<SleepOutput, String> {
     if input.duration_ms > MAX_SLEEP_DURATION_MS {
         return Err(format!(

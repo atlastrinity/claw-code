@@ -1,7 +1,12 @@
-//! Automatic model tier selection driven by δ ≈ 4.669.
+//! Built-in model alias tiers resolved by the CLI when a user passes
+//! `--model quick|stable|mega|reasoner`. The tier index is ordering only —
+//! fallback selection stays explicit and user-driven, never automatic.
+//!
+//! The δ/α constants govern the breaker escalation and compaction sampling
+//! elsewhere in this module; they deliberately do not choose models here,
+//! since silently swapping a user's model would be surprising behaviour.
 
 use serde::{Deserialize, Serialize};
-use super::constants::FractalBudget;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ModelTier {
@@ -30,42 +35,4 @@ pub fn default_cascade() -> Vec<ModelTier> {
         ModelTier::new("mega", "meta-llama/llama-3.3-70b-instruct:free", 2),
         ModelTier::new("reasoner", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", 3),
     ]
-}
-
-/// Select a model tier for a task at *depth* considering rate-limiter pressure.
-///
-/// Inverted strategy:
-/// - Root tasks (depth 0) → heaviest model (highest tier)
-/// - Deep atomic tasks → lightest model (tier 0)
-/// - Rate-limiter escalation → shifts selection toward lighter models
-#[must_use]
-pub fn select_model_for_depth(depth: usize, cascade: &[ModelTier], limiter_level: usize) -> ModelTier {
-    if cascade.is_empty() {
-        return ModelTier::new("quick", "default-fallback", 0);
-    }
-    let max_tier = cascade.len() - 1;
-    let ideal_tier = max_tier.saturating_sub(depth.min(max_tier));
-    let adjusted_tier = ideal_tier.saturating_sub(limiter_level);
-
-    if limiter_level > 0 && adjusted_tier == 0 && ideal_tier > 0 {
-        tracing::warn!(
-            "ModelCascade: rate limiter pressure (level {}) shifted tier from ideal {} down to fallback '{}'",
-            limiter_level, ideal_tier, cascade[0].alias
-        );
-        eprintln!(
-            "⚠️ ModelCascade: rate limiter pressure (level {}) shifted tier from ideal {} down to fallback '{}'",
-            limiter_level, ideal_tier, cascade[0].alias
-        );
-    }
-
-
-
-    cascade[adjusted_tier].clone()
-}
-
-
-/// Select a model tier using a `FractalBudget`.
-#[must_use]
-pub fn select_model_for_budget(budget: FractalBudget, cascade: &[ModelTier], limiter_level: usize) -> ModelTier {
-    select_model_for_depth(budget.depth, cascade, limiter_level)
 }

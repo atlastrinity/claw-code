@@ -1,12 +1,15 @@
 use std::borrow::Cow;
 use std::collections::{BTreeMap, VecDeque};
 use std::net::Ipv4Addr;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
+use runtime::fractal::FractalRateLimiter;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
+use crate::breaker::{
+    new_breaker, SharedBreaker, DEFAULT_INITIAL_BACKOFF, DEFAULT_MAX_BACKOFF,
+};
 use crate::error::ApiError;
 use crate::http_client::build_http_client_or_default;
 use crate::types::{
@@ -29,9 +32,6 @@ pub const DEFAULT_SILICONFLOW_BASE_URL: &str = "https://api.siliconflow.com/v1";
 pub const DEFAULT_MISTRAL_BASE_URL: &str = "https://api.mistral.ai/v1";
 const REQUEST_ID_HEADER: &str = "request-id";
 const ALT_REQUEST_ID_HEADER: &str = "x-request-id";
-const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
-const DEFAULT_MAX_BACKOFF: Duration = Duration::from_secs(10);
-const DEFAULT_MAX_RETRIES: u32 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct OpenAiCompatConfig {
@@ -208,6 +208,9 @@ pub struct OpenAiCompatClient {
     max_retries: u32,
     initial_backoff: Duration,
     max_backoff: Duration,
+    /// δ-fractal circuit breaker shared across clones of this client so
+    /// consecutive failed retry chains accumulate instead of resetting.
+    breaker: SharedBreaker,
 }
 
 impl OpenAiCompatClient {
@@ -221,14 +224,16 @@ impl OpenAiCompatClient {
     }
     #[must_use]
     pub fn new(api_key: impl Into<String>, config: OpenAiCompatConfig) -> Self {
+        let max_retries = crate::breaker::configured_max_retries();
         Self {
             http: build_http_client_or_default(),
             api_key: api_key.into(),
             config,
             base_url: read_base_url(config),
-            max_retries: DEFAULT_MAX_RETRIES,
+            max_retries,
             initial_backoff: DEFAULT_INITIAL_BACKOFF,
             max_backoff: DEFAULT_MAX_BACKOFF,
+            breaker: new_breaker(config.provider_name, max_retries),
         }
     }
 
@@ -262,15 +267,7 @@ impl OpenAiCompatClient {
             trimmed.to_string()
         };
         let base_url = format!("{host_url}/v1");
-        Some(Self {
-            http: build_http_client_or_default(),
-            api_key: "ollama".to_string(),
-            config: OLLAMA_CONFIG,
-            base_url,
-            max_retries: DEFAULT_MAX_RETRIES,
-            initial_backoff: DEFAULT_INITIAL_BACKOFF,
-            max_backoff: DEFAULT_MAX_BACKOFF,
-        })
+        Some(Self::new("ollama", OLLAMA_CONFIG).with_base_url(base_url))
     }
 
     #[must_use]
@@ -306,6 +303,7 @@ impl OpenAiCompatClient {
         self.max_retries = max_retries;
         self.initial_backoff = initial_backoff;
         self.max_backoff = max_backoff;
+        crate::breaker::set_ceiling(&self.breaker, max_retries);
         self
     }
 
@@ -398,8 +396,6 @@ impl OpenAiCompatClient {
         preflight_message_request(&streaming_request)?;
         let response = self.send_with_retry(&streaming_request).await?;
 
-        eprintln!("DEBUG ZHIPU RESPONSE: status={} headers={:?}", response.status(), response.headers());
-
         // Catch proxies (like api.z.ai) that occasionally return 200 OK with a JSON error body instead of SSE when streaming
         if let Some(content_type) = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|h| h.to_str().ok()) {
             if content_type.starts_with("application/json") {
@@ -439,18 +435,34 @@ impl OpenAiCompatClient {
         &self,
         request: &MessageRequest,
     ) -> Result<reqwest::Response, ApiError> {
+        // δ-fractal circuit breaker: cool down if the failing episode ended,
+        // shed at the chaos point, else honour the δ-scaled inter-chain pause.
+        crate::breaker::gate_request(&self.breaker).await?;
+
         let mut attempts = 0;
 
         let last_error = loop {
             attempts += 1;
             let retryable_error = match self.send_raw_request(request).await {
                 Ok(response) => match expect_success(response).await {
-                    Ok(response) => return Ok(response),
+                    Ok(response) => {
+                        crate::breaker::lock(&self.breaker).on_success();
+                        return Ok(response);
+                    }
                     Err(error) if error.is_retryable() && attempts <= self.max_retries + 1 => error,
-                    Err(error) => return Err(error),
+                    Err(error) => {
+                        // Permanent rejection counts as an exhausted chain: the
+                        // δ breaker must escalate or the outer retry layers keep
+                        // re-sending a request the provider will never accept.
+                        crate::breaker::lock(&self.breaker).on_failure();
+                        return Err(error);
+                    }
                 },
                 Err(error) if error.is_retryable() && attempts <= self.max_retries + 1 => error,
-                Err(error) => return Err(error),
+                Err(error) => {
+                    crate::breaker::lock(&self.breaker).on_failure();
+                    return Err(error);
+                }
             };
 
             if attempts > self.max_retries {
@@ -460,11 +472,12 @@ impl OpenAiCompatClient {
             let delay = if let Some(retry_after) = retryable_error.retry_after() {
                 retry_after
             } else {
-                self.jittered_backoff_for_attempt(attempts)?
+                crate::breaker::jittered_backoff(attempts, self.initial_backoff, self.max_backoff)?
             };
             tokio::time::sleep(delay).await;
         };
 
+        crate::breaker::lock(&self.breaker).on_failure();
         Err(ApiError::RetriesExhausted {
             attempts,
             last_error: Box::new(last_error),
@@ -484,7 +497,6 @@ impl OpenAiCompatClient {
             self.config(),
             &self.base_url,
         );
-        let _ = std::fs::write("payload.json", serde_json::to_string_pretty(&payload).unwrap());
         self.http
             .post(&request_url)
             .header("content-type", "application/json")
@@ -495,30 +507,20 @@ impl OpenAiCompatClient {
             .map_err(ApiError::from)
     }
 
-    fn backoff_for_attempt(&self, attempt: u32) -> Result<Duration, ApiError> {
-        let Some(multiplier) = 1_u32.checked_shl(attempt.saturating_sub(1)) else {
-            return Err(ApiError::BackoffOverflow {
-                attempt,
-                base_delay: self.initial_backoff,
-            });
-        };
-        Ok(self
-            .initial_backoff
-            .checked_mul(multiplier)
-            .map_or(self.max_backoff, |delay| delay.min(self.max_backoff)))
+    /// Current δ-fractal circuit breaker snapshot for diagnostics
+    /// (`claw fractal`, session status panels).
+    #[must_use]
+    pub fn breaker_state(&self) -> FractalRateLimiter {
+        crate::breaker::lock(&self.breaker).clone()
     }
 
-    fn jittered_backoff_for_attempt(&self, attempt: u32) -> Result<Duration, ApiError> {
-        let base = self.backoff_for_attempt(attempt)?;
-        Ok(base + jitter_for_base(base))
+    /// Count an accepted-but-silent stream as a failed chain (see
+    /// `ProviderClient::record_stream_stall`).
+    pub fn record_stream_stall(&self) {
+        crate::breaker::lock(&self.breaker).on_failure();
     }
 }
 
-/// Process-wide counter that guarantees distinct jitter samples even when
-/// the system clock resolution is coarser than consecutive retry sleeps.
-static JITTER_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Returns a random additive jitter in `[0, base]` to decorrelate retries
 /// Deserialize a JSON field as a `Vec<T>`, treating an explicit `null` value
 /// the same as a missing field (i.e. as an empty vector).
 /// Some OpenAI-compatible providers emit `"tool_calls": null` instead of
@@ -530,30 +532,6 @@ where
     T: serde::Deserialize<'de>,
 {
     Ok(Option::<Vec<T>>::deserialize(deserializer)?.unwrap_or_default())
-}
-
-/// from multiple concurrent clients. Entropy is drawn from the nanosecond
-/// wall clock mixed with a monotonic counter and run through a splitmix64
-/// finalizer; adequate for retry jitter (no cryptographic requirement).
-fn jitter_for_base(base: Duration) -> Duration {
-    let base_nanos = u64::try_from(base.as_nanos()).unwrap_or(u64::MAX);
-    if base_nanos == 0 {
-        return Duration::ZERO;
-    }
-    let raw_nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| {
-            u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX)
-        });
-    let tick = JITTER_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let mut mixed = raw_nanos
-        .wrapping_add(tick)
-        .wrapping_add(0x9E37_79B9_7F4A_7C15);
-    mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    mixed ^= mixed >> 31;
-    let jitter_nanos = mixed % base_nanos.saturating_add(1);
-    Duration::from_nanos(jitter_nanos)
 }
 
 impl Provider for OpenAiCompatClient {

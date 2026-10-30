@@ -1,8 +1,8 @@
 use std::collections::VecDeque;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use runtime::fractal::FractalRateLimiter;
 use runtime::format_usd;
 use runtime::{
     load_oauth_credentials, save_oauth_credentials, OAuthConfig, OAuthRefreshRequest,
@@ -12,6 +12,9 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use telemetry::{AnalyticsEvent, AnthropicRequestProfile, ClientIdentity, SessionTracer};
 
+use crate::breaker::{
+    new_breaker, SharedBreaker, DEFAULT_INITIAL_BACKOFF, DEFAULT_MAX_BACKOFF,
+};
 use crate::error::ApiError;
 use crate::http_client::build_http_client_or_default;
 use crate::prompt_cache::{PromptCache, PromptCacheRecord, PromptCacheStats};
@@ -25,9 +28,6 @@ use crate::types::{MessageDeltaEvent, MessageRequest, MessageResponse, StreamEve
 pub const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 const REQUEST_ID_HEADER: &str = "request-id";
 const ALT_REQUEST_ID_HEADER: &str = "x-request-id";
-const DEFAULT_INITIAL_BACKOFF: Duration = Duration::from_secs(1);
-const DEFAULT_MAX_BACKOFF: Duration = Duration::from_secs(10);
-const DEFAULT_MAX_RETRIES: u32 = 2;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthSource {
@@ -122,38 +122,32 @@ pub struct AnthropicClient {
     session_tracer: Option<SessionTracer>,
     prompt_cache: Option<PromptCache>,
     last_prompt_cache_record: Arc<Mutex<Option<PromptCacheRecord>>>,
+    /// δ-fractal circuit breaker shared across clones of this client so
+    /// consecutive failed retry chains accumulate instead of resetting.
+    breaker: SharedBreaker,
 }
 
 impl AnthropicClient {
     #[must_use]
     pub fn new(api_key: impl Into<String>) -> Self {
-        Self {
-            http: build_http_client_or_default(),
-            auth: AuthSource::ApiKey(api_key.into()),
-            base_url: DEFAULT_BASE_URL.to_string(),
-            max_retries: DEFAULT_MAX_RETRIES,
-            initial_backoff: DEFAULT_INITIAL_BACKOFF,
-            max_backoff: DEFAULT_MAX_BACKOFF,
-            request_profile: AnthropicRequestProfile::default(),
-            session_tracer: None,
-            prompt_cache: None,
-            last_prompt_cache_record: Arc::new(Mutex::new(None)),
-        }
+        Self::from_auth(AuthSource::ApiKey(api_key.into()))
     }
 
     #[must_use]
     pub fn from_auth(auth: AuthSource) -> Self {
+        let max_retries = crate::breaker::configured_max_retries();
         Self {
             http: build_http_client_or_default(),
             auth,
             base_url: DEFAULT_BASE_URL.to_string(),
-            max_retries: DEFAULT_MAX_RETRIES,
+            max_retries,
             initial_backoff: DEFAULT_INITIAL_BACKOFF,
             max_backoff: DEFAULT_MAX_BACKOFF,
             request_profile: AnthropicRequestProfile::default(),
             session_tracer: None,
             prompt_cache: None,
             last_prompt_cache_record: Arc::new(Mutex::new(None)),
+            breaker: new_breaker("anthropic", max_retries),
         }
     }
 
@@ -217,6 +211,7 @@ impl AnthropicClient {
         self.max_retries = max_retries;
         self.initial_backoff = initial_backoff;
         self.max_backoff = max_backoff;
+        crate::breaker::set_ceiling(&self.breaker, max_retries);
         self
     }
 
@@ -424,6 +419,10 @@ impl AnthropicClient {
         &self,
         request: &MessageRequest,
     ) -> Result<reqwest::Response, ApiError> {
+        // δ-fractal circuit breaker: cool down if the failing episode ended,
+        // shed at the chaos point, else honour the δ-scaled inter-chain pause.
+        crate::breaker::gate_request(&self.breaker).await?;
+
         let mut attempts = 0;
         let mut last_error: Option<ApiError>;
 
@@ -450,6 +449,7 @@ impl AnthropicClient {
                                 Map::new(),
                             );
                         }
+                        crate::breaker::lock(&self.breaker).on_success();
                         return Ok(response);
                     }
                     Err(error) if error.is_retryable() && attempts <= self.max_retries + 1 => {
@@ -459,6 +459,10 @@ impl AnthropicClient {
                     Err(error) => {
                         let error = enrich_bearer_auth_error(error, &self.auth);
                         self.record_request_failure(attempts, &error);
+                        // A permanent failure is a failed chain too: without
+                        // this the breaker never escalates and every outer
+                        // retry layer keeps hammering a rejecting provider.
+                        crate::breaker::lock(&self.breaker).on_failure();
                         return Err(error);
                     }
                 },
@@ -468,6 +472,7 @@ impl AnthropicClient {
                 }
                 Err(error) => {
                     self.record_request_failure(attempts, &error);
+                    crate::breaker::lock(&self.breaker).on_failure();
                     return Err(error);
                 }
             }
@@ -480,11 +485,12 @@ impl AnthropicClient {
             {
                 retry_after
             } else {
-                self.jittered_backoff_for_attempt(attempts)?
+                crate::breaker::jittered_backoff(attempts, self.initial_backoff, self.max_backoff)?
             };
             tokio::time::sleep(delay).await;
         }
 
+        crate::breaker::lock(&self.breaker).on_failure();
         Err(ApiError::RetriesExhausted {
             attempts,
             last_error: Box::new(last_error.expect("retry loop must capture an error")),
@@ -572,6 +578,19 @@ impl AnthropicClient {
         Ok(parsed.input_tokens)
     }
 
+    /// Current δ-fractal circuit breaker snapshot for diagnostics
+    /// (`claw fractal`, session status panels).
+    #[must_use]
+    pub fn breaker_state(&self) -> FractalRateLimiter {
+        crate::breaker::lock(&self.breaker).clone()
+    }
+
+    /// Count an accepted-but-silent stream as a failed chain (see
+    /// `ProviderClient::record_stream_stall`).
+    pub fn record_stream_stall(&self) {
+        crate::breaker::lock(&self.breaker).on_failure();
+    }
+
     fn record_request_failure(&self, attempt: u32, error: &ApiError) {
         if let Some(session_tracer) = &self.session_tracer {
             session_tracer.record_http_request_failed(
@@ -591,56 +610,6 @@ impl AnthropicClient {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(record);
     }
-
-    fn backoff_for_attempt(&self, attempt: u32) -> Result<Duration, ApiError> {
-        let Some(multiplier) = 1_u32.checked_shl(attempt.saturating_sub(1)) else {
-            return Err(ApiError::BackoffOverflow {
-                attempt,
-                base_delay: self.initial_backoff,
-            });
-        };
-        Ok(self
-            .initial_backoff
-            .checked_mul(multiplier)
-            .map_or(self.max_backoff, |delay| delay.min(self.max_backoff)))
-    }
-
-    fn jittered_backoff_for_attempt(&self, attempt: u32) -> Result<Duration, ApiError> {
-        let base = self.backoff_for_attempt(attempt)?;
-        Ok(base + jitter_for_base(base))
-    }
-}
-
-/// Process-wide counter that guarantees distinct jitter samples even when
-/// the system clock resolution is coarser than consecutive retry sleeps.
-static JITTER_COUNTER: AtomicU64 = AtomicU64::new(0);
-
-/// Returns a random additive jitter in `[0, base]` to decorrelate retries
-/// from multiple concurrent clients. Entropy is drawn from the nanosecond
-/// wall clock mixed with a monotonic counter and run through a splitmix64
-/// finalizer; adequate for retry jitter (no cryptographic requirement).
-fn jitter_for_base(base: Duration) -> Duration {
-    let base_nanos = u64::try_from(base.as_nanos()).unwrap_or(u64::MAX);
-    if base_nanos == 0 {
-        return Duration::ZERO;
-    }
-    let raw_nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| {
-            u64::try_from(elapsed.as_nanos()).unwrap_or(u64::MAX)
-        });
-    let tick = JITTER_COUNTER.fetch_add(1, Ordering::Relaxed);
-    // splitmix64 finalizer — mixes the low bits so large bases still see
-    // jitter across their full range instead of being clamped to subsec nanos.
-    let mut mixed = raw_nanos
-        .wrapping_add(tick)
-        .wrapping_add(0x9E37_79B9_7F4A_7C15);
-    mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-    mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-    mixed ^= mixed >> 31;
-    // Inclusive upper bound: jitter may equal `base`, matching "up to base".
-    let jitter_nanos = mixed % base_nanos.saturating_add(1);
-    Duration::from_nanos(jitter_nanos)
 }
 
 impl AuthSource {
@@ -1368,16 +1337,18 @@ mod tests {
             Duration::from_millis(10),
             Duration::from_millis(25),
         );
+        let initial = client.initial_backoff;
+        let max = client.max_backoff;
         assert_eq!(
-            client.backoff_for_attempt(1).expect("attempt 1"),
+            crate::breaker::exponential_backoff(1, initial, max).expect("attempt 1"),
             Duration::from_millis(10)
         );
         assert_eq!(
-            client.backoff_for_attempt(2).expect("attempt 2"),
+            crate::breaker::exponential_backoff(2, initial, max).expect("attempt 2"),
             Duration::from_millis(20)
         );
         assert_eq!(
-            client.backoff_for_attempt(3).expect("attempt 3"),
+            crate::breaker::exponential_backoff(3, initial, max).expect("attempt 3"),
             Duration::from_millis(25)
         );
     }
@@ -1389,12 +1360,13 @@ mod tests {
             Duration::from_secs(1),
             Duration::from_secs(128),
         );
+        let initial = client.initial_backoff;
+        let max = client.max_backoff;
         let mut samples = Vec::with_capacity(64);
         for _ in 0..64 {
-            let base = client.backoff_for_attempt(3).expect("base attempt 3");
-            let jittered = client
-                .jittered_backoff_for_attempt(3)
-                .expect("jittered attempt 3");
+            let base = crate::breaker::exponential_backoff(3, initial, max).expect("base attempt 3");
+            let jittered =
+                crate::breaker::jittered_backoff(3, initial, max).expect("jittered attempt 3");
             assert!(
                 jittered >= base,
                 "jittered delay {jittered:?} must be at least the base {base:?}"
@@ -1416,20 +1388,22 @@ mod tests {
     #[test]
     fn default_retry_policy_matches_exponential_schedule() {
         let client = AnthropicClient::new("test-key");
+        let initial = client.initial_backoff;
+        let max = client.max_backoff;
         assert_eq!(
-            client.backoff_for_attempt(1).expect("attempt 1"),
+            crate::breaker::exponential_backoff(1, initial, max).expect("attempt 1"),
             Duration::from_secs(1)
         );
         assert_eq!(
-            client.backoff_for_attempt(2).expect("attempt 2"),
+            crate::breaker::exponential_backoff(2, initial, max).expect("attempt 2"),
             Duration::from_secs(2)
         );
         assert_eq!(
-            client.backoff_for_attempt(3).expect("attempt 3"),
+            crate::breaker::exponential_backoff(3, initial, max).expect("attempt 3"),
             Duration::from_secs(4)
         );
         assert_eq!(
-            client.backoff_for_attempt(8).expect("attempt 8"),
+            crate::breaker::exponential_backoff(8, initial, max).expect("attempt 8"),
             Duration::from_secs(10)
         );
     }

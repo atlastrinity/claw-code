@@ -293,7 +293,7 @@ impl McpToolRegistry {
         Self::spawn_tool_call(
             manager,
             mcp_tool_name(server_name, tool_name),
-            (!final_arguments.is_null()).then(|| final_arguments),
+            (!final_arguments.is_null()).then_some(final_arguments),
         )
     }
 

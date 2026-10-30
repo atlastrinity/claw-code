@@ -107,7 +107,7 @@ impl CliToolExecutor {
 
             let runtime_tools = tools
                 .iter()
-                .map(|t| crate::mcp::mcp_runtime_tool_definition(t))
+                .map(crate::mcp::mcp_runtime_tool_definition)
                 .collect::<Vec<_>>();
             self.tool_registry.register_dynamic_tools(runtime_tools);
 
@@ -202,7 +202,7 @@ impl CliToolExecutor {
                 Ok(tools) => {
                     let runtime_tools = tools
                         .iter()
-                        .map(|t| crate::mcp::mcp_runtime_tool_definition(t))
+                        .map(crate::mcp::mcp_runtime_tool_definition)
                         .collect::<Vec<_>>();
                     self.tool_registry.register_dynamic_tools(runtime_tools);
                     loaded_status.push(format!("Successfully started coupled MCP server '{}' with {} tools.", server_name, tools.len()));

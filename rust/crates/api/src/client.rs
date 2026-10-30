@@ -312,6 +312,19 @@ impl ProviderClient {
         }
     }
 
+    /// Escalate the δ breaker for a stream the transport accepted but that
+    /// never delivered an event.
+    ///
+    /// `send_with_retry` records a breaker success as soon as the response is
+    /// accepted, so without this a provider that opens a socket and then goes
+    /// silent would de-escalate the breaker on every attempt.
+    pub fn record_stream_stall(&self) {
+        match self {
+            Self::Anthropic(client) => client.record_stream_stall(),
+            Self::Xai(client) | Self::OpenAi(client) => client.record_stream_stall(),
+        }
+    }
+
     #[must_use]
     pub fn with_prompt_cache(self, prompt_cache: PromptCache) -> Self {
         match self {
@@ -425,169 +438,125 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
     ) -> Result<MessageResponse, ApiError> {
         let estimated_tokens = estimate_request_tokens(request);
         let _lock = Self::apply_api_pause(&request.model, estimated_tokens).await;
-        
+
         let msg_count = request.messages.len();
         eprintln!(
             "📊 Request context: ~{} tokens estimated, {} messages",
             estimated_tokens, msg_count
         );
-        
-        let models_to_try = vec![request.model.clone()];
-        
-        let mut last_error = None;
-        let mut context_window_params: Option<(String, u32, u32, u32, u32)> = None;
-        
-        for model in &models_to_try {
-            let mut key_index = get_active_key_index(model);
-            if !Self::has_key_for_index(model, key_index) {
-                key_index = 1;
-            }
-            let start_index = key_index;
-            let mut overload_fail_count: usize = 0;
-            let mut total_keys: usize = 0;
-            
-            // Count total available keys for this model
-            {
-                let mut k = 1;
-                while Self::has_key_for_index(model, k) {
-                    total_keys += 1;
-                    k += 1;
-                }
-            }
-            
-            let mut attempt: u32 = 0;
-            
-            loop {
-                if model != &request.model {
-                    eprintln!(
-                        "\n⚠️ Switching to model '{}' with API key index {}...",
-                        model, key_index
-                    );
-                } else if key_index != start_index {
-                    eprintln!(
-                        "\n🔄 Using model '{}' with rotated API key index {}...",
-                        model, key_index
-                    );
-                }
-                
-                let mut fallback_request = request.clone();
-                fallback_request.model = model.clone();
-                fallback_request.inject_taskgraph_description();
-                
-                let client_res = if key_index == start_index && model == &request.model {
-                    match self {
-                        Self::Anthropic(client) => client.send_message(&fallback_request).await,
-                        Self::Xai(client) | Self::OpenAi(client) => client.send_message(&fallback_request).await,
-                    }
-                } else if let Ok(fallback_client) = ProviderClient::from_model_with_key_index(model, key_index) {
-                    match fallback_client {
-                        ProviderClient::Anthropic(client) => client.send_message(&fallback_request).await,
-                        ProviderClient::Xai(client) | ProviderClient::OpenAi(client) => client.send_message(&fallback_request).await,
-                    }
-                } else {
-                    Err(ApiError::Auth(format!("Missing credentials for model: {}", model)))
-                };
-                
-                match client_res {
-                    Ok(response) => {
-                        set_active_key_index(model, key_index);
-                        return Ok(response);
-                    }
-                    Err(err) => {
-                        eprintln!(
-                            "⚠️ Model '{}' with API key index {} returned error: {}.",
-                            model, key_index, err
-                        );
-                        
-                        if let ApiError::ContextWindowExceeded {
-                            model,
-                            estimated_input_tokens,
-                            requested_output_tokens,
-                            estimated_total_tokens,
-                            context_window_tokens,
-                        } = &err
-                        {
-                            if context_window_params.is_none() {
-                                context_window_params = Some((
-                                    model.clone(),
-                                    *estimated_input_tokens,
-                                    *requested_output_tokens,
-                                    *estimated_total_tokens,
-                                    *context_window_tokens,
-                                ));
-                            }
-                        }
 
-                        let err_str = format!("{:?}", err);
-                        let is_rate_limit = err.is_rate_limit() 
-                            || err_str.contains("1305") 
-                            || err_str.contains("429")
-                            || err_str.contains("Too Many Requests")
-                            || err_str.contains("overloaded");
-                        
-                        if is_rate_limit {
-                            overload_fail_count += 1;
-                        }
-                        
-                        last_error = Some(err);
-                        
-                        if is_rate_limit {
-                            // All keys exhausted with the same overload/1305 error — 
-                            // this is almost certainly a context overflow, not a rate limit
-                            if overload_fail_count >= total_keys && total_keys > 1 {
-                                eprintln!(
-                                    "\n🚫 All {} API keys for model '{}' returned overload/1305 errors.",
-                                    total_keys, model
-                                );
-                                eprintln!(
-                                    "   📊 Estimated context: ~{} tokens, {} messages.",
-                                    estimated_tokens, msg_count
-                                );
-                                eprintln!(
-                                    "   💡 This is likely a context window overflow, not a rate limit."
-                                );
-                                eprintln!(
-                                    "   💡 Try: /clear to reset conversation, or /compact to reduce context size."
-                                );
-                                break;
-                            }
-                            
-                            attempt += 1;
-                            let backoff_secs = std::cmp::min(2u64.pow(attempt), 16);
-                            eprintln!(
-                                "⏳ Rate limit detected. Pausing for {} seconds before retry...",
-                                backoff_secs
-                            );
-                            tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
-                            
-                            key_index += 1;
-                            if !Self::has_key_for_index(model, key_index) {
-                                key_index = 1;
-                            }
-                            set_active_key_index(model, key_index);
-                            
-                            if key_index == start_index {
-                                break;
-                            }
-                            continue;
-                        }
+        let model = request.model.as_str();
+        let mut key_index = get_active_key_index(model);
+        if !Self::has_key_for_index(model, key_index) {
+            key_index = 1;
+        }
+        let start_index = key_index;
+        let total_keys = Self::available_key_count(model);
+        let mut overload_fail_count: usize = 0;
+        let mut attempt: u32 = 0;
+        // Assigned by every `break` below; the success path returns early.
+        let mut last_error: Option<ApiError>;
+        let mut context_window_params: Option<(String, u32, u32, u32, u32)> = None;
+
+        loop {
+            if key_index != start_index {
+                eprintln!(
+                    "\n🔄 Using model '{model}' with rotated API key index {key_index}..."
+                );
+            }
+
+            let mut rotated_request = request.clone();
+            rotated_request.inject_taskgraph_description();
+
+            let client_res = if key_index == start_index {
+                match self {
+                    Self::Anthropic(client) => client.send_message(&rotated_request).await,
+                    Self::Xai(client) | Self::OpenAi(client) => client.send_message(&rotated_request).await,
+                }
+            } else if let Ok(fallback_client) =
+                ProviderClient::from_model_with_key_index(model, key_index)
+            {
+                match fallback_client {
+                    ProviderClient::Anthropic(client) => client.send_message(&rotated_request).await,
+                    ProviderClient::Xai(client) | ProviderClient::OpenAi(client) => {
+                        client.send_message(&rotated_request).await
+                    }
+                }
+            } else {
+                Err(ApiError::Auth(format!(
+                    "Missing credentials for model: {model}"
+                )))
+            };
+
+            match client_res {
+                Ok(response) => {
+                    set_active_key_index(model, key_index);
+                    return Ok(response);
+                }
+                Err(err) => {
+                    eprintln!(
+                        "⚠️ Model '{model}' with API key index {key_index} returned error: {err}."
+                    );
+                    Self::capture_context_window(&mut context_window_params, &err);
+
+                    let err_str = format!("{err:?}");
+                    let is_rate_limit = err.is_rate_limit()
+                        || err_str.contains("1305")
+                        || err_str.contains("429")
+                        || err_str.contains("Too Many Requests")
+                        || err_str.contains("overloaded");
+
+                    last_error = Some(err);
+
+                    if !is_rate_limit {
+                        break;
+                    }
+
+                    overload_fail_count += 1;
+                    // All keys exhausted with the same overload/1305 error —
+                    // this is almost certainly a context overflow, not a rate
+                    // limit.
+                    if overload_fail_count >= total_keys && total_keys > 1 {
+                        eprintln!(
+                            "\n🚫 All {total_keys} API keys for model '{model}' returned overload/1305 errors."
+                        );
+                        eprintln!(
+                            "   📊 Estimated context: ~{estimated_tokens} tokens, {msg_count} messages."
+                        );
+                        eprintln!(
+                            "   💡 This is likely a context window overflow, not a rate limit."
+                        );
+                        eprintln!(
+                            "   💡 Try: /clear to reset conversation, or /compact to reduce context size."
+                        );
+                        break;
+                    }
+
+                    attempt += 1;
+                    let backoff_secs = std::cmp::min(2u64.pow(attempt), 16);
+                    eprintln!(
+                        "⏳ Rate limit detected. Pausing for {backoff_secs} seconds before retry..."
+                    );
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
+
+                    key_index += 1;
+                    if !Self::has_key_for_index(model, key_index) {
+                        key_index = 1;
+                    }
+                    set_active_key_index(model, key_index);
+
+                    if key_index == start_index {
                         break;
                     }
                 }
             }
         }
-        
-        if let Some((model, estimated_input_tokens, requested_output_tokens, estimated_total_tokens, context_window_tokens)) = context_window_params {
-            return Err(ApiError::ContextWindowExceeded {
-                model,
-                estimated_input_tokens,
-                requested_output_tokens,
-                estimated_total_tokens,
-                context_window_tokens,
-            });
-        }
 
-        Err(last_error.unwrap_or_else(|| ApiError::Auth(format!("Missing credentials for model: {}", request.model))))
+        Err(Self::rotation_error(
+            model,
+            context_window_params,
+            last_error,
+        ))
     }
 
     pub async fn stream_message(
@@ -596,182 +565,203 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
     ) -> Result<MessageStream, ApiError> {
         let estimated_tokens = estimate_request_tokens(request);
         let _lock = Self::apply_api_pause(&request.model, estimated_tokens).await;
-        
+
         let msg_count = request.messages.len();
-        eprintln!(
-            "📊 Stream context: ~{} tokens estimated, {} messages",
-            estimated_tokens, msg_count
+        tracing::info!(
+            estimated_tokens,
+            messages = msg_count,
+            model = %request.model,
+            "stream context"
         );
-        
-        let models_to_try = build_fallback_model_cascade(&request.model);
-        
-        let mut last_error = None;
+
+        let model = request.model.as_str();
+        let mut key_index = get_active_key_index(model);
+        if !Self::has_key_for_index(model, key_index) {
+            key_index = 1;
+        }
+        let start_index = key_index;
+        let total_keys = Self::available_key_count(model);
+        let mut overload_fail_count: usize = 0;
+        // Assigned by every `break` below; the success path returns early.
+        let mut last_error: Option<ApiError>;
         let mut context_window_params: Option<(String, u32, u32, u32, u32)> = None;
-        for model in &models_to_try {
-            let mut key_index = get_active_key_index(model);
-            if !Self::has_key_for_index(model, key_index) {
-                key_index = 1;
+
+        loop {
+            if key_index != start_index {
+                eprintln!(
+                    "\n🔄 Using model '{model}' with rotated API key index {key_index}..."
+                );
             }
-            let start_index = key_index;
-            let mut overload_fail_count: usize = 0;
-            let mut total_keys: usize = 0;
-            
-            // Count total available keys for this model
+
+            let mut rotated_request = request.clone();
+            rotated_request.inject_taskgraph_description();
+
+            let client_res = if key_index == start_index {
+                match self {
+                    Self::Anthropic(client) => client
+                        .stream_message(&rotated_request)
+                        .await
+                        .map(MessageStream::Anthropic),
+                    Self::Xai(client) | Self::OpenAi(client) => client
+                        .stream_message(&rotated_request)
+                        .await
+                        .map(MessageStream::OpenAiCompat),
+                }
+            } else if let Ok(fallback_client) =
+                ProviderClient::from_model_with_key_index(model, key_index)
             {
-                let mut k = 1;
-                while Self::has_key_for_index(model, k) {
-                    total_keys += 1;
-                    k += 1;
+                match fallback_client {
+                    ProviderClient::Anthropic(client) => client
+                        .stream_message(&rotated_request)
+                        .await
+                        .map(MessageStream::Anthropic),
+                    ProviderClient::Xai(client) | ProviderClient::OpenAi(client) => client
+                        .stream_message(&rotated_request)
+                        .await
+                        .map(MessageStream::OpenAiCompat),
                 }
-            }
-            
-            loop {
-                if model != &request.model {
-                    eprintln!(
-                        "\n⚠️ Switching to model '{}' with API key index {}...",
-                        model, key_index
-                    );
-                } else if key_index != start_index {
-                    eprintln!(
-                        "\n🔄 Using model '{}' with rotated API key index {}...",
-                        model, key_index
-                    );
+            } else {
+                Err(ApiError::Auth(format!(
+                    "Missing credentials for model: {model}"
+                )))
+            };
+
+            match client_res {
+                Ok(response) => {
+                    set_active_key_index(model, key_index);
+                    return Ok(response);
                 }
-                
-                let mut fallback_request = request.clone();
-                fallback_request.model = model.clone();
-                fallback_request.inject_taskgraph_description();
-                
-                let client_res = if key_index == start_index && model == &request.model {
-                    match self {
-                        Self::Anthropic(client) => client
-                            .stream_message(&fallback_request)
-                            .await
-                            .map(MessageStream::Anthropic),
-                        Self::Xai(client) | Self::OpenAi(client) => client
-                            .stream_message(&fallback_request)
-                            .await
-                            .map(MessageStream::OpenAiCompat),
-                    }
-                } else if let Ok(fallback_client) = ProviderClient::from_model_with_key_index(model, key_index) {
-                    match fallback_client {
-                        ProviderClient::Anthropic(client) => client
-                            .stream_message(&fallback_request)
-                            .await
-                            .map(MessageStream::Anthropic),
-                        ProviderClient::Xai(client) | ProviderClient::OpenAi(client) => client
-                            .stream_message(&fallback_request)
-                            .await
-                            .map(MessageStream::OpenAiCompat),
-                    }
-                } else {
-                    Err(ApiError::Auth(format!("Missing credentials for model: {}", model)))
-                };
-                
-                match client_res {
-                    Ok(response) => {
-                        set_active_key_index(model, key_index);
-                        return Ok(response);
-                    }
-                    Err(err) => {
-                        eprintln!(
-                            "⚠️ Model '{}' with API key index {} returned error in streaming: {}.",
-                            model, key_index, err
+                Err(err) => {
+                    eprintln!(
+                        "⚠️ Model '{model}' with API key index {key_index} returned error in streaming: {err}."
+                    );
+                    Self::capture_context_window(&mut context_window_params, &err);
+
+                    let status_code = err.status_code().unwrap_or(0);
+                    let err_str = format!("{err:?}");
+                    let is_cooldown_error =
+                        crate::cooldown::KeyCooldownTracker::should_trigger_cooldown(
+                            &err_str,
+                            status_code,
                         );
 
-                        if let ApiError::ContextWindowExceeded {
-                            model,
-                            estimated_input_tokens,
-                            requested_output_tokens,
-                            estimated_total_tokens,
-                            context_window_tokens,
-                        } = &err
-                        {
-                            if context_window_params.is_none() {
-                                context_window_params = Some((
-                                    model.clone(),
-                                    *estimated_input_tokens,
-                                    *requested_output_tokens,
-                                    *estimated_total_tokens,
-                                    *context_window_tokens,
-                                ));
-                            }
-                        }
-                        
-                        let status_code = err.status_code().unwrap_or(0);
-                        let err_str = format!("{:?}", err);
-                        let is_cooldown_error = crate::cooldown::KeyCooldownTracker::should_trigger_cooldown(&err_str, status_code);
+                    last_error = Some(err);
 
-                        last_error = Some(err);
+                    if !is_cooldown_error {
+                        break;
+                    }
 
-                        if is_cooldown_error {
-                            overload_fail_count += 1;
-                            crate::cooldown::GLOBAL_KEY_COOLDOWN.mark_cooldown(
-                                model,
-                                key_index,
-                                crate::cooldown::DEFAULT_COOLDOWN_DURATION,
+                    overload_fail_count += 1;
+                    crate::cooldown::GLOBAL_KEY_COOLDOWN.mark_cooldown(
+                        model,
+                        key_index,
+                        crate::cooldown::DEFAULT_COOLDOWN_DURATION,
+                    );
+
+                    let (next_key, min_wait) = crate::cooldown::GLOBAL_KEY_COOLDOWN
+                        .find_available_key(model, total_keys, key_index + 1);
+
+                    if let Some(wait_time) = min_wait {
+                        if overload_fail_count >= total_keys && total_keys > 1 {
+                            eprintln!(
+                                "\n🚫 All {total_keys} API keys for model '{model}' are in cooldown or overloaded."
                             );
-
-                            let (next_key, min_wait) = crate::cooldown::GLOBAL_KEY_COOLDOWN.find_available_key(
-                                model,
-                                total_keys,
-                                key_index + 1,
+                            eprintln!(
+                                "   📊 Estimated context: ~{estimated_tokens} tokens, {msg_count} messages."
                             );
-
-                            if let Some(wait_time) = min_wait {
-                                if overload_fail_count >= total_keys && total_keys > 1 {
-                                    eprintln!(
-                                        "\n🚫 All {} API keys for model '{}' are in cooldown or overloaded.",
-                                        total_keys, model
-                                    );
-                                    eprintln!(
-                                        "   📊 Estimated context: ~{} tokens, {} messages.",
-                                        estimated_tokens, msg_count
-                                    );
-                                    eprintln!(
-                                        "   💡 Try: /clear to reset conversation, or /compact to reduce context size."
-                                    );
-                                    break;
-                                }
-
-                                let wait_secs = std::cmp::min(wait_time.as_secs(), 15).max(2);
-                                eprintln!(
-                                    "⏳ All API keys for '{}' in cooldown. Waiting {}s for key {} to recover...",
-                                    model, wait_secs, next_key
-                                );
-                                tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
-                            } else {
-                                eprintln!(
-                                    "❄️ API key {} placed in 60s cooldown. Switching to available key {}...",
-                                    key_index, next_key
-                                );
-                            }
-
-                            key_index = next_key;
-                            set_active_key_index(model, key_index);
-
-                            if key_index == start_index && min_wait.is_none() {
-                                break;
-                            }
-                            continue;
+                            eprintln!(
+                                "   💡 Try: /clear to reset conversation, or /compact to reduce context size."
+                            );
+                            break;
                         }
+
+                        let wait_secs = std::cmp::min(wait_time.as_secs(), 15).max(2);
+                        eprintln!(
+                            "⏳ All API keys for '{model}' in cooldown. Waiting {wait_secs}s for key {next_key} to recover..."
+                        );
+                        tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
+                    } else {
+                        eprintln!(
+                            "❄️ API key {key_index} placed in 60s cooldown. Switching to available key {next_key}..."
+                        );
+                    }
+
+                    key_index = next_key;
+                    set_active_key_index(model, key_index);
+
+                    if key_index == start_index && min_wait.is_none() {
                         break;
                     }
                 }
             }
         }
-        
-        if let Some((model, estimated_input_tokens, requested_output_tokens, estimated_total_tokens, context_window_tokens)) = context_window_params {
-            return Err(ApiError::ContextWindowExceeded {
+
+        Err(Self::rotation_error(
+            model,
+            context_window_params,
+            last_error,
+        ))
+    }
+
+    /// Credential slots available for a model (`KEY`, `KEY_2`, … ).
+    fn available_key_count(model: &str) -> usize {
+        (1usize..)
+            .take_while(|index| Self::has_key_for_index(model, *index))
+            .count()
+    }
+
+    /// Remember the first context-window overflow seen during key rotation;
+    /// later overloads are noise next to a measured overflow.
+    fn capture_context_window(
+        params: &mut Option<(String, u32, u32, u32, u32)>,
+        error: &ApiError,
+    ) {
+        if let ApiError::ContextWindowExceeded {
+            model,
+            estimated_input_tokens,
+            requested_output_tokens,
+            estimated_total_tokens,
+            context_window_tokens,
+        } = error
+        {
+            if params.is_none() {
+                *params = Some((
+                    model.clone(),
+                    *estimated_input_tokens,
+                    *requested_output_tokens,
+                    *estimated_total_tokens,
+                    *context_window_tokens,
+                ));
+            }
+        }
+    }
+
+    /// Error a fully rotated request ends with: a captured overflow outranks
+    /// the last transport error, since overloads often mask an overflow.
+    fn rotation_error(
+        requested_model: &str,
+        context_window_params: Option<(String, u32, u32, u32, u32)>,
+        last_error: Option<ApiError>,
+    ) -> ApiError {
+        if let Some((
+            model,
+            estimated_input_tokens,
+            requested_output_tokens,
+            estimated_total_tokens,
+            context_window_tokens,
+        )) = context_window_params
+        {
+            return ApiError::ContextWindowExceeded {
                 model,
                 estimated_input_tokens,
                 requested_output_tokens,
                 estimated_total_tokens,
                 context_window_tokens,
-            });
+            };
         }
 
-        Err(last_error.unwrap_or_else(|| ApiError::Auth(format!("Missing credentials for model: {}", request.model))))
+        last_error
+            .unwrap_or_else(|| ApiError::Auth(format!("Missing credentials for model: {requested_model}")))
     }
 }
 
@@ -926,20 +916,4 @@ mod tests {
             other => panic!("Expected ProviderClient::OpenAi for local model, got: {other:?}"),
         }
     }
-
-    #[test]
-    fn test_fallback_model_cascade_generation() {
-        let cascade_glm = super::build_fallback_model_cascade("glm-4.7-flash");
-        assert_eq!(cascade_glm, vec!["glm-4.7-flash".to_string()]);
-
-        let cascade_gemini = super::build_fallback_model_cascade("gemini-3.5-flash");
-        assert_eq!(cascade_gemini, vec!["gemini-3.5-flash".to_string()]);
-
-        let cascade_codestral = super::build_fallback_model_cascade("codestral-latest");
-        assert_eq!(cascade_codestral, vec!["codestral-latest".to_string()]);
-    }
-}
-
-pub fn build_fallback_model_cascade(primary_model: &str) -> Vec<String> {
-    vec![primary_model.to_string()]
 }

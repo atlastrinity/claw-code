@@ -1,36 +1,22 @@
-//! Fractal transcript compaction using δ-governed geometric thinning.
+//! Fractal transcript sampling using δ-governed geometric thinning.
 
 use super::constants::FEIGENBAUM_DELTA;
 
-/// Compact a list of message strings using geometric (δ-governed) thinning.
-///
-/// Recent messages up to `recent_count` are kept verbatim.
-/// Older messages are kept at geometrically increasing intervals.
-pub fn fractal_compact_messages(messages: &mut Vec<String>, total_capacity: usize) {
-    if messages.len() <= total_capacity {
-        return;
+/// Indices selected by δ-geometric thinning over `len` items, sampled
+/// backwards from the newest at intervals growing by δ.
+#[must_use]
+pub fn fractal_sample_indices(len: usize) -> Vec<usize> {
+    if len == 0 {
+        return Vec::new();
     }
-    let recent_count = ((total_capacity as f64) / FEIGENBAUM_DELTA).floor() as usize;
-    let recent_count = recent_count.max(1);
-    
-    let split_pos = messages.len().saturating_sub(recent_count);
-    let recent: Vec<String> = messages.drain(split_pos..).collect();
-    let older = std::mem::take(messages);
-    
-    let mut kept = Vec::new();
+    let mut picked = Vec::new();
     let mut step = 1.0f64;
-    let mut idx = (older.len() as f64) - 1.0;
-    
+    let mut idx = len as f64 - 1.0;
     while idx >= 0.0 {
-        let i = idx as usize;
-        if i < older.len() {
-            kept.push(older[i].clone());
-        }
+        picked.push(idx as usize);
         step *= FEIGENBAUM_DELTA;
         idx -= step;
     }
-    
-    kept.reverse();
-    kept.extend(recent);
-    *messages = kept;
+    picked.reverse();
+    picked
 }

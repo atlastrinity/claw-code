@@ -1015,6 +1015,10 @@ impl LiveCli {
                 Self::print_sandbox_status();
                 false
             }
+            SlashCommand::Fractal => {
+                let _ = crate::utils::print_fractal_status_snapshot(CliOutputFormat::Text);
+                false
+            }
             SlashCommand::Compact => {
                 self.compact()?;
                 false

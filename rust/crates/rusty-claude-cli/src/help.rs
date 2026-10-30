@@ -81,6 +81,11 @@ pub fn print_help_to(out: &mut impl Write) -> io::Result<()> {
     )?;
     writeln!(out, "  claw sandbox")?;
     writeln!(out, "      Show the current sandbox isolation snapshot")?;
+    writeln!(out, "  claw fractal")?;
+    writeln!(
+        out,
+        "      Show the Feigenbaum fractal control plane (δ limiter schedule, model cascade, circuit breakers)"
+    )?;
     writeln!(out, "  claw doctor")?;
     writeln!(
         out,

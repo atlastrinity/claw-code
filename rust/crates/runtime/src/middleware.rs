@@ -4,7 +4,7 @@ use crate::hooks::{HookAbortSignal, HookProgressReporter, HookRunResult, HookRun
 use crate::security::permissions::{
     PermissionContext, PermissionOutcome, PermissionPolicy, PermissionPrompter,
 };
-use crate::session::session::ConversationMessage;
+use crate::session::state::ConversationMessage;
 use crate::tool_dispatch::ToolCallRequest;
 use serde_json::{Map, Value};
 use telemetry::SessionTracer;
@@ -420,7 +420,7 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for HookMiddleware<'a> {
             .collect::<std::collections::HashMap<_, _>>();
 
         for message in &mut outcome.messages {
-            let Some(crate::session::session::ContentBlock::ToolResult {
+            let Some(crate::session::state::ContentBlock::ToolResult {
                 tool_use_id,
                 tool_name,
                 output,
@@ -534,7 +534,7 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for TracingMiddleware<'a> {
         // After execution: record finished
         if let Some(tracer) = self.tracer.as_mut() {
             for message in &outcome.messages {
-                if let Some(crate::session::session::ContentBlock::ToolResult {
+                if let Some(crate::session::state::ContentBlock::ToolResult {
                     tool_name,
                     is_error,
                     ..
@@ -845,7 +845,7 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for RagContextMiddleware {
 
         // ---- Post-execution: ingest significant results into RAG ----
         for message in &outcome.messages {
-            if let Some(crate::session::session::ContentBlock::ToolResult {
+            if let Some(crate::session::state::ContentBlock::ToolResult {
                 tool_use_id,
                 tool_name,
                 output,

@@ -378,6 +378,12 @@ class VoicePlayer:
 
     def _play_loop(self):
         lock_path = Path.home() / ".claw" / "narration.lock"
+        try:
+            from modules.avatar_overlay.ipc import send_avatar_event
+        except Exception:
+            def send_avatar_event(*args, **kwargs):
+                return False
+
         while True:
             item = self.play_queue.get()
             if item is None:
@@ -389,6 +395,15 @@ class VoicePlayer:
                 # Ensure narration lock exists while playback is running
                 lock_path.parent.mkdir(parents=True, exist_ok=True)
                 lock_path.touch(exist_ok=True)
+                
+                # Notify 3D Avatar Overlay about speech start
+                voice_name = "atlas"
+                if "tetiana" in str(wav_path):
+                    voice_name = "tetiana"
+                elif "grisha" in str(wav_path):
+                    voice_name = "grisha"
+                send_avatar_event("speech_start", wav_path=str(wav_path), voice=voice_name)
+
                 self.current_proc = subprocess.Popen(
                     ["afplay", str(wav_path)],
                     stdout=subprocess.PIPE,
@@ -411,6 +426,7 @@ class VoicePlayer:
             except Exception as e:
                 print(f"\n{COLORS['grisha']}⚠️ Помилка відтворення аудіо: {e}{COLORS['reset']}")
             finally:
+                send_avatar_event("speech_end")
                 self.current_proc = None
                 self.play_queue.task_done()
                 # If no more items are currently playing or queued, release narration lock immediately
@@ -525,14 +541,18 @@ class VoicePlayer:
             import re
             
             # Map narrator agents to Edge-TTS voices with distinct rate/pitch settings
+            atlas_rate = os.environ.get("CLAW_TTS_ATLAS_RATE", "-5%")
+            tetiana_rate = os.environ.get("CLAW_TTS_TETIANA_RATE", "-5%")
+            grisha_rate = os.environ.get("CLAW_TTS_GRISHA_RATE", "-8%")
+
             voice_settings = {
-                "tetiana": ("uk-UA-PolinaNeural", "+15%", "+5Hz"),
-                "atlas":   ("uk-UA-OstapNeural", "+18%", "+3Hz"),
-                "grisha":  ("uk-UA-OstapNeural", "+10%", "-15Hz"),
+                "tetiana": ("uk-UA-PolinaNeural", tetiana_rate, "+3Hz"),
+                "atlas":   ("uk-UA-OstapNeural", atlas_rate, "+0Hz"),
+                "grisha":  ("uk-UA-OstapNeural", grisha_rate, "-15Hz"),
             }
             # Allow overriding the voice settings via environment variables (e.g. CLAW_TTS_ATLAS_VOICE="tetiana")
             voice_override = os.environ.get(f"CLAW_TTS_{voice.upper()}_VOICE", voice)
-            voice_val, rate_val, pitch_val = voice_settings.get(voice_override, voice_settings.get(voice, ("uk-UA-PolinaNeural", "+0%", "+0Hz")))
+            voice_val, rate_val, pitch_val = voice_settings.get(voice_override, voice_settings.get(voice, ("uk-UA-PolinaNeural", "-5%", "+0Hz")))
             
             # Prepare text for TTS (transcribe English terms, clean up formatting)
             speech_text = prepare_text_for_tts(natural_text_ua)
@@ -540,9 +560,8 @@ class VoicePlayer:
             # Truncate strictly at complete sentence boundaries if exceeding 4000 characters
             speech_text = smart_truncate_sentence(speech_text, max_chars=4000)
 
-            # Cache check by generating md5 hash of the voice and speech text
-
-            hash_key = hashlib.md5(f"{voice}:{speech_text}".encode("utf-8")).hexdigest()
+            # Cache check by generating md5 hash of the voice, rate, pitch and speech text
+            hash_key = hashlib.md5(f"{voice}:{voice_val}:{rate_val}:{pitch_val}:{speech_text}".encode("utf-8")).hexdigest()
             cache_dir = self.output_dir / "cache"
             cache_dir.mkdir(exist_ok=True)
             cached_wav_path = cache_dir / f"{hash_key}.wav"

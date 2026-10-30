@@ -18,11 +18,24 @@ pub fn resolve_model_alias_with_config(model: &str) -> String {
     if let Some(resolved) = config_alias_for_current_dir(trimmed) {
         return resolve_model_alias(&resolved).to_string();
     }
-    resolve_model_alias(trimmed).to_string()
+    let built_in = resolve_model_alias(trimmed);
+    if built_in != trimmed {
+        return built_in.to_string();
+    }
+    // Cascade tier aliases (quick/stable/mega/reasoner) resolve to the
+    // built-in default cascade model IDs.
+    if let Some(tier) = runtime::fractal::default_cascade()
+        .iter()
+        .find(|tier| tier.alias == trimmed)
+    {
+        return tier.model_id.clone();
+    }
+    built_in.to_string()
 }
 
 /// Validate model syntax at parse time.
-/// Accepts: known aliases (opus, sonnet, haiku) or provider/model pattern.
+/// Accepts: known aliases (opus, sonnet, haiku; fractal cascade quick/stable/mega/reasoner
+/// are resolved before validation) or provider/model pattern.
 /// Rejects: empty, whitespace-only, strings with spaces, or invalid chars.
 pub fn validate_model_syntax(model: &str) -> Result<(), String> {
     let trimmed = model.trim();

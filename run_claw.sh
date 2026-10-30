@@ -75,6 +75,7 @@ pkill -f "ios-simulator-mcp" 2>/dev/null
 pkill -f "playwright-mcp-server" 2>/dev/null
 pkill -f "afplay" 2>/dev/null || true
 pkill -f "claw_voice_narrator.py" 2>/dev/null || true
+pkill -f "run_avatar.py" 2>/dev/null || true
 sleep 0.5
 
 # 1. Вибір моделі з .claw.json
@@ -238,9 +239,21 @@ else
   echo "🔇 Озвучку CLAW Voice Narrator відключено через змінні оточення (CLAW_TTS=false / CLAW_VOICE_NARRATOR=false)."
 fi
 
+# 4.1. Запускаємо 3D Avatar Overlay (зелена сітка Атласа у фоні), якщо не відключено в env
+AVATAR_PID=""
+if [ "${CLAW_AVATAR_OVERLAY:-true}" != "false" ] && [ "${ENABLE_AVATAR_OVERLAY:-true}" != "false" ]; then
+  echo "🟢 Запуск 3D Avatar Overlay (зелена сітка Атлас у фоні)..."
+  mkdir -p "$HOME/.claw/logs"
+  PYTHONPATH="${SCRIPT_DIR}:${PYTHONPATH:-}" "$PYTHON_BIN" "${SCRIPT_DIR}/modules/avatar_overlay/run_avatar.py" --daemon >> "$HOME/.claw/logs/avatar-overlay.log" 2>&1 &
+  AVATAR_PID=$!
+  disown $AVATAR_PID 2>/dev/null || true
+else
+  echo "🔇 3D Avatar Overlay відключено через змінні оточення (CLAW_AVATAR_OVERLAY=false / ENABLE_AVATAR_OVERLAY=false)."
+fi
+
 # 5. Налаштовуємо автоматичне очищення при виході з claw
 cleanup() {
-  echo "🛑 Зупинка claw-rag-service та Voice Narrator..."
+  echo "🛑 Зупинка claw-rag-service, Voice Narrator та Avatar Overlay..."
   {
     if [ -n "$RAG_PID" ]; then
       kill "$RAG_PID" 2>/dev/null || true
@@ -248,8 +261,12 @@ cleanup() {
     if [ -n "$NARRATOR_PID" ]; then
       kill "$NARRATOR_PID" 2>/dev/null || true
     fi
+    if [ -n "$AVATAR_PID" ]; then
+      kill "$AVATAR_PID" 2>/dev/null || true
+    fi
     pkill -f "claw-rag-service" 2>/dev/null || true
     pkill -f "claw_voice_narrator.py" 2>/dev/null || true
+    pkill -f "run_avatar.py" 2>/dev/null || true
     pkill -f "afplay" 2>/dev/null || true
     rm -f ~/.claw/narration.lock ~/.claw/voice_narrator.pid 2>/dev/null || true
   } 2>/dev/null

@@ -44,7 +44,7 @@ pub enum CliPreset {
 }
 
 impl CliPreset {
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse(s: &str) -> Option<Self> {
         match s.trim().to_ascii_lowercase().as_str() {
             "audit" => Some(Self::Audit),
             "explain" => Some(Self::Explain),
@@ -95,6 +95,9 @@ pub enum CliAction {
         output_format: CliOutputFormat,
     },
     Version {
+        output_format: CliOutputFormat,
+    },
+    Fractal {
         output_format: CliOutputFormat,
     },
     SessionList {
@@ -566,12 +569,12 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
 
             "--preset" => {
                 let value = args.get(index + 1).ok_or_else(|| "missing_flag_value: missing value for --preset.\nUsage: --preset audit|explain|implement".to_string())?;
-                preset = Some(CliPreset::from_str(value).ok_or_else(|| format!("invalid_flag_value: unrecognized preset '{}'.\nUsage: --preset audit|explain|implement", value))?);
+                preset = Some(CliPreset::parse(value).ok_or_else(|| format!("invalid_flag_value: unrecognized preset '{}'.\nUsage: --preset audit|explain|implement", value))?);
                 index += 2;
             }
             flag if flag.starts_with("--preset=") => {
                 let value = &flag[9..];
-                preset = Some(CliPreset::from_str(value).ok_or_else(|| format!("invalid_flag_value: unrecognized preset '{}'.\nUsage: --preset audit|explain|implement", value))?);
+                preset = Some(CliPreset::parse(value).ok_or_else(|| format!("invalid_flag_value: unrecognized preset '{}'.\nUsage: --preset audit|explain|implement", value))?);
                 index += 1;
             }
             "--attach-skill" | "--skill" => {
@@ -725,6 +728,7 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
             let topic = match rest[0].as_str() {
                 "status" => Some(LocalHelpTopic::Status),
                 "sandbox" => Some(LocalHelpTopic::Sandbox),
+                "fractal" => Some(LocalHelpTopic::Status),
                 "doctor" => Some(LocalHelpTopic::Doctor),
                 "acp" => Some(LocalHelpTopic::Acp),
                 "init" => Some(LocalHelpTopic::Init),
@@ -1256,6 +1260,7 @@ pub fn parse_local_help_action(
     let topic = match rest[0].as_str() {
         "status" => LocalHelpTopic::Status,
         "sandbox" => LocalHelpTopic::Sandbox,
+        "fractal" => LocalHelpTopic::Status,
         "doctor" => LocalHelpTopic::Doctor,
         "acp" => LocalHelpTopic::Acp,
         "init" => LocalHelpTopic::Init,

@@ -3200,6 +3200,9 @@ pub fn render_thinking_block_summary(
     char_count: Option<usize>,
     redacted: bool,
 ) -> Result<(), RuntimeError> {
+    if !redacted && char_count == Some(0) {
+        return Ok(());
+    }
     let summary = if redacted {
         "\n▶ Thinking block hidden by provider\n".to_string()
     } else if let Some(char_count) = char_count {

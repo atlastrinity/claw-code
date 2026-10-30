@@ -180,7 +180,6 @@ pub(crate) fn cell_kind(cell: &serde_json::Value) -> Option<NotebookCellType> {
 pub(crate) const MAX_SLEEP_DURATION_MS: u64 = 300_000;
 
 #[allow(clippy::needless_pass_by_value)]
-
 pub(crate) fn resolve_cell_index(
     cells: &[serde_json::Value],
     cell_id: Option<&str>,

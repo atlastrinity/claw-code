@@ -324,6 +324,11 @@ pub fn run_resume_command(
                 json: Some(sandbox_json_value(&status)),
             })
         }
+        SlashCommand::Fractal => Ok(ResumeCommandOutcome {
+            session: session.clone(),
+            message: Some("Feigenbaum fractal control plane — see `claw fractal --output-format json`".to_string()),
+            json: None,
+        }),
         SlashCommand::Cost => {
             let usage = UsageTracker::from_session(session).cumulative_usage();
             Ok(ResumeCommandOutcome {

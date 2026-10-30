@@ -104,7 +104,7 @@ pub use lane_events::{
     WatcherAction,
 };
 pub use loop_detection::LoopDetectionMiddleware;
-pub use mcp::mcp::{
+pub use mcp::identity::{
     mcp_server_signature, mcp_tool_name, mcp_tool_prefix, normalize_name_for_mcp,
     scoped_mcp_config_hash, unwrap_ccr_proxy_url,
 };
@@ -175,7 +175,7 @@ pub use security::sandbox::{
     FilesystemIsolationMode, LinuxSandboxCommand, SandboxConfig, SandboxDetectionInputs,
     SandboxRequest, SandboxStatus,
 };
-pub use session::session::{
+pub use session::state::{
     ContentBlock, ConversationMessage, MessageRole, Session, SessionCompaction, SessionError,
     SessionFork, SessionHeartbeat, SessionLiveness, SessionPromptEntry,
 };

@@ -1,0 +1,5 @@
+# Ignore large model weights — download separately with download_weights.sh
+*.pth
+*.pkl
+*.ply
+*.bin

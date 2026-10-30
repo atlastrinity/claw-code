@@ -67,11 +67,13 @@ Options:
   --release       Build the optimized release profile (default, smaller binary).
   --debug         Build the debug profile (faster compile).
   --no-verify     Skip the post-install verification step.
+  --no-avatar     Skip the 3D Avatar Overlay installation.
   -h, --help      Show this help text and exit.
 
 Environment overrides:
   CLAW_BUILD_PROFILE   debug | release
   CLAW_SKIP_VERIFY     set to 1 to skip verification
+  CLAW_SKIP_AVATAR     set to 1 to skip avatar overlay installation
 EOF
 }
 
@@ -81,6 +83,7 @@ EOF
 
 BUILD_PROFILE="${CLAW_BUILD_PROFILE:-release}"
 SKIP_VERIFY="${CLAW_SKIP_VERIFY:-0}"
+SKIP_AVATAR="${CLAW_SKIP_AVATAR:-0}"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -92,6 +95,9 @@ while [ "$#" -gt 0 ]; do
             ;;
         --no-verify)
             SKIP_VERIFY="1"
+            ;;
+        --no-avatar)
+            SKIP_AVATAR="1"
             ;;
         -h|--help)
             print_usage
@@ -375,6 +381,11 @@ else
     if [ -f "${SCRIPT_DIR}/install_and_verify_mcps.sh" ]; then
         info "verifying all 11 MCP servers..."
         "${SCRIPT_DIR}/install_and_verify_mcps.sh" || warn "Some MCP servers require manual authentication"
+    fi
+
+    if [ "${SKIP_AVATAR}" != "1" ] && [ -f "${SCRIPT_DIR}/install_avatar_overlay.sh" ]; then
+        info "Installing and verifying 3D Avatar Overlay system..."
+        "${SCRIPT_DIR}/install_avatar_overlay.sh" || warn "Avatar Overlay installation finished with notices"
     fi
 fi
 

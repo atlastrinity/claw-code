@@ -79,6 +79,13 @@ pub enum ApiError {
         max_bytes: usize,
         provider: &'static str,
     },
+    /// Fractal circuit breaker (δ-scaled `FractalRateLimiter`) opened: the
+    /// client consecutively exhausted retry chains and is shedding load
+    /// instead of hammering the provider.
+    CircuitOpen {
+        consecutive_failures: usize,
+        recovery_secs: u64,
+    },
 }
 
 impl ApiError {
@@ -171,7 +178,8 @@ impl ApiError {
             | Self::Json { .. }
             | Self::InvalidSseFrame(_)
             | Self::BackoffOverflow { .. }
-            | Self::RequestBodySizeExceeded { .. } => false,
+            | Self::RequestBodySizeExceeded { .. }
+            | Self::CircuitOpen { .. } => false,
         }
     }
 
@@ -190,7 +198,8 @@ impl ApiError {
             | Self::Json { .. }
             | Self::InvalidSseFrame(_)
             | Self::BackoffOverflow { .. }
-            | Self::RequestBodySizeExceeded { .. } => None,
+            | Self::RequestBodySizeExceeded { .. }
+            | Self::CircuitOpen { .. } => None,
         }
     }
 
@@ -216,6 +225,7 @@ impl ApiError {
             }
             Self::InvalidApiKeyEnv(_) | Self::Io(_) | Self::Json { .. } => "runtime_io",
             Self::RequestBodySizeExceeded { .. } => "request_size",
+            Self::CircuitOpen { .. } => "provider_circuit_open",
         }
     }
 
@@ -239,7 +249,8 @@ impl ApiError {
             | Self::Json { .. }
             | Self::InvalidSseFrame(_)
             | Self::BackoffOverflow { .. }
-            | Self::RequestBodySizeExceeded { .. } => false,
+            | Self::RequestBodySizeExceeded { .. }
+            | Self::CircuitOpen { .. } => false,
         }
     }
 
@@ -275,7 +286,8 @@ impl ApiError {
             | Self::Json { .. }
             | Self::InvalidSseFrame(_)
             | Self::BackoffOverflow { .. }
-            | Self::RequestBodySizeExceeded { .. } => false,
+            | Self::RequestBodySizeExceeded { .. }
+            | Self::CircuitOpen { .. } => false,
         }
     }
 }
@@ -403,6 +415,13 @@ impl Display for ApiError {
             } => write!(
                 f,
                 "request body size ({estimated_bytes} bytes) exceeds {provider} limit ({max_bytes} bytes); reduce prompt length or context before retrying"
+            ),
+            Self::CircuitOpen {
+                consecutive_failures,
+                recovery_secs,
+            } => write!(
+                f,
+                "provider circuit open after {consecutive_failures} consecutive failed retry chains (δ-fractal breaker at chaos point); request shed, the breaker closes automatically after ~{recovery_secs}s without failures — run `claw fractal` for the escalation schedule"
             ),
         }
     }

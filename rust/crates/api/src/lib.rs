@@ -1,3 +1,4 @@
+pub mod breaker;
 pub mod cooldown;
 mod client;
 mod error;

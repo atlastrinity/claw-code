@@ -53,6 +53,10 @@ use crate::render::{
 };
 const INTERNAL_PROGRESS_HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3);
 const POST_TOOL_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Deadline on silence in any stream. A provider can accept the connection and
+/// then never emit an SSE chunk; without this bound the CLI waits forever and
+/// is indistinguishable from a hung terminal.
+const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
 
 use crate::mcp::{
     ListMcpResourcesRequest, McpToolRequest, ReadMcpResourceRequest, RuntimeMcpState,
@@ -1520,6 +1524,77 @@ pub fn print_sandbox_status_snapshot(
             "{}",
             serde_json::to_string_pretty(&sandbox_json_value(&status))?
         ),
+    }
+    Ok(())
+}
+
+/// `claw fractal` — snapshot of the δ/α Feigenbaum control plane:
+/// limiter schedule, model cascade, and integration touchpoints.
+pub fn print_fractal_status_snapshot(
+    output_format: CliOutputFormat,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use runtime::fractal::{default_cascade, FEIGENBAUM_ALPHA, FEIGENBAUM_DELTA};
+    // The schedule clients actually start with, so a standalone `claw fractal`
+    // does not report a ceiling no session ever uses.
+    let limiter = api::breaker::configured_breaker();
+    let max_retries = api::breaker::configured_max_retries();
+    let cascade = default_cascade();
+    let live = api::breaker::snapshot();
+    match output_format {
+        CliOutputFormat::Text => {
+            println!("{}", limiter.bifurcation_summary());
+            println!();
+            println!("Live circuit breakers (this process):");
+            if live.is_empty() {
+                println!("  (none — no API clients created yet; `claw fractal` is a fresh process)");
+            } else {
+                for (id, level, failures, trips) in &live {
+                    println!("  {id}: level={level} consecutive_failures={failures} trips={trips}");
+                }
+            }
+            println!();
+            println!("Model cascade (resolved by --model <alias>, never auto-switched):");
+            for tier in &cascade {
+                println!("  tier {}: {} -> {}", tier.tier, tier.alias, tier.model_id);
+            }
+            println!();
+            println!(
+                "Breaker ceiling: {} levels — sheds after {} exhausted retry chains (CLAW_API_MAX_RETRIES={max_retries})",
+                limiter.max_level, max_retries + 2
+            );
+            println!("Constants: δ={FEIGENBAUM_DELTA:.10} α={FEIGENBAUM_ALPHA:.10}");
+            println!("Wired: compact δ-sampling · cascade alias fallback · API circuit breakers (anthropic/openai_compat)");
+        }
+        CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
+            let value = json!({
+                "kind": "fractal",
+                "action": "status",
+                "delta": FEIGENBAUM_DELTA,
+                "alpha": FEIGENBAUM_ALPHA,
+                "max_retries_per_chain": max_retries,
+                "breaker_ceiling_levels": limiter.max_level,
+                "limiter": {
+                    "levels": limiter.all_levels(),
+                    "state": limiter.bifurcation_summary(),
+                },
+                "live_breakers": live
+                    .iter()
+                    .map(|(id, level, failures, trips)| json!({
+                        "id": id,
+                        "level": level,
+                        "consecutive_failures": failures,
+                        "trips": trips
+                    }))
+                    .collect::<Vec<_>>(),
+                "cascade": cascade,
+                "wired": [
+                    "runtime::compact δ-geometric sampling",
+                    "rusty-claude-cli model alias cascade fallback",
+                    "api::providers δ-fractal circuit breakers"
+                ],
+            });
+            println!("{}", serde_json::to_string_pretty(&value)?);
+        }
     }
     Ok(())
 }
@@ -3040,7 +3115,7 @@ pub fn auto_match_skills(cwd: &std::path::Path, prompt: &str) -> Result<Vec<std:
             } else if let Some(s) = start {
                 let word: String = chars[s..i].iter().collect();
                 let token = word.to_lowercase();
-                for part in token.split(|c| c == '-' || c == '_') {
+                for part in token.split(['-', '_']) {
                     if part.len() > 2 && !STOP_WORDS.contains(&part) {
                         cleaned.insert(part.to_string());
                     }
@@ -3054,7 +3129,7 @@ pub fn auto_match_skills(cwd: &std::path::Path, prompt: &str) -> Result<Vec<std:
         if let Some(s) = start {
             let word: String = chars[s..].iter().collect();
             let token = word.to_lowercase();
-            for part in token.split(|c| c == '-' || c == '_') {
+            for part in token.split(['-', '_']) {
                 if part.len() > 2 && !STOP_WORDS.contains(&part) {
                     cleaned.insert(part.to_string());
                 }
@@ -8764,6 +8839,27 @@ mod alias_resolution_tests {
         assert_eq!(resolve_model_alias_with_config(model), model);
         assert!(validate_model_syntax(model).is_ok());
     }
+
+    #[test]
+    fn test_fractal_cascade_aliases_resolve() {
+        let _guard = ollama_env_lock();
+        let _env = EnvVarGuard::unset("OLLAMA_HOST");
+        // Feigenbaum cascade tier aliases resolve via config aliases first,
+        // falling back to runtime::fractal::default_cascade model IDs. Local
+        // config may prefix them (e.g. "local/"), so match on the suffix.
+        let resolved = resolve_model_alias_with_config("quick");
+        assert!(
+            resolved.ends_with("google/gemma-4-31b-it:free"),
+            "unexpected resolution for 'quick': {resolved}"
+        );
+        assert!(validate_model_syntax(&resolved).is_ok());
+        let resolved = resolve_model_alias_with_config("reasoner");
+        assert!(
+            resolved.ends_with("nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free"),
+            "unexpected resolution for 'reasoner': {resolved}"
+        );
+        assert!(validate_model_syntax(&resolved).is_ok());
+    }
     #[test]
     fn test_ollama_host_bypasses_model_validation() {
         let _guard = ollama_env_lock();
@@ -9035,6 +9131,17 @@ impl runtime::PermissionPrompter for CliPermissionPrompter {
 
         let mut response = String::new();
         match io::stdin().read_line(&mut response) {
+            Ok(0) => {
+                // EOF without input: non-interactive session with no piped decision.
+                println!();
+                println!("  No input available (non-interactive session) — denying.");
+                runtime::PermissionPromptDecision::Deny {
+                    reason: format!(
+                        "tool '{}' denied: non-interactive session provided no approval input",
+                        request.tool_name
+                    ),
+                }
+            }
             Ok(_) => {
                 let normalized = response.trim().to_ascii_lowercase();
                 if matches!(normalized.as_str(), "y" | "yes") {
@@ -9157,24 +9264,26 @@ impl ApiClient for AnthropicRuntimeClient {
         };
 
         self.runtime.block_on(async {
-            // When resuming after tool execution, apply a stall timeout on the
-            // first stream event.  If the model does not respond within the
-            // deadline we drop the stalled connection and re-send the request as
-            // a continuation nudge (one retry only).
-            let max_attempts: usize = if is_post_tool { 3 } else { 3 };
+            // Every stream gets a silence deadline. Post-tool continuations
+            // use a tighter one: the model has just been handed a tool result,
+            // so silence there means it stalled and the request is re-sent as
+            // a continuation nudge.
+            let stall_timeout = if is_post_tool {
+                POST_TOOL_STALL_TIMEOUT
+            } else {
+                STREAM_IDLE_TIMEOUT
+            };
+            let max_attempts: usize = 3;
 
             for attempt in 1..=max_attempts {
-                let result = self
-                    .consume_stream(&message_request, is_post_tool && attempt == 1)
-                    .await;
+                let result = self.consume_stream(&message_request, stall_timeout).await;
                 match result {
                     Ok(events) => return Ok(events),
                     Err(error)
-                        if error.to_string().contains("post-tool stall")
-                            && attempt < max_attempts =>
+                        if error.to_string().contains("stream stall") && attempt < max_attempts =>
                     {
-                        // Stalled after tool completion — nudge the model by
-                        // re-sending the same request.
+                        // Stalled before the first event — drop the dead
+                        // connection and re-send the same request.
                     }
                     Err(error) if attempt < max_attempts => {
                         eprintln!(
@@ -9196,13 +9305,14 @@ impl ApiClient for AnthropicRuntimeClient {
 }
 
 impl AnthropicRuntimeClient {
-    /// Consume a single streaming response, optionally applying a stall
-    /// timeout on the first event for post-tool continuations.
+    /// Consume a single streaming response, treating `stall_timeout` of
+    /// silence as a dead connection so a provider that stops streaming is
+    /// retried — or shed by the breaker — instead of blocking the session.
     #[allow(clippy::too_many_lines)]
     async fn consume_stream(
         &self,
         message_request: &MessageRequest,
-        apply_stall_timeout: bool,
+        stall_timeout: std::time::Duration,
     ) -> Result<Vec<AssistantEvent>, RuntimeError> {
         let mut stream = self
             .client
@@ -9225,30 +9335,29 @@ impl AnthropicRuntimeClient {
         let mut pending_thinking: Option<(String, Option<String>)> = None;
         let mut block_has_thinking_summary = false;
         let mut saw_stop = false;
-        let mut received_any_event = false;
 
         loop {
-            let next = if apply_stall_timeout && !received_any_event {
-                match tokio::time::timeout(POST_TOOL_STALL_TIMEOUT, stream.next_event()).await {
-                    Ok(inner) => inner.map_err(|error| {
-                        RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
-                    })?,
-                    Err(_elapsed) => {
-                        return Err(RuntimeError::new(
-                            "post-tool stall: model did not respond within timeout",
-                        ));
-                    }
-                }
-            } else {
-                stream.next_event().await.map_err(|error| {
+            // Every read is bounded. An SSE connection that goes quiet is
+            // indistinguishable from a hung terminal otherwise, whether it
+            // falls silent before the first event or after the hundredth.
+            let next = match tokio::time::timeout(stall_timeout, stream.next_event()).await {
+                Ok(inner) => inner.map_err(|error| {
                     RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
-                })?
+                })?,
+                Err(_elapsed) => {
+                    // The transport accepted the request, so the provider
+                    // client already logged a breaker success — correct it or
+                    // the δ breaker never escalates against a silent endpoint.
+                    self.client.record_stream_stall();
+                    return Err(RuntimeError::new(format!(
+                        "stream stall: model went silent for {stall_timeout:?}"
+                    )));
+                }
             };
 
             let Some(event) = next else {
                 break;
             };
-            received_any_event = true;
 
             match event {
                 ApiStreamEvent::MessageStart(start) => {

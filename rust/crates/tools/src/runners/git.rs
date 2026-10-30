@@ -21,10 +21,9 @@ pub(crate) fn run_git_status(input: GitStatusInput) -> Result<String, String> {
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
 /// Execute `git diff` with optional --cached, commit, and path filters.
 /// Returns the diff output wrapped in a JSON object.
-
+#[allow(clippy::needless_pass_by_value)]
 pub(crate) fn run_git_diff(input: GitDiffInput) -> Result<String, String> {
     let mut args: Vec<String> = vec!["diff".to_string()];
     if input.staged.unwrap_or(false) {
@@ -88,7 +87,6 @@ pub(crate) fn run_git_log(input: GitLogInput) -> Result<String, String> {
 
 /// Execute `git show` for a given commit, optionally with --stat or a file path.
 /// Uses the `commit:path` syntax when a path is specified.
-
 pub(crate) fn run_git_show(input: GitShowInput) -> Result<String, String> {
     let mut args: Vec<String> = vec!["show".to_string()];
 
@@ -135,9 +133,8 @@ pub(crate) fn run_git_show(input: GitShowInput) -> Result<String, String> {
     }
 }
 
-#[allow(clippy::needless_pass_by_value)]
 /// Execute `git blame` on a file, optionally restricted to a line range.
-
+#[allow(clippy::needless_pass_by_value)]
 pub(crate) fn run_git_blame(input: GitBlameInput) -> Result<String, String> {
     let mut args: Vec<String> = vec!["blame".to_string()];
     if let (Some(start), Some(end)) = (input.start_line, input.end_line) {

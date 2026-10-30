@@ -42,8 +42,10 @@ kill_process() {
 kill_process "run_claw.sh" false
 kill_process "run_claw_new_session.sh" false
 
-# Kill voice narrator script and any active audio playbacks
+# Kill voice narrator script, avatar overlay, and any active audio playbacks
 kill_process "claw_voice_narrator.py" false
+kill_process "run_avatar.py" false
+kill_process "avatar_overlay" false
 kill_process "afplay" false
 
 kill_process "claw" true
