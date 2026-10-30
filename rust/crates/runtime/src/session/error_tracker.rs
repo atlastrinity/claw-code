@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::fractal::Escape;
+
 /// Fine-grained error classification for autonomous agent troubleshooting.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum ErrorCategory {
@@ -169,6 +171,9 @@ pub struct DynamicSkill {
     pub errors_after_creation: usize,
     /// Number of successful invocations reinforcing this skill.
     pub success_count: usize,
+    /// Set when the fix was found by a forced orbit split rather than by trial
+    /// and error, and recorded by the bifurcation ladder.
+    pub bifurcation_provenance: Option<String>,
 }
 
 impl DynamicSkill {
@@ -201,6 +206,14 @@ impl DynamicSkill {
         } else {
             String::new()
         };
+        let provenance_section = self
+            .bifurcation_provenance
+            .as_deref()
+            .map(|provenance| {
+                format!("\n## 🔀 How this was found\n{provenance}\nThe repeated approach is the \
+                         anti-pattern here; this alternative is what cleared the block.\n")
+            })
+            .unwrap_or_default();
 
         format!(
             "---\n\
@@ -224,6 +237,7 @@ impl DynamicSkill {
              {solution}\n\
              ```\n\
              {diff_section}\n\
+             {provenance_section}\
              ## ⚠️ Anti-Patterns & Common Mistakes\n\
              {anti_patterns}\n",
             name = self.name,
@@ -238,6 +252,7 @@ impl DynamicSkill {
             solution = self.solution,
             diff_section = diff_section,
             anti_patterns = anti_patterns,
+            provenance_section = provenance_section,
         )
     }
 }
@@ -410,11 +425,20 @@ impl ErrorTracker {
 
     /// Records a successful tool execution. If there was a recurring error
     /// on this tool before, generates a dynamic skill and returns it.
-    pub fn record_success(
+    pub fn record_success(&mut self, tool_name: &str, input: &str, output: &str) -> Option<DynamicSkill> {
+        self.record_success_with_escape(tool_name, input, output, None)
+    }
+
+    /// As [`Self::record_success`], crediting the bifurcation ladder when the fix
+    /// was found by a forced orbit split, so the persisted axiom also records
+    /// which approach had to die.
+    #[allow(clippy::missing_panics_doc)]
+    pub fn record_success_with_escape(
         &mut self,
         tool_name: &str,
         input: &str,
         output: &str,
+        escape: Option<&Escape>,
     ) -> Option<DynamicSkill> {
         // Find any error categories for this tool with >= 2 occurrences.
         let mut candidate_key = None;
@@ -429,6 +453,9 @@ impl ErrorTracker {
             }) {
                 existing.success_count += 1;
                 existing.was_effective = true;
+                if existing.bifurcation_provenance.is_none() {
+                    existing.bifurcation_provenance = escape.map(Escape::provenance_line);
+                }
                 let _ = write_temp_skill(existing);
                 let _ = persist_skill_to_learned(existing);
                 return None;
@@ -483,6 +510,7 @@ impl ErrorTracker {
             temp_path,
             errors_after_creation: 0,
             success_count: 1,
+            bifurcation_provenance: escape.map(Escape::provenance_line),
         };
 
         // Write to temporary storage.
@@ -530,13 +558,19 @@ impl ErrorTracker {
 
         for skill in &self.dynamic_skills {
             let diff_note = skill.input_diff.as_deref().map(|d| format!(" (Adjusted: {d})")).unwrap_or_default();
+            let found_note = skill
+                .bifurcation_provenance
+                .as_deref()
+                .map(|p| format!(" [found by orbit split — {}]", truncate(p, 120)))
+                .unwrap_or_default();
             lines.push(format!(
-                "- **{}** (`{}`): Error pattern: \"{}\". Fix: {}{}",
+                "- **{}** (`{}`): Error pattern: \"{}\". Fix: {}{}{}",
                 skill.name,
                 skill.tool_name,
                 truncate(&skill.error_pattern, 100),
                 truncate(&skill.solution, 200),
-                diff_note
+                diff_note,
+                found_note
             ));
         }
 
@@ -897,6 +931,7 @@ mod tests {
             temp_path: PathBuf::from("/tmp/test"),
             errors_after_creation: 0,
             success_count: 2,
+            bifurcation_provenance: None,
         };
         let md = skill.to_skill_md();
         assert!(md.starts_with("---\n"));

@@ -1,18 +1,36 @@
+use std::sync::Mutex;
+
+use crate::fractal::BifurcationEngine;
 use crate::middleware::{ToolCallContext, ToolCallOutcome, TurnMiddleware};
 use crate::security::permissions::PermissionPrompter;
+use crate::session::error_tracker::resolve_effective_tool_name;
 use crate::session::state::{ContentBlock, ConversationMessage, MessageRole, Session};
 
+/// Refuses retries that cannot succeed, before they cost a tool execution.
+///
+/// Two independent rules run here:
+///
+/// 1. the ladder's semantic gate — a call that already failed with this exact
+///    input is refused while the mutation epoch has not moved, i.e. nothing that
+///    could change the outcome has succeeded in between. Denied retries are fed
+///    back into the ladder via [`BifurcationEngine::note_refusal`], so a blocked
+///    loop still escalates the thinking mode;
+/// 2. the older byte-equality counter, kept because it also catches repeats of
+///    calls that *succeeded* (re-reading the same file forever), which the
+///    failure ledger deliberately ignores.
 pub struct LoopDetectionMiddleware<'a> {
     pub session: &'a Session,
     pub max_identical_calls: usize,
+    pub bifurcation: &'a Mutex<BifurcationEngine>,
 }
 
 impl<'a> LoopDetectionMiddleware<'a> {
     #[must_use]
-    pub fn new(session: &'a Session) -> Self {
+    pub fn new(session: &'a Session, bifurcation: &'a Mutex<BifurcationEngine>) -> Self {
         Self {
             session,
             max_identical_calls: 2, // Allow 2 identical calls, deny on the 3rd
+            bifurcation,
         }
     }
 }
@@ -33,6 +51,41 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for LoopDetectionMiddleware<'a> {
         for call_state in ctx.calls {
             let tool_name = &call_state.request.tool_name;
             let input = &call_state.request.input;
+
+            // 1. Semantic gate: a dead orbit, not merely a repeated string.
+            let effective_name = resolve_effective_tool_name(tool_name, input);
+            let key = BifurcationEngine::attempt_key(&effective_name, input);
+            let refusal = {
+                let mut engine = self
+                    .bifurcation
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                match engine.would_refuse(&key) {
+                    // The blocked retry is trajectory evidence: the ladder must
+                    // see the orbit close even though nothing executed.
+                    Some(refusal) => {
+                        engine.note_refusal(&refusal);
+                        Some(refusal)
+                    }
+                    None => None,
+                }
+            };
+            if let Some(refusal) = refusal {
+                tracing::warn!(
+                    tool = %refusal.tool,
+                    category = %refusal.category,
+                    attempts = refusal.attempts,
+                    epoch = refusal.epoch,
+                    "dead orbit refused"
+                );
+                denied_messages.push(ConversationMessage::tool_result(
+                    call_state.request.tool_use_id.clone(),
+                    tool_name.clone(),
+                    refusal.to_directive(),
+                    true,
+                ));
+                continue;
+            }
 
             let mut identical_count = 0;
 

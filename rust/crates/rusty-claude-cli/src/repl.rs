@@ -538,6 +538,12 @@ impl LiveCli {
                         format_auto_compaction_notice(event.removed_message_count)
                     );
                 }
+                if summary.bifurcation_regime != runtime::fractal::Regime::Laminar {
+                    println!(
+                        "{}",
+                        crate::render::format_bifurcation_notice(summary.bifurcation_regime)
+                    );
+                }
                 self.persist_session()?;
                 Ok(())
             }
@@ -676,6 +682,14 @@ impl LiveCli {
                                         format_auto_compaction_notice(event.removed_message_count)
                                     );
                                 }
+                                if summary.bifurcation_regime != runtime::fractal::Regime::Laminar {
+                                    println!(
+                                        "{}",
+                                        crate::render::format_bifurcation_notice(
+                                            summary.bifurcation_regime
+                                        )
+                                    );
+                                }
                                 self.persist_session()?;
                                 return Ok(());
                             }
@@ -780,6 +794,14 @@ impl LiveCli {
                                     println!(
                                         "{}",
                                         format_auto_compaction_notice(event.removed_message_count)
+                                    );
+                                }
+                                if summary.bifurcation_regime != runtime::fractal::Regime::Laminar {
+                                    println!(
+                                        "{}",
+                                        crate::render::format_bifurcation_notice(
+                                            summary.bifurcation_regime
+                                        )
                                     );
                                 }
                                 self.persist_session()?;
@@ -938,6 +960,7 @@ impl LiveCli {
                     "message": final_assistant_text(&summary),
                     "model": self.model,
                     "iterations": summary.iterations,
+                    "bifurcation_regime": summary.bifurcation_regime.as_str(),
                     "auto_compaction": summary.auto_compaction.map(|event| serde_json::json!({
                         "removed_messages": event.removed_message_count,
                         "notice": crate::render::format_auto_compaction_notice(event.removed_message_count),

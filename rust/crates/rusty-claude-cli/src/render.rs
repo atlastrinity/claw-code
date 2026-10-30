@@ -995,7 +995,9 @@ fn strip_ansi(input: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{strip_ansi, MarkdownStreamState, Spinner, TerminalRenderer};
+    use super::{
+        format_bifurcation_notice, strip_ansi, MarkdownStreamState, Spinner, TerminalRenderer,
+    };
 
     #[test]
     fn renders_markdown_with_styling_and_lists() {
@@ -1149,6 +1151,15 @@ mod tests {
 
         let output = String::from_utf8_lossy(&out);
         assert!(output.contains("Working"));
+    }
+
+    #[test]
+    fn bifurcation_notice_names_the_forced_thinking_mode() {
+        use runtime::fractal::Regime;
+
+        assert!(format_bifurcation_notice(Regime::Dichotomy).contains("dichotomy (2 orbits)"));
+        assert!(format_bifurcation_notice(Regime::Quadrupole).contains("quadrupole (4 orbits)"));
+        assert!(format_bifurcation_notice(Regime::Chaos).contains("chaos (aperiodic)"));
     }
 }
 
@@ -1464,6 +1475,20 @@ pub fn format_compact_report(removed: usize, resulting_messages: usize, skipped:
 
 pub fn format_auto_compaction_notice(removed: usize) -> String {
     format!("[auto-compacted: removed {removed} messages]")
+}
+
+/// One-line notice that the conversation loop ended a turn under a forced
+/// thinking mode. Printed only above laminar, because a converging turn costs
+/// nothing and should stay silent.
+#[must_use]
+pub fn format_bifurcation_notice(regime: runtime::fractal::Regime) -> String {
+    let orbits = regime
+        .orbits()
+        .map_or_else(|| "aperiodic".to_string(), |n| format!("{n} orbits"));
+    format!(
+        "[bifurcation: the loop stalled — forced {} ({orbits}); retries of the failed call were refused]",
+        regime.as_str()
+    )
 }
 
 pub fn render_repl_help() -> String {

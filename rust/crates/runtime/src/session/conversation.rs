@@ -9,6 +9,7 @@ use crate::compact::{
     compact_session, estimate_session_tokens, CompactionConfig, CompactionResult,
 };
 use crate::config::RuntimeFeatureConfig;
+use crate::fractal::{BifurcationEngine, OrbitSample, Regime};
 use crate::session::error_tracker::ErrorTracker;
 use crate::hooks::{HookAbortSignal, HookProgressReporter, HookRunner};
 use crate::security::permissions::{PermissionPolicy, PermissionPrompter};
@@ -17,6 +18,7 @@ use crate::session::usage::{TokenUsage, UsageTracker};
 
 const DEFAULT_AUTO_COMPACTION_INPUT_TOKENS_THRESHOLD: u32 = 100_000;
 const AUTO_COMPACTION_THRESHOLD_ENV_VAR: &str = "CLAUDE_CODE_AUTO_COMPACT_INPUT_TOKENS";
+const BIFURCATION_HALT_ENV_VAR: &str = "CLAW_FRACTAL_HALT_AT_CHAOS";
 
 /// Fully assembled request payload sent to the upstream model client.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +139,9 @@ pub struct TurnSummary {
     pub iterations: usize,
     pub usage: TokenUsage,
     pub auto_compaction: Option<AutoCompactionEvent>,
+    /// Cognitive regime the turn ended in. `Laminar` means the loop never hit
+    /// enough resistance to force an orbit split.
+    pub bifurcation_regime: Regime,
 }
 
 /// Details about automatic session compaction applied during a turn.
@@ -160,6 +165,7 @@ pub struct ConversationRuntime<C, T> {
     hook_progress_reporter: Option<Box<dyn HookProgressReporter>>,
     session_tracer: Option<SessionTracer>,
     error_tracker: Mutex<ErrorTracker>,
+    bifurcation: Mutex<BifurcationEngine>,
 }
 
 impl<C, T> ConversationRuntime<C, T>
@@ -210,6 +216,9 @@ where
             hook_progress_reporter: None,
             session_tracer: None,
             error_tracker: Mutex::new(ErrorTracker::new()),
+            bifurcation: Mutex::new(
+                BifurcationEngine::new().with_halt_at_chaos(bifurcation_halt_from_env())
+            ),
         }
     }
 
@@ -257,6 +266,32 @@ where
         self
     }
 
+    /// Replace the bifurcation ladder configuration (thresholds, chaos halt).
+    #[must_use]
+    pub fn with_bifurcation(mut self, engine: BifurcationEngine) -> Self {
+        self.bifurcation = Mutex::new(engine);
+        self
+    }
+
+    /// Current thinking regime forced on the model by the ladder.
+    #[must_use]
+    pub fn bifurcation_regime(&self) -> Regime {
+        self.bifurcation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .regime()
+    }
+
+    /// Diagnostic view of the cognitive ladder, mirroring the transport
+    /// breaker's `bifurcation_summary`.
+    #[must_use]
+    pub fn bifurcation_summary(&self) -> String {
+        self.bifurcation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .summary()
+    }
+
     #[allow(clippy::too_many_lines)]
     fn dispatch_tool_calls<'a>(
         &mut self,
@@ -286,6 +321,8 @@ where
 
         let batches = batch_tool_calls(calls);
         let mut result_messages = Vec::new();
+        let mut sample = OrbitSample::new(iterations);
+        let bifurcation = &self.bifurcation;
 
         for batch in batches {
             let reqs = match batch {
@@ -309,7 +346,7 @@ where
             let rag_client = RagClient::localhost();
 
             let chain = MiddlewareChain::new()
-                .with(LoopDetectionMiddleware::new(&self.session))
+                .with(LoopDetectionMiddleware::new(&self.session, bifurcation))
                 .with(RagContextMiddleware::new(rag_client.clone()))
                 .with(PermissionMiddleware::new(&self.permission_policy))
                 .with(RagBatchingMiddleware::new(&rag_client))
@@ -349,6 +386,22 @@ where
                     };
                     // Track errors and successes for auto-learning.
                     let effective_name = crate::session::error_tracker::resolve_effective_tool_name(&req.tool_name, &req.input);
+                    let category = if is_error {
+                        crate::session::error_tracker::normalize_error_category(&output)
+                    } else {
+                        String::new()
+                    };
+                    // Feed the bifurcation ladder before the skill forge, so an
+                    // escape detected here can label the skill it writes.
+                    let escape = {
+                        let mut engine = bifurcation
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        engine.note_attempt(&effective_name, &req.input);
+                        engine.note_outcome(&effective_name, &req.input, is_error, &category);
+                        engine.take_escape()
+                    };
+                    record_step_outcome(&mut sample, &effective_name, &category, is_error);
                     let output = if is_error {
                         let mut tracker = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                         tracker.record_error(&effective_name, &output, &req.input);
@@ -359,7 +412,7 @@ where
                             output
                         }
                     } else {
-                        if let Some(skill) = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_success(&effective_name, &req.input, &output) {
+                        if let Some(skill) = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_success_with_escape(&effective_name, &req.input, &output, escape.as_ref()) {
                             tracing::info!(
                                 skill = %skill.name,
                                 tool = %skill.tool_name,
@@ -375,6 +428,10 @@ where
                         is_error,
                     ));
                 } else {
+                    // The parallel executor takes an `Fn`, so per-call outcomes
+                    // land in a side buffer and are folded into the sample once
+                    // the batch has finished.
+                    let step_outcomes: Mutex<Vec<(String, String, bool)>> = Mutex::new(Vec::new());
                     let execution_results = execute_parallel_batch(
                         &calls_to_execute,
                         |tool_name, input| {
@@ -387,6 +444,23 @@ where
                             };
                             // Track errors and successes for auto-learning.
                             let effective_name = crate::session::error_tracker::resolve_effective_tool_name(tool_name, input);
+                            let category = if result.1 {
+                                crate::session::error_tracker::normalize_error_category(&result.0)
+                            } else {
+                                String::new()
+                            };
+                            let escape = {
+                                let mut engine = bifurcation
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                                engine.note_attempt(&effective_name, input);
+                                engine.note_outcome(&effective_name, input, result.1, &category);
+                                engine.take_escape()
+                            };
+                            step_outcomes
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .push((effective_name.to_string(), category, result.1));
                             let (output, is_error) = if result.1 {
                                 let mut tracker = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                                 tracker.record_error(&effective_name, &result.0, input);
@@ -398,7 +472,7 @@ where
                                 };
                                 (output, true)
                             } else {
-                                let _ = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_success(&effective_name, input, &result.0);
+                                let _ = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_success_with_escape(&effective_name, input, &result.0, escape.as_ref());
                                 result
                             };
                             (output, is_error)
@@ -416,6 +490,13 @@ where
                             result.is_error,
                         ));
                     }
+
+                    for (tool, category, is_error) in step_outcomes
+                        .into_inner()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    {
+                        record_step_outcome(&mut sample, &tool, &category, is_error);
+                    }
                 }
 
                 ToolCallOutcome {
@@ -425,6 +506,13 @@ where
 
             result_messages.extend(outcome.messages);
         }
+
+        // One trajectory point per iteration: this is where the ladder decides
+        // whether the next iteration runs laminar or under a forced orbit split.
+        self.bifurcation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .observe(&sample);
 
         result_messages
     }
@@ -498,6 +586,14 @@ where
             if let Ok(tracker) = self.error_tracker.lock() {
                 if let Some(skills_section) = tracker.prompt_section() {
                     system_prompt.push(skills_section);
+                }
+            }
+            // Inject the bifurcation directive when accumulated resistance has
+            // forced a wider thinking mode. Laminar flow adds nothing, so a
+            // converging turn pays no token cost for the ladder.
+            if let Ok(engine) = self.bifurcation.lock() {
+                if let Some(directive) = engine.directive_section() {
+                    system_prompt.push(directive);
                 }
             }
             // Disabled automatic RAG context querying on initial user input to save tokens.
@@ -599,6 +695,25 @@ where
                 self.record_tool_finished(iterations, &result_message);
                 tool_results.push(result_message);
             }
+
+            // Past the accumulation point for too many steps, more iterations are
+            // waste rather than search. Off unless CLAW_FRACTAL_HALT_AT_CHAOS is set.
+            let halt = self
+                .bifurcation
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .halt_requested();
+            if halt {
+                let error = RuntimeError::terminal(format!(
+                    "Bifurcation ladder reached its chaos point (r∞) and stayed past it for {} \
+                     steps without leaving the basin. The turn was ended to stop an \
+                     unproductive loop. Human input needed: the approaches tried are listed in \
+                     the last directives, and the measured blocker is in the tool results.",
+                    crate::fractal::bifurcation::CHAOS_HALT_STEPS
+                ));
+                self.record_turn_failed(iterations, &error);
+                return Err(error);
+            }
         }
 
         let summary = TurnSummary {
@@ -608,12 +723,18 @@ where
             iterations,
             usage: self.usage_tracker.cumulative_usage(),
             auto_compaction,
+            bifurcation_regime: self
+                .bifurcation
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .regime(),
         };
         tracing::info!(
             iterations = summary.iterations,
             assistant_msgs = summary.assistant_messages.len(),
             tool_results = summary.tool_results.len(),
             total_tokens = summary.usage.total_tokens(),
+            bifurcation_regime = summary.bifurcation_regime.as_str(),
             "turn completed"
         );
         self.record_turn_completed(&summary);
@@ -793,12 +914,40 @@ pub fn auto_compaction_threshold_from_env() -> u32 {
     )
 }
 
+/// Opt in to ending a turn once the bifurcation ladder sits past its accumulation
+/// point for too long. Off unless `CLAW_FRACTAL_HALT_AT_CHAOS` is truthy.
 #[must_use]
-fn parse_auto_compaction_threshold(value: Option<&str>) -> u32 {
-    value
+fn bifurcation_halt_from_env() -> bool {
+    matches!(
+        std::env::var(BIFURCATION_HALT_ENV_VAR)
+            .ok()
+            .map(|raw| raw.trim().to_lowercase())
+            .as_deref(),
+        Some("1") | Some("true") | Some("yes") | Some("on")
+    )
+}
+
+#[must_use]
+fn parse_auto_compaction_threshold(value: Option<&str>) -> u32 {    value
         .and_then(|raw| raw.trim().parse::<u32>().ok())
         .filter(|threshold| *threshold > 0)
         .unwrap_or(DEFAULT_AUTO_COMPACTION_INPUT_TOKENS_THRESHOLD)
+}
+
+/// Fold one tool outcome into the orbit sample for the current iteration.
+fn record_step_outcome(sample: &mut OrbitSample, tool: &str, category: &str, is_error: bool) {
+    if is_error {
+        let fingerprint = BifurcationEngine::fingerprint(tool, category);
+        if BifurcationEngine::is_transient_category(category) {
+            sample.transient_failures.push(fingerprint.clone());
+        }
+        sample.failures.push(fingerprint);
+        return;
+    }
+    if !BifurcationEngine::is_read_only_tool(tool) {
+        sample.mutated_state = true;
+    }
+    sample.successes.push(tool.to_string());
 }
 
 fn build_assistant_message(
@@ -1088,6 +1237,7 @@ mod tests {
     };
     use crate::compact::CompactionConfig;
     use crate::config::{RuntimeFeatureConfig, RuntimeHookConfig};
+    use crate::fractal::Regime;
     use crate::security::permissions::{
         PermissionMode, PermissionPolicy, PermissionPromptDecision, PermissionPrompter,
         PermissionRequest,
@@ -1099,6 +1249,7 @@ mod tests {
     use std::fs;
     use std::path::PathBuf;
     use std::sync::Arc;
+    use std::sync::Mutex;
     use std::time::{SystemTime, UNIX_EPOCH};
     use telemetry::{MemoryTelemetrySink, SessionTracer, TelemetryEvent};
 
@@ -2087,6 +2238,159 @@ mod tests {
         assert!(error
             .to_string()
             .contains("conversation loop exceeded the maximum number of iterations"));
+    }
+
+    /// End-to-end proof that the ladder is not decoration: a stalled turn must
+    /// (1) climb out of laminar, (2) have the forced orbit split injected into the
+    /// system prompt the model actually receives, and (3) get the dead orbit
+    /// refused at the middleware instead of executed a third time.
+    #[test]
+    fn repeated_identical_failure_escalates_and_refuses_the_dead_orbit() {
+        struct RecordingApi {
+            prompts: Arc<Mutex<Vec<String>>>,
+            calls: std::cell::Cell<usize>,
+        }
+
+        impl ApiClient for RecordingApi {
+            fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+                self.prompts
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(request.system_prompt.join("\n"));
+                let n = self.calls.get() + 1;
+                self.calls.set(n);
+                Ok(vec![
+                    AssistantEvent::ToolUse {
+                        id: format!("tool-{n}"),
+                        name: "bash".to_string(),
+                        input: "{\"command\":\"edge-tts --text hi\"}".to_string(),
+                        signature: None,
+                    },
+                    AssistantEvent::MessageStop,
+                ])
+            }
+        }
+
+        let prompts = Arc::new(Mutex::new(Vec::new()));
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            RecordingApi {
+                prompts: Arc::clone(&prompts),
+                calls: std::cell::Cell::default(),
+            },
+            StaticToolExecutor::new().register("bash", |_input| {
+                Err(ToolError::new("No such file or directory: edge-tts"))
+            }),
+            PermissionPolicy::new(PermissionMode::DangerFullAccess),
+            vec!["system".to_string()],
+        )
+        .with_max_iterations(4);
+
+        // when
+        let _ = runtime.run_turn("ship the tts", None);
+
+        // then: the pressure measured off real tool results left laminar.
+        assert!(
+            runtime.bifurcation_regime() > Regime::Laminar,
+            "four identical failing steps should walk the ladder, got:\n{}",
+            runtime.bifurcation_summary()
+        );
+
+        let prompts = prompts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        assert_eq!(prompts.len(), 4, "one API call per iteration");
+        assert!(
+            !prompts[0].contains("BIFURCATION"),
+            "a converging first call must cost zero directive tokens"
+        );
+        assert!(
+            prompts[2].contains("PERIOD-2 ORBIT SPLIT"),
+            "the orbit-split directive must reach the system prompt, got:\n{}",
+            prompts[2]
+        );
+
+        let tool_results = runtime
+            .session()
+            .messages
+            .iter()
+            .flat_map(|m| m.blocks.iter())
+            .filter_map(|block| match block {
+                ContentBlock::ToolResult { output, .. } => Some(output.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let refusals = tool_results
+            .iter()
+            .filter(|output| output.contains("DEAD ORBIT REFUSED"))
+            .count();
+        assert_eq!(
+            refusals, 3,
+            "every retry after the first failure must be refused, not executed"
+        );
+        assert_eq!(
+            tool_results.len(),
+            4,
+            "exactly one real execution plus the refusals"
+        );
+        assert!(
+            refusals < tool_results.len(),
+            "the failing call must actually run once — the ladder measures, it does not guess"
+        );
+    }
+
+    #[test]
+    fn a_turn_that_makes_progress_stays_laminar() {
+        struct ProgressingApi {
+            calls: std::cell::Cell<usize>,
+        }
+
+        impl ApiClient for ProgressingApi {
+            fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+                let n = self.calls.get() + 1;
+                self.calls.set(n);
+                if n > 3 {
+                    return Ok(vec![
+                        AssistantEvent::TextDelta("done".to_string()),
+                        AssistantEvent::MessageStop,
+                    ]);
+                }
+                Ok(vec![
+                    AssistantEvent::ToolUse {
+                        id: format!("tool-{n}"),
+                        name: "edit_file".to_string(),
+                        input: format!("{{\"path\":\"f{n}.rs\"}}"),
+                        signature: None,
+                    },
+                    AssistantEvent::MessageStop,
+                ])
+            }
+        }
+
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ProgressingApi {
+                calls: std::cell::Cell::default(),
+            },
+            StaticToolExecutor::new().register("edit_file", |input| Ok(format!("edited {input}"))),
+            PermissionPolicy::new(PermissionMode::DangerFullAccess),
+            vec!["system".to_string()],
+        )
+        .with_max_iterations(6);
+
+        runtime
+            .run_turn("refactor", None)
+            .expect("turn should complete");
+
+        assert_eq!(runtime.bifurcation_regime(), Regime::Laminar);
+        assert!(
+            runtime
+                .bifurcation_summary()
+                .contains("regime=laminar pressure=0.000"),
+            "{}",
+            runtime.bifurcation_summary()
+        );
     }
 
     #[test]

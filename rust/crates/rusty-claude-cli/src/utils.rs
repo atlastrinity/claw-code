@@ -1535,17 +1535,32 @@ pub fn print_sandbox_status_snapshot(
 }
 
 /// `claw fractal` — snapshot of the δ/α Feigenbaum control plane:
-/// limiter schedule, model cascade, and integration touchpoints.
+/// limiter schedule, cognitive bifurcation ladder, model cascade, and
+/// integration touchpoints.
 pub fn print_fractal_status_snapshot(
     output_format: CliOutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    use runtime::fractal::{default_cascade, FEIGENBAUM_ALPHA, FEIGENBAUM_DELTA};
+    use runtime::fractal::{
+        default_cascade, BifurcationEngine, CascadeThresholds, Regime,
+        CHAOS_HALT_STEPS, FIRST_BIFURCATION_PRESSURE, FEIGENBAUM_ALPHA, FEIGENBAUM_DELTA,
+        MIN_ATTEMPTS_BEFORE_REFUSAL, NOVEL_STEP_PRESSURE, PRESSURE_GAP, REGRESSION_PRESSURE,
+        REPEAT_STEP_PRESSURE,
+    };
     // The schedule clients actually start with, so a standalone `claw fractal`
     // does not report a ceiling no session ever uses.
     let limiter = api::breaker::configured_breaker();
     let max_retries = api::breaker::configured_max_retries();
     let cascade = default_cascade();
     let live = api::breaker::snapshot();
+    let ladder = CascadeThresholds::feigenbaum();
+    let halt_env = std::env::var("CLAW_FRACTAL_HALT_AT_CHAOS")
+        .map(|v| {
+            matches!(
+                v.trim().to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        })
+        .unwrap_or(false);
     match output_format {
         CliOutputFormat::Text => {
             println!("{}", limiter.bifurcation_summary());
@@ -1569,10 +1584,48 @@ pub fn print_fractal_status_snapshot(
                 limiter.max_level, max_retries + 2
             );
             println!("Constants: δ={FEIGENBAUM_DELTA:.10} α={FEIGENBAUM_ALPHA:.10}");
+            println!();
+            // Transport chaos (above) is the provider's; this ladder is the
+            // agent's. It is measured per session, so a fresh CLI process shows
+            // the schedule and the rules, never a fabricated live state.
+            println!("Cognitive bifurcation ladder (per-session, task-level pressure r):");
+            println!(
+                "  L1 dichotomy  at r ≥ {:.3} — {} orbits",
+                ladder.r1,
+                Regime::Dichotomy.orbits().unwrap_or(1)
+            );
+            println!(
+                "  L2 quadrupole at r ≥ {:.3} — {} orbits",
+                ladder.r2,
+                Regime::Quadrupole.orbits().unwrap_or(1)
+            );
+            println!(
+                "  L3 chaos      at r ≥ {:.3} — aperiodic: local logic exhausted",
+                ladder.r3
+            );
+            println!(
+                "  accumulation point r∞ = {:.3} (r₁={FIRST_BIFURCATION_PRESSURE:.3}, gap₁={PRESSURE_GAP:.3}, each later gap ÷ δ)",
+                ladder.r_infinity
+            );
+            println!(
+                "  pressure: novel failure +{NOVEL_STEP_PRESSURE:.3} · repeat +{REPEAT_STEP_PRESSURE:.3} · \
+                 regression +{REGRESSION_PRESSURE:.3} · forward step ÷ α"
+            );
+            println!(
+                "  dead-orbit gate: an identical call that already failed at an unchanged mutation epoch \
+                 is refused after {MIN_ATTEMPTS_BEFORE_REFUSAL} attempt(s) — refusals feed the ladder too"
+            );
+            println!(
+                "  chaos halt: {} (set CLAW_FRACTAL_HALT_AT_CHAOS=1 to end the turn after {CHAOS_HALT_STEPS} \
+                 steps past r∞)",
+                if halt_env { "ENABLED" } else { "off" }
+            );
+            println!();
             println!(
                 "Wired: compact δ-sampling · cascade alias fallback · API circuit breakers \
                  (anthropic/openai_compat) · tools provider-chain ceiling · REPL retry ladder · \
-                 stream-stall charging"
+                 stream-stall charging · conversation loop bifurcation ladder (system-prompt directive, \
+                 dead-orbit middleware gate, orbit-escape provenance in learned skills)"
             );
         }
         CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
@@ -1587,6 +1640,30 @@ pub fn print_fractal_status_snapshot(
                     "levels": limiter.all_levels(),
                     "state": limiter.bifurcation_summary(),
                 },
+                "cognitive_ladder": {
+                    "scope": "per-session task-level pressure, measured by the conversation loop",
+                    "thresholds": ladder,
+                    "regimes": [
+                        { "regime": Regime::Laminar, "orbits": Regime::Laminar.orbits(), "at_r_gte": 0.0 },
+                        { "regime": Regime::Dichotomy, "orbits": Regime::Dichotomy.orbits(), "at_r_gte": ladder.r1 },
+                        { "regime": Regime::Quadrupole, "orbits": Regime::Quadrupole.orbits(), "at_r_gte": ladder.r2 },
+                        { "regime": Regime::Chaos, "orbits": Regime::Chaos.orbits(), "at_r_gte": ladder.r3 },
+                    ],
+                    "pressure_increments": {
+                        "novel_failure": NOVEL_STEP_PRESSURE,
+                        "repeat_failure": REPEAT_STEP_PRESSURE,
+                        "regression": REGRESSION_PRESSURE,
+                        "forward_step_divides_by": FEIGENBAUM_ALPHA,
+                    },
+                    "dead_orbit_refusal_after_attempts": MIN_ATTEMPTS_BEFORE_REFUSAL,
+                    "chaos_halt": {
+                        "enabled": halt_env,
+                        "steps_past_r_infinity": CHAOS_HALT_STEPS,
+                        "env_var": "CLAW_FRACTAL_HALT_AT_CHAOS",
+                    },
+                    "transient_categories_handled_by_the_breaker":
+                        BifurcationEngine::transient_categories(),
+                },
                 "live_breakers": live
                     .iter()
                     .map(|(id, level, failures, trips)| json!({
@@ -1600,7 +1677,8 @@ pub fn print_fractal_status_snapshot(
                 "wired": [
                     "runtime::compact δ-geometric sampling",
                     "rusty-claude-cli model alias cascade fallback",
-                    "api::providers δ-fractal circuit breakers"
+                    "api::providers δ-fractal circuit breakers",
+                    "runtime::session::conversation bifurcation ladder (directive + gate + escape provenance)",
                 ],
             });
             println!("{}", serde_json::to_string_pretty(&value)?);
