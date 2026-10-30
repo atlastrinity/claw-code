@@ -1067,3 +1067,53 @@ async fn fractal_circuit_breaker_de_escalates_on_success() {
         "success must de-escalate the breaker"
     );
 }
+
+#[tokio::test]
+async fn fractal_circuit_breaker_escalates_on_permanent_rejections() {
+    // A 400 is not retryable, so the chain ends after one attempt. It still
+    // has to escalate the breaker: without that, every outer retry layer
+    // re-sends a request the provider will always refuse.
+    let state = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
+    let server = spawn_server(
+        state.clone(),
+        vec![
+            http_response("400 Bad Request", "application/json", "{}");
+            12
+        ],
+    )
+    .await;
+
+    let client = AnthropicClient::new("test-key")
+        .with_base_url(server.base_url())
+        .with_retry_policy(2, Duration::from_millis(1), Duration::from_millis(2));
+
+    for expected_chain in 1..=4 {
+        let error = client
+            .send_message(&sample_request(false))
+            .await
+            .expect_err("a 400 must fail the chain");
+        assert!(
+            matches!(error, ApiError::Api(..)),
+            "chain {expected_chain} should surface the provider rejection, got {error:?}"
+        );
+        assert_eq!(
+            client.breaker_state().current_level,
+            expected_chain,
+            "a permanent rejection must escalate the breaker to level {expected_chain}"
+        );
+    }
+
+    let error = client
+        .send_message(&sample_request(false))
+        .await
+        .expect_err("breaker must be open at the chaos point");
+    assert!(
+        matches!(error, ApiError::CircuitOpen { .. }),
+        "expected CircuitOpen, got {error:?}"
+    );
+    assert_eq!(
+        state.lock().await.len(),
+        4,
+        "a permanently rejected provider must stop receiving requests once the breaker opens"
+    );
+}
