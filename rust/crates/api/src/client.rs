@@ -161,17 +161,25 @@ impl ProviderClient {
         model: &str,
         anthropic_auth: Option<AuthSource>,
     ) -> Result<Self, ApiError> {
+        let resolved_model = providers::resolve_model_alias(model);
+        let client = Self::unbound_client_for_auth(&resolved_model, anthropic_auth)?;
+        Ok(client.bound_to_model(&resolved_model))
+    }
+
+    fn unbound_client_for_auth(
+        resolved_model: &str,
+        anthropic_auth: Option<AuthSource>,
+    ) -> Result<Self, ApiError> {
         if let Some(auth) = anthropic_auth {
             return Ok(Self::Anthropic(AnthropicClient::from_auth(auth)));
         }
-        let resolved_model = providers::resolve_model_alias(model);
-        match providers::detect_provider_kind(&resolved_model) {
+        match providers::detect_provider_kind(resolved_model) {
             ProviderKind::Anthropic => Ok(Self::Anthropic(AnthropicClient::from_env()?)),
             ProviderKind::Xai => Ok(Self::Xai(OpenAiCompatClient::from_env(
                 OpenAiCompatConfig::xai(),
             )?)),
             ProviderKind::OpenAi => {
-                let metadata = providers::metadata_for_model(&resolved_model);
+                let metadata = providers::metadata_for_model(resolved_model);
                 if metadata.is_none() && std::env::var_os("OLLAMA_HOST").is_some() {
                     Ok(Self::OpenAi(
                         openai_compat::OpenAiCompatClient::from_ollama_env()
@@ -219,7 +227,26 @@ impl ProviderClient {
         key_index: usize,
     ) -> Result<Self, ApiError> {
         let resolved_model = providers::resolve_model_alias(model);
-        match providers::detect_provider_kind(&resolved_model) {
+        let client = Self::client_for_model_at_index(&resolved_model, key_index)?;
+        Ok(client.bound_to_model(&resolved_model))
+    }
+
+    /// Bind this client's δ breaker to the one shared by every client serving
+    /// `model`, so rotation and reconnects accumulate escalation instead of
+    /// restarting at level 0.
+    fn bound_to_model(self, model: &str) -> Self {
+        match self {
+            Self::Anthropic(client) => Self::Anthropic(client.with_breaker_model(model)),
+            Self::Xai(client) => Self::Xai(client.with_breaker_model(model)),
+            Self::OpenAi(client) => Self::OpenAi(client.with_breaker_model(model)),
+        }
+    }
+
+    fn client_for_model_at_index(
+        resolved_model: &str,
+        key_index: usize,
+    ) -> Result<Self, ApiError> {
+        match providers::detect_provider_kind(resolved_model) {
             ProviderKind::Anthropic => {
                 let auth_env = "ANTHROPIC_API_KEY";
                 let api_key = key_rotation::key_at_index(auth_env, key_index);
@@ -266,7 +293,7 @@ impl ProviderClient {
                 Ok(Self::Xai(client))
             }
             ProviderKind::OpenAi => {
-                let metadata = providers::metadata_for_model(&resolved_model);
+                let metadata = providers::metadata_for_model(resolved_model);
                 if metadata.is_none() && std::env::var_os("OLLAMA_HOST").is_some() {
                     Ok(Self::OpenAi(
                         openai_compat::OpenAiCompatClient::from_ollama_env()
@@ -453,7 +480,6 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
         let start_index = key_index;
         let total_keys = Self::available_key_count(model);
         let mut overload_fail_count: usize = 0;
-        let mut attempt: u32 = 0;
         // Assigned by every `break` below; the success path returns early.
         let mut last_error: Option<ApiError>;
         let mut context_window_params: Option<(String, u32, u32, u32, u32)> = None;
@@ -532,13 +558,12 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
                         break;
                     }
 
-                    attempt += 1;
-                    let backoff_secs = std::cmp::min(2u64.pow(attempt), 16);
+                    // Every rotated client shares this model's δ breaker, and
+                    // each chain already waits δ^L inside `gate_request`. A
+                    // second ramp here would only double the pause.
                     eprintln!(
-                        "⏳ Rate limit detected. Pausing for {backoff_secs} seconds before retry..."
+                        "⏳ Rate limit detected. Rotating key; the δ breaker paces the next attempt."
                     );
-                    tokio::time::sleep(std::time::Duration::from_secs(backoff_secs)).await;
-
                     key_index += 1;
                     if !Self::has_key_for_index(model, key_index) {
                         key_index = 1;

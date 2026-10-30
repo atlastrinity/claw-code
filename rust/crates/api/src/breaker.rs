@@ -9,7 +9,7 @@
 //! each provider client stays a few lines instead of a duplicated policy.
 
 use std::collections::BTreeMap;
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -63,19 +63,41 @@ const BREAKER_BASE_PAUSE_SECS: f64 = 1.0;
 /// Build the default breaker schedule for a retry policy: base 1 s pause,
 /// escalating one level per consecutive exhausted retry chain, up to
 /// [`breaker_ceiling`] chains before the chaos point (load shedding) is
-/// reached. The breaker is registered under `{provider}#{seq}` for live
-/// diagnostics.
+/// reached.
+///
+/// The result is deliberately *not* registered: it belongs to one client only.
+/// Clients that serve a known model should adopt a [`shared_breaker`] instead,
+/// so escalation survives reconnects and key rotation.
 #[must_use]
-pub fn new_breaker(provider: &str, max_retries: u32) -> SharedBreaker {
-    static SEQ: AtomicUsize = AtomicUsize::new(0);
+pub fn new_breaker(max_retries: u32) -> SharedBreaker {
+    Arc::new(Mutex::new(FractalRateLimiter::new(
+        BREAKER_BASE_PAUSE_SECS,
+        breaker_ceiling(max_retries),
+    )))
+}
+
+/// The one breaker for `{provider}#{model}`, creating it on first use.
+///
+/// `ProviderClient` rebuilds a client for every rotated API key index, so a
+/// per-client breaker resets to level 0 exactly when a degraded provider most
+/// needs escalation. Keying by provider and model makes the δ ramp accumulate
+/// across those clients, and keeps the diagnostics registry bounded by the
+/// number of models in use rather than by client construction count.
+#[must_use]
+pub fn shared_breaker(provider: &str, model: &str, max_retries: u32) -> SharedBreaker {
+    let id = format!("{provider}#{model}");
+    let mut registry = REGISTRY.lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(existing) = registry.get(&id) {
+        let breaker = existing.clone();
+        drop(registry);
+        lock(&breaker).set_max_level(breaker_ceiling(max_retries));
+        return breaker;
+    }
     let breaker: SharedBreaker = Arc::new(Mutex::new(FractalRateLimiter::new(
         BREAKER_BASE_PAUSE_SECS,
         breaker_ceiling(max_retries),
     )));
-    register(
-        format!("{provider}#{}", SEQ.fetch_add(1, Ordering::Relaxed)),
-        &breaker,
-    );
+    registry.insert(id, breaker.clone());
     breaker
 }
 
@@ -100,17 +122,6 @@ pub fn set_ceiling(breaker: &SharedBreaker, max_retries: u32) {
 
 static REGISTRY: LazyLock<Mutex<BTreeMap<String, SharedBreaker>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
-
-/// Insert into the process-wide registry under `id`.
-///
-/// Breakers are held alive by the registry, so live state survives even if a
-/// client is dropped; a re-created client registers under a new sequence id.
-fn register(id: String, breaker: &SharedBreaker) {
-    REGISTRY
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner)
-        .insert(id, breaker.clone());
-}
 
 /// `(id, level, consecutive_failures, trips)` for every registered breaker,
 /// sorted by id for stable output.

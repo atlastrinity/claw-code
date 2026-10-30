@@ -55,8 +55,14 @@ const INTERNAL_PROGRESS_HEARTBEAT_INTERVAL: std::time::Duration = std::time::Dur
 const POST_TOOL_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 /// Deadline on silence in any stream. A provider can accept the connection and
 /// then never emit an SSE chunk; without this bound the CLI waits forever and
-/// is indistinguishable from a hung terminal.
+/// is indistinguishable from a hung terminal. Kept below
+/// `api::providers::STREAM_IDLE_TIMEOUT` so this policy — which knows whether
+/// the request is a post-tool continuation and can rotate keys — decides first.
 const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
+/// Prefix shared by every stall this CLI raises, and the marker the stream
+/// retry loop matches on. Only [`AnthropicRuntimeClient::stall_error`] builds
+/// it, so the check cannot drift onto an unrelated error message.
+const STREAM_STALL_MARKER: &str = "stream stall";
 
 use crate::mcp::{
     ListMcpResourcesRequest, McpToolRequest, ReadMcpResourceRequest, RuntimeMcpState,
@@ -80,7 +86,7 @@ use log::debug;
 
 use api::{
     detect_provider_kind, model_family_identity_for, resolve_startup_auth_source, AnthropicClient,
-    AuthSource, ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest,
+    ApiError, AuthSource, ContentBlockDelta, InputContentBlock, InputMessage, MessageRequest,
     MessageResponse, OutputContentBlock, PromptCache, ProviderClient as ApiProviderClient,
     ProviderKind, StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition,
     ToolResultContentBlock,
@@ -1563,7 +1569,11 @@ pub fn print_fractal_status_snapshot(
                 limiter.max_level, max_retries + 2
             );
             println!("Constants: δ={FEIGENBAUM_DELTA:.10} α={FEIGENBAUM_ALPHA:.10}");
-            println!("Wired: compact δ-sampling · cascade alias fallback · API circuit breakers (anthropic/openai_compat)");
+            println!(
+                "Wired: compact δ-sampling · cascade alias fallback · API circuit breakers \
+                 (anthropic/openai_compat) · tools provider-chain ceiling · REPL retry ladder · \
+                 stream-stall charging"
+            );
         }
         CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
             let value = json!({
@@ -5364,6 +5374,18 @@ mod tests {
         assert_eq!(
             classify_error_kind("api returned 500 Internal Server Error"),
             "api_http_error"
+        );
+        // A breaker shed and a silent stream each need their own kind: both
+        // mean "do not re-send", which a wrapper must be able to switch on.
+        assert_eq!(
+            classify_error_kind(
+                "provider circuit open after 2 consecutive failed retry chains"
+            ),
+            "api_circuit_open"
+        );
+        assert_eq!(
+            classify_error_kind("stream stall: provider 'glm' sent no chunks for 150s"),
+            "api_stream_stall"
         );
         assert_eq!(
             classify_error_kind("interactive_only: this command requires an interactive terminal"),
@@ -9279,11 +9301,14 @@ impl ApiClient for AnthropicRuntimeClient {
                 let result = self.consume_stream(&message_request, stall_timeout).await;
                 match result {
                     Ok(events) => return Ok(events),
+                    Err(error) if error.is_terminal() => return Err(error),
                     Err(error)
-                        if error.to_string().contains("stream stall") && attempt < max_attempts =>
+                        if error.to_string().contains(STREAM_STALL_MARKER)
+                            && attempt < max_attempts =>
                     {
-                        // Stalled before the first event — drop the dead
-                        // connection and re-send the same request.
+                        // Stalled before producing anything: the dead
+                        // connection is dropped and the same request re-sent,
+                        // so there is nothing to duplicate on the terminal.
                     }
                     Err(error) if attempt < max_attempts => {
                         eprintln!(
@@ -9305,6 +9330,55 @@ impl ApiClient for AnthropicRuntimeClient {
 }
 
 impl AnthropicRuntimeClient {
+    /// Map an API error onto a runtime error, flagging the failure terminal
+    /// when retrying cannot help: either the δ breaker just shed the request,
+    /// or the provider permanently rejected it. A shed must not be re-sent —
+    /// that is precisely the load the breaker refused — and a 401/400 reaching
+    /// this layer has already exhausted its chain, so re-sending it only burns
+    /// more chains against a fixed verdict.
+    fn api_runtime_error(&self, error: &ApiError) -> RuntimeError {
+        let message = format_user_visible_api_error(&self.session_id, error);
+        if matches!(error, ApiError::CircuitOpen { .. }) || !error.is_retryable() {
+            RuntimeError::terminal(message)
+        } else {
+            RuntimeError::new(message)
+        }
+    }
+
+    /// A provider went quiet mid-stream. Charge the δ breaker — the transport
+    /// succeeded, so nothing else marks this as a failure — and raise the
+    /// CLI's own stall error.
+    ///
+    /// Retrying is only safe while the stream has produced nothing: the
+    /// partial answer is already on the terminal, and re-sending the request
+    /// would print it a second time.
+    fn stall_error(&self, reason: impl AsRef<str>, streamed_any: bool) -> RuntimeError {
+        self.client.record_stream_stall();
+        let message = format!("{STREAM_STALL_MARKER}: {}", reason.as_ref());
+        if streamed_any {
+            RuntimeError::terminal(message)
+        } else {
+            RuntimeError::new(message)
+        }
+    }
+
+    /// Like [`Self::api_runtime_error`], for errors surfaced while reading a
+    /// stream: a provider-side stall becomes a retryable-or-terminal stall
+    /// depending on how much of the answer already reached the user.
+    fn stream_api_error(&self, error: &ApiError, streamed_any: bool) -> RuntimeError {
+        if let ApiError::StreamStall {
+            provider,
+            idle_secs,
+        } = error
+        {
+            return self.stall_error(
+                format!("provider '{provider}' sent no chunks for {idle_secs}s"),
+                streamed_any,
+            );
+        }
+        self.api_runtime_error(error)
+    }
+
     /// Consume a single streaming response, treating `stall_timeout` of
     /// silence as a dead connection so a provider that stops streaming is
     /// retried — or shed by the breaker — instead of blocking the session.
@@ -9318,9 +9392,7 @@ impl AnthropicRuntimeClient {
             .client
             .stream_message(message_request)
             .await
-            .map_err(|error| {
-                RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
-            })?;
+            .map_err(|error| self.api_runtime_error(&error))?;
         let mut stdout = io::stdout();
         let mut sink = io::sink();
         let out: &mut dyn Write = if self.output_format == CliOutputFormat::Text {
@@ -9342,16 +9414,16 @@ impl AnthropicRuntimeClient {
             // falls silent before the first event or after the hundredth.
             let next = match tokio::time::timeout(stall_timeout, stream.next_event()).await {
                 Ok(inner) => inner.map_err(|error| {
-                    RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
+                    self.stream_api_error(&error, !events.is_empty())
                 })?,
                 Err(_elapsed) => {
                     // The transport accepted the request, so the provider
                     // client already logged a breaker success — correct it or
                     // the δ breaker never escalates against a silent endpoint.
-                    self.client.record_stream_stall();
-                    return Err(RuntimeError::new(format!(
-                        "stream stall: model went silent for {stall_timeout:?}"
-                    )));
+                    return Err(self.stall_error(
+                        format!("model went silent for {stall_timeout:?}"),
+                        !events.is_empty(),
+                    ));
                 }
             };
 
@@ -9531,9 +9603,7 @@ impl AnthropicRuntimeClient {
                 ..message_request.clone()
             })
             .await
-            .map_err(|error| {
-                RuntimeError::new(format_user_visible_api_error(&self.session_id, &error))
-            })?;
+            .map_err(|error| self.api_runtime_error(&error))?;
         let mut events = response_to_events(response, out)?;
         push_prompt_cache_record(&self.client, &mut events);
         Ok(events)

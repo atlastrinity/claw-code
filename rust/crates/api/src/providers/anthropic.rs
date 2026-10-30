@@ -147,12 +147,23 @@ impl AnthropicClient {
             session_tracer: None,
             prompt_cache: None,
             last_prompt_cache_record: Arc::new(Mutex::new(None)),
-            breaker: new_breaker("anthropic", max_retries),
+            breaker: new_breaker(max_retries),
         }
     }
 
     pub fn from_env() -> Result<Self, ApiError> {
         Ok(Self::from_auth(AuthSource::from_env_or_saved()?).with_base_url(read_base_url()))
+    }
+
+    /// Adopt the breaker shared by every client serving `model`.
+    ///
+    /// A per-client breaker resets to level 0 whenever `ProviderClient`
+    /// rebuilds a client for another API key index; binding to
+    /// `anthropic#{model}` lets the δ ramp accumulate across those clients.
+    #[must_use]
+    pub fn with_breaker_model(mut self, model: &str) -> Self {
+        self.breaker = crate::breaker::shared_breaker("anthropic", model, self.max_retries);
+        self
     }
 
     #[must_use]
@@ -841,11 +852,8 @@ impl MessageStream {
                 return Ok(None);
             }
 
-            let chunk_res = tokio::time::timeout(
-                std::time::Duration::from_secs(20),
-                self.response.chunk(),
-            )
-            .await;
+            let chunk_res =
+                tokio::time::timeout(super::STREAM_IDLE_TIMEOUT, self.response.chunk()).await;
 
             match chunk_res {
                 Ok(Ok(Some(chunk))) => {
@@ -856,9 +864,10 @@ impl MessageStream {
                 }
                 Ok(Err(err)) => return Err(err.into()),
                 Err(_) => {
-                    return Err(ApiError::Auth(
-                        "API stream read timeout: Anthropic provider stalled for >20s without sending chunks".to_string()
-                    ));
+                    return Err(ApiError::StreamStall {
+                        provider: "anthropic".to_string(),
+                        idle_secs: super::STREAM_IDLE_TIMEOUT.as_secs(),
+                    });
                 }
             }
 

@@ -233,7 +233,7 @@ impl OpenAiCompatClient {
             max_retries,
             initial_backoff: DEFAULT_INITIAL_BACKOFF,
             max_backoff: DEFAULT_MAX_BACKOFF,
-            breaker: new_breaker(config.provider_name, max_retries),
+            breaker: new_breaker(max_retries),
         }
     }
 
@@ -255,6 +255,19 @@ impl OpenAiCompatClient {
         };
         Ok(Self::new(api_key, config).with_base_url(base_url))
     }
+
+    /// Adopt the breaker shared by every client serving `model`.
+    ///
+    /// A per-client breaker resets to level 0 whenever `ProviderClient`
+    /// rebuilds a client for another API key index; binding to
+    /// `{provider}#{model}` lets the δ ramp accumulate across those clients.
+    #[must_use]
+    pub fn with_breaker_model(mut self, model: &str) -> Self {
+        self.breaker =
+            crate::breaker::shared_breaker(self.config.provider_name, model, self.max_retries);
+        self
+    }
+
     /// Create an Ollama client from `OLLAMA_HOST` env var.
     /// Ollama requires no API key; a placeholder is used for the Authorization header.
     pub fn from_ollama_env() -> Option<Self> {
@@ -332,9 +345,9 @@ impl OpenAiCompatClient {
         };
         request.model = canonical;
 
-        let estimated_tokens = crate::client::estimate_request_tokens(&request);
-        let _lock = crate::client::ProviderClient::apply_api_pause(&request.model, estimated_tokens).await;
-
+        // Pacing (narration lock, CLAW_API_PAUSE_SECS, TPM budget) is applied
+        // once by `ProviderClient`; doing it here too slept twice and charged
+        // the token budget twice per request.
         preflight_message_request(&request)?;
         let response = self.send_with_retry(&request).await?;
         let request_id = request_id_from_headers(response.headers());
@@ -389,9 +402,6 @@ impl OpenAiCompatClient {
 
         let mut streaming_request = request.clone().with_streaming();
         streaming_request.model = canonical;
-
-        let estimated_tokens = crate::client::estimate_request_tokens(&streaming_request);
-        let _lock = crate::client::ProviderClient::apply_api_pause(&streaming_request.model, estimated_tokens).await;
 
         preflight_message_request(&streaming_request)?;
         let response = self.send_with_retry(&streaming_request).await?;
@@ -583,7 +593,7 @@ impl MessageStream {
             }
 
             let chunk_res = tokio::time::timeout(
-                std::time::Duration::from_secs(20),
+                super::STREAM_IDLE_TIMEOUT,
                 self.response.chunk(),
             )
             .await;
@@ -599,10 +609,10 @@ impl MessageStream {
                 }
                 Ok(Err(err)) => return Err(err.into()),
                 Err(_) => {
-                    return Err(ApiError::Auth(format!(
-                        "API stream read timeout: provider '{}' stalled for >20s without sending chunks",
-                        self.parser.provider
-                    )));
+                    return Err(ApiError::StreamStall {
+                        provider: self.parser.provider.clone(),
+                        idle_secs: super::STREAM_IDLE_TIMEOUT.as_secs(),
+                    });
                 }
             }
 

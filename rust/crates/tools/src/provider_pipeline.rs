@@ -177,10 +177,19 @@ pub struct ResilientProviderChain {
 
 impl ResilientProviderChain {
     pub fn new(primary_model: String, providers: Vec<ProviderEntry>) -> Self {
+        // One policy source for both breaker layers: the chain opens after the
+        // same number of failed chains the per-client δ breaker calls its chaos
+        // point, and recovers on the same quiet period. Hard-coded 3/30s here
+        // drifted from whatever the API client was actually doing.
+        let ceiling = u32::try_from(api::breaker::breaker_ceiling(
+            api::breaker::configured_max_retries(),
+        ))
+        .unwrap_or(3);
         let breakers = providers
             .iter()
             .map(|entry| {
-                CircuitBreaker::new(3, Duration::from_secs(30)).with_provider(&entry.model)
+                CircuitBreaker::new(ceiling, runtime::fractal::BREAKER_DECAY_PERIOD)
+                    .with_provider(&entry.model)
             })
             .collect();
         Self {

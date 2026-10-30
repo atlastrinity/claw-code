@@ -2,11 +2,19 @@
 #![allow(dead_code)]
 use std::future::Future;
 use std::pin::Pin;
+use std::time::Duration;
 
 use serde::Serialize;
 
 use crate::error::ApiError;
 use crate::types::{MessageRequest, MessageResponse};
+
+/// Socket-level backstop for how long an opened SSE response may stay quiet
+/// before [`MessageStream`](openai_compat::MessageStream) gives up on it.
+/// Callers that own a retry policy (the CLI) enforce tighter, mode-aware
+/// silence deadlines on top of this one; this bound exists so library
+/// consumers reading a stream directly cannot block forever.
+pub const STREAM_IDLE_TIMEOUT: Duration = Duration::from_secs(150);
 
 pub mod anthropic;
 pub mod openai_compat;

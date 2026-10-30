@@ -5,6 +5,11 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 
+/// Whole-turn retries wait on the breaker's δ ladder starting here, and stop
+/// after this many rounds; `level_params` caps each individual pause.
+const NETWORK_RETRY_BASE_PAUSE_SECS: f64 = 5.0;
+const NETWORK_RETRY_ROUNDS: usize = 4;
+
 pub(crate) fn decide_autonomous_continuation(
     last_assistant_text: &str,
     task_md_content: Option<&str>,
@@ -727,18 +732,25 @@ impl LiveCli {
                     || error_str.contains("api_rate_limit_error");
 
                 if is_network_error {
-                    let mut current_timeout_secs = 5;
-                    let mut round = 1;
-                    let original_timeout = std::env::var("CLAW_API_REQUEST_TIMEOUT").ok();
+                    // Waiting between whole-turn retries is the same decision
+                    // the δ breaker makes between exhausted chains, so it uses
+                    // the breaker's ladder (δ^round, capped) rather than a
+                    // hand-rolled ramp. The wait used to be written into
+                    // CLAW_API_REQUEST_TIMEOUT as well, which capped the
+                    // retry's request timeout at 5s and made every retry fail
+                    // before the provider could answer.
+                    let ladder = runtime::fractal::FractalRateLimiter::new(
+                        NETWORK_RETRY_BASE_PAUSE_SECS,
+                        NETWORK_RETRY_ROUNDS,
+                    );
+                    let mut round = 1usize;
 
                     loop {
-                        println!("  Network error detected. Waiting {current_timeout_secs}s before retrying (round {round})...");
-                        std::thread::sleep(std::time::Duration::from_secs(current_timeout_secs));
-
-                        std::env::set_var(
-                            "CLAW_API_REQUEST_TIMEOUT",
-                            current_timeout_secs.to_string(),
+                        let wait = std::time::Duration::from_secs_f64(
+                            ladder.level_params(round - 1).pause_secs,
                         );
+                        println!("  Network error detected. Waiting {wait:?} before retrying (round {round}/{NETWORK_RETRY_ROUNDS})...");
+                        std::thread::sleep(wait);
 
                         let hook_abort_signal = runtime::HookAbortSignal::new();
                         self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
@@ -758,12 +770,6 @@ impl LiveCli {
 
                         match retry_result {
                             Ok(summary) => {
-                                if let Some(orig) = &original_timeout {
-                                    std::env::set_var("CLAW_API_REQUEST_TIMEOUT", orig);
-                                } else {
-                                    std::env::remove_var("CLAW_API_REQUEST_TIMEOUT");
-                                }
-
                                 spinner.finish(
                                     "✨ Done",
                                     TerminalRenderer::new().color_theme(),
@@ -802,17 +808,11 @@ impl LiveCli {
                                     || retry_str.contains("Too Many Requests")
                                     || retry_str.contains("api_rate_limit_error");
 
-                                if still_network_error && round <= 3 {
+                                if still_network_error && round < NETWORK_RETRY_ROUNDS {
                                     round += 1;
-                                    current_timeout_secs += 10;
                                     continue;
                                 }
 
-                                if let Some(orig) = &original_timeout {
-                                    std::env::set_var("CLAW_API_REQUEST_TIMEOUT", orig);
-                                } else {
-                                    std::env::remove_var("CLAW_API_REQUEST_TIMEOUT");
-                                }
                                 self.persist_session()?;
                                 return Err(Box::new(retry_error));
                             }

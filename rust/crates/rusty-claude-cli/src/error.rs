@@ -81,6 +81,13 @@ pub fn classify_error_kind(message: &str) -> &'static str {
     {
         // #781: sub-classify rate-limit failures
         "api_rate_limit_error"
+    } else if message.contains("provider circuit open") {
+        // The δ breaker refused the request before it reached the provider, so
+        // this is not an HTTP response error and callers must not retry it.
+        "api_circuit_open"
+    } else if message.contains("stream stall") {
+        // Accepted connection, then silence: transport, not credentials.
+        "api_stream_stall"
     } else if message.contains("api failed") || message.contains("api returned") {
         "api_http_error"
     } else if message.contains("mcpServers") {

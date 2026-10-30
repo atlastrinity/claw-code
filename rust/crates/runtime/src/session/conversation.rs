@@ -91,6 +91,10 @@ impl std::error::Error for ToolError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RuntimeError {
     message: String,
+    /// Failure that retrying cannot fix — the δ breaker shed the request, or
+    /// the provider permanently rejected it. Outer loops must stop rather than
+    /// re-sending, which is the hammering the breaker exists to prevent.
+    terminal: bool,
 }
 
 impl RuntimeError {
@@ -98,7 +102,21 @@ impl RuntimeError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            terminal: false,
         }
+    }
+
+    #[must_use]
+    pub fn terminal(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+            terminal: true,
+        }
+    }
+
+    #[must_use]
+    pub fn is_terminal(&self) -> bool {
+        self.terminal
     }
 }
 
@@ -504,7 +522,10 @@ where
                 match stream_res {
                     Ok(res) => break res,
                     Err(error) => {
-                        if retries < max_retries {
+                        // A shed or permanently rejected request is not
+                        // transient: re-sending it defeats the breaker that
+                        // just refused it.
+                        if !error.is_terminal() && retries < max_retries {
                             retries += 1;
                             tracing::warn!(
                                 iteration = iterations,
@@ -512,7 +533,11 @@ where
                                 error = %error,
                                 "API stream failed, retrying after backoff..."
                             );
-                            std::thread::sleep(std::time::Duration::from_secs(1 << retries));
+                            // No sleep here: re-entering `stream` runs the δ
+                            // breaker's gate again, and that gate already
+                            // escalates because the failed chain charged the
+                            // shared breaker. Sleeping on top of it doubled the
+                            // pause and blocked a tokio worker while doing so.
                             continue;
                         }
                         tracing::error!(

@@ -70,6 +70,13 @@ pub enum ApiError {
         last_error: Box<ApiError>,
     },
     InvalidSseFrame(&'static str),
+    /// An SSE connection was accepted and then went quiet. Distinct from
+    /// [`ApiError::Auth`] so callers can retry with a different key instead of
+    /// treating a stalled provider as a credential problem.
+    StreamStall {
+        provider: String,
+        idle_secs: u64,
+    },
     BackoffOverflow {
         attempt: u32,
         base_delay: Duration,
@@ -167,6 +174,9 @@ impl ApiError {
                     || error.is_body()
                     || error.is_decode()
             }
+            // A quiet stream is a transport event, not a permanent rejection:
+            // a different key or provider may answer immediately.
+            Self::StreamStall { .. } => true,
             Self::Api(info) => info.retryable,
             Self::RetriesExhausted { last_error, .. } => last_error.is_retryable(),
             Self::MissingCredentials { .. }
@@ -197,6 +207,7 @@ impl ApiError {
             | Self::Io(_)
             | Self::Json { .. }
             | Self::InvalidSseFrame(_)
+            | Self::StreamStall { .. }
             | Self::BackoffOverflow { .. }
             | Self::RequestBodySizeExceeded { .. }
             | Self::CircuitOpen { .. } => None,
@@ -220,9 +231,10 @@ impl ApiError {
             Self::Api(info) if info.status.as_u16() == 429 => "provider_rate_limit",
             Self::Api(_) if self.is_generic_fatal_wrapper() => "provider_internal",
             Self::Api(_) => "provider_error",
-            Self::Http(_) | Self::InvalidSseFrame(_) | Self::BackoffOverflow { .. } => {
-                "provider_transport"
-            }
+            Self::Http(_)
+            | Self::InvalidSseFrame(_)
+            | Self::StreamStall { .. }
+            | Self::BackoffOverflow { .. } => "provider_transport",
             Self::InvalidApiKeyEnv(_) | Self::Io(_) | Self::Json { .. } => "runtime_io",
             Self::RequestBodySizeExceeded { .. } => "request_size",
             Self::CircuitOpen { .. } => "provider_circuit_open",
@@ -248,6 +260,7 @@ impl ApiError {
             | Self::Io(_)
             | Self::Json { .. }
             | Self::InvalidSseFrame(_)
+            | Self::StreamStall { .. }
             | Self::BackoffOverflow { .. }
             | Self::RequestBodySizeExceeded { .. }
             | Self::CircuitOpen { .. } => false,
@@ -285,6 +298,7 @@ impl ApiError {
             | Self::Io(_)
             | Self::Json { .. }
             | Self::InvalidSseFrame(_)
+            | Self::StreamStall { .. }
             | Self::BackoffOverflow { .. }
             | Self::RequestBodySizeExceeded { .. }
             | Self::CircuitOpen { .. } => false,
@@ -401,6 +415,10 @@ impl Display for ApiError {
                 last_error,
             } => write!(f, "api failed after {attempts} attempts: {last_error}"),
             Self::InvalidSseFrame(message) => write!(f, "invalid sse frame: {message}"),
+            Self::StreamStall { provider, idle_secs } => write!(
+                f,
+                "stream stall: provider '{provider}' accepted the request then sent no chunks for {idle_secs}s"
+            ),
             Self::BackoffOverflow {
                 attempt,
                 base_delay,
@@ -699,5 +717,18 @@ mod tests {
         assert_eq!(error.safe_failure_class(), "provider_auth");
         assert!(!error.is_retryable());
         assert_eq!(error.request_id(), None);
+    }
+
+    #[test]
+    fn stream_stall_is_a_retryable_transport_failure_not_an_auth_failure() {
+        let error = ApiError::StreamStall {
+            provider: "glm".to_string(),
+            idle_secs: 150,
+        };
+
+        assert!(error.to_string().contains("stream stall"));
+        assert!(error.is_retryable());
+        assert_eq!(error.safe_failure_class(), "provider_transport");
+        assert_eq!(error.status_code(), None);
     }
 }
