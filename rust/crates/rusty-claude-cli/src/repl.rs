@@ -748,6 +748,8 @@ impl LiveCli {
                 // ============================================================================
                 let is_network_error = error_str.contains("error decoding response body")
                     || error_str.contains("connection closed")
+                    || error_str.contains("error sending request")
+                    || error_str.contains("unable to connect")
                     || error_str.contains("timeout")
                     || error_str.contains("broken pipe")
                     || error_str.contains("connection reset")
@@ -834,6 +836,8 @@ impl LiveCli {
                                 let still_network_error = retry_str
                                     .contains("error decoding response body")
                                     || retry_str.contains("connection closed")
+                                    || retry_str.contains("error sending request")
+                                    || retry_str.contains("unable to connect")
                                     || retry_str.contains("timeout")
                                     || retry_str.contains("broken pipe")
                                     || retry_str.contains("connection reset")

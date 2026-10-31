@@ -811,8 +811,16 @@ impl ProviderClient {
 
                     let status_code = err.status_code().unwrap_or(0);
                     let err_str = format!("{err:?}");
+                    // A transport/connection failure (no HTTP response) is the
+                    // endpoint's problem, not this key's: every key in the pool
+                    // hits the same host, so cooling this one and rotating would
+                    // only poison healthy siblings. Let it fall through to the
+                    // provider-wide backoff ladder untouched.
                     let is_cooldown_error =
                         crate::cooldown::KeyCooldownTracker::should_trigger_cooldown(
+                            &err_str,
+                            status_code,
+                        ) && !crate::cooldown::KeyCooldownTracker::is_endpoint_or_network_error(
                             &err_str,
                             status_code,
                         );

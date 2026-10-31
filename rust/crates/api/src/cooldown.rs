@@ -185,6 +185,38 @@ impl KeyCooldownTracker {
             || lower.contains("http error")
             || lower.contains("network error")
     }
+
+    /// True when the failure belongs to the endpoint or the network path rather
+    /// than to the specific API key: the request never produced an HTTP
+    /// response (`status_code == 0`) and the message names a transport condition
+    /// (connect/send/decode/timeout/DNS). Every key in a rotation pool points at
+    /// the same host, so such an error says nothing about any individual key —
+    /// cooling one and rotating to its siblings only poisons a healthy pool.
+    /// Callers must skip cooldown+rotation for these and fall through to the
+    /// provider-wide backoff ladder instead.
+    pub fn is_endpoint_or_network_error(error_text: &str, status_code: u16) -> bool {
+        // A status code means the server answered; that is a real per-request
+        // signal (rate limit, overload, gateway) that rotation is meant for.
+        if status_code != 0 {
+            return false;
+        }
+        let lower = error_text.to_lowercase();
+        lower.contains("error sending request")
+            || lower.contains("error send request")
+            || lower.contains("error decoding response body")
+            || lower.contains("error decoding")
+            || lower.contains("connection")
+            || lower.contains("broken pipe")
+            || lower.contains("connect")
+            || lower.contains("timed out")
+            || lower.contains("timeout")
+            || lower.contains("dns")
+            || lower.contains("resolve")
+            || lower.contains("network")
+            || lower.contains("tcp")
+            || lower.contains("unable to connect")
+            || lower.contains("request error")
+    }
 }
 
 #[cfg(test)]
@@ -230,6 +262,38 @@ mod tests {
         assert!(KeyCooldownTracker::should_trigger_cooldown(
             "rate limit exceeded",
             429
+        ));
+    }
+
+    #[test]
+    fn transport_errors_are_endpoint_scoped_not_key_scoped() {
+        // The exact failure from a live z.ai blip: no HTTP status, send error.
+        assert!(KeyCooldownTracker::is_endpoint_or_network_error(
+            "api failed after 3 attempts: http error: error sending request for url \
+             (https://api.z.ai/api/paas/v4/chat/completions)",
+            0,
+        ));
+        assert!(KeyCooldownTracker::is_endpoint_or_network_error(
+            "connection reset by peer",
+            0
+        ));
+        assert!(KeyCooldownTracker::is_endpoint_or_network_error(
+            "error decoding response body",
+            0
+        ));
+    }
+
+    #[test]
+    fn responses_with_a_status_are_key_scoped_throttles_not_transport() {
+        // A 429 (or 503) that actually came back is a real throttle: rotation
+        // is the right response, so it must NOT be classed as endpoint error.
+        assert!(!KeyCooldownTracker::is_endpoint_or_network_error(
+            "{\"code\":\"1305\",\"message\":\"temporarily overloaded\"}",
+            429
+        ));
+        assert!(!KeyCooldownTracker::is_endpoint_or_network_error(
+            "Service Unavailable",
+            503
         ));
     }
 }
