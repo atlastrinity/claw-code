@@ -27,7 +27,6 @@ pub mod security;
 pub use security::permission_enforcer;
 pub use security::permissions;
 
-pub mod session;
 pub mod middleware;
 mod oauth;
 pub mod plugin_lifecycle;
@@ -36,6 +35,7 @@ mod prompt;
 pub mod recovery_recipes;
 mod remote;
 mod report_schema;
+pub mod session;
 pub mod session_control;
 pub use session_control::SessionStore;
 mod sse;
@@ -51,6 +51,16 @@ pub mod turn_state;
 
 pub mod worker_boot;
 
+pub use crate::session::conversation::{
+    auto_compaction_threshold_from_env, parse_textual_tool_call, ApiClient, ApiRequest,
+    AssistantEvent, AutoCompactionEvent, ConversationRuntime, PromptCacheEvent, RuntimeError,
+    StaticToolExecutor, ToolError, ToolExecutor, TurnSummary,
+};
+pub use crate::session::error_tracker::{
+    clear_temp_skills, learned_skills_dir, load_temp_skills, normalize_error_category,
+    persist_skill_to_learned, temp_skills_dir, write_temp_skill, DynamicSkill, ErrorTracker,
+    ToolErrorRecord,
+};
 pub use approval_tokens::{
     ApprovalDelegationHop, ApprovalScope, ApprovalTokenAudit, ApprovalTokenError,
     ApprovalTokenGrant, ApprovalTokenLedger, ApprovalTokenStatus,
@@ -64,10 +74,10 @@ pub use compact::{
 };
 pub use config::{
     clear_user_provider_settings, default_config_home, save_user_provider_settings,
-    suppress_config_warnings_for_json_mode, ConfigEntry, ConfigError,
-    ConfigFileReport, ConfigFileStatus, ConfigInspection, ConfigLoader, ConfigSource,
-    McpConfigCollection, McpInvalidServerConfig, McpManagedProxyServerConfig, McpOAuthConfig,
-    McpRemoteServerConfig, McpSdkServerConfig, McpServerConfig, McpStdioServerConfig, McpTransport,
+    suppress_config_warnings_for_json_mode, ConfigEntry, ConfigError, ConfigFileReport,
+    ConfigFileStatus, ConfigInspection, ConfigLoader, ConfigSource, McpConfigCollection,
+    McpInvalidServerConfig, McpManagedProxyServerConfig, McpOAuthConfig, McpRemoteServerConfig,
+    McpSdkServerConfig, McpServerConfig, McpStdioServerConfig, McpTransport,
     McpWebSocketServerConfig, OAuthConfig, ProviderFallbackConfig, ResolvedPermissionMode,
     RulesImportConfig, RuntimeConfig, RuntimeFeatureConfig, RuntimeHookCommand, RuntimeHookConfig,
     RuntimeInvalidHookConfig, RuntimePermissionRuleConfig, RuntimePluginConfig,
@@ -77,17 +87,7 @@ pub use config_validate::{
     check_unsupported_format, format_diagnostics, validate_config_file, ConfigDiagnostic,
     DiagnosticKind, ValidationResult,
 };
-pub use crate::session::conversation::{
-    auto_compaction_threshold_from_env, parse_textual_tool_call, ApiClient, ApiRequest, AssistantEvent, AutoCompactionEvent,
-    ConversationRuntime, PromptCacheEvent, RuntimeError, StaticToolExecutor, ToolError,
-    ToolExecutor, TurnSummary,
-};
 pub use context_budget::ContextBudget;
-pub use crate::session::error_tracker::{
-    clear_temp_skills, learned_skills_dir, load_temp_skills, normalize_error_category,
-    persist_skill_to_learned, temp_skills_dir, write_temp_skill, DynamicSkill, ErrorTracker,
-    ToolErrorRecord,
-};
 pub use file_ops::{
     edit_file, edit_file_in_workspace, glob_search, glob_search_in_workspace, grep_search,
     grep_search_in_workspace, read_file, read_file_in_workspace, write_file,
@@ -135,10 +135,6 @@ pub use oauth::{
     OAuthCallbackParams, OAuthRefreshRequest, OAuthTokenExchangeRequest, OAuthTokenSet,
     PkceChallengeMethod, PkceCodePair,
 };
-pub use security::permissions::{
-    PermissionContext, PermissionMode, PermissionOutcome, PermissionOverride, PermissionPolicy,
-    PermissionPromptDecision, PermissionPrompter, PermissionRequest,
-};
 pub use plugin_lifecycle::{
     DegradedMode, DiscoveryResult, PluginHealthcheck, PluginLifecycle, PluginLifecycleEvent,
     PluginState, ResourceInfo, ServerHealth, ServerStatus, ToolInfo,
@@ -150,9 +146,9 @@ pub use policy_engine::{
 };
 pub use prompt::{
     load_system_prompt, load_system_prompt_with_context, load_system_prompt_with_session,
-    load_system_prompt_with_session_and_context, prepend_bullets, ContextFile,
-    ModelFamilyIdentity, ProjectContext, PromptBuildError, SystemPromptBuilder,
-    FRONTIER_MODEL_NAME, SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
+    load_system_prompt_with_session_and_context, prepend_bullets, ContextFile, ModelFamilyIdentity,
+    ProjectContext, PromptBuildError, SystemPromptBuilder, FRONTIER_MODEL_NAME,
+    SYSTEM_PROMPT_DYNAMIC_BOUNDARY,
 };
 pub use recovery_recipes::{
     attempt_recovery, recipe_for, EscalationPolicy, FailureScenario, RecoveryAttemptState,
@@ -170,6 +166,10 @@ pub use report_schema::{
     NegativeEvidence, NegativeFindingStatus, ProjectionProvenance, RedactionProvenance,
     ReportClaim, ReportConfidence, ReportIdentity, ReportProjectionV1, ReportSchemaField,
     ReportSchemaRegistry, SensitivityClass, DEFAULT_PROJECTION_POLICY_V1, REPORT_SCHEMA_V1,
+};
+pub use security::permissions::{
+    PermissionContext, PermissionMode, PermissionOutcome, PermissionOverride, PermissionPolicy,
+    PermissionPromptDecision, PermissionPrompter, PermissionRequest,
 };
 pub use security::sandbox::{
     build_linux_sandbox_command, detect_container_environment, detect_container_environment_from,
@@ -195,13 +195,15 @@ pub use task_packet::{
     validate_packet, TaskPacket, TaskPacketValidationError, TaskResource, ValidatedPacket,
 };
 pub use task_registry::{LaneBoard, LaneBoardEntry, LaneFreshness, LaneHeartbeat};
-pub use turn_state::{begin_turn, modified_files_summary, record_file_mutation};
 pub use tool_dispatch::{
     batch_tool_calls, dispatch_report, execute_parallel_batch, is_parallelizable, DispatchReport,
     ParallelToolConfig, ToolBatch, ToolCallRequest, ToolCallResult,
 };
+pub use turn_state::{begin_turn, modified_files_summary, record_file_mutation};
 
-pub use security::trust_resolver::{TrustConfig, TrustDecision, TrustEvent, TrustPolicy, TrustResolver};
+pub use security::trust_resolver::{
+    TrustConfig, TrustDecision, TrustEvent, TrustPolicy, TrustResolver,
+};
 pub use session::usage::{
     format_usd, pricing_for_model, ModelPricing, TokenUsage, UsageCostEstimate, UsageTracker,
 };
@@ -210,7 +212,6 @@ pub use worker_boot::{
     WorkerPromptTarget, WorkerReadySnapshot, WorkerRegistry, WorkerStatus, WorkerTrustResolution,
 };
 
-
 #[cfg(test)]
 pub(crate) fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
     static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
@@ -218,7 +219,6 @@ pub(crate) fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
-pub mod workspace;
 pub mod file_tree;
 pub mod fractal;
-
+pub mod workspace;

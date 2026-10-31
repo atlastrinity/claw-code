@@ -1,19 +1,28 @@
+use crate::tool_types::*;
+use crate::util::{io_to_string, to_pretty_json};
+use crate::web::{execute_web_fetch, execute_web_search};
 use runtime::{
     edit_file_in_workspace, glob_search_in_workspace, grep_search_in_workspace,
-    read_file_in_workspace, write_file_in_workspace, GrepSearchInput, ContextBudget,
+    read_file_in_workspace, write_file_in_workspace, ContextBudget, GrepSearchInput,
 };
-use crate::tool_types::*;
-use crate::util::{to_pretty_json, io_to_string};
-use crate::web::{execute_web_fetch, execute_web_search};
 
 pub(crate) fn run_read_file(input: ReadFileInput, budget: ContextBudget) -> Result<String, String> {
     let workspace = runtime::workspace::workspace_root();
-    match read_file_in_workspace(&input.path, input.offset, input.limit, &workspace, budget.max_read_file_lines) {
+    match read_file_in_workspace(
+        &input.path,
+        input.offset,
+        input.limit,
+        &workspace,
+        budget.max_read_file_lines,
+    ) {
         Ok(output) => to_pretty_json(output),
         Err(e) => {
             if e.kind() == std::io::ErrorKind::NotFound {
                 let target_path = std::path::Path::new(&input.path);
-                let stem = target_path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+                let stem = target_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("");
                 let suggestions = if !stem.is_empty() {
                     let parent = target_path.parent().unwrap_or(std::path::Path::new(""));
                     let candidates = vec![
@@ -27,7 +36,9 @@ pub(crate) fn run_read_file(input: ReadFileInput, budget: ContextBudget) -> Resu
                         if let Ok(entries) = std::fs::read_dir(&dir) {
                             for entry in entries.flatten() {
                                 let name = entry.file_name().to_string_lossy().into_owned();
-                                if name.to_lowercase().contains(&stem.to_lowercase()) && !matches.contains(&name) {
+                                if name.to_lowercase().contains(&stem.to_lowercase())
+                                    && !matches.contains(&name)
+                                {
                                     matches.push(name);
                                 }
                             }
@@ -40,7 +51,11 @@ pub(crate) fn run_read_file(input: ReadFileInput, budget: ContextBudget) -> Resu
                     if matches.is_empty() {
                         String::new()
                     } else {
-                        format!("\n\nDid you mean one of these files in '{}'?\n  - {}", matched_dir, matches.join("\n  - "))
+                        format!(
+                            "\n\nDid you mean one of these files in '{}'?\n  - {}",
+                            matched_dir,
+                            matches.join("\n  - ")
+                        )
                     }
                 } else {
                     String::new()
@@ -70,7 +85,8 @@ pub(crate) fn run_write_file(input: WriteFileInput) -> Result<String, String> {
         return Err("Error: Direct modification of task.md is forbidden. You MUST use the TaskGraph tool to maintain your task tree.".to_string());
     }
     let workspace = runtime::workspace::workspace_root();
-    let output = write_file_in_workspace(&input.path, &input.content, &workspace).map_err(io_to_string)?;
+    let output =
+        write_file_in_workspace(&input.path, &input.content, &workspace).map_err(io_to_string)?;
     // Transactional working memory (M4) + zero-turn syntax backpressure (M3).
     runtime::turn_state::record_file_mutation(
         &output.file_path,
@@ -78,11 +94,15 @@ pub(crate) fn run_write_file(input: WriteFileInput) -> Result<String, String> {
         &output.content,
     );
     let mut payload = serde_json::to_value(&output).map_err(|e| e.to_string())?;
-    if let Some(defect) = runtime::syntax_guard::check_file_syntax(&output.file_path, &output.content) {
+    if let Some(defect) =
+        runtime::syntax_guard::check_file_syntax(&output.file_path, &output.content)
+    {
         // Carried as a JSON field: the payload stays parseable for the CLI
         // renderers while the marker still reaches the model verbatim.
         payload["syntax_backpressure"] = serde_json::Value::String(
-            runtime::syntax_guard::backpressure_block(&defect).trim_start().to_string(),
+            runtime::syntax_guard::backpressure_block(&defect)
+                .trim_start()
+                .to_string(),
         );
     }
     to_pretty_json(&payload)
@@ -104,30 +124,51 @@ pub(crate) fn run_edit_file(input: EditFileInput) -> Result<String, String> {
     .map_err(io_to_string)?;
     // `new_string` is only the replaced fragment; the post-edit content lives on
     // disk and is what the guard and the working memory must see.
-    let current = std::fs::read_to_string(&output.file_path).unwrap_or_else(|_| output.new_string.clone());
-    runtime::turn_state::record_file_mutation(&output.file_path, Some(&output.original_file), &current);
+    let current =
+        std::fs::read_to_string(&output.file_path).unwrap_or_else(|_| output.new_string.clone());
+    runtime::turn_state::record_file_mutation(
+        &output.file_path,
+        Some(&output.original_file),
+        &current,
+    );
     let mut payload = serde_json::to_value(&output).map_err(|e| e.to_string())?;
     if let Some(defect) = runtime::syntax_guard::check_file_syntax(&output.file_path, &current) {
         payload["syntax_backpressure"] = serde_json::Value::String(
-            runtime::syntax_guard::backpressure_block(&defect).trim_start().to_string(),
+            runtime::syntax_guard::backpressure_block(&defect)
+                .trim_start()
+                .to_string(),
         );
     }
     to_pretty_json(&payload)
 }
 
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) fn run_glob_search(input: GlobSearchInputValue, budget: ContextBudget) -> Result<String, String> {
+pub(crate) fn run_glob_search(
+    input: GlobSearchInputValue,
+    budget: ContextBudget,
+) -> Result<String, String> {
     let workspace = runtime::workspace::workspace_root();
     to_pretty_json(
-        glob_search_in_workspace(&input.pattern, input.path.as_deref(), &workspace, budget.max_glob_files)
-            .map_err(io_to_string)?,
+        glob_search_in_workspace(
+            &input.pattern,
+            input.path.as_deref(),
+            &workspace,
+            budget.max_glob_files,
+        )
+        .map_err(io_to_string)?,
     )
 }
 
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) fn run_grep_search(input: GrepSearchInput, budget: ContextBudget) -> Result<String, String> {
+pub(crate) fn run_grep_search(
+    input: GrepSearchInput,
+    budget: ContextBudget,
+) -> Result<String, String> {
     let workspace = runtime::workspace::workspace_root();
-    to_pretty_json(grep_search_in_workspace(&input, &workspace, budget.max_read_file_lines).map_err(io_to_string)?)
+    to_pretty_json(
+        grep_search_in_workspace(&input, &workspace, budget.max_read_file_lines)
+            .map_err(io_to_string)?,
+    )
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -141,5 +182,3 @@ pub(crate) fn run_web_fetch(input: WebFetchInput) -> Result<String, String> {
 pub(crate) fn run_web_search(input: WebSearchInput) -> Result<String, String> {
     to_pretty_json(execute_web_search(&input)?)
 }
-
-

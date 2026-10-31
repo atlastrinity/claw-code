@@ -106,13 +106,13 @@ use plugins::{PluginHooks, PluginManager, PluginManagerConfig, PluginRegistry};
 use runtime::{
     check_base_commit, format_stale_base_warning, format_usd, load_oauth_credentials,
     load_system_prompt, load_system_prompt_with_context, load_system_prompt_with_session,
-    pricing_for_model, resolve_expected_base,
-    resolve_sandbox_status, ApiClient, ApiRequest, AssistantEvent, BaseCommitState,
-    CompactionConfig, ConfigFileReport, ConfigLoader, ConfigSource, ContentBlock, ContextFile,
-    ConversationMessage, ConversationRuntime, McpConfigCollection, McpInvalidServerConfig,
-    McpServer, McpServerManager, McpServerSpec, McpTool, MessageRole, ModelPricing, PermissionMode,
-    PermissionPolicy, ProjectContext, PromptCacheEvent, ResolvedPermissionMode, RuntimeError,
-    RuntimeInvalidHookConfig, Session, TokenUsage, ToolError, ToolExecutor, UsageTracker,
+    pricing_for_model, resolve_expected_base, resolve_sandbox_status, ApiClient, ApiRequest,
+    AssistantEvent, BaseCommitState, CompactionConfig, ConfigFileReport, ConfigLoader,
+    ConfigSource, ContentBlock, ContextFile, ConversationMessage, ConversationRuntime,
+    McpConfigCollection, McpInvalidServerConfig, McpServer, McpServerManager, McpServerSpec,
+    McpTool, MessageRole, ModelPricing, PermissionMode, PermissionPolicy, ProjectContext,
+    PromptCacheEvent, ResolvedPermissionMode, RuntimeError, RuntimeInvalidHookConfig, Session,
+    TokenUsage, ToolError, ToolExecutor, UsageTracker,
 };
 use serde::Deserialize;
 use serde_json::{json, Map, Value};
@@ -2353,7 +2353,6 @@ pub fn build_runtime_plugin_state_with_loader(
     loader: &ConfigLoader,
     runtime_config: &mut runtime::RuntimeConfig,
 ) -> Result<RuntimePluginState, Box<dyn std::error::Error>> {
-
     let plugin_manager = build_plugin_manager(cwd, loader, runtime_config);
     let plugin_registry = plugin_manager.plugin_registry()?;
     let plugin_hook_config =
@@ -2564,7 +2563,8 @@ pub fn build_runtime_with_plugin_state(
     let budget_tokens = api::model_token_limit(&model)
         .map(|l| l.context_window_tokens)
         .unwrap_or(64_000);
-    tool_registry = tool_registry.with_budget(runtime::ContextBudget::from_context_window(budget_tokens));
+    tool_registry =
+        tool_registry.with_budget(runtime::ContextBudget::from_context_window(budget_tokens));
     plugin_registry.initialize()?;
     let policy = permission_policy(permission_mode, &feature_config, &tool_registry)
         .map_err(std::io::Error::other)?;
@@ -2724,7 +2724,9 @@ pub fn collect_tool_uses(summary: &runtime::TurnSummary) -> Vec<serde_json::Valu
         .iter()
         .flat_map(|message| message.blocks.iter())
         .filter_map(|block| match block {
-            ContentBlock::ToolUse { id, name, input, .. } => Some(json!({
+            ContentBlock::ToolUse {
+                id, name, input, ..
+            } => Some(json!({
                 "id": id,
                 "name": name,
                 "input": input,
@@ -3074,7 +3076,12 @@ pub fn push_output_block(
                 events.push(AssistantEvent::TextDelta(text));
             }
         }
-        OutputContentBlock::ToolUse { id, name, input, signature } => {
+        OutputContentBlock::ToolUse {
+            id,
+            name,
+            input,
+            signature,
+        } => {
             // During streaming, the initial content_block_start has an empty input ({}).
             // The real input arrives via input_json_delta events. In
             // non-streaming responses, preserve a legitimate empty object.
@@ -3202,7 +3209,12 @@ pub fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
                             signature: signature.clone(),
                         }
                     }
-                    ContentBlock::ToolUse { id, name, input, signature } => InputContentBlock::ToolUse {
+                    ContentBlock::ToolUse {
+                        id,
+                        name,
+                        input,
+                        signature,
+                    } => InputContentBlock::ToolUse {
                         id: id.clone(),
                         name: name.clone(),
                         input: serde_json::from_str(input)
@@ -3231,12 +3243,35 @@ pub fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMessage> {
         .collect()
 }
 
-pub fn auto_match_skills(cwd: &std::path::Path, prompt: &str) -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
+pub fn auto_match_skills(
+    cwd: &std::path::Path,
+    prompt: &str,
+) -> Result<Vec<std::path::PathBuf>, Box<dyn std::error::Error>> {
     use std::collections::HashSet;
 
     const STOP_WORDS: &[&str] = &[
-        "and", "or", "the", "a", "an", "in", "on", "at", "to", "for", "with", "by", "of", "from",
-        "using", "replaces", "defines", "strict", "boundaries", "between", "guide", "strategic"
+        "and",
+        "or",
+        "the",
+        "a",
+        "an",
+        "in",
+        "on",
+        "at",
+        "to",
+        "for",
+        "with",
+        "by",
+        "of",
+        "from",
+        "using",
+        "replaces",
+        "defines",
+        "strict",
+        "boundaries",
+        "between",
+        "guide",
+        "strategic",
     ];
 
     const IGNORED_DIRS: &[&str] = &[
@@ -3290,7 +3325,7 @@ pub fn auto_match_skills(cwd: &std::path::Path, prompt: &str) -> Result<Vec<std:
     };
 
     let mut context_keywords = clean_tokens(prompt);
-    
+
     // If the prompt itself has no keywords (e.g. empty or non-English/greeting),
     // do not auto-match any skills to avoid leaking workspace file names into unrelated queries.
     if context_keywords.is_empty() {
@@ -3309,13 +3344,15 @@ pub fn auto_match_skills(cwd: &std::path::Path, prompt: &str) -> Result<Vec<std:
                 if let Some(ext) = path.extension() {
                     context_keywords.insert(ext.to_string_lossy().to_lowercase());
                 }
-                
+
                 if path.is_dir() {
                     if let Ok(sub_entries) = std::fs::read_dir(&path) {
                         for sub_entry in sub_entries.flatten() {
                             let sub_path = sub_entry.path();
                             let sub_file_name = sub_entry.file_name().to_string_lossy().to_string();
-                            if sub_file_name.starts_with('.') || IGNORED_DIRS.contains(&sub_file_name.as_str()) {
+                            if sub_file_name.starts_with('.')
+                                || IGNORED_DIRS.contains(&sub_file_name.as_str())
+                            {
                                 continue;
                             }
                             context_keywords.extend(clean_tokens(&sub_file_name));
@@ -3337,7 +3374,7 @@ pub fn auto_match_skills(cwd: &std::path::Path, prompt: &str) -> Result<Vec<std:
             if let Some(desc) = description {
                 skill_keywords.extend(clean_tokens(&desc));
             }
-            
+
             let mut score = 0;
             for k in &skill_keywords {
                 if context_keywords.contains(k) {
@@ -3347,7 +3384,7 @@ pub fn auto_match_skills(cwd: &std::path::Path, prompt: &str) -> Result<Vec<std:
                     }
                 }
             }
-            
+
             if score > 0 {
                 matched.push((path, score));
             }
@@ -3410,7 +3447,9 @@ mod tests {
         let cwd = std::path::Path::new("/Users/dev/Documents/music");
         let matched = super::auto_match_skills(cwd, "ios development Xcode").unwrap();
         assert!(!matched.is_empty());
-        let has_xcode = matched.iter().any(|p| p.to_string_lossy().contains("xcode") || p.to_string_lossy().contains("apple"));
+        let has_xcode = matched.iter().any(|p| {
+            p.to_string_lossy().contains("xcode") || p.to_string_lossy().contains("apple")
+        });
         assert!(has_xcode);
     }
 
@@ -3418,7 +3457,10 @@ mod tests {
     fn test_auto_match_skills_scoring_and_ignore() {
         let _env_guard = env_lock();
         let _cwd_guard = cwd_guard();
-        let temp = std::env::current_dir().unwrap().join("target").join("temp_skills_test");
+        let temp = std::env::current_dir()
+            .unwrap()
+            .join("target")
+            .join("temp_skills_test");
         let _ = std::fs::remove_dir_all(&temp);
         let target_dir = temp.join("target");
         std::fs::create_dir_all(&target_dir).unwrap();
@@ -3431,13 +3473,13 @@ mod tests {
         let first_match = matched[0].to_string_lossy();
         assert!(first_match.contains("ml-best-practices"));
 
-        let has_xcode = matched.iter().any(|p| p.to_string_lossy().contains("xcode"));
+        let has_xcode = matched
+            .iter()
+            .any(|p| p.to_string_lossy().contains("xcode"));
         assert!(!has_xcode);
 
         let _ = std::fs::remove_dir_all(temp);
     }
-
-
 
     use runtime::{
         load_oauth_credentials, save_oauth_credentials, AssistantEvent, ConfigLoader, ContentBlock,
@@ -3804,14 +3846,16 @@ mod tests {
         std::env::remove_var("RUSTY_CLAUDE_PERMISSION_MODE");
         assert_eq!(
             parse_args(&[]).expect("args should parse"),
-            CliAction::Repl { preset: None,
+            CliAction::Repl {
+                preset: None,
                 model: DEFAULT_MODEL.to_string(),
                 allowed_tools: None,
                 permission_mode: PermissionMode::WorkspaceWrite,
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -3935,7 +3979,8 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "hello world".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -3945,7 +3990,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -4026,7 +4072,8 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "explain this".to_string(),
                 model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Json,
@@ -4036,7 +4083,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -4048,7 +4096,8 @@ mod tests {
         assert_eq!(
             parse_args(&["--".to_string(), "-prompt-with-dash".to_string()])
                 .expect("-- should terminate flag parsing"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "-prompt-with-dash".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -4058,13 +4107,15 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
 
         assert_eq!(
             parse_args(&["-not-a-flag".to_string()])
                 .expect("unknown dash-prefixed shorthand prompt should parse as prompt text"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "-not-a-flag".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -4074,13 +4125,15 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
 
         assert_eq!(
             parse_args(&["--bogus-flag-like".to_string(), "literal".to_string()])
                 .expect("unknown double-dash text should stay eligible for prompt shorthand"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "--bogus-flag-like literal".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -4090,7 +4143,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
 
         assert!(parse_args(&["--".to_string()]).is_ok());
@@ -4118,7 +4172,8 @@ mod tests {
         // then compact mode is propagated and other defaults stay unchanged
         assert_eq!(
             parsed,
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "summarize this".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -4128,12 +4183,14 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
         assert_eq!(
             parse_args(&["--compact".to_string(), "hello".to_string()])
                 .expect("compact single-word prompt should parse"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "hello".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -4143,7 +4200,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -4159,7 +4217,11 @@ mod tests {
 
         // then compact stays false (opt-in flag)
         match parsed {
-            CliAction::Prompt { preset: None, compact, .. } => assert!(!compact),
+            CliAction::Prompt {
+                preset: None,
+                compact,
+                ..
+            } => assert!(!compact),
             other => panic!("expected Prompt action, got {other:?}"),
         }
     }
@@ -4176,7 +4238,8 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "explain this".to_string(),
                 model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Text,
@@ -4186,7 +4249,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -4267,14 +4331,16 @@ mod tests {
         let args = vec!["--permission-mode=read-only".to_string()];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::Repl { preset: None,
+            CliAction::Repl {
+                preset: None,
                 model: DEFAULT_MODEL.to_string(),
                 allowed_tools: None,
                 permission_mode: PermissionMode::ReadOnly,
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -4288,14 +4354,16 @@ mod tests {
 
         assert_eq!(
             parsed,
-            CliAction::Repl { preset: None,
+            CliAction::Repl {
+                preset: None,
                 model: DEFAULT_MODEL.to_string(),
                 allowed_tools: None,
                 permission_mode: PermissionMode::DangerFullAccess,
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -4315,7 +4383,8 @@ mod tests {
 
         assert_eq!(
             parsed,
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "do the thing".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -4325,7 +4394,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -4340,7 +4410,8 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::Repl { preset: None,
+            CliAction::Repl {
+                preset: None,
                 model: DEFAULT_MODEL.to_string(),
                 allowed_tools: Some(
                     ["glob_search", "read_file", "write_file"]
@@ -4352,7 +4423,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -4518,7 +4590,8 @@ mod tests {
                 "overview".to_string()
             ])
             .expect("skills help overview should invoke"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "$help overview".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -4528,7 +4601,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
         assert_eq!(
             parse_args(&["agents".to_string(), "--help".to_string()])
@@ -5309,7 +5383,11 @@ mod tests {
         ])
         .expect("`--model gpt-4` should parse as a bare OpenAI model")
         {
-            CliAction::Prompt { preset: None, model, .. } => assert_eq!(model, "gpt-4"),
+            CliAction::Prompt {
+                preset: None,
+                model,
+                ..
+            } => assert_eq!(model, "gpt-4"),
             other => panic!("expected CliAction::Prompt, got: {other:?}"),
         }
         match parse_args(&[
@@ -5346,7 +5424,11 @@ mod tests {
         ])
         .expect("Ollama-style tag should parse when OPENAI_BASE_URL is set")
         {
-            CliAction::Prompt { preset: None, model, .. } => assert_eq!(model, "qwen2.5-coder:7b"),
+            CliAction::Prompt {
+                preset: None,
+                model,
+                ..
+            } => assert_eq!(model, "qwen2.5-coder:7b"),
             other => panic!("expected CliAction::Prompt, got: {other:?}"),
         }
         match parse_args(&[
@@ -5357,7 +5439,11 @@ mod tests {
         ])
         .expect("local/ slash-containing model should parse")
         {
-            CliAction::Prompt { preset: None, model, .. } => assert_eq!(model, "local/Qwen/Qwen3.6-27B-FP8"),
+            CliAction::Prompt {
+                preset: None,
+                model,
+                ..
+            } => assert_eq!(model, "local/Qwen/Qwen3.6-27B-FP8"),
             other => panic!("expected CliAction::Prompt, got: {other:?}"),
         }
         match original_openai_base_url {
@@ -5516,9 +5602,7 @@ mod tests {
         // A breaker shed and a silent stream each need their own kind: both
         // mean "do not re-send", which a wrapper must be able to switch on.
         assert_eq!(
-            classify_error_kind(
-                "provider circuit open after 2 consecutive failed retry chains"
-            ),
+            classify_error_kind("provider circuit open after 2 consecutive failed retry chains"),
             "api_circuit_open"
         );
         assert_eq!(
@@ -5962,7 +6046,8 @@ mod tests {
                 "this".to_string(),
             ])
             .expect("prompt shorthand should still work"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "please debug this".to_string(),
                 model: "anthropic/claude-opus-4-7".to_string(),
                 output_format: CliOutputFormat::Text,
@@ -5972,7 +6057,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -6033,7 +6119,8 @@ mod tests {
                 "overview".to_string()
             ])
             .expect("/skills help overview should invoke"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "$help overview".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -6043,7 +6130,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
         assert_eq!(
             parse_args(&[
@@ -6060,7 +6148,8 @@ mod tests {
         assert_eq!(
             parse_args(&["/skills".to_string(), "/test".to_string()])
                 .expect("/skills /test should normalize to a single skill prompt prefix"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "$test".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -6070,7 +6159,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
         assert_eq!(
             parse_args(&["/status".to_string()]).expect("/status should parse as local status"),
@@ -6195,7 +6285,8 @@ mod tests {
                 "prompt".to_string(),
             ])
             .expect("multi-word prompt should still parse"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "hello world this is a prompt".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -6205,7 +6296,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -6214,7 +6306,8 @@ mod tests {
         assert_eq!(
             parse_args(&["prompt".to_string(), "doctorr".to_string()])
                 .expect("explicit prompt subcommand should allow literal typo word"),
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "doctorr".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -6224,7 +6317,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -6243,7 +6337,8 @@ mod tests {
         });
         assert_eq!(
             result,
-            CliAction::Prompt { preset: None,
+            CliAction::Prompt {
+                preset: None,
                 prompt: "PARITY_SCENARIO:bash_permission_prompt_approved".to_string(),
                 model: DEFAULT_MODEL.to_string(),
                 output_format: CliOutputFormat::Text,
@@ -6253,7 +6348,8 @@ mod tests {
                 base_commit: None,
                 reasoning_effort: None,
                 allow_broad_cwd: false,
-             attach_skill: None, }
+                attach_skill: None,
+            }
         );
     }
 
@@ -6276,7 +6372,8 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::ResumeSession { preset: None,
+            CliAction::ResumeSession {
+                preset: None,
                 session_path: PathBuf::from("session.jsonl"),
                 commands: vec!["/compact".to_string()],
                 output_format: CliOutputFormat::Text,
@@ -6289,7 +6386,8 @@ mod tests {
     fn parses_resume_flag_without_path_as_latest_session() {
         assert_eq!(
             parse_args(&["--resume".to_string()]).expect("args should parse"),
-            CliAction::ResumeSession { preset: None,
+            CliAction::ResumeSession {
+                preset: None,
                 session_path: PathBuf::from("latest"),
                 commands: vec![],
                 output_format: CliOutputFormat::Text,
@@ -6299,7 +6397,8 @@ mod tests {
         assert_eq!(
             parse_args(&["--resume".to_string(), "/status".to_string()])
                 .expect("resume shortcut should parse"),
-            CliAction::ResumeSession { preset: None,
+            CliAction::ResumeSession {
+                preset: None,
                 session_path: PathBuf::from("latest"),
                 commands: vec!["/status".to_string()],
                 output_format: CliOutputFormat::Text,
@@ -6319,7 +6418,8 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::ResumeSession { preset: None,
+            CliAction::ResumeSession {
+                preset: None,
                 session_path: PathBuf::from("session.jsonl"),
                 commands: vec![
                     "/status".to_string(),
@@ -6352,7 +6452,8 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::ResumeSession { preset: None,
+            CliAction::ResumeSession {
+                preset: None,
                 session_path: PathBuf::from("session.jsonl"),
                 commands: vec![
                     "/export notes.txt".to_string(),
@@ -6375,7 +6476,8 @@ mod tests {
         ];
         assert_eq!(
             parse_args(&args).expect("args should parse"),
-            CliAction::ResumeSession { preset: None,
+            CliAction::ResumeSession {
+                preset: None,
                 session_path: PathBuf::from("session.jsonl"),
                 commands: vec!["/export /tmp/notes.txt".to_string(), "/status".to_string()],
                 output_format: CliOutputFormat::Text,
@@ -8204,7 +8306,12 @@ UU conflicted.rs",
         assert!(events.is_empty());
         assert_eq!(
             pending_tool,
-            Some(("tool-1".to_string(), "read_file".to_string(), String::new(), None))
+            Some((
+                "tool-1".to_string(),
+                "read_file".to_string(),
+                String::new(),
+                None
+            ))
         );
     }
 
@@ -8344,8 +8451,9 @@ UU conflicted.rs",
             .expect("plugin install should succeed");
         let loader = ConfigLoader::new(&workspace, &config_home);
         let mut runtime_config = loader.load().expect("runtime config should load");
-        let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &mut runtime_config)
-            .expect("plugin state should load");
+        let state =
+            build_runtime_plugin_state_with_loader(&workspace, &loader, &mut runtime_config)
+                .expect("plugin state should load");
         let pre_hooks = state.feature_config.hooks().pre_tool_use();
         assert_eq!(pre_hooks.len(), 1);
         assert!(
@@ -8390,10 +8498,14 @@ UU conflicted.rs",
 
         let loader = ConfigLoader::new(&workspace, &config_home);
         let mut runtime_config = loader.load().expect("runtime config should load");
-        let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &mut runtime_config)
-            .expect("runtime plugin state should load");
+        let state =
+            build_runtime_plugin_state_with_loader(&workspace, &loader, &mut runtime_config)
+                .expect("runtime plugin state should load");
 
-        println!("DEBUG: test tools list: {:?}", state.tool_registry.actual_tool_names());
+        println!(
+            "DEBUG: test tools list: {:?}",
+            state.tool_registry.actual_tool_names()
+        );
 
         let allowed = state
             .tool_registry
@@ -8498,8 +8610,9 @@ UU conflicted.rs",
 
         let loader = ConfigLoader::new(&workspace, &config_home);
         let mut runtime_config = loader.load().expect("runtime config should load");
-        let state = build_runtime_plugin_state_with_loader(&workspace, &loader, &mut runtime_config)
-            .expect("runtime plugin state should load");
+        let state =
+            build_runtime_plugin_state_with_loader(&workspace, &loader, &mut runtime_config)
+                .expect("runtime plugin state should load");
         let executor =
             CliToolExecutor::new(false, state.tool_registry.clone(), state.mcp_state.clone());
 
@@ -8615,8 +8728,10 @@ UU conflicted.rs",
                 result.is_ok(),
                 "--reasoning-effort {value} should be accepted, got: {result:?}"
             );
-            if let Ok(CliAction::Prompt { preset: None,
-                reasoning_effort, ..
+            if let Ok(CliAction::Prompt {
+                preset: None,
+                reasoning_effort,
+                ..
             }) = result
             {
                 assert_eq!(reasoning_effort.as_deref(), Some(value));
@@ -9551,9 +9666,9 @@ impl AnthropicRuntimeClient {
             // indistinguishable from a hung terminal otherwise, whether it
             // falls silent before the first event or after the hundredth.
             let next = match tokio::time::timeout(stall_timeout, stream.next_event()).await {
-                Ok(inner) => inner.map_err(|error| {
-                    self.stream_api_error(&error, !events.is_empty())
-                })?,
+                Ok(inner) => {
+                    inner.map_err(|error| self.stream_api_error(&error, !events.is_empty()))?
+                }
                 Err(_elapsed) => {
                     // The transport accepted the request, so the provider
                     // client already logged a breaker success — correct it or
@@ -9678,14 +9793,19 @@ impl AnthropicRuntimeClient {
             }
         }
 
-        if events.iter().any(|event| matches!(event, AssistantEvent::TextDelta(text) if !text.is_empty())) {
+        if events
+            .iter()
+            .any(|event| matches!(event, AssistantEvent::TextDelta(text) if !text.is_empty()))
+        {
             let _ = writeln!(out);
             let _ = out.flush();
         }
 
         push_prompt_cache_record(&self.client, &mut events);
 
-        let has_tool_use = events.iter().any(|event| matches!(event, AssistantEvent::ToolUse { .. }));
+        let has_tool_use = events
+            .iter()
+            .any(|event| matches!(event, AssistantEvent::ToolUse { .. }));
         if !has_tool_use {
             let full_text: String = events
                 .iter()
@@ -9694,7 +9814,9 @@ impl AnthropicRuntimeClient {
                     _ => None,
                 })
                 .collect();
-            if let Some((recovered_name, recovered_input)) = runtime::parse_textual_tool_call(&full_text) {
+            if let Some((recovered_name, recovered_input)) =
+                runtime::parse_textual_tool_call(&full_text)
+            {
                 let id = format!(
                     "tool_rec_{}",
                     std::time::SystemTime::now()
@@ -9706,7 +9828,11 @@ impl AnthropicRuntimeClient {
                 if let Some(progress_reporter) = &self.progress_reporter {
                     progress_reporter.mark_tool_phase(&recovered_name, &input_str);
                 }
-                let _ = writeln!(out, "\n{}", format_tool_call_start(&recovered_name, &input_str));
+                let _ = writeln!(
+                    out,
+                    "\n{}",
+                    format_tool_call_start(&recovered_name, &input_str)
+                );
                 let _ = out.flush();
                 events.retain(|e| !matches!(e, AssistantEvent::TextDelta(_)));
                 events.push(AssistantEvent::ToolUse {
