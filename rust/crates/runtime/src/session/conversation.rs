@@ -1133,6 +1133,13 @@ fn record_step_outcome(
         sample.failures.push(fingerprint);
         return;
     }
+    if BifurcationEngine::is_plan_bookkeeping(tool, input) {
+        // The graph moved; nothing else did. Recording it as a success or a
+        // mutation is the laundering that let a run buy a blind write and end
+        // with a green checklist and no artifact.
+        sample.bookkeeping = true;
+        return;
+    }
     if BifurcationEngine::is_probe_call(tool, input) {
         sample.successful_probe = true;
     }

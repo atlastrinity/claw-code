@@ -125,6 +125,12 @@ pub const TOMBSTONE_MIN_OUTPUT_CHARS: usize = 300;
 /// Character budget for the error excerpt kept inside a tombstone.
 const TOMBSTONE_EXCERPT_CHARS: usize = 160;
 
+/// Consecutive steps that only redraw the plan before the ladder treats that as
+/// resistance. Re-tasking feels like progress — every call succeeds — while the
+/// world is untouched, which is how a run narrates ten plan updates and delivers
+/// nothing. Past this streak the orbit is forced to split.
+pub const MAX_STALL_STEPS: usize = 3;
+
 /// Thinking regime the runtime is currently forcing on the model. Ordered by
 /// severity so `max()` composes the pressure-derived level with a cycle floor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -376,6 +382,10 @@ pub struct OrbitSample {
     /// looking — it is the orbit the gate exists to break — so a failed probe
     /// cannot discharge [`BifurcationEngine::probe_required`].
     pub successful_probe: bool,
+    /// True when every call in the step was plan bookkeeping: the plan moved,
+    /// the world did not. [`BifurcationEngine::observe`] counts those steps as
+    /// stalled rather than treating them as forward progress.
+    pub bookkeeping: bool,
 }
 
 impl OrbitSample {
@@ -422,6 +432,12 @@ impl OrbitSample {
     #[must_use]
     pub fn with_syntax_backpressure(mut self) -> Self {
         self.syntax_backpressure = true;
+        self
+    }
+
+    #[must_use]
+    pub fn with_bookkeeping(mut self) -> Self {
+        self.bookkeeping = true;
         self
     }
 }
@@ -482,6 +498,12 @@ pub struct BifurcationEngine {
     pruned_outputs: usize,
     /// Broken-write backpressure hits (observability).
     syntax_backpressure_hits: usize,
+    /// Consecutive steps that moved the plan and nothing else. Resets on any
+    /// step that touched the world; escalating past [`MAX_STALL_STEPS`] forces
+    /// the orbit out of bookkeeping.
+    stalled_steps: usize,
+    /// Steps so far that moved the plan and nothing else (observability).
+    bookkeeping_steps: usize,
     /// Turn working-set line rendered into Quadrupole/Chaos directives.
     turn_file_summary: Option<String>,
 }
@@ -516,6 +538,8 @@ impl BifurcationEngine {
             probe_gate_trips: 0,
             pruned_outputs: 0,
             syntax_backpressure_hits: 0,
+            stalled_steps: 0,
+            bookkeeping_steps: 0,
             turn_file_summary: None,
         }
     }
@@ -629,6 +653,20 @@ impl BifurcationEngine {
     #[must_use]
     pub fn syntax_backpressure_hits(&self) -> usize {
         self.syntax_backpressure_hits
+    }
+
+    /// Consecutive plan-bookkeeping steps at the end of this turn — the streak
+    /// the no-progress breaker escalates on.
+    #[must_use]
+    pub fn stalled_steps(&self) -> usize {
+        self.stalled_steps
+    }
+
+    /// Steps so far that only redrew the plan (observability, not the live
+    /// streak).
+    #[must_use]
+    pub fn bookkeeping_steps(&self) -> usize {
+        self.bookkeeping_steps
     }
 
     /// Attach the turn working-set line rendered into escalated directives.
@@ -835,11 +873,42 @@ impl BifurcationEngine {
         if Self::MUTATION_TOOLS.contains(&lower.as_str()) {
             return false;
         }
+        // Re-drawing the plan is not looking at the world. Without this, every
+        // `update_status`/`add` on the way to a blind write would discharge the
+        // evidence contract, which is how a run marks "folder created" done
+        // without ever having read the folder.
+        if Self::is_plan_bookkeeping(&lower, input) {
+            return false;
+        }
         if Self::PROBE_TOOLS.contains(&lower.as_str()) {
             return true;
         }
         // Names with a read/search/get prefix (matches is_read_only_tool).
         Self::is_read_only_tool(&lower) || lower.starts_with("lsp_") || lower.ends_with("_read")
+    }
+
+    /// Task-graph bookkeeping: it changes the plan, never the workspace, so it
+    /// must not count as forward progress and must not satisfy the probe gate.
+    /// Only the read-only `view` operation is an observation.
+    #[must_use]
+    pub fn is_plan_bookkeeping(tool: &str, input: &str) -> bool {
+        let lower = tool.to_lowercase();
+        if !matches!(
+            lower.as_str(),
+            "task_graph" | "taskgraph" | "taskgraphwrite"
+        ) {
+            return false;
+        }
+        let operation = serde_json::from_str::<serde_json::Value>(input)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("operation")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            })
+            .unwrap_or_default();
+        !operation.eq_ignore_ascii_case("view")
     }
 
     fn bash_is_read_only_probe(command_json: &str) -> bool {
@@ -916,7 +985,8 @@ impl BifurcationEngine {
              Emit any one of these first (they are never blocked by the gate), then re-issue \
              the change with what you learned:\n\
              - read_file / grep_search / glob_search / list_dir on the target or its consumers\n\
-             - TaskGraph (read current plan state) or Skill / ToolSearch / McpSearch / retrieve_context\n\
+             - TaskGraph operation 'view' (plan state only — `update_status`/`add` do not count \
+             as looking) or Skill / ToolSearch / McpSearch / retrieve_context\n\
              - WebSearch / WebFetch for external contracts\n\
              - lsp_* diagnostics, or `bash` read-only/verifier commands: cargo check|test|build|clippy, \
              go vet|test, tsc --noEmit, python3 -m py_compile, bash -n, git status|diff|log|show, ls, cat, find\n\
@@ -1052,7 +1122,10 @@ impl BifurcationEngine {
             }
             return;
         }
-        if !Self::is_read_only_tool(tool) {
+        // A plan redraw is not a new world. Counting it here is what let a run
+        // tick `update_status` between two identical failures and call the retry
+        // fresh evidence.
+        if !Self::is_read_only_tool(tool) && !Self::is_plan_bookkeeping(tool, input) {
             self.mutation_epoch += 1;
         }
         self.proven_tools.insert(tool.to_string(), self.steps);
@@ -1146,15 +1219,31 @@ impl BifurcationEngine {
 
         if saw_failure {
             self.pressure += delta;
+            self.stalled_steps = 0;
         } else if sample.syntax_backpressure {
             // The file on disk is broken. The world did change, but a corrupted
             // artifact is not convergence: resistance is not discounted, and the
             // model is told which line to fix in the tool output itself.
             self.syntax_backpressure_hits += 1;
+            self.stalled_steps = 0;
+        } else if sample.bookkeeping && !sample.mutated_state && sample.successes.is_empty() {
+            // Redrawing the plan is not doing the work. Every call succeeded, so
+            // the naive reading is "smooth progress" — that is exactly the
+            // limit cycle this branch exists to break: a run can spend its whole
+            // turn on `update_status` and leave nothing behind.
+            self.stalled_steps += 1;
+            self.bookkeeping_steps += 1;
+            if self.stalled_steps >= MAX_STALL_STEPS {
+                self.pressure += NOVEL_STEP_PRESSURE;
+                self.cycle_floor = self.cycle_floor.max(Regime::Dichotomy);
+            }
         } else if sample.mutated_state || !sample.successes.is_empty() {
             // Clean forward step: contract the orbit by α.
+            self.stalled_steps = 0;
             self.pressure /= FEIGENBAUM_ALPHA;
             self.cycle_floor = Regime::Laminar;
+        } else {
+            self.stalled_steps = 0;
         }
 
         self.seen_fingerprints
@@ -1360,8 +1449,21 @@ impl BifurcationEngine {
         );
         let blocked = self.dead_orbits_line();
         let working_set = self.working_set_line();
+        let stall = self.stall_line();
         let body = match self.regime {
-            Regime::Laminar => return None,
+            Regime::Laminar => {
+                if self.stalled_steps == 0 {
+                    return None;
+                }
+                // A plan-only streak is the one orbit worth naming before there is
+                // any pressure to escalate on: by the time the ladder has resistance
+                // the model has already narrated four green checkmarks it cannot show.
+                format!(
+                    "## ⏳ PLAN-ONLY STREAK (runtime-measured)\n\
+                     {measured}\n\
+                     {stall}"
+                )
+            }
             Regime::Dichotomy => format!(
                 "## 🔀 BIFURCATION L1 — PERIOD-2 ORBIT SPLIT (runtime-enforced)\n\
                  {measured}{blocked}\n\
@@ -1410,7 +1512,31 @@ impl BifurcationEngine {
                  widened probe nor a hand-off report, the turn is only burning tokens.",
             ),
         };
+        if self.stalled_steps > 0 && self.regime > Regime::Laminar {
+            return Some(format!("{body}\n{stall}"));
+        }
         Some(body)
+    }
+
+    /// The plan moved; the world did not. Names the streak and its length, then
+    /// demands one world action before any further graph write — a model that is
+    /// busy ticking boxes has no other signal that it is stalling.
+    fn stall_line(&self) -> String {
+        if self.stalled_steps == 0 {
+            return String::new();
+        }
+        format!(
+            "Measured by the runtime: {} consecutive step{s} redrew the task graph \
+             (`update_status`/`add`) and touched no file, command, or artifact. Planning is not \
+             progress; the ladder counts a plan-only streak as resistance, and status flags \
+             marked without an artifact behind them are false accounting.\n\
+             Next action must be a world action, not a graph write: run the smallest command or \
+             make the smallest edit the active leaf asks for, then read back what it actually \
+             produced (`ls`, `cat`, a compile, a test). Only once that result is in front of you \
+             may the leaf be marked completed — evidence first, status second.",
+            self.stalled_steps,
+            s = if self.stalled_steps == 1 { "" } else { "s" },
+        )
     }
 
     fn regression_advisory(&self) -> String {
@@ -1507,6 +1633,12 @@ impl BifurcationEngine {
                 if self.probe_required { "armed" } else { "open" },
                 self.probe_gate_trips,
                 self.syntax_backpressure_hits,
+            ),
+            format!(
+                "No-progress breaker: plan_only_steps={bookkeeping} current_streak={streak} (escalates at {limit})",
+                bookkeeping = self.bookkeeping_steps,
+                streak = self.stalled_steps,
+                limit = MAX_STALL_STEPS,
             ),
         ];
         lines.extend(self.thresholds.summary_lines());

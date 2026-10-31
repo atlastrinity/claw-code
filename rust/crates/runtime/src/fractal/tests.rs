@@ -947,3 +947,108 @@ fn only_a_probe_that_returned_something_discharges_the_gate() {
         Vec::<usize>::new()
     );
 }
+
+#[test]
+fn re_drawing_the_plan_is_neither_a_probe_nor_a_mutation() {
+    assert!(BifurcationEngine::is_probe_call(
+        "TaskGraph",
+        "{\"operation\":\"view\"}"
+    ));
+    for operation in ["update_status", "add", "remove"] {
+        let input = format!("{{\"operation\":\"{operation}\",\"id\":\"1.1\"}}");
+        assert!(
+            !BifurcationEngine::is_probe_call("TaskGraph", &input),
+            "`{operation}` rewrites the plan, it does not look at the world"
+        );
+        assert!(BifurcationEngine::is_plan_bookkeeping("taskgraph", &input));
+    }
+    assert!(!BifurcationEngine::is_plan_bookkeeping(
+        "TaskGraph",
+        "{\"operation\":\"view\"}"
+    ));
+    assert!(!BifurcationEngine::is_plan_bookkeeping(
+        "write_file",
+        "{\"path\":\"a.rs\"}"
+    ));
+    // Unparseable input fails closed: a graph call the runtime cannot prove is a
+    // read must not buy a blind write.
+    assert!(BifurcationEngine::is_plan_bookkeeping(
+        "TaskGraph",
+        "not json"
+    ));
+}
+
+#[test]
+fn a_plan_only_streak_forces_the_orbit_out_of_bookkeeping() {
+    let mut engine = BifurcationEngine::new();
+    for _ in 0..MAX_STALL_STEPS {
+        engine.observe(&OrbitSample::new(engine.steps() + 1).with_bookkeeping());
+    }
+    assert_eq!(engine.stalled_steps(), MAX_STALL_STEPS);
+    assert!(
+        engine.regime() >= Regime::Dichotomy,
+        "a run that only redraws the plan is not converging: {:?}",
+        engine.regime()
+    );
+    assert!(
+        engine.probe_required(),
+        "the escalation must arm the gate, or the next step is a blind write again"
+    );
+    let directive = engine
+        .directive_section()
+        .expect("stalled orbit gets a directive");
+    assert!(directive.contains("redrew the task graph"));
+    assert!(directive.contains("evidence first, status second"));
+    assert!(engine
+        .summary()
+        .contains(&format!("plan_only_steps={}", MAX_STALL_STEPS)));
+}
+
+#[test]
+fn the_first_plan_only_step_already_says_so() {
+    let mut engine = BifurcationEngine::new();
+    engine.observe(&OrbitSample::new(1).with_bookkeeping());
+    let directive = engine
+        .directive_section()
+        .expect("a plan-only streak is worth naming before it escalates");
+    assert!(directive.contains("PLAN-ONLY STREAK"));
+    assert!(directive.contains("1 consecutive step"));
+    assert_eq!(engine.regime(), Regime::Laminar);
+    assert_eq!(engine.pressure(), 0.0, "one step is a notice, not pressure");
+}
+
+#[test]
+fn a_world_action_ends_the_plan_only_streak() {
+    let mut engine = BifurcationEngine::new();
+    engine.observe(&OrbitSample::new(1).with_bookkeeping());
+    engine.observe(&OrbitSample::new(2).with_bookkeeping());
+    assert_eq!(engine.stalled_steps(), 2);
+    engine.observe(
+        &OrbitSample::new(3)
+            .with_bookkeeping()
+            .with_success("write_file")
+            .with_mutation(),
+    );
+    assert_eq!(
+        engine.stalled_steps(),
+        0,
+        "a graph update next to a real write is progress"
+    );
+    assert_eq!(engine.regime(), Regime::Laminar);
+    assert!(engine.directive_section().is_none());
+}
+
+#[test]
+fn plan_writes_do_not_advance_the_mutation_epoch() {
+    let mut engine = BifurcationEngine::new();
+    let bookkeeping = "{\"operation\":\"update_status\",\"id\":\"1.1\",\"status\":\"completed\"}";
+    engine.note_attempt("TaskGraph", bookkeeping);
+    engine.note_outcome("TaskGraph", bookkeeping, false, "");
+    assert_eq!(
+        engine.mutation_epoch(),
+        0,
+        "the plan moved; the world did not, so an identical retry is still the same orbit"
+    );
+    engine.note_outcome("edit_file", "{\"path\":\"a.rs\"}", false, "");
+    assert_eq!(engine.mutation_epoch(), 1);
+}
