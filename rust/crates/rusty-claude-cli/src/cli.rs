@@ -1077,6 +1077,16 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
                         "unsupported skills action: {first_word}. Supported actions: list, show <name>, install <path>, uninstall <name>, help, or <skill> [args]"
                     ));
                 }
+                // A flag is never a skill name. Without this arm `claw skills --json`
+                // was classified as `$--json`, i.e. a prompt, and the user got
+                // `missing Anthropic credentials` from a purely local command —
+                // the same trap #145 removed for `plugins`, and one that can spend
+                // a real API call on a typo.
+                if first_word.starts_with('-') && !is_help_flag(first_word) {
+                    return Err(format!(
+                        "unknown option for `skills`: {first_word}\nUsage: claw skills [list [<filter>]|show <name>|install <path>|uninstall <name>|help|<skill> [args]]"
+                    ));
+                }
             }
             match classify_skills_slash_command(args.as_deref()) {
                 SkillSlashDispatch::Invoke(prompt) => Ok(CliAction::Prompt {

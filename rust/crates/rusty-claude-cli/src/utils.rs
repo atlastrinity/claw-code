@@ -6225,6 +6225,34 @@ mod tests {
     }
 
     #[test]
+    fn a_flag_after_skills_is_a_parse_error_not_a_prompt() {
+        // `claw skills --json` used to classify as the skill `$--json`, reach the
+        // prompt path, and surface `missing Anthropic credentials` for a command
+        // that is purely local introspection.
+        let error = parse_args(&["skills".to_string(), "--json".to_string()])
+            .expect_err("a flag is never a skill name");
+        assert!(
+            error.contains("unknown option for `skills`: --json"),
+            "{error}"
+        );
+        assert!(
+            !error.contains("credentials"),
+            "the real problem is the argument, not the auth: {error}"
+        );
+
+        // Help and genuine skill invocations keep working.
+        assert!(parse_args(&["skills".to_string(), "--help".to_string()]).is_ok());
+        assert!(matches!(
+            parse_args(&[
+                "skills".to_string(),
+                "pdf-tools".to_string(),
+                "--render".to_string(),
+            ]),
+            Ok(CliAction::Prompt { .. })
+        ));
+    }
+
+    #[test]
     fn unsupported_skills_actions_return_typed_error_683() {
         let error = parse_args(&["skills".to_string(), "add".to_string()])
             .expect_err("skills add should error");
