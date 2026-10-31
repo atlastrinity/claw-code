@@ -149,36 +149,83 @@ impl GrishaPlanReviewer {
             }
         }
 
-        // 5.5 Sibling duplicate check: two children of the same parent with
-        // identical titles are planning noise — one of them is redundant.
+        // 5.5 Graph-wide duplicate check. Comparing only inside one parent left
+        // the escape hatch a live run actually used: the same diagnostic subtree
+        // re-created verbatim under a cousin parent. The comparison key is the
+        // sorted set of significant words, so case, word order and filler
+        // articles no longer hide a clone. Verification steps are exempt —
+        // "run the tests" after every phase is not the same work twice.
+        fn clone_signature(title: &str) -> String {
+            let mut words: Vec<String> = title
+                .to_lowercase()
+                .split(|c: char| !(c.is_alphanumeric() || c == '.' || c == '_'))
+                .filter(|w| {
+                    w.chars().any(|c| c.is_ascii_digit())
+                        || (w.chars().count() > 3 && !STOPWORDS.contains(w))
+                })
+                .map(str::to_owned)
+                .collect();
+            words.sort();
+            words.dedup();
+            words.join("+")
+        }
+
+        const STOPWORDS: [&str; 6] = ["with", "from", "that", "this", "into", "your"];
+
+        fn is_verification(title: &str) -> bool {
+            let lc = title.to_lowercase();
+            ["verif", "test", "check", "validat", "review"]
+                .iter()
+                .any(|marker| lc.contains(marker))
+        }
+
+        let mut occupied: std::collections::BTreeMap<String, &TaskNode> =
+            std::collections::BTreeMap::new();
+        for node in existing_nodes.iter().chain(enriched.iter()) {
+            let Some(content) = node.content.as_deref() else {
+                continue;
+            };
+            if content.trim().is_empty() || is_verification(content) {
+                continue;
+            }
+            let signature = clone_signature(content);
+            if signature.is_empty() {
+                continue;
+            }
+            occupied.entry(signature).or_insert(node);
+        }
+
         for node in nodes {
             let Some(content) = &node.content else {
                 continue;
             };
-            let norm = content.trim().to_lowercase();
-            if norm.is_empty() {
+            if content.trim().is_empty() || is_verification(content) {
                 continue;
             }
-            let twin = enriched.iter().chain(existing_nodes.iter()).find(|other| {
-                other.id != node.id
-                    && other.parent_id == node.parent_id
-                    && other
-                        .content
-                        .as_deref()
-                        .map(|c| c.trim().to_lowercase())
-                        .as_deref()
-                        == Some(norm.as_str())
-            });
-            if let Some(twin) = twin {
-                return Err(GrishaExecutionError::new(
-                    GrishaErrorCode::PlanRecursiveDuplicate,
-                    format!(
-                        "Task '{}' (\"{}\") duplicates sibling task '{}' under the same parent.",
-                        node.id, content, twin.id
-                    ),
-                    "Do not add the same work twice. If the existing sibling already covers it, execute under it; otherwise give the new task a genuinely distinct title.",
-                ));
+            let signature = clone_signature(content);
+            let Some(twin) = occupied.get(&signature).copied() else {
+                continue;
+            };
+            if twin.id == node.id {
+                continue;
             }
+            let same_parent = twin.parent_id == node.parent_id;
+            return Err(GrishaExecutionError::new(
+                GrishaErrorCode::PlanRecursiveDuplicate,
+                format!(
+                    "Task '{}' (\"{}\") is a clone of {}task '{}' (\"{}\") already in the graph.",
+                    node.id,
+                    content,
+                    if same_parent { "sibling " } else { "another " },
+                    twin.id,
+                    twin.content.as_deref().unwrap_or("")
+                ),
+                if same_parent {
+                    "Do not add the same work twice under one parent. Execute under the existing task, or give the new task a genuinely distinct title."
+                } else {
+                    "Re-planning the same step under a different parent does not change the outcome — the previous attempt failed on the world, not on the plan. Execute an alternative action directly, or mark the existing task 'failed' with the reason and move to the next sibling."
+                },
+            ));
         }
 
         // 6. Verification advisory: every root phase should end with a check

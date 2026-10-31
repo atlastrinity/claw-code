@@ -2370,7 +2370,63 @@ fn grisha_rejects_duplicate_sibling_titles() {
         }),
     )
     .expect_err("duplicate sibling titles must be rejected");
-    assert!(err.contains("duplicates sibling task"));
+    assert!(err.contains("clone of sibling task"));
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn grisha_rejects_a_cloned_subtree_under_a_cousin_parent() {
+    let _guard = env_guard();
+    let path = temp_path("cousin_clone_tasks.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "c1", "content": "Ship the CLI"},
+                {"id": "c1.1", "parent_id": "c1", "content": "Install the binary"},
+                {"id": "c1.2", "parent_id": "c1", "content": "Diagnose the failing install"}
+            ]
+        }),
+    )
+    .expect("add should succeed");
+
+    // The live-run loop: the same recovery steps re-planned under a different
+    // parent, word for word, then executed a second time to the same failure.
+    let err = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "c1.2.1", "parent_id": "c1.2", "content": "Diagnose failing install"}
+            ]
+        }),
+    )
+    .expect_err("a cousin clone must be rejected");
+    assert!(
+        err.contains("clone of another task"),
+        "the rejection must name the pre-existing task: {err}"
+    );
+    assert!(
+        err.contains("Re-planning the same step under a different parent"),
+        "the rejection must explain why re-planning changes nothing: {err}"
+    );
+
+    // Repeated verification is legitimate and must still be allowed.
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "c1.3", "parent_id": "c1", "content": "Verify the install"}
+            ]
+        }),
+    )
+    .expect("a second verification step is not a clone");
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(path);
