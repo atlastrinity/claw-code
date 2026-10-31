@@ -17,7 +17,9 @@ import re
 import sys
 import time
 import json
+import queue
 import random
+import threading
 import subprocess
 from pathlib import Path
 from typing import Optional, List
@@ -323,6 +325,23 @@ def smart_truncate_sentence(text: str, max_chars: int = 4000) -> str:
         return truncated[:last_space].strip() + '.'
     return truncated.strip() + '.'
 
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name, "")
+    if raw.strip().lstrip("-").isdigit():
+        return int(raw.strip())
+    return default
+
+def tts_char_cap() -> int:
+    """Ліміт символів на одну репліку озвучки (CLAW_TTS_MAX_CHARS)."""
+    return max(80, _env_int("CLAW_TTS_MAX_CHARS", 320))
+
+def plural_ua(n: int, one: str, few: str, many: str) -> str:
+    if n % 10 == 1 and n % 100 != 11:
+        return one
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return few
+    return many
+
 # ──────────────────────────── Audio Player ──────────────────────────────
 
 
@@ -370,11 +389,67 @@ class VoicePlayer:
             print(f"\n{COLORS['grisha']}⚠️ Помилка ініціалізації TTS: {e}{COLORS['reset']}")
 
         # Audio playback queue and background thread
-        import queue
-        import threading
         self.play_queue = queue.Queue()
         self.play_thread = threading.Thread(target=self._play_loop, daemon=True)
         self.play_thread.start()
+
+        # Synth runs off the tail loop: generating a WAV costs ~2s and the runtime
+        # should not wait for it. One worker keeps segment order intact.
+        self.synth_queue = queue.Queue()
+        self.synth_thread = threading.Thread(target=self._synth_loop, daemon=True)
+        self.synth_thread.start()
+
+        # Скільки ходів асистента ще чекають озвучки попереду поточного.
+        self.turns_ahead = 0
+
+    def backlog_segments(self) -> int:
+        """Сегменти, що ще не прозвучали: їх генерація чи відтворення попереду."""
+        return self.synth_queue.qsize() + self.play_queue.qsize()
+
+    def _synth_loop(self):
+        lock_path = Path.home() / ".claw" / "narration.lock"
+        import shutil
+        while True:
+            job = self.synth_queue.get()
+            if job is None:
+                self.synth_queue.task_done()
+                break
+            speech_text, voice_val, rate_val, pitch_val, hash_key, voice, title = job
+            try:
+                cache_dir = self.output_dir / "cache"
+                cache_dir.mkdir(parents=True, exist_ok=True)
+                cached_wav_path = cache_dir / f"{hash_key}.wav"
+                if not cached_wav_path.exists():
+                    self.tts_engine.synthesize_to_wav(
+                        speech_text,
+                        str(cached_wav_path),
+                        voice=voice_val,
+                        rate=rate_val,
+                        pitch=pitch_val,
+                    )
+                wav_path = self.output_dir / f"play_{self.seg_count:03d}_{voice}_{title[:15].replace(' ', '_')}.wav"
+                shutil.copyfile(str(cached_wav_path), str(wav_path))
+                self.wav_paths.append(cached_wav_path)
+                self.seg_count += 1
+
+                play_files = sorted(self.output_dir.glob("play_*.wav"), key=lambda p: p.stat().st_mtime)
+                while len(play_files) > 10:
+                    oldest = play_files.pop(0)
+                    try:
+                        oldest.unlink()
+                    except Exception:
+                        pass
+
+                self.play_queue.put(wav_path)
+            except Exception as e:
+                print(f"  {COLORS['grisha']}⚠️ Помилка генерації аудіо: {e}{COLORS['reset']}")
+                if self.play_queue.empty() and self.synth_queue.empty() and lock_path.exists():
+                    try:
+                        lock_path.unlink()
+                    except Exception:
+                        pass
+            finally:
+                self.synth_queue.task_done()
 
     def _play_loop(self):
         lock_path = Path.home() / ".claw" / "narration.lock"
@@ -429,8 +504,9 @@ class VoicePlayer:
                 send_avatar_event("speech_end")
                 self.current_proc = None
                 self.play_queue.task_done()
-                # If no more items are currently playing or queued, release narration lock immediately
-                if self.play_queue.empty():
+                # Release the lock only when nothing is synthesising or queued,
+                # otherwise the runtime advances while speech is still pending.
+                if self.play_queue.empty() and self.synth_queue.empty():
                     if lock_path.exists():
                         try:
                             lock_path.unlink()
@@ -489,7 +565,7 @@ class VoicePlayer:
             
         return self.get_success_speech(action_desc)
 
-    def speak(self, voice: str, title: str, text: str):
+    def speak(self, voice: str, title: str, text: str, priority: bool = False):
         """Generates natural text, prints it, and plays the audio."""
         # Check if the specific voice is enabled via environment variables
         if voice == "atlas" and os.environ.get("CLAW_TTS_ATLAS", "true").lower() == "false":
@@ -497,6 +573,17 @@ class VoicePlayer:
         if voice == "grisha" and os.environ.get("CLAW_TTS_GRISHA", "true").lower() == "false":
             return
         if voice == "tetiana" and os.environ.get("CLAW_TTS_TETIANA", "true").lower() == "false":
+            return
+
+        # Сталенесс-гард: озвучка не повинна переказувати минуле. Якщо черга вже
+        # відстає або попереду ще неозвучені ходи, крокові репліки («Намір», «Дія»,
+        # «План») відкидаються — контроль Гріші та висновок Атласа лишаються.
+        max_backlog = _env_int("CLAW_TTS_MAX_BACKLOG", 2)
+        behind = self.backlog_segments() >= max_backlog or self.turns_ahead > 0
+        if max_backlog > 0 and behind and not priority:
+            word = plural_ua(self.turns_ahead, "хід", "ходи", "ходів")
+            print(f"{COLORS['dim']}🎙️ озвучка відстає ({self.backlog_segments()} у черзі, "
+                  f"{self.turns_ahead} {word} попереду) — пропущено «{title}»{COLORS['reset']}")
             return
 
         # Acquire narration lock immediately at the start of speak() to prevent CLI from advancing
@@ -509,7 +596,7 @@ class VoicePlayer:
 
         natural_text = make_natural_speech(voice, title, text)
         if not natural_text.strip():
-            if self.play_queue.empty() and lock_path.exists():
+            if self.play_queue.empty() and self.synth_queue.empty() and lock_path.exists():
                 try:
                     lock_path.unlink()
                 except Exception:
@@ -537,9 +624,6 @@ class VoicePlayer:
         # 2. Generate and play audio if TTS is available
         if self.tts_engine and os.environ.get("CLAW_TTS", "true").lower() != "false":
             import hashlib
-            import shutil
-            import re
-            
             # Map narrator agents to Edge-TTS voices with distinct rate/pitch settings
             atlas_rate = os.environ.get("CLAW_TTS_ATLAS_RATE", "-5%")
             tetiana_rate = os.environ.get("CLAW_TTS_TETIANA_RATE", "-5%")
@@ -556,55 +640,22 @@ class VoicePlayer:
             
             # Prepare text for TTS (transcribe English terms, clean up formatting)
             speech_text = prepare_text_for_tts(natural_text_ua)
-            
-            # Truncate strictly at complete sentence boundaries if exceeding 4000 characters
-            speech_text = smart_truncate_sentence(speech_text, max_chars=4000)
+
+            # Keep the spoken phrase short: TTS and playback cost is linear in length,
+            # so CLAW_TTS_MAX_CHARS bounds how far the voice trails the runtime.
+            speech_text = smart_truncate_sentence(speech_text, max_chars=tts_char_cap())
 
             # Cache check by generating md5 hash of the voice, rate, pitch and speech text
             hash_key = hashlib.md5(f"{voice}:{voice_val}:{rate_val}:{pitch_val}:{speech_text}".encode("utf-8")).hexdigest()
-            cache_dir = self.output_dir / "cache"
-            cache_dir.mkdir(exist_ok=True)
-            cached_wav_path = cache_dir / f"{hash_key}.wav"
 
             lock_path = Path.home() / ".claw" / "narration.lock"
             try:
-                # Ensure parent directory exists
                 lock_path.parent.mkdir(parents=True, exist_ok=True)
                 lock_path.touch(exist_ok=True)
-                
-                # If not cached, generate the file
-                if not cached_wav_path.exists():
-                    self.tts_engine.synthesize_to_wav(
-                        speech_text, 
-                        str(cached_wav_path), 
-                        voice=voice_val, 
-                        rate=rate_val, 
-                        pitch=pitch_val
-                    )
-                
-                # Copy cached file to session play file
-                wav_path = self.output_dir / f"play_{self.seg_count:03d}_{voice}_{title[:15].replace(' ', '_')}.wav"
-                shutil.copyfile(str(cached_wav_path), str(wav_path))
-                
-                # Store cached path for final narration compilation
-                self.wav_paths.append(cached_wav_path)
-                self.seg_count += 1
-                
-                # Keep only the last 10 play_*.wav files in the output directory
-                play_files = sorted(list(self.output_dir.glob("play_*.wav")), key=lambda p: p.stat().st_mtime)
-                while len(play_files) > 10:
-                    oldest = play_files.pop(0)
-                    try:
-                        oldest.unlink()
-                    except Exception:
-                        pass
-                
-                # Enqueue the generated WAV path for background playback
-                self.play_queue.put(wav_path)
+                self.synth_queue.put((speech_text, voice_val, rate_val, pitch_val, hash_key, voice, title))
             except Exception as e:
-                print(f"  {COLORS['grisha']}⚠️ Помилка генерації аудіо: {e}{reset}")
-                # Since generation failed and we touched the lock, release it if queue is empty
-                if self.play_queue.empty() and lock_path.exists():
+                print(f"  {COLORS['grisha']}⚠️ Помилка постановки в чергу: {e}{COLORS['reset']}")
+                if self.play_queue.empty() and self.synth_queue.empty() and lock_path.exists():
                     try:
                         lock_path.unlink()
                     except Exception:
@@ -612,6 +663,9 @@ class VoicePlayer:
 
     def finalize(self):
         """Concatenates all segments into one final file."""
+        # Let pending synthesis finish before stopping playback.
+        self.synth_queue.join()
+
         # Stop background thread
         self.play_queue.put(None)
         
@@ -720,9 +774,9 @@ def run_narrated_session(prompt: str, max_turns: int = 3):
 
     # --- 3. Finalization ---
     if process_finished:
-        player.speak("tetiana", "Завершення роботи", "Всі кроки успішно виконано. Озвучку повністю завершено. До зустрічі!")
+        player.speak("tetiana", "Завершення роботи", "Всі кроки успішно виконано. Озвучку повністю завершено. До зустрічі!", priority=True)
     else:
-        player.speak("grisha", "Критичне завершення", "Увага! Досягнуто ліміту спроб, але процес так і не завершився. Озвучку зупинено у зв'язку з тайм-аутом.")
+        player.speak("grisha", "Критичне завершення", "Увага! Досягнуто ліміту спроб, але процес так і не завершився. Озвучку зупинено у зв'язку з тайм-аутом.", priority=True)
 
     player.finalize()
 
@@ -1839,7 +1893,7 @@ def process_session_entry(data: dict, player: VoicePlayer):
                     if final_text:
                         spoken_text = summarize_assistant_response_via_llm(final_text)
                         if spoken_text and spoken_text.strip():
-                            player.speak("atlas", "Заключення", spoken_text)
+                            player.speak("atlas", "Заключення", spoken_text, priority=True)
                             spoke_this_turn = True
                         final_text = ""
 
@@ -1899,7 +1953,7 @@ def process_session_entry(data: dict, player: VoicePlayer):
                         
                     speech = player.get_tool_verdict_speech(tool_name, action_desc, is_error=True, output_val=output_val)
                     if speech and speech.strip():
-                        player.speak("grisha", "Зауваження контролю", speech)
+                        player.speak("grisha", "Зауваження контролю", speech, priority=True)
 
 def tail_session_loop():
     import signal
@@ -2005,12 +2059,40 @@ def tail_session_loop():
                     f.seek(pos)
                     continue
                 
-                try:
-                    data = json.loads(line)
-                    process_session_entry(data, player)
-                    save_narration_offset(latest_file, f.tell())
-                except Exception:
-                    pass
+                # Зчитуємо весь доступний пакет одразу. Озвучка, яка наздоганяє
+                # виконання, не повинна переказувати минуле: крокові репліки ходу,
+                # після якого в журналі вже є наступний хід, пропускаються
+                # (staleness-гард у speak). Результати інструментів свого ходу попереду
+                # не лічаться — це той самий хід, а не застарілий.
+                batch = [line]
+                while len(batch) < 64:
+                    nxt = f.readline()
+                    if not nxt:
+                        break
+                    batch.append(nxt)
+
+                entries = []
+                for raw in batch:
+                    try:
+                        entries.append(json.loads(raw))
+                    except Exception:
+                        entries.append(None)
+
+                turns_ahead = [0] * len(entries)
+                running = 0
+                for idx in range(len(entries) - 1, -1, -1):
+                    turns_ahead[idx] = running
+                    data = entries[idx]
+                    if isinstance(data, dict) and data.get("type") == "message":
+                        if (data.get("message") or {}).get("role") == "assistant":
+                            running += 1
+
+                for idx, data in enumerate(entries):
+                    player.turns_ahead = turns_ahead[idx]
+                    if data is not None:
+                        process_session_entry(data, player)
+                player.turns_ahead = 0
+                save_narration_offset(latest_file, f.tell())
         except KeyboardInterrupt:
             handle_signal(signal.SIGINT, None)
     finally:
