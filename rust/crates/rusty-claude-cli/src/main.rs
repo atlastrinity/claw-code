@@ -167,7 +167,40 @@ fn load_env_files() {
     }
 }
 
+/// Rust sets SIGPIPE to `SIG_IGN` at startup, so the `print!`/`println!`
+/// macros panic when stdout has already been closed by the downstream reader —
+/// `claw skills list | head`, `claw config | grep -q` — aborting with
+/// "failed printing to stdout: Broken pipe" and exit code 101. The workspace
+/// forbids `unsafe`, so we cannot restore the kernel's SIGPIPE disposition;
+/// instead a panic hook recognizes that one panic and exits quietly, which is
+/// what `cat`, `rg` and `git` effectively do when their output is no longer
+/// wanted. Exiting 0 (rather than dying by signal 141) also keeps
+/// `set -o pipefail` scripts from reporting a spurious failure. Every other
+/// panic is delegated to the default hook, so genuine crashes still report.
+fn install_broken_pipe_guard() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        if is_broken_pipe_panic(info) {
+            std::process::exit(0);
+        }
+        default_hook(info);
+    }));
+}
+
+fn is_broken_pipe_panic(info: &std::panic::PanicHookInfo<'_>) -> bool {
+    let payload = info.payload();
+    let message = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+        .unwrap_or("");
+    // std's stdout/stderr panic is `failed printing to {stream}: Broken pipe
+    // (os error 32)`; match the phrase so unrelated panics are untouched.
+    message.contains("failed printing to") && message.contains("Broken pipe")
+}
+
 fn main() {
+    install_broken_pipe_guard();
     let _logger_guard = claw_logger::init_logger("claw");
     load_env_files();
     tracing::info!(
