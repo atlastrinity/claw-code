@@ -750,39 +750,21 @@ impl StreamState {
                     .and_then(|t| t.content)
                     .filter(|value| !value.is_empty()))
             {
-                if !self.thinking_started {
-                    self.thinking_started = true;
-                    events.push(StreamEvent::ContentBlockStart(ContentBlockStartEvent {
-                        index: 0,
-                        content_block: OutputContentBlock::Thinking {
-                            thinking: String::new(),
-                            signature: None,
-                        },
-                    }));
-                }
-                events.push(StreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
-                    index: 0,
-                    delta: ContentBlockDelta::ThinkingDelta {
-                        thinking: reasoning,
-                    },
-                }));
+                self.push_thinking_delta(reasoning, &mut events);
             }
 
-            if let Some(content) = choice.delta.content.filter(|value| !value.is_empty()) {
-                self.close_thinking(&mut events);
-                if !self.text_started {
-                    self.text_started = true;
-                    events.push(StreamEvent::ContentBlockStart(ContentBlockStartEvent {
-                        index: self.text_block_index(),
-                        content_block: OutputContentBlock::Text {
-                            text: String::new(),
-                        },
-                    }));
+            for fragment in choice
+                .delta
+                .content
+                .iter()
+                .flat_map(DeltaContent::fragments)
+            {
+                match fragment {
+                    DeltaFragment::Thinking(thinking) => {
+                        self.push_thinking_delta(thinking, &mut events);
+                    }
+                    DeltaFragment::Text(text) => self.push_text_delta(text, &mut events),
                 }
-                events.push(StreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
-                    index: self.text_block_index(),
-                    delta: ContentBlockDelta::TextDelta { text: content },
-                }));
             }
 
             for tool_call in choice.delta.tool_calls {
@@ -883,6 +865,42 @@ impl StreamState {
             events.push(StreamEvent::MessageStop(MessageStopEvent {}));
         }
         Ok(events)
+    }
+
+    fn push_thinking_delta(&mut self, reasoning: String, events: &mut Vec<StreamEvent>) {
+        if !self.thinking_started {
+            self.thinking_started = true;
+            events.push(StreamEvent::ContentBlockStart(ContentBlockStartEvent {
+                index: 0,
+                content_block: OutputContentBlock::Thinking {
+                    thinking: String::new(),
+                    signature: None,
+                },
+            }));
+        }
+        events.push(StreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+            index: 0,
+            delta: ContentBlockDelta::ThinkingDelta {
+                thinking: reasoning,
+            },
+        }));
+    }
+
+    fn push_text_delta(&mut self, text: String, events: &mut Vec<StreamEvent>) {
+        self.close_thinking(events);
+        if !self.text_started {
+            self.text_started = true;
+            events.push(StreamEvent::ContentBlockStart(ContentBlockStartEvent {
+                index: self.text_block_index(),
+                content_block: OutputContentBlock::Text {
+                    text: String::new(),
+                },
+            }));
+        }
+        events.push(StreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+            index: self.text_block_index(),
+            delta: ContentBlockDelta::TextDelta { text },
+        }));
     }
 
     fn close_thinking(&mut self, events: &mut Vec<StreamEvent>) {
@@ -1100,7 +1118,7 @@ struct ChunkChoice {
 #[derive(Debug, Default, Deserialize)]
 struct ChunkDelta {
     #[serde(default)]
-    content: Option<String>,
+    content: Option<DeltaContent>,
     /// Some providers (GLM, DeepSeek) emit reasoning in `reasoning_content`
     #[serde(default)]
     reasoning_content: Option<String>,
@@ -1110,6 +1128,78 @@ struct ChunkDelta {
     thinking: Option<ThinkingDelta>,
     #[serde(default, deserialize_with = "deserialize_null_as_empty_vec")]
     tool_calls: Vec<DeltaToolCall>,
+}
+
+/// `delta.content` is a string for most providers, but Mistral reasoning models
+/// emit it as an array of typed parts that carry thinking between text chunks.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+enum DeltaContent {
+    Text(String),
+    Parts(Vec<DeltaContentPart>),
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize)]
+struct DeltaContentPart {
+    #[serde(rename = "type", default)]
+    kind: String,
+    #[serde(default)]
+    text: Option<String>,
+    #[serde(default)]
+    thinking: Option<DeltaThinkingField>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(untagged)]
+enum DeltaThinkingField {
+    Text(String),
+    Parts(Vec<DeltaContentPart>),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum DeltaFragment {
+    Thinking(String),
+    Text(String),
+}
+
+impl DeltaContent {
+    fn fragments(&self) -> Vec<DeltaFragment> {
+        match self {
+            Self::Text(text) => non_empty_text(text)
+                .map(DeltaFragment::Text)
+                .into_iter()
+                .collect(),
+            Self::Parts(parts) => parts.iter().flat_map(DeltaContentPart::fragments).collect(),
+        }
+    }
+}
+
+impl DeltaContentPart {
+    fn fragments(&self) -> Vec<DeltaFragment> {
+        if self.kind == "thinking" {
+            let thinking = match &self.thinking {
+                Some(DeltaThinkingField::Text(text)) => text.clone(),
+                Some(DeltaThinkingField::Parts(parts)) => parts
+                    .iter()
+                    .filter_map(|part| part.text.clone())
+                    .collect::<Vec<_>>()
+                    .join(""),
+                None => String::new(),
+            };
+            return non_empty_text(&thinking)
+                .map(DeltaFragment::Thinking)
+                .into_iter()
+                .collect();
+        }
+        non_empty_text(self.text.as_deref().unwrap_or_default())
+            .map(DeltaFragment::Text)
+            .into_iter()
+            .collect()
+    }
+}
+
+fn non_empty_text(text: &str) -> Option<String> {
+    (!text.is_empty()).then(|| text.to_string())
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -2397,7 +2487,7 @@ mod tests {
                     model: None,
                     choices: vec![super::ChunkChoice {
                         delta: super::ChunkDelta {
-                            content: Some(" answer".to_string()),
+                            content: Some(super::DeltaContent::Text(" answer".to_string())),
                             reasoning_content: None,
                             reasoning: None,
                             thinking: None,
@@ -2449,6 +2539,59 @@ mod tests {
         assert!(matches!(
             events[6],
             StreamEvent::ContentBlockStop(ContentBlockStopEvent { index: 1 })
+        ));
+    }
+
+    #[test]
+    fn mistral_stream_content_parts_become_thinking_then_text_blocks() {
+        // Given the wire shape Mistral reasoning models send: `delta.content` is an
+        // array of typed parts while the model reasons, then a plain string answer.
+        let chunks = [
+            r#"{"id":"c1","model":"mistral-large-4","choices":[{"index":0,"delta":{"content":"","role":"assistant"}}]}"#,
+            r#"{"id":"c1","choices":[{"index":0,"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"2+2 is "}],"closed":true}]}}]}"#,
+            r#"{"id":"c1","choices":[{"index":0,"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"4"}]}]}}]}"#,
+            r#"{"id":"c1","choices":[{"index":0,"delta":{"content":[{"type":"audio","data":"ignored"}]}}]}"#,
+            r#"{"id":"c1","choices":[{"index":0,"delta":{"content":"4"},"finish_reason":"stop"}]}"#,
+        ];
+
+        let mut state = StreamState::new("mistral-large-4".to_string());
+        let mut events = Vec::new();
+        for chunk in chunks {
+            let parsed: super::ChatCompletionChunk =
+                serde_json::from_str(chunk).expect("chunk deserializes");
+            events.extend(state.ingest_chunk(parsed).expect("ingest"));
+        }
+        events.extend(state.finish().expect("finish"));
+
+        let thinking: String = events
+            .iter()
+            .filter_map(|event| match event {
+                StreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+                    delta: ContentBlockDelta::ThinkingDelta { thinking },
+                    ..
+                }) => Some(thinking.clone()),
+                _ => None,
+            })
+            .collect();
+        let text: String = events
+            .iter()
+            .filter_map(|event| match event {
+                StreamEvent::ContentBlockDelta(ContentBlockDeltaEvent {
+                    delta: ContentBlockDelta::TextDelta { text },
+                    ..
+                }) => Some(text.clone()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(thinking, "2+2 is 4");
+        assert_eq!(text, "4");
+        assert!(matches!(
+            events[1],
+            StreamEvent::ContentBlockStart(ContentBlockStartEvent {
+                index: 0,
+                content_block: OutputContentBlock::Thinking { .. },
+            })
         ));
     }
 

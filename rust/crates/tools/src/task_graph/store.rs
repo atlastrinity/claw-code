@@ -1,4 +1,6 @@
-use crate::task_graph::types::{TaskGraphOutput, TaskNode, TaskStatus};
+use crate::task_graph::types::{
+    compare_task_ids, parent_id_from_task_id, TaskGraphOutput, TaskNode, TaskStatus,
+};
 use std::path::{Path, PathBuf};
 
 pub fn task_graph_store_path() -> Result<PathBuf, String> {
@@ -6,6 +8,72 @@ pub fn task_graph_store_path() -> Result<PathBuf, String> {
         return Ok(PathBuf::from(path));
     }
     Ok(runtime::workspace::workspace_root().join(".clawd-task-graph.json"))
+}
+
+/// Load the authoritative graph state: `task.md` when present (agents may edit
+/// the human-readable roadmap), merged with any stored nodes that vanished from
+/// it (a removed node counts as abandoned unless already completed).
+///
+/// Returns an empty Vec when neither source exists.
+pub fn load_graph_nodes(store_path: &Path) -> Vec<TaskNode> {
+    let stored_nodes = read_stored_nodes(store_path);
+
+    let Some(parent) = store_path.parent() else {
+        return stored_nodes;
+    };
+    let task_md_path = parent.join("task.md");
+    let Ok(content) = std::fs::read_to_string(&task_md_path) else {
+        return stored_nodes;
+    };
+
+    let mut current_nodes = parse_task_md_to_nodes(&content);
+    // Restore any nodes that were omitted or deleted from task.md
+    for stored in &stored_nodes {
+        if !current_nodes.iter().any(|n| n.id == stored.id) {
+            let mut node = stored.clone();
+            if node.status != Some(TaskStatus::Completed) {
+                node.status = Some(TaskStatus::Failed);
+            }
+            current_nodes.push(node);
+        }
+    }
+
+    if current_nodes.is_empty() {
+        return stored_nodes;
+    }
+    current_nodes
+}
+
+fn read_stored_nodes(store_path: &Path) -> Vec<TaskNode> {
+    let Ok(content) = std::fs::read_to_string(store_path) else {
+        return Vec::new();
+    };
+    serde_json::from_str::<Vec<TaskNode>>(&content).unwrap_or_default()
+}
+
+/// Deepest currently-active leaf: the node the agent should be working on.
+/// Comparing by string length (`id.len()`) mis-ranked ids once the graph grew
+/// past 9 siblings ("1.10" vs "1.9.1"), so ranking is by real hierarchy depth,
+/// then by numeric id position.
+pub fn find_active_leaf(nodes: &[TaskNode]) -> Option<&TaskNode> {
+    nodes
+        .iter()
+        .filter(|node| node.status == Some(TaskStatus::InProgress))
+        .max_by(|a, b| {
+            a.depth()
+                .cmp(&b.depth())
+                .then_with(|| compare_task_ids(&a.id, &b.id))
+        })
+}
+
+fn write_atomically(path: &Path, content: &str) -> Result<(), String> {
+    let file_name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .ok_or_else(|| format!("Invalid store path: {}", path.display()))?;
+    let tmp_path = path.with_file_name(format!("{file_name}.{}.tmp", std::process::id()));
+    std::fs::write(&tmp_path, content).map_err(|error| error.to_string())?;
+    std::fs::rename(&tmp_path, path).map_err(|error| error.to_string())
 }
 
 pub fn parse_task_md_to_nodes(content: &str) -> Vec<TaskNode> {
@@ -34,16 +102,9 @@ pub fn parse_task_md_to_nodes(content: &str) -> Vec<TaskNode> {
                 let after_id = &trimmed[first_star + 2 + second_star + 2..];
                 let content_str = after_id.trim_start_matches(':').trim().to_string();
 
-                let parts: Vec<&str> = id.split('.').collect();
-                let parent_id = if parts.len() > 1 {
-                    Some(parts[..parts.len() - 1].join("."))
-                } else {
-                    None
-                };
-
                 nodes.push(TaskNode {
-                    id,
-                    parent_id,
+                    id: id.clone(),
+                    parent_id: parent_id_from_task_id(&id),
                     content: Some(content_str),
                     status,
                 });
@@ -69,9 +130,18 @@ pub fn normalize_single_active_leaf(nodes: &mut [TaskNode]) {
         .map(|(idx, _)| idx)
         .collect();
 
-    // If more than 1 leaf node is marked InProgress, keep only the latest/deepest one active
+    // If more than 1 leaf node is marked InProgress, keep only the deepest /
+    // highest-positioned one active (ids compare numerically per segment).
     if leaf_in_progress_indices.len() > 1 {
-        let active_index = *leaf_in_progress_indices.last().unwrap();
+        let active_index = *leaf_in_progress_indices
+            .iter()
+            .max_by(|&&a, &&b| {
+                nodes[a]
+                    .depth()
+                    .cmp(&nodes[b].depth())
+                    .then_with(|| compare_task_ids(&nodes[a].id, &nodes[b].id))
+            })
+            .unwrap();
         for &idx in &leaf_in_progress_indices {
             if idx != active_index {
                 nodes[idx].status = Some(TaskStatus::Pending);
@@ -111,13 +181,7 @@ pub fn create_task_checkpoint(store_path: &Path, completed_nodes: &[TaskNode]) {
 pub fn compute_active_recursion_branch(
     nodes: &[TaskNode],
 ) -> (Option<String>, Vec<String>, Option<String>) {
-    let mut in_progress_nodes: Vec<&TaskNode> = nodes
-        .iter()
-        .filter(|node| node.status == Some(TaskStatus::InProgress))
-        .collect();
-    in_progress_nodes.sort_by(|a, b| b.id.len().cmp(&a.id.len()));
-
-    let Some(active_leaf) = in_progress_nodes.first().copied() else {
+    let Some(active_leaf) = find_active_leaf(nodes) else {
         return (None, Vec::new(), None);
     };
 
@@ -163,7 +227,7 @@ pub fn compute_active_recursion_branch(
 }
 
 pub fn save_task_graph_output(
-    store_path: &PathBuf,
+    store_path: &Path,
     current_nodes: &[TaskNode],
     updated_count: usize,
     alert: Option<String>,
@@ -172,7 +236,7 @@ pub fn save_task_graph_output(
 }
 
 pub fn save_task_graph_output_with_review(
-    store_path: &PathBuf,
+    store_path: &Path,
     current_nodes: &[TaskNode],
     updated_count: usize,
     alert: Option<String>,
@@ -196,7 +260,7 @@ pub fn save_task_graph_output_with_review(
             r#"> [!IMPORTANT]
 > **AGENT INSTRUCTIONS FOR UPDATING THIS TASK GRAPH:**
 > 1. Do NOT edit this file directly. You MUST use the `TaskGraph` tool.
-> 2. The `TaskGraph` tool has two operations: `add` and `update_status`.
+> 2. The `TaskGraph` tool has four operations: `add`, `update_status`, `view`, `remove`.
 > 3. To update an existing task, use `operation: "update_status"`. CRITICAL: ONLY send the nodes whose status is changing (provide only `id` and `status`). Do NOT send the entire graph, unchanged nodes, or the `content`/`parent_id` fields. Example: `{"operation":"update_status","nodes":[{"id":"2.1","status":"completed"}]}` — this is correct. Sending 10+ nodes is WRONG.
 > 4. **RECURSIVE DECOMPOSITION & RIGOROUS EXECUTION**: Formulate the task graph clearly and logically. Whenever an active sub-task (e.g. "1.7") involves multiple distinct phases or complex operations, you MUST expand it recursively into leaf sub-tasks (e.g. "1.7.1", "1.7.2") using operation: "add" (with parent_id: "1.7") BEFORE executing mutating actions under it. DO NOT decompose single atomic actions (like editing a file or running a single command) into redundant sub-tasks, and NEVER create sub-tasks with descriptions identical to parent tasks. Maximum recursion depth is 5. Read-only diagnostic commands do NOT need separate tasks.
 > 5. Node IDs MUST be strings (e.g. "1.1").
@@ -204,38 +268,19 @@ pub fn save_task_graph_output_with_review(
 > 7. **ANTI-REWRITE**: Do NOT use `add` to resubmit the entire graph. Only add genuinely NEW nodes. Parent statuses propagate AUTOMATICALLY — you do NOT need to manually set parent status when completing children.
 > 8. **LANGUAGE MANDATE**: All node content, task titles, and sub-steps MUST be written strictly in English (e.g. "Analyze Swift code", NOT Ukrainian/other languages).
 > 9. **AUTO-VERIFICATION MANDATE**: Before marking any task as `completed`, you MUST verify your work (e.g. read the modified file, compile, run tests, check status). Do not mark as completed based solely on a successful mutating tool call.
+> 10. **VIEW**: To re-read the graph without touching it, call `{"operation":"view","nodes":[]}`. It never runs gates or rewrites the store.
+> 11. **REMOVE**: To drop a genuinely obsolete `pending` leaf, use `{"operation":"remove","nodes":[{"id":"2.1.3"}]}`. Only pending leaves can be removed; never remove work that was executed (use `failed` for abandoned branches so history is preserved).
 
 # Task List
 
 "#,
         );
 
-        for node in &mutable_nodes {
-            let depth = node.id.split('.').count().saturating_sub(1);
-            let checkbox = match node.status {
-                Some(TaskStatus::Completed) => "[x]",
-                Some(TaskStatus::InProgress) => "[/]",
-                Some(TaskStatus::Failed) => "[-]",
-                _ => "[ ]",
-            };
-            let indent = "  ".repeat(depth);
-            markdown.push_str(&format!(
-                "{}- {} **{}**: {}\n",
-                indent,
-                checkbox,
-                node.id,
-                node.content.as_deref().unwrap_or("")
-            ));
-        }
-
-        let _ = std::fs::write(&task_md_path, markdown);
+        markdown.push_str(&render_nodes_markdown(&mutable_nodes));
+        let _ = write_atomically(&task_md_path, &markdown);
     }
 
-    std::fs::write(
-        store_path,
-        serde_json::to_string_pretty(&mutable_nodes).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
+    write_atomically(store_path, &serde_json::to_string_pretty(&mutable_nodes).map_err(|e| e.to_string())?)?;
 
     let (active_leaf_id, active_recursion_chain, active_branch_summary) =
         compute_active_recursion_branch(&mutable_nodes);
@@ -247,52 +292,76 @@ pub fn save_task_graph_output_with_review(
         active_branch_summary,
         grisha_review,
         alert,
+        progress: compute_progress(&mutable_nodes),
     })
+}
+
+/// Render the checklist body of task.md (one line per node, indented by depth).
+pub fn render_nodes_markdown(nodes: &[TaskNode]) -> String {
+    let mut markdown = String::new();
+    for node in nodes {
+        let depth = node.depth().saturating_sub(1);
+        let checkbox = match node.status {
+            Some(TaskStatus::Completed) => "[x]",
+            Some(TaskStatus::InProgress) => "[/]",
+            Some(TaskStatus::Failed) => "[-]",
+            _ => "[ ]",
+        };
+        let indent = "  ".repeat(depth);
+        markdown.push_str(&format!(
+            "{}- {} **{}**: {}\n",
+            indent,
+            checkbox,
+            node.id,
+            node.content.as_deref().unwrap_or("")
+        ));
+    }
+    markdown
+}
+
+/// One-line scoreboard appended to every TaskGraph tool result so progress is
+/// visible without re-reading task.md.
+pub fn compute_progress(nodes: &[TaskNode]) -> Option<String> {
+    if nodes.is_empty() {
+        return None;
+    }
+    let total = nodes.len();
+    let done = nodes
+        .iter()
+        .filter(|n| n.status == Some(TaskStatus::Completed))
+        .count();
+    let failed = nodes
+        .iter()
+        .filter(|n| n.status == Some(TaskStatus::Failed))
+        .count();
+    let percent = done.saturating_mul(100) / total;
+    let mut line = format!("📊 Progress: {done}/{total} complete ({percent}%)");
+    if failed > 0 {
+        line.push_str(&format!(" · {failed} failed"));
+    }
+    if let Some(active) = find_active_leaf(nodes) {
+        line.push_str(&format!(" · active: #{}", active.id));
+    }
+    Some(line)
 }
 
 pub fn build_active_hierarchy_prompt() -> Option<String> {
     let store_path = task_graph_store_path().ok()?;
-    let mut nodes = Vec::new();
-
-    if store_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&store_path) {
-            if let Ok(n) = serde_json::from_str::<Vec<TaskNode>>(&content) {
-                nodes = n;
-            }
-        }
-    }
-
-    if nodes.is_empty() {
-        if let Some(parent) = store_path.parent() {
-            let task_md_path = parent.join("task.md");
-            if task_md_path.exists() {
-                if let Ok(content) = std::fs::read_to_string(&task_md_path) {
-                    nodes = parse_task_md_to_nodes(&content);
-                }
-            }
-        }
-    }
+    let nodes = load_graph_nodes(&store_path);
 
     if nodes.is_empty() {
         return None;
     }
 
-    // Find the currently active in_progress node (prefer deepest leaf node)
-    let mut in_progress_nodes: Vec<&TaskNode> = nodes
-        .iter()
-        .filter(|node| node.status == Some(TaskStatus::InProgress))
-        .collect();
-    in_progress_nodes.sort_by(|a, b| b.id.len().cmp(&a.id.len()));
-
-    let active_leaf = in_progress_nodes.first()?;
+    let active_leaf = find_active_leaf(&nodes)?;
 
     // Find Root node (e.g. "1" or "2" or top level parent)
     let root_id = active_leaf.id.split('.').next().unwrap_or(&active_leaf.id);
     let root_node = nodes.iter().find(|n| n.id == root_id);
 
     // Build parent chain
-    let mut chain = Vec::new();
-    let mut current = *active_leaf;
+    let mut chain: Vec<&TaskNode> = Vec::new();
+    let mut current = active_leaf;
     chain.push(current);
 
     while let Some(ref parent_id) = current.parent_id {

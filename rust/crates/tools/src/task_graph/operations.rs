@@ -1,9 +1,11 @@
 use crate::task_graph::propagation::propagate_task_statuses;
 use crate::task_graph::store::{
-    parse_task_md_to_nodes, save_task_graph_output_with_review, task_graph_store_path,
+    compute_active_recursion_branch, compute_progress, find_active_leaf, load_graph_nodes,
+    render_nodes_markdown, save_task_graph_output_with_review, task_graph_store_path,
 };
 use crate::task_graph::types::{
-    TaskGraphInput, TaskGraphOperation, TaskGraphOutput, TaskNode, TaskStatus,
+    compare_task_ids, parent_id_from_task_id, TaskGraphInput, TaskGraphOperation, TaskGraphOutput,
+    TaskNode, TaskStatus,
 };
 use crate::task_graph::validation::validate_task_graph;
 
@@ -14,45 +16,35 @@ pub fn run_task_graph(input: TaskGraphInput) -> Result<String, String> {
 
 pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, String> {
     let store_path = task_graph_store_path()?;
-    let mut current_nodes = Vec::new();
-
-    let mut stored_nodes: Vec<TaskNode> = Vec::new();
-    if store_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&store_path) {
-            if let Ok(nodes) = serde_json::from_str::<Vec<TaskNode>>(&content) {
-                stored_nodes = nodes;
-            }
-        }
-    }
-
-    if let Some(parent) = store_path.parent() {
-        let task_md_path = parent.join("task.md");
-        if task_md_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&task_md_path) {
-                current_nodes = parse_task_md_to_nodes(&content);
-                // Restore any nodes that were omitted or deleted from task.md
-                for stored in &stored_nodes {
-                    if !current_nodes.iter().any(|n| n.id == stored.id) {
-                        let mut node = stored.clone();
-                        if node.status != Some(TaskStatus::Completed) {
-                            node.status = Some(TaskStatus::Failed);
-                        }
-                        current_nodes.push(node);
-                    }
-                }
-            }
-        }
-    }
-
-    if current_nodes.is_empty() {
-        current_nodes = stored_nodes;
-    }
+    let mut current_nodes = load_graph_nodes(&store_path);
 
     let mut updated_count = 0;
     let mut grisha_remarks = None;
     let mut newly_failed_nodes = Vec::new();
 
     match input.operation {
+        // 'view' is a read-only snapshot: no gates, no propagation, no store write.
+        TaskGraphOperation::View => {
+            let (active_leaf_id, active_recursion_chain, active_branch_summary) =
+                compute_active_recursion_branch(&current_nodes);
+            let snapshot = if current_nodes.is_empty() {
+                "Task graph is empty. Create a plan with operation: \"add\".".to_string()
+            } else {
+                format!(
+                    "Current task graph (read-only snapshot):\n\n{}",
+                    render_nodes_markdown(&current_nodes)
+                )
+            };
+            return Ok(TaskGraphOutput {
+                nodes_updated: 0,
+                active_leaf_id,
+                active_recursion_chain,
+                active_branch_summary,
+                grisha_review: None,
+                alert: Some(snapshot),
+                progress: compute_progress(&current_nodes),
+            });
+        }
         TaskGraphOperation::Add => {
             // Grisha Plan Review & Enrichment Gatekeeper
             let review_outcome =
@@ -73,23 +65,6 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                 } else {
                     current_nodes.push(node);
                     updated_count += 1;
-                }
-            }
-
-            // Auto-repair parent status: if a parent is marked Completed but has active children (InProgress/Pending),
-            // automatically set parent status to InProgress so parent-child hierarchy remains consistent!
-            for i in 0..current_nodes.len() {
-                let pid = current_nodes[i].id.clone();
-                let has_active_children = current_nodes.iter().any(|n| {
-                    n.parent_id.as_ref() == Some(&pid)
-                        && (n.status == Some(TaskStatus::InProgress)
-                            || n.status == Some(TaskStatus::Pending))
-                });
-                if has_active_children
-                    && (current_nodes[i].status == Some(TaskStatus::Completed)
-                        || current_nodes[i].status == Some(TaskStatus::Failed))
-                {
-                    current_nodes[i].status = Some(TaskStatus::InProgress);
                 }
             }
         }
@@ -118,12 +93,6 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                     }
                 } else {
                     // Auto-upsert missing nodes so models never get stuck if a node is not yet added
-                    let parts: Vec<&str> = node.id.split('.').collect();
-                    let parent_id = if parts.len() > 1 {
-                        Some(parts[..parts.len() - 1].join("."))
-                    } else {
-                        None
-                    };
                     let new_status = node.status.unwrap_or(TaskStatus::Pending);
                     let content = node
                         .content
@@ -131,7 +100,10 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                         .or_else(|| Some(format!("Task {}", node.id)));
                     current_nodes.push(TaskNode {
                         id: node.id.clone(),
-                        parent_id: node.parent_id.clone().or(parent_id),
+                        parent_id: node
+                            .parent_id
+                            .clone()
+                            .or_else(|| parent_id_from_task_id(&node.id)),
                         content,
                         status: Some(new_status),
                     });
@@ -159,6 +131,60 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                     }
                 }
             }
+        }
+        TaskGraphOperation::Remove => {
+            // Validate the whole batch first so a bad id cannot half-apply a removal.
+            for node in &input.nodes {
+                let Some(pos) = current_nodes.iter().position(|n| n.id == node.id) else {
+                    return Err(format!(
+                        "Error: TaskGraph remove: task '{}' does not exist. Nothing was removed — use operation: \"view\" to read the current node ids.",
+                        node.id
+                    ));
+                };
+                if current_nodes
+                    .iter()
+                    .any(|n| n.parent_id.as_deref() == Some(&node.id))
+                {
+                    return Err(format!(
+                        "Error: TaskGraph remove: task '{}' has sub-tasks. Remove its leaves first, or mark '{}' as 'failed' to abandon the whole branch.",
+                        node.id, node.id
+                    ));
+                }
+                let status = current_nodes[pos].status.unwrap_or(TaskStatus::Pending);
+                if status != TaskStatus::Pending {
+                    return Err(format!(
+                        "Error: TaskGraph remove: task '{}' is '{:?}'. Only 'pending' tasks can be removed — executed or abandoned work stays in the graph so the history is preserved. Use operation: \"update_status\" with 'failed' to skip a branch.",
+                        node.id, status
+                    ));
+                }
+            }
+            for node in &input.nodes {
+                if let Some(pos) = current_nodes.iter().position(|n| n.id == node.id) {
+                    current_nodes.remove(pos);
+                    updated_count += 1;
+                }
+            }
+            // Prune auto-created placeholder parents that just lost their last child.
+            let childless: std::collections::HashSet<String> = current_nodes
+                .iter()
+                .filter(|n| {
+                    !current_nodes
+                        .iter()
+                        .any(|c| c.parent_id.as_deref() == Some(&n.id))
+                })
+                .map(|n| n.id.clone())
+                .collect();
+            current_nodes.retain(|n| {
+                if !childless.contains(&n.id) {
+                    return true;
+                }
+                let placeholder = if n.id.contains('.') {
+                    format!("Task {}", n.id)
+                } else {
+                    format!("Phase {}", n.id)
+                };
+                n.content.as_deref() != Some(placeholder.as_str())
+            });
         }
     }
 
@@ -213,25 +239,11 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
 
     // Auto-repair parent_ids based on id structure
     for node in &mut current_nodes {
-        let parts: Vec<&str> = node.id.split('.').collect();
-        if parts.len() > 1 {
-            node.parent_id = Some(parts[..parts.len() - 1].join("."));
-        } else {
-            node.parent_id = None;
-        }
+        node.parent_id = parent_id_from_task_id(&node.id);
     }
 
     // Auto-sort nodes semantically by id (e.g., 5.8.1)
-    current_nodes.sort_by(|a, b| {
-        let a_parts: Vec<u32> = a.id.split('.').filter_map(|s| s.parse().ok()).collect();
-        let b_parts: Vec<u32> = b.id.split('.').filter_map(|s| s.parse().ok()).collect();
-        let cmp = a_parts.cmp(&b_parts);
-        if cmp == std::cmp::Ordering::Equal {
-            a.id.cmp(&b.id)
-        } else {
-            cmp
-        }
-    });
+    current_nodes.sort_by(|a, b| compare_task_ids(&a.id, &b.id));
 
     // Auto-propagate statuses up & down the hierarchy
     propagate_task_statuses(&mut current_nodes);
@@ -308,10 +320,7 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         ));
     }
 
-    if let Some(active) = current_nodes
-        .iter()
-        .find(|n| n.status == Some(TaskStatus::InProgress))
-    {
+    if let Some(active) = find_active_leaf(&current_nodes) {
         let has_children = current_nodes
             .iter()
             .any(|n| n.parent_id.as_ref() == Some(&active.id));

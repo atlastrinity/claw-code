@@ -1,4 +1,4 @@
-use crate::task_graph::types::{TaskNode, TaskStatus};
+use crate::task_graph::types::{compare_task_ids, TaskNode, TaskStatus};
 use std::collections::HashSet;
 
 pub fn validate_task_graph(nodes: &[TaskNode]) -> Result<(), String> {
@@ -78,16 +78,7 @@ pub fn validate_task_graph(nodes: &[TaskNode]) -> Result<(), String> {
     for pid in parent_ids {
         let mut siblings: Vec<&TaskNode> = nodes.iter().filter(|n| n.parent_id == pid).collect();
 
-        siblings.sort_by(|a, b| {
-            let a_parts: Vec<u32> = a.id.split('.').filter_map(|s| s.parse().ok()).collect();
-            let b_parts: Vec<u32> = b.id.split('.').filter_map(|s| s.parse().ok()).collect();
-            let cmp = a_parts.cmp(&b_parts);
-            if cmp == std::cmp::Ordering::Equal {
-                a.id.cmp(&b.id)
-            } else {
-                cmp
-            }
-        });
+        siblings.sort_by(|a, b| compare_task_ids(&a.id, &b.id));
 
         for (idx, sibling) in siblings.iter().enumerate() {
             let sib_status = sibling.status.unwrap_or(TaskStatus::Pending);

@@ -1,4 +1,4 @@
-use crate::task_graph::store::{parse_task_md_to_nodes, task_graph_store_path};
+use crate::task_graph::store::{find_active_leaf, load_graph_nodes, task_graph_store_path};
 use crate::task_graph::types::{TaskNode, TaskStatus};
 use crate::task_graph::validation::validate_task_graph;
 use serde_json::Value;
@@ -163,58 +163,31 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
         Err(_) => return Ok(()),
     };
 
-    let mut nodes = Vec::new();
-    let mut loaded = false;
-
-    let mut stored_nodes: Vec<TaskNode> = Vec::new();
-    if store_path.exists() {
-        if let Ok(content) = std::fs::read_to_string(&store_path) {
-            if let Ok(n) = serde_json::from_str::<Vec<TaskNode>>(&content) {
-                stored_nodes = n;
-            }
+    let graph_present = store_path.exists()
+        || store_path
+            .parent()
+            .map(|parent| parent.join("task.md").exists())
+            .unwrap_or(false);
+    if !graph_present {
+        if explicit_store.is_some() {
+            // CLAWD_TASK_GRAPH_STORE is explicitly set but no graph file exists yet
+            // → enforce Plan-First: agent MUST create a plan before any mutating action
+            return Err(
+                "Error: Plan-First Enforcement.\n\
+                 No TaskGraph has been created yet. Before executing any mutating action, you MUST:\n\
+                 1. Analyze the user's request and break it into logical phases and steps.\n\
+                 2. Call the `TaskGraph` tool with `operation: \"add\"` to create a structured plan.\n\
+                 3. Set the first task to `in_progress` using `operation: \"update_status\"`.\n\
+                 4. Only THEN execute your first action.\n\n\
+                 You may also create an `implementation_plan.md` artifact for complex tasks before building the TaskGraph.".to_string()
+            );
         }
+        // No explicit store configured and default file doesn't exist
+        // → TaskGraph feature is not active, allow the action
+        return Ok(());
     }
 
-    if let Some(parent) = store_path.parent() {
-        let task_md_path = parent.join("task.md");
-        if task_md_path.exists() {
-            if let Ok(content) = std::fs::read_to_string(&task_md_path) {
-                nodes = parse_task_md_to_nodes(&content);
-                for stored in &stored_nodes {
-                    if !nodes.iter().any(|n| n.id == stored.id) {
-                        let mut node = stored.clone();
-                        if node.status != Some(TaskStatus::Completed) {
-                            node.status = Some(TaskStatus::Failed);
-                        }
-                        nodes.push(node);
-                    }
-                }
-                loaded = true;
-            }
-        }
-    }
-
-    if !loaded {
-        if !store_path.exists() {
-            if explicit_store.is_some() {
-                // CLAWD_TASK_GRAPH_STORE is explicitly set but no graph file exists yet
-                // → enforce Plan-First: agent MUST create a plan before any mutating action
-                return Err(
-                    "Error: Plan-First Enforcement.\n\
-                     No TaskGraph has been created yet. Before executing any mutating action, you MUST:\n\
-                     1. Analyze the user's request and break it into logical phases and steps.\n\
-                     2. Call the `TaskGraph` tool with `operation: \"add\"` to create a structured plan.\n\
-                     3. Set the first task to `in_progress` using `operation: \"update_status\"`.\n\
-                     4. Only THEN execute your first action.\n\n\
-                     You may also create an `implementation_plan.md` artifact for complex tasks before building the TaskGraph.".to_string()
-                );
-            }
-            // No explicit store configured and default file doesn't exist
-            // → TaskGraph feature is not active, allow the action
-            return Ok(());
-        }
-        nodes = stored_nodes;
-    }
+    let nodes = load_graph_nodes(&store_path);
 
     // Ensure the task graph itself is consistent and valid
     validate_task_graph(&nodes).map_err(|err| {
@@ -252,7 +225,9 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
 
         if let Some(leaf) = promotable_leaf {
             let promote_id = leaf.id.clone();
-            let _ = crate::task_graph::operations::execute_task_graph(
+            // A rejected promotion must NOT fall through as "allowed": without an
+            // active task the semantic-matching layers below are skipped entirely.
+            crate::task_graph::operations::execute_task_graph(
                 crate::task_graph::types::TaskGraphInput {
                     operation: crate::task_graph::types::TaskGraphOperation::UpdateStatus,
                     nodes: vec![crate::task_graph::types::TaskNode {
@@ -262,7 +237,7 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
                         status: Some(TaskStatus::InProgress),
                     }],
                 },
-            );
+            )?;
             return Ok(());
         }
 
@@ -388,17 +363,13 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
         }
         matched_node_id = Some(active_task_id.to_string());
     } else {
-        // Find the active in_progress node
-        let mut in_progress_nodes: Vec<&TaskNode> = nodes
-            .iter()
-            .filter(|node| node.status == Some(TaskStatus::InProgress))
-            .collect();
-        in_progress_nodes.sort_by(|a, b| b.id.len().cmp(&a.id.len()));
+        // Find the active in_progress node (deepest active leaf)
+        let active_node = find_active_leaf(&nodes);
 
-        if let Some(active_node) = in_progress_nodes.first() {
+        if let Some(active_node) = active_node {
             // Build task word set from active node + parent chain
             let mut task_text = active_node.content.clone().unwrap_or_default();
-            let mut curr = *active_node;
+            let mut curr = active_node;
             while let Some(pid) = &curr.parent_id {
                 if let Some(parent) = nodes.iter().find(|n| &n.id == pid) {
                     if let Some(content) = &parent.content {
@@ -488,31 +459,29 @@ pub fn auto_create_recovery_subtask(failed_tool: &str, error_msg: &str) -> Resul
     let content = std::fs::read_to_string(&store_path).map_err(|e| e.to_string())?;
     let mut nodes: Vec<TaskNode> = serde_json::from_str(&content).map_err(|e| e.to_string())?;
 
-    // Find current active leaf in_progress node
-    let active_leaf_idx = nodes.iter().position(|n| {
-        n.status == Some(TaskStatus::InProgress) && {
-            let id = &n.id;
-            !nodes
-                .iter()
-                .any(|other| other.parent_id.as_deref() == Some(id))
-        }
-    });
-
-    let Some(leaf_idx) = active_leaf_idx else {
+    // Find current active leaf in_progress node (deepest one wins)
+    let Some(active_id) = find_active_leaf(&nodes).map(|n| n.id.clone()) else {
         return Ok(());
     };
-    let parent_id = nodes[leaf_idx].id.clone();
+    let is_leaf = !nodes.iter().any(|n| n.parent_id.as_deref() == Some(active_id.as_str()));
+    if !is_leaf {
+        return Ok(());
+    }
+    let parent_id = active_id;
     let depth = parent_id.split('.').count();
     if depth >= 5 {
         return Ok(());
     }
 
-    // Count existing children under parent_id
-    let child_count = nodes
+    // Next child id: max existing child index + 1 (counts stay dense even if
+    // a child was removed, so the new id can never collide with an old one).
+    let next_index = nodes
         .iter()
         .filter(|n| n.parent_id.as_deref() == Some(&parent_id))
-        .count();
-    let new_child_id = format!("{}.{}", parent_id, child_count + 1);
+        .filter_map(|n| n.id.rsplit('.').next().and_then(|s| s.parse::<u32>().ok()))
+        .max()
+        .unwrap_or(0);
+    let new_child_id = format!("{}.{}", parent_id, next_index + 1);
 
     let clean_error_summary = error_msg
         .lines()

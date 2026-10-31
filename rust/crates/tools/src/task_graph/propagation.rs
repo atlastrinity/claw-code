@@ -1,4 +1,5 @@
-use crate::task_graph::types::{TaskNode, TaskStatus};
+use crate::task_graph::types::{compare_task_ids, TaskNode, TaskStatus};
+use std::cmp::Ordering;
 
 pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
     let mut changed = true;
@@ -161,13 +162,7 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
                     .iter()
                     .filter(|n| n.parent_id == node.parent_id && n.id != node.id)
                     .collect();
-                siblings.sort_by(|a, b| {
-                    let a_parts: Vec<u32> =
-                        a.id.split('.').filter_map(|s| s.parse().ok()).collect();
-                    let b_parts: Vec<u32> =
-                        b.id.split('.').filter_map(|s| s.parse().ok()).collect();
-                    a_parts.cmp(&b_parts)
-                });
+                siblings.sort_by(|a, b| compare_task_ids(&a.id, &b.id));
 
                 // Check if any sibling is already InProgress
                 let has_active_sibling = siblings
@@ -175,14 +170,9 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
                     .any(|s| s.status == Some(TaskStatus::InProgress));
                 if !has_active_sibling {
                     // Find the next sibling that comes after this node and is Pending
-                    let node_parts: Vec<u32> =
-                        node.id.split('.').filter_map(|s| s.parse().ok()).collect();
                     if let Some(next_sib) = siblings.iter().find(|s| {
-                        s.status == Some(TaskStatus::Pending) && {
-                            let s_parts: Vec<u32> =
-                                s.id.split('.').filter_map(|p| p.parse().ok()).collect();
-                            s_parts > node_parts
-                        }
+                        s.status == Some(TaskStatus::Pending)
+                            && compare_task_ids(&s.id, &node.id) == Ordering::Greater
                     }) {
                         if !siblings_to_advance.contains(&next_sib.id) {
                             siblings_to_advance.push(next_sib.id.clone());
@@ -212,11 +202,7 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
                 .iter()
                 .filter(|n| n.parent_id == pid)
                 .collect();
-            siblings.sort_by(|a, b| {
-                let a_parts: Vec<u32> = a.id.split('.').filter_map(|s| s.parse().ok()).collect();
-                let b_parts: Vec<u32> = b.id.split('.').filter_map(|s| s.parse().ok()).collect();
-                a_parts.cmp(&b_parts)
-            });
+            siblings.sort_by(|a, b| compare_task_ids(&a.id, &b.id));
 
             let mut found_active = false;
             for sib in siblings {

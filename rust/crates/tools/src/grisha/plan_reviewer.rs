@@ -1,5 +1,5 @@
 use super::types::{GrishaErrorCode, GrishaExecutionError};
-use crate::task_graph::types::TaskNode;
+use crate::task_graph::types::{parent_id_from_task_id, TaskNode, TaskStatus};
 
 /// Outcome of Grisha's plan inspection and review.
 #[derive(Debug, Clone)]
@@ -17,7 +17,7 @@ impl GrishaPlanReviewer {
         nodes: &[TaskNode],
         existing_nodes: &[TaskNode],
     ) -> Result<GrishaPlanReviewOutcome, GrishaExecutionError> {
-        let enriched = nodes.to_vec();
+        let mut enriched = nodes.to_vec();
         let mut remarks = Vec::new();
 
         if enriched.is_empty() {
@@ -44,18 +44,38 @@ impl GrishaPlanReviewer {
             }
         }
 
-        // 2. Ensure parent nodes exist (either in submitted list or in existing nodes)
-        for node in &enriched {
-            if let Some(ref pid) = node.parent_id {
-                let parent_exists_in_input = enriched.iter().any(|n| n.id == *pid);
-                let parent_exists_in_stored = existing_nodes.iter().any(|n| n.id == *pid);
-                if !parent_exists_in_input && !parent_exists_in_stored {
-                    // Auto-create missing parent node with default title
-                    remarks.push(format!(
-                        "Auto-created missing parent node '{}' for child '{}'.",
-                        pid, node.id
-                    ));
+        // 2. Ensure parent nodes exist (either in submitted list or in existing
+        // nodes) and actually synthesize the missing ones — a remark alone used
+        // to promise an auto-create that only happened later in operations.rs.
+        let missing_parents: Vec<TaskNode> = nodes
+            .iter()
+            .filter_map(|node| {
+                let pid = node.parent_id.clone()?;
+                let parent_exists = enriched.iter().any(|n| n.id == pid)
+                    || existing_nodes.iter().any(|n| n.id == pid);
+                if parent_exists {
+                    return None;
                 }
+                remarks.push(format!(
+                    "Auto-created missing parent node '{}' for child '{}'.",
+                    pid, node.id
+                ));
+                let content = if pid.contains('.') {
+                    format!("Task {pid}")
+                } else {
+                    format!("Phase {pid}")
+                };
+                Some(TaskNode {
+                    id: pid.clone(),
+                    parent_id: parent_id_from_task_id(&pid),
+                    content: Some(content),
+                    status: Some(TaskStatus::Pending),
+                })
+            })
+            .collect();
+        for parent in missing_parents {
+            if !enriched.iter().any(|n| n.id == parent.id) {
+                enriched.push(parent);
             }
         }
 
@@ -126,6 +146,74 @@ impl GrishaPlanReviewer {
                         break;
                     }
                 }
+            }
+        }
+
+        // 5.5 Sibling duplicate check: two children of the same parent with
+        // identical titles are planning noise — one of them is redundant.
+        for node in nodes {
+            let Some(content) = &node.content else { continue };
+            let norm = content.trim().to_lowercase();
+            if norm.is_empty() {
+                continue;
+            }
+            let twin = enriched
+                .iter()
+                .chain(existing_nodes.iter())
+                .find(|other| {
+                    other.id != node.id
+                        && other.parent_id == node.parent_id
+                        && other
+                            .content
+                            .as_deref()
+                            .map(|c| c.trim().to_lowercase())
+                            .as_deref()
+                            == Some(norm.as_str())
+                });
+            if let Some(twin) = twin {
+                return Err(GrishaExecutionError::new(
+                    GrishaErrorCode::PlanRecursiveDuplicate,
+                    format!(
+                        "Task '{}' (\"{}\") duplicates sibling task '{}' under the same parent.",
+                        node.id, content, twin.id
+                    ),
+                    "Do not add the same work twice. If the existing sibling already covers it, execute under it; otherwise give the new task a genuinely distinct title.",
+                ));
+            }
+        }
+
+        // 6. Verification advisory: every root phase should end with a check
+        // that its work actually landed (tests, compile, read-back).
+        let merged: Vec<&TaskNode> = existing_nodes.iter().chain(enriched.iter()).collect();
+        for node in nodes {
+            if node.depth() != 1 {
+                continue;
+            }
+            let family: Vec<&TaskNode> = merged
+                .iter()
+                .filter(|n| n.id == node.id || crate::task_graph::types::is_descendant_id(&n.id, &node.id))
+                .copied()
+                .collect();
+            let has_verification = family.iter().any(|n| {
+                n.content.as_deref().map(|c| {
+                    let lc = c.to_lowercase();
+                    lc.contains("verif")
+                        || lc.contains("test")
+                        || lc.contains("check")
+                        || lc.contains("validate")
+                        || lc.contains("review")
+                        || lc.contains("compile")
+                }).unwrap_or(false)
+            });
+            if !has_verification && !family.is_empty() {
+                remarks.push(format!(
+                    "Grisha Note [{}]: Phase '{}' (\"{}\") has no verification step. Consider appending a final sub-task such as \"{}.{}\" (\"Verify: run tests/build and confirm the outcome\") so the phase cannot be closed on unverified work.",
+                    GrishaErrorCode::PlanMissingVerification,
+                    node.id,
+                    node.content.as_deref().unwrap_or(""),
+                    node.id,
+                    family.len() + 1
+                ));
             }
         }
 

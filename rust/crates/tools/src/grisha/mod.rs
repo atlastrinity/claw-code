@@ -23,8 +23,9 @@ impl GrishaSupervisor {
         GrishaPlanReviewer::review_and_enhance(nodes, existing_nodes).map_err(|e| e.format_error())
     }
 
-    /// Validate phase transitions: when a root phase N is being set to InProgress,
-    /// ensure all children of root phase N-1 are Completed or Failed.
+    /// Validate phase transitions: when phase N (or any sub-task inside it)
+    /// is being set to InProgress, ensure all members of phase N-1 are
+    /// Completed or Failed.
     pub fn validate_phase_transition(
         update_nodes: &[crate::task_graph::types::TaskNode],
         current_nodes: &[crate::task_graph::types::TaskNode],
@@ -32,16 +33,14 @@ impl GrishaSupervisor {
         use crate::task_graph::types::TaskStatus;
 
         for update in update_nodes {
-            // Only check root-level nodes (no dots in id) being set to InProgress
-            if update.id.contains('.') {
-                continue;
-            }
             if update.status != Some(TaskStatus::InProgress) {
                 continue;
             }
 
-            // Parse root phase number
-            let phase_num: u32 = match update.id.parse() {
+            // Root phase is the first id segment; the gate applies whether the
+            // agent activates the phase node itself or a sub-task inside it.
+            let root_id = update.id.split('.').next().unwrap_or(&update.id);
+            let phase_num: u32 = match root_id.parse() {
                 Ok(n) => n,
                 Err(_) => continue,
             };
@@ -57,12 +56,11 @@ impl GrishaSupervisor {
                 continue; // No previous phase found, skip validation
             }
 
-            // Collect all descendants of the previous phase
+            // Collect all descendants of the previous phase (segment-aware:
+            // "10.1" is NOT a descendant of phase "1")
             let prev_children: Vec<&crate::task_graph::types::TaskNode> = current_nodes
                 .iter()
-                .filter(|n| {
-                    n.id.starts_with(&format!("{}.", prev_phase_id)) || n.id == prev_phase_id
-                })
+                .filter(|n| crate::task_graph::types::is_descendant_id(&n.id, &prev_phase_id))
                 .collect();
 
             let incomplete: Vec<String> = prev_children

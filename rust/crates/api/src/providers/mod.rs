@@ -964,13 +964,17 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
             context_window_tokens: 131_072,
         }),
         // Mistral AI models
-        // Codestral has 256k context window; Mistral Large, Medium, Small, Ministral, Pixtral, Nemo have 128k context window.
+        // Codestral has 256k context window; Mistral Large 4 has 1M; Mistral Large, Medium, Small, Ministral, Pixtral, Nemo have 128k context window.
         "codestral-latest" | "codestral-2508" | "codestral-2501" | "codestral-2405" => {
             Some(ModelTokenLimit {
                 max_output_tokens: 32_768,
                 context_window_tokens: 256_000,
             })
         }
+        "mistral-large-4" | "mistral-large-4-0" => Some(ModelTokenLimit {
+            max_output_tokens: 32_768,
+            context_window_tokens: 1_048_576,
+        }),
         "mistral-large-latest"
         | "mistral-large-2512"
         | "mistral-large-2411"
@@ -1404,12 +1408,19 @@ mod tests {
         let mistral_caps = provider_capabilities_for_model("mistral-large-latest");
         assert_eq!(mistral_caps.auth_env, "MISTRAL_API_KEY");
 
-        // Token limits: Codestral has 256k context, Mistral Large has 128k context
+        // Token limits: Codestral has 256k context, Mistral Large has 128k, Mistral Large 4 has 1M
         let codestral_limit = model_token_limit("codestral-latest").expect("codestral limit");
         assert_eq!(codestral_limit.context_window_tokens, 256_000);
 
         let mistral_limit = model_token_limit("mistral-large-latest").expect("mistral-large limit");
         assert_eq!(mistral_limit.context_window_tokens, 128_000);
+
+        let mistral_large_4_caps = provider_capabilities_for_model("mistral-large-4");
+        assert_eq!(mistral_large_4_caps.auth_env, "MISTRAL_API_KEY");
+
+        let mistral_large_4_limit =
+            model_token_limit("mistral-large-4").expect("mistral-large-4 limit");
+        assert_eq!(mistral_large_4_limit.context_window_tokens, 1_048_576);
 
         let mistral_small_limit =
             model_token_limit("mistral-small-latest").expect("mistral-small limit");

@@ -2085,3 +2085,388 @@ fn test_task_graph_rejects_depth_exceeded() {
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn task_graph_view_returns_snapshot_without_mutating() {
+    let _guard = env_guard();
+    let path = temp_path("view_tasks.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "v1", "content": "Prepare release"},
+                {"id": "v1.1", "parent_id": "v1", "content": "Bump version"}
+            ]
+        }),
+    )
+    .expect("add should succeed");
+
+    let before = std::fs::read_to_string(&path).expect("store readable");
+
+    let view = execute_tool(
+        "TaskGraph",
+        &json!({ "operation": "view", "nodes": [] }),
+    )
+    .expect("view must never fail");
+    let view_output: serde_json::Value = serde_json::from_str(&view).expect("valid json");
+    assert_eq!(view_output["nodes_updated"].as_i64().expect("int"), 0);
+    let snapshot = view_output["alert"].as_str().expect("snapshot in alert");
+    assert!(snapshot.contains("read-only snapshot"));
+    assert!(snapshot.contains("**v1.1**"));
+
+    // view is strictly read-only: the store bytes are untouched
+    let after = std::fs::read_to_string(&path).expect("store readable");
+    assert_eq!(before, after);
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn task_graph_removes_pending_leaves_and_prunes_placeholders() {
+    let _guard = env_guard();
+    let path = temp_path("remove_tasks.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "r1", "content": "Rework plan", "status": "in_progress"},
+                {"id": "r1.1", "parent_id": "r1", "content": "Keep this step"},
+                {"id": "r1.2", "parent_id": "r1", "content": "Obsolete draft step"}
+            ]
+        }),
+    )
+    .expect("add should succeed");
+
+    let removed = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "remove",
+            "nodes": [{"id": "r1.2"}]
+        }),
+    )
+    .expect("removing a pending leaf should succeed");
+    let removed_output: serde_json::Value =
+        serde_json::from_str(&removed).expect("valid json");
+    assert!(removed_output["nodes_updated"].as_i64().expect("int") >= 1);
+
+    let view = execute_tool("TaskGraph", &json!({ "operation": "view" }))
+        .expect("view should succeed");
+    let view_output: serde_json::Value = serde_json::from_str(&view).expect("valid json");
+    let snapshot = view_output["alert"].as_str().expect("snapshot");
+    assert!(!snapshot.contains("Obsolete draft step"));
+    assert!(snapshot.contains("Keep this step"));
+}
+
+#[test]
+fn task_graph_remove_rejects_active_parents_and_unknown_ids() {
+    let _guard = env_guard();
+    let path = temp_path("remove_guard_tasks.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "g1", "content": "Guarded phase"},
+                {"id": "g1.1", "parent_id": "g1", "content": "Active step", "status": "in_progress"},
+                {"id": "g1.2", "parent_id": "g1", "content": "Pending step"}
+            ]
+        }),
+    )
+    .expect("add should succeed");
+
+    let err = execute_tool(
+        "TaskGraph",
+        &json!({ "operation": "remove", "nodes": [{"id": "g1.1"}] }),
+    )
+    .expect_err("in_progress tasks must not be removable");
+    assert!(err.contains("Only 'pending' tasks can be removed"));
+
+    let err = execute_tool(
+        "TaskGraph",
+        &json!({ "operation": "remove", "nodes": [{"id": "g1"}] }),
+    )
+    .expect_err("parents with children must not be removable");
+    assert!(err.contains("has sub-tasks"));
+
+    let err = execute_tool(
+        "TaskGraph",
+        &json!({ "operation": "remove", "nodes": [{"id": "g9"}, {"id": "g1.2"}] }),
+    )
+    .expect_err("unknown id must reject the whole batch");
+    assert!(err.contains("does not exist"));
+
+    // the batch was rejected upfront: g1.2 survived the failed call
+    let view = execute_tool("TaskGraph", &json!({ "operation": "view" }))
+        .expect("view should succeed");
+    let view_output: serde_json::Value = serde_json::from_str(&view).expect("valid json");
+    assert!(view_output["alert"]
+        .as_str()
+        .expect("snapshot")
+        .contains("Pending step"));
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn task_graph_output_carries_progress_scoreboard() {
+    let _guard = env_guard();
+    let path = temp_path("progress_tasks.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "p1", "content": "Ship it"},
+                {"id": "p1.1", "parent_id": "p1", "content": "First step"},
+                {"id": "p1.2", "parent_id": "p1", "content": "Second step"}
+            ]
+        }),
+    )
+    .expect("add should succeed");
+
+    execute_tool(
+        "TaskGraph",
+        &json!({ "operation": "update_status", "nodes": [{"id": "p1.1", "status": "in_progress"}] }),
+    )
+    .expect("first step should activate");
+    execute_tool(
+        "TaskGraph",
+        &json!({ "operation": "update_status", "nodes": [{"id": "p1.1", "status": "completed"}] }),
+    )
+    .expect("first step should complete");
+
+    let done = execute_tool(
+        "TaskGraph",
+        &json!({ "operation": "view" }),
+    )
+    .expect("view should succeed");
+    let done_output: serde_json::Value = serde_json::from_str(&done).expect("valid json");
+    let progress = done_output["progress"].as_str().expect("progress scoreboard");
+    assert!(progress.contains("Progress"));
+    assert!(progress.contains("active: #p1.2"));
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn grisha_phase_gate_covers_subtask_starts_and_ignores_phase_ten_ids() {
+    let _guard = env_guard();
+    let path = temp_path("phase_gate_tasks.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    // Phase 1 has an unfinished step; starting any step inside phase 2 —
+    // not just the phase node itself — must be gated.
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Analyze"},
+                {"id": "1.1", "parent_id": "1", "content": "Read logs"},
+                {"id": "2", "content": "Implement"},
+                {"id": "2.1", "parent_id": "2", "content": "Write code"}
+            ]
+        }),
+    )
+    .expect("add should succeed");
+
+    let err = execute_tool(
+        "TaskGraph",
+        &json!({ "operation": "update_status", "nodes": [{"id": "2.1", "status": "in_progress"}] }),
+    )
+    .expect_err("sub-task start must obey the phase gate");
+    assert!(err.contains("GRISHA_PHASE_001"));
+
+    // Close phase 1, then a phase-10 descendant must NOT be mistaken for a
+    // phase-1 task when starting phase 2.
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "10", "content": "Later phase"},
+                {"id": "10.1", "parent_id": "10", "content": "Later step"}
+            ]
+        }),
+    )
+    .expect("adding phase 10 should succeed");
+    execute_tool(
+        "TaskGraph",
+        &json!({ "operation": "update_status", "nodes": [{"id": "1.1", "status": "completed"}] }),
+    )
+    .expect("completing the only open phase-1 step should succeed");
+
+    execute_tool(
+        "TaskGraph",
+        &json!({ "operation": "update_status", "nodes": [{"id": "2.1", "status": "in_progress"}] }),
+    )
+    .expect("phase 2 may start: phase 1 is closed and '10.1' belongs to phase 10");
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn grisha_synthesizes_missing_parents_instead_of_only_noting_them() {
+    let _guard = env_guard();
+    let path = temp_path("synth_tasks.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "5.2.1", "parent_id": "5.2", "content": "Micro action", "status": "in_progress"}
+            ]
+        }),
+    )
+    .expect("deep add should succeed via synthesis");
+
+    let view = execute_tool("TaskGraph", &json!({ "operation": "view" }))
+        .expect("view should succeed");
+    let view_output: serde_json::Value = serde_json::from_str(&view).expect("valid json");
+    let snapshot = view_output["alert"].as_str().expect("snapshot");
+    assert!(snapshot.contains("Task 5.2"));
+    assert!(snapshot.contains("Phase 5"));
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn grisha_rejects_duplicate_sibling_titles() {
+    let _guard = env_guard();
+    let path = temp_path("dup_sib_tasks.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "d1", "content": "Build stage"},
+                {"id": "d1.1", "parent_id": "d1", "content": "Compile the crate"}
+            ]
+        }),
+    )
+    .expect("add should succeed");
+
+    let err = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "d1.2", "parent_id": "d1", "content": "compile the crate"}
+            ]
+        }),
+    )
+    .expect_err("duplicate sibling titles must be rejected");
+    assert!(err.contains("duplicates sibling task"));
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn grisha_advises_verification_for_phases_without_one() {
+    let nodes = vec![
+        TaskNode {
+            id: "1".to_string(),
+            parent_id: None,
+            content: Some("Refactor parser".to_string()),
+            status: Some(TaskStatus::Pending),
+        },
+        TaskNode {
+            id: "1.1".to_string(),
+            parent_id: Some("1".to_string()),
+            content: Some("Rewrite tokenizer".to_string()),
+            status: Some(TaskStatus::Pending),
+        },
+    ];
+    let outcome = crate::grisha::GrishaPlanReviewer::review_and_enhance(&nodes, &[])
+        .expect("review should approve");
+    assert!(outcome
+        .remarks
+        .iter()
+        .any(|r| r.contains("GRISHA_PLAN_002") && r.contains("no verification step")));
+
+    let with_verify = vec![
+        nodes[0].clone(),
+        nodes[1].clone(),
+        TaskNode {
+            id: "1.2".to_string(),
+            parent_id: Some("1".to_string()),
+            content: Some("Verify: run parser test suite".to_string()),
+            status: Some(TaskStatus::Pending),
+        },
+    ];
+    let outcome = crate::grisha::GrishaPlanReviewer::review_and_enhance(&with_verify, &[])
+        .expect("review should approve");
+    assert!(!outcome.remarks.iter().any(|r| r.contains("GRISHA_PLAN_002")));
+}
+
+#[test]
+fn grisha_detector_flags_generalized_fabrication_shapes() {
+    // New generalized heuristic: report-shaped echo + assertion words, no hardcoded phrases.
+    let fake = r#"echo "=== Deployment status: 12 checks passed ===" && echo "next: ship it""#;
+    assert!(crate::grisha::GrishaSimulationDetector::check_bash_command(fake).is_err());
+
+    let fake_single = r#"echo "=== Verification complete: all green ===""#;
+    assert!(
+        crate::grisha::GrishaSimulationDetector::check_bash_command(fake_single).is_err()
+    );
+
+    // A plain banner without analytical assertions stays allowed.
+    let benign = "echo \"=== Building docs ===\" && make docs";
+    assert!(crate::grisha::GrishaSimulationDetector::check_bash_command(benign).is_ok());
+}
+
+#[test]
+fn active_leaf_prefers_real_depth_over_id_length() {
+    let nodes = vec![
+        TaskNode {
+            id: "1".to_string(),
+            parent_id: None,
+            content: Some("Phase".to_string()),
+            status: Some(TaskStatus::InProgress),
+        },
+        TaskNode {
+            id: "1.9".to_string(),
+            parent_id: Some("1".to_string()),
+            content: Some("Shallow leaf".to_string()),
+            status: Some(TaskStatus::InProgress),
+        },
+        TaskNode {
+            id: "1.9.1".to_string(),
+            parent_id: Some("1.9".to_string()),
+            content: Some("Deepest leaf".to_string()),
+            status: Some(TaskStatus::InProgress),
+        },
+    ];
+    let active = crate::task_graph::find_active_leaf(&nodes).expect("active leaf");
+    assert_eq!(active.id, "1.9.1");
+
+    // And with double-digit siblings, ordering is numeric per segment: 1.10 > 1.9.
+    assert_eq!(
+        crate::task_graph::compare_task_ids("1.9", "1.10"),
+        std::cmp::Ordering::Less
+    );
+    assert_eq!(
+        crate::task_graph::compare_task_ids("2", "10"),
+        std::cmp::Ordering::Less
+    );
+}

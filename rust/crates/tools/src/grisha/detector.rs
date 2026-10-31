@@ -41,38 +41,73 @@ impl GrishaSimulationDetector {
         let mut echo_count = 0;
         let mut analytical_markers = 0;
 
-        let markers = [
-            "=== ",
-            "Analysis",
-            "Duplicate count",
-            "Total injected tools",
-            "Security posture",
-            "Current environment",
-            "Error handling status",
-            "Current interaction",
-            "Prompt engineering",
-            "Context management",
-            "Verified:",
-            "Status: ✓",
-            "Status: ⚠",
-            "Status: ❌",
-        ];
-
         for part in &parts {
             let p_trimmed = part.trim();
             if p_trimmed.starts_with("echo ") || p_trimmed.starts_with("printf ") {
                 echo_count += 1;
-                for marker in markers {
-                    if p_trimmed.contains(marker) {
-                        analytical_markers += 1;
-                        break;
-                    }
+                if Self::MARKERS.iter().any(|m| p_trimmed.contains(m))
+                    || Self::fabricates_report(p_trimmed)
+                {
+                    analytical_markers += 1;
                 }
             }
         }
 
         // If command is predominantly echo statements (>=2) and contains analytical markers
         echo_count >= 2 && analytical_markers >= 1
+    }
+
+    /// Legacy hardcoded fingerprints kept for exact matches; new fabrication
+    /// shapes are caught by the generalized `fabricates_report` heuristic.
+    const MARKERS: &'static [&'static str] = &[
+        "=== ",
+        "Analysis",
+        "Duplicate count",
+        "Total injected tools",
+        "Security posture",
+        "Current environment",
+        "Error handling status",
+        "Current interaction",
+        "Prompt engineering",
+        "Context management",
+        "Verified:",
+        "Status: ✓",
+        "Status: ⚠",
+        "Status: ❌",
+    ];
+
+    /// Heuristic: an echo/printf that prints a report-shaped header ("=== ... ===")
+    /// together with an assertion word or a status glyph is fabricated findings,
+    /// not real command output.
+    fn fabricates_report(part: &str) -> bool {
+        if !part.contains("===") {
+            return false;
+        }
+        let lower = part.to_lowercase();
+        [
+            "analysis",
+            "status",
+            "verified",
+            "verif",
+            "count",
+            "total",
+            "security",
+            "posture",
+            "environment",
+            "policy",
+            "error handling",
+            "context",
+            "prompt",
+            "invocation",
+            "injection",
+            "✓",
+            "✗",
+            "✅",
+            "❌",
+            "⚠",
+        ]
+        .iter()
+        .any(|k| lower.contains(k))
     }
 
     fn is_single_echo_analysis(cmd: &str) -> bool {
@@ -101,6 +136,7 @@ impl GrishaSimulationDetector {
         ];
 
         analytical_headers.iter().any(|h| trimmed.starts_with(h))
+            || Self::fabricates_report(trimmed)
     }
 
     /// Inspect assistant output text to detect simulated/imitated tool calls in plain text.

@@ -1,10 +1,13 @@
 use serde::{Deserialize, Serialize};
+use std::cmp::Ordering;
 
 #[derive(Debug, Deserialize, Serialize, Clone, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskGraphOperation {
     Add,
     UpdateStatus,
+    View,
+    Remove,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
@@ -86,9 +89,70 @@ pub struct TaskNode {
     pub status: Option<TaskStatus>,
 }
 
+impl TaskNode {
+    #[must_use]
+    pub fn depth(&self) -> usize {
+        id_depth(&self.id)
+    }
+
+    #[must_use]
+    pub fn is_descendant_id(&self, ancestor_id: &str) -> bool {
+        is_descendant_id(&self.id, ancestor_id)
+    }
+}
+
+/// Hierarchy depth of a dotted task id ("1" -> 1, "1.2.3" -> 3).
+#[must_use]
+pub fn id_depth(id: &str) -> usize {
+    id.split('.').count()
+}
+
+/// Numeric segment key used for ordering task ids semantically ("1.9" < "1.10").
+#[must_use]
+pub fn id_segments(id: &str) -> Vec<u32> {
+    id.split('.')
+        .map(|s| s.trim().parse::<u32>().unwrap_or(u32::MAX))
+        .collect()
+}
+
+/// Compare two dotted task ids by hierarchical position, then lexicographically.
+#[must_use]
+pub fn compare_task_ids(a: &str, b: &str) -> Ordering {
+    id_segments(a).cmp(&id_segments(b)).then_with(|| a.cmp(b))
+}
+
+/// True when `id` equals `ancestor_id` or sits below it in the dotted hierarchy.
+///
+/// Deliberately segment-based: a naive `id.starts_with("1.")` also matches
+/// "10.x", which wrongly counted phase-10 tasks as descendants of phase 1.
+#[must_use]
+pub fn is_descendant_id(id: &str, ancestor_id: &str) -> bool {
+    if id == ancestor_id {
+        return true;
+    }
+    let id_segs = id_segments(id);
+    let anc_segs = id_segments(ancestor_id);
+    if id_segs.len() <= anc_segs.len() {
+        return false;
+    }
+    id_segs[..anc_segs.len()] == anc_segs[..]
+}
+
+/// Parent id implied by the dotted id structure ("1.2.3" -> "1.2").
+#[must_use]
+pub fn parent_id_from_task_id(id: &str) -> Option<String> {
+    let parts: Vec<&str> = id.split('.').collect();
+    if parts.len() > 1 {
+        Some(parts[..parts.len() - 1].join("."))
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct TaskGraphInput {
     pub operation: TaskGraphOperation,
+    #[serde(default)]
     pub nodes: Vec<TaskNode>,
 }
 
@@ -105,4 +169,6 @@ pub struct TaskGraphOutput {
     pub grisha_review: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alert: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub progress: Option<String>,
 }

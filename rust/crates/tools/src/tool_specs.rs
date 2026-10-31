@@ -150,13 +150,14 @@ pub fn mvp_tool_specs() -> Vec<ToolSpec> {
         },
         ToolSpec {
             name: "TaskGraph",
-            description: "Manage the structured task map. Add nodes to form a hierarchy, or update their status. The roadmap is stored globally and NEVER deleted. Use 'failed' status to abandon a branch of execution. IMPORTANT: The 'id' and 'parent_id' fields MUST be strings (e.g. \"1\", \"1.1\"), NOT integers. Every node MUST have a string 'id'. RULE: Never create new root tasks (`parent_id: null`) if a graph already exists. When expanding a plan, you MUST find the most relevant existing task and add your new steps as sub-tasks under it. LANGUAGE RULE: All task content, node titles, and descriptions MUST be written strictly in English (e.g. 'Analyze project structure', NOT Ukrainian/other languages). CRITICAL RULE for 'update_status': You MUST send ONLY the nodes whose status is actually changing. Do NOT resend unchanged nodes, content, or parent_id fields. Sending 1-3 changed nodes is correct; sending the entire graph is FORBIDDEN and wastes resources.",
+            description: "Manage the structured task map. Operations: 'add' creates/updates nodes, 'update_status' changes statuses, 'view' returns a read-only snapshot of the whole graph (no gates, no writes — use it instead of re-reading task.md), 'remove' deletes obsolete 'pending' leaf nodes (executed or failed work must stay for history). The roadmap is stored globally and NEVER deleted. Use 'failed' status to abandon a branch of execution. IMPORTANT: The 'id' and 'parent_id' fields MUST be strings (e.g. \"1\", \"1.1\"), NOT integers. Every node MUST have a string 'id'. RULE: Never create new root tasks (`parent_id: null`) if a graph already exists. When expanding a plan, you MUST find the most relevant existing task and add your new steps as sub-tasks under it. LANGUAGE RULE: All task content, node titles, and descriptions MUST be written strictly in English (e.g. 'Analyze project structure', NOT Ukrainian/other languages). CRITICAL RULE for 'update_status': You MUST send ONLY the nodes whose status is actually changing. Do NOT resend unchanged nodes, content, or parent_id fields. Sending 1-3 changed nodes is correct; sending the entire graph is FORBIDDEN and wastes resources.",
             input_schema: json!({
                 "type": "object",
                 "properties": {
-                    "operation": { "type": "string", "enum": ["add", "update_status"] },
+                    "operation": { "type": "string", "enum": ["add", "update_status", "view", "remove"] },
                     "nodes": {
                         "type": "array",
+                        "description": "Nodes to act on. Empty is valid for 'view'.",
                         "items": {
                             "type": "object",
                             "properties": {
