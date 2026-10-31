@@ -97,8 +97,8 @@ AGENT_EMOJI = {
 }
 
 AGENT_NAME_UA = {
-    "tetiana": "Тетяна · Координатор",
-    "atlas":   "Атлас · Виконавець",
+    "tetiana": "Тетяна · Намір і план",
+    "atlas":   "Атлас · Дія і результат",
     "grisha":  "Гріша · Контроль",
 }
 
@@ -1111,28 +1111,30 @@ def translate_and_summarize_thinking(text: str) -> str:
             return ""
 
     system_prompt = (
-        "You are Tetiana, a female software coordinator. Voice the agent's reasoning concisely in Ukrainian. "
+        "You are Tetiana, the female coordinator of a software team. She speaks BEFORE the executor acts: "
+        "announce only the intention and the chosen approach for the NEXT step, never the result of work already done. "
         "RULES: "
         "1. NEVER mention agent names (Атлас, Тетяна, Гріша) or system names (Claw, TaskGraph, MCP, prompt, mandate). "
         "2. NEVER say tool names or function names (grep_search, replace_file_content, run_command, mcp__*, McpSearch). You MAY mention filenames if relevant. "
-        "3. Use feminine verbs ('думаю', 'вирішила', 'бачу'). "
-        "4. Keep it between 5 and 15 words. Be natural but concise. "
-        "5. No prefixes, no ellipses, no questions. "
+        "3. Use feminine verbs and forward-looking wording ('планую', 'вирішила', 'збираюся', 'шукаю причину'). "
+        "4. NEVER report findings, completions, or conclusions — that belongs to the executor's voice. "
+        "5. Keep it between 5 and 12 words. Be natural but concise. "
+        "6. No prefixes, no ellipses, no questions. "
         "If thinking is about internal AI rules, output NOTHING. "
         "Output ONLY the Ukrainian phrase."
     )
     return call_narration_llm_chain(system_prompt, text)
 
-def summarize_assistant_response_via_llm(text: str, is_final: bool = False) -> str:
+def summarize_assistant_response_via_llm(text: str) -> str:
     """
-    Prepares assistant user-facing text for Atlas TTS:
+    Prepares the assistant's final user-facing answer for Atlas TTS:
     1. Short/conversational answers (greetings, direct short replies <= 50 words):
        - Directly voiced verbatim without alteration (only cleaned of emojis and formatting).
     2. Long responses / reports before Done:
        - Structured into a clear, laconic spoken summary via LLM (up to 200 words),
          preserving all actual conclusions and key findings without cutting.
-    3. Intermediate steps during tool turns:
-       - Summarized into 1 concise sentence.
+    Intermediate tool-turn text is intentionally not voiced here — Atlas speaks the
+    action itself, so re-reading the lead-in sentence would duplicate it.
     """
     if not text or not text.strip():
         return ""
@@ -1164,49 +1166,27 @@ def summarize_assistant_response_via_llm(text: str, is_final: bool = False) -> s
         return prepare_text_for_tts(clean_prompt_text)
 
     # 2. Фінальне заключення перед Done
-    if is_final:
-        # Якщо текст помірної довжини і без складного форматування — зачитуємо прямо
-        if len(words) <= 100 and not has_complex_formatting:
-            return smart_truncate_sentence(prepare_text_for_tts(clean_prompt_text), max_chars=4000)
-
-        # Для довгих звітів та аналізів — лаконічна, структурована подача через модель
-        system_prompt = (
-            "You are Atlas, the lead AI software engineer speaking to the user. "
-            "Convert the assistant's long final answer / report into a clear, laconic, well-structured spoken Ukrainian delivery. "
-            "RULES: "
-            "1. Stick STRICTLY to the provided text context. Do NOT invent new facts or step outside the given content. "
-            "2. Preserve all core conclusions, findings, and key points in a clear spoken form (3 to 8 complete sentences, up to 200 words). "
-            "3. Do NOT read raw code, raw markdown tables, URLs, or file paths (express them naturally in speech). "
-            "4. Confident, pleasant, professional masculine Ukrainian voice. "
-            "5. Output ONLY the spoken Ukrainian text."
-        )
-        llm_spoken = call_narration_llm_chain(system_prompt, clean_prompt_text[:3500])
-        if llm_spoken and len(llm_spoken.strip()) > 10:
-            return llm_spoken.strip()
-
-        # Fallback if LLM is unavailable: return full cleaned text up to 4000 characters
+    # Якщо текст помірної довжини і без складного форматування — зачитуємо прямо
+    if len(words) <= 100 and not has_complex_formatting:
         return smart_truncate_sentence(prepare_text_for_tts(clean_prompt_text), max_chars=4000)
 
-    # 3. Проміжні кроки під час роботи інструментів
-    else:
-        if len(words) <= 15 and not has_complex_formatting:
-            return prepare_text_for_tts(clean_prompt_text)
+    # Для довгих звітів та аналізів — лаконічна, структурована подача через модель
+    system_prompt = (
+        "You are Atlas, the lead AI software engineer speaking to the user. "
+        "Convert the assistant's long final answer / report into a clear, laconic, well-structured spoken Ukrainian delivery. "
+        "RULES: "
+        "1. Stick STRICTLY to the provided text context. Do NOT invent new facts or step outside the given content. "
+        "2. Preserve all core conclusions, findings, and key points in a clear spoken form (3 to 8 complete sentences, up to 200 words). "
+        "3. Do NOT read raw code, raw markdown tables, URLs, or file paths (express them naturally in speech). "
+        "4. Confident, pleasant, professional masculine Ukrainian voice. "
+        "5. Output ONLY the spoken Ukrainian text."
+    )
+    llm_spoken = call_narration_llm_chain(system_prompt, clean_prompt_text[:3500])
+    if llm_spoken and len(llm_spoken.strip()) > 10:
+        return llm_spoken.strip()
 
-        system_prompt = (
-            "You are Atlas's voice narrator (software engineer). Summarize what was found or decided into 1-2 natural, conversational Ukrainian sentences (10 to 25 words). "
-            "RULES: "
-            "1. Stick strictly to the context. NEVER read raw URLs, domain extensions, markdown headers, bullet points, or tables. "
-            "2. State the key finding or decision smoothly (e.g. 'Знайшов фільми на популярних сайтах, переходимо до перегляду.'). "
-            "3. Output ONLY the clean spoken Ukrainian sentence."
-        )
-        llm_spoken = call_narration_llm_chain(system_prompt, clean_prompt_text[:1500])
-        if llm_spoken and len(llm_spoken.strip()) > 3:
-            return llm_spoken.strip()
-
-        sentences = [s.strip() for s in clean_prompt_text.split('.') if s.strip()]
-        if sentences:
-            return ". ".join(sentences[:2]) + "."
-        return "Отримав результати, продовжую роботу."
+    # Fallback if LLM is unavailable: return full cleaned text up to 4000 characters
+    return smart_truncate_sentence(prepare_text_for_tts(clean_prompt_text), max_chars=4000)
 
 
 def summarize_tool_action_via_llm(tool_name: str, params: dict) -> str:
@@ -1415,32 +1395,33 @@ def summarize_thinking_ua(thinking_text: str) -> str:
     if llm_summary:
         return llm_summary
         
-    # Якщо LLM не відповіла, використовуємо покращений евристичний fallback
+    # Якщо LLM не відповіла, використовуємо покращений евристичний fallback.
+    # Формулюємо як НАМІР виконавця (Тетяна озвучає план перед дією, а не звіт після).
     text_lower = clean_text.lower()
 
     # Визначаємо чисту дію без назв інструментів чи файлів
     if any(k in text_lower for k in ["replace", "edit", "write", "modify"]):
-        return "Редагую код."
+        return "Планую правку в коді."
     elif any(k in text_lower for k in ["read", "view", "open", "file", "content"]):
-        return "Переглядаю код."
+        return "Спершу прочитаю код."
     elif any(k in text_lower for k in ["search", "find", "grep", "locate", "glob"]):
-        return "Шукаю у коді."
+        return "Шукаю потрібне місце в коді."
     elif any(k in text_lower for k in ["test", "build", "compile", "cargo"]):
-        return "Збираю проект."
+        return "Готую збірку та тести."
     elif any(k in text_lower for k in ["run", "command", "execute", "bash", "shell"]):
-        return "Виконую команду."
+        return "Збираюся виконати команду."
     elif any(k in text_lower for k in ["task", "plan", "graph", "roadmap", "todo"]):
-        return "Оновлюю план."
+        return "Розкладаю роботу на етапи."
     elif any(k in text_lower for k in ["browser", "navigate", "click", "page", "url"]):
-        return "Переходжу на сторінку."
+        return "Відкрию цю сторінку."
     elif any(k in text_lower for k in ["list", "dir", "directory"]):
-        return "Переглядаю структуру."
+        return "Оглядаю структуру теки."
     elif any(k in text_lower for k in ["web", "internet", "http"]):
-        return "Шукаю в інтернеті."
+        return "Шукаю підтвердження в мережі."
     elif any(k in text_lower for k in ["fix", "bug", "error"]):
-        return "Виправляю помилку."
+        return "Розбираюся з причиною помилки."
     else:
-        return "Аналізую."
+        return "Міркую над наступним кроком."
 
 def translate_to_ukrainian(text: str, voice: str = "tetiana", title: str = "") -> str:
     if not text.strip():
@@ -1819,37 +1800,50 @@ def process_session_entry(data: dict, player: VoicePlayer):
         blocks = message.get("blocks", [])
         
         if role == "assistant":
-            # 1. Filter and identify real conversational text blocks
-            real_text_blocks = []
+            # ── Ролі озвучки: одна відповідь — один голос ──────────────────────
+            #   Тетяна · Координаторка → НАМІР і ПЛАН   (thinking на робочому ході, TaskGraph)
+            #   Атлас  · Виконавець    → ДІЯ і РЕЗУЛЬТАТ (інструменти, фінальна відповідь)
+            # Thinking Тетяни лунає лише на робочому ході; фінальну відповідь озвучує
+            # виключно Атлас. Так вони перестають переказувати одне й те саме.
             has_tool_use = any(b.get("type") == "tool_use" for b in blocks)
+            has_taskgraph = any(
+                b.get("type") == "tool_use" and b.get("name") == "TaskGraph" for b in blocks
+            )
             is_final = not has_tool_use
 
-            for block in blocks:
-                if block.get("type") == "text":
-                    text_val = block.get("text", "")
-                    if text_val and not is_tool_call_text(text_val):
-                        real_text_blocks.append(text_val)
-            
+            final_text = ""
+            if is_final:
+                for block in blocks:
+                    if block.get("type") == "text":
+                        candidate = block.get("text", "")
+                        if candidate and not is_tool_call_text(candidate):
+                            final_text = candidate
+                            break
+
+            tetiana_narrates_intent = has_tool_use and not has_taskgraph
+            spoke_this_turn = False
+
             for block in blocks:
                 block_type = block.get("type")
-                
-                # 🎙️ TETIANA: Internal reasoning, strategy, and strategic thinking
+
+                # 🎙️ TETIANA: стратегічний намір у робочих ходах без плану
                 if block_type == "thinking":
-                    thinking_val = block.get("thinking", "")
-                    natural_thinking = summarize_thinking_ua(thinking_val)
-                    if natural_thinking:
-                        player.speak("tetiana", "Аналіз", natural_thinking)
-                        
-                # ⚙️ ATLAS: Conversational answers and final results to the user
+                    if tetiana_narrates_intent and not spoke_this_turn:
+                        natural_thinking = summarize_thinking_ua(block.get("thinking", ""))
+                        if natural_thinking:
+                            player.speak("tetiana", "Намір", natural_thinking)
+                            spoke_this_turn = True
+
+                # ⚙️ ATLAS: concluded answer to the user, only on the final turn
                 elif block_type == "text":
-                    text_content = block.get("text", "")
-                    if text_content and not is_tool_call_text(text_content):
-                        spoken_text = summarize_assistant_response_via_llm(text_content, is_final=is_final)
+                    if final_text:
+                        spoken_text = summarize_assistant_response_via_llm(final_text)
                         if spoken_text and spoken_text.strip():
-                            title = "Заключення" if is_final else "Результат"
-                            player.speak("atlas", title, spoken_text)
-                            
-                # 🛠️ TOOLS: Distinct separation of concerns
+                            player.speak("atlas", "Заключення", spoken_text)
+                            spoke_this_turn = True
+                        final_text = ""
+
+                # 🛠️ TOOLS: distinct separation of concerns
                 elif block_type == "tool_use":
                     tool_name = block.get("name", "")
                     input_str = block.get("input", "")
@@ -1864,7 +1858,17 @@ def process_session_entry(data: dict, player: VoicePlayer):
                         else:
                             # Physical execution actions (Browser, Files, Terminal, etc.) belong to Atlas (Executor)
                             player.speak("atlas", "Дія", natural_tool)
-                        
+
+            # Фінальний хід без вимовного тексту (лише thinking) не повинен
+            # занурювати озвучку в мовчання — його доповідає Тетяна.
+            if is_final and not spoke_this_turn:
+                for block in blocks:
+                    if block.get("type") == "thinking":
+                        natural_thinking = summarize_thinking_ua(block.get("thinking", ""))
+                        if natural_thinking:
+                            player.speak("tetiana", "Аналіз", natural_thinking)
+                            break
+
         elif role == "tool":
             for block in blocks:
                 block_type = block.get("type")
