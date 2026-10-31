@@ -4060,4 +4060,45 @@ printf 'pwsh:%s' "$1"
         }
     }
 
+    #[test]
+    fn file_ops_runners_carry_syntax_backpressure_inside_valid_json() {
+        let _guard = env_guard();
+        let root = temp_path("syntax-backpressure");
+        fs::create_dir_all(&root).expect("create temp workspace");
+        let previous = std::env::current_dir().expect("current dir");
+        std::env::set_current_dir(&root).expect("enter temp workspace");
+
+        let broken = execute_tool(
+            "write_file",
+            &json!({ "path": "cfg.json", "content": "{\n  \"a\": 1,\n  \"b\": {\"c\": 2\n}\n" }),
+        )
+        .expect("a broken write still lands on disk");
+        let repaired = execute_tool(
+            "edit_file",
+            &json!({
+                "path": "cfg.json",
+                "old_string": "\"b\": {\"c\": 2",
+                "new_string": "\"b\": {\"c\": 2}",
+            }),
+        )
+        .expect("the edit itself succeeds");
+        std::env::set_current_dir(previous).expect("restore cwd");
+        fs::remove_dir_all(root).expect("cleanup temp workspace");
+
+        let broken_payload: serde_json::Value =
+            serde_json::from_str(&broken).expect("the result stays parseable JSON");
+        let note = broken_payload["syntax_backpressure"]
+            .as_str()
+            .expect("the guard reports in a field, not after the document");
+        assert!(note.contains("SYNTAX BACKPRESSURE"), "{note}");
+        assert!(note.contains("line"), "{note}");
+
+        let repaired_payload: serde_json::Value =
+            serde_json::from_str(&repaired).expect("the edit result stays parseable JSON");
+        assert!(
+            repaired_payload.get("syntax_backpressure").is_none(),
+            "a fixed file must clear backpressure: {repaired}"
+        );
+    }
+
 

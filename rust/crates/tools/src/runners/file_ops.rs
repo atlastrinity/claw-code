@@ -70,9 +70,22 @@ pub(crate) fn run_write_file(input: WriteFileInput) -> Result<String, String> {
         return Err("Error: Direct modification of task.md is forbidden. You MUST use the TaskGraph tool to maintain your task tree.".to_string());
     }
     let workspace = runtime::workspace::workspace_root();
-    to_pretty_json(
-        write_file_in_workspace(&input.path, &input.content, &workspace).map_err(io_to_string)?,
-    )
+    let output = write_file_in_workspace(&input.path, &input.content, &workspace).map_err(io_to_string)?;
+    // Transactional working memory (M4) + zero-turn syntax backpressure (M3).
+    runtime::turn_state::record_file_mutation(
+        &output.file_path,
+        output.original_file.as_deref(),
+        &output.content,
+    );
+    let mut payload = serde_json::to_value(&output).map_err(|e| e.to_string())?;
+    if let Some(defect) = runtime::syntax_guard::check_file_syntax(&output.file_path, &output.content) {
+        // Carried as a JSON field: the payload stays parseable for the CLI
+        // renderers while the marker still reaches the model verbatim.
+        payload["syntax_backpressure"] = serde_json::Value::String(
+            runtime::syntax_guard::backpressure_block(&defect).trim_start().to_string(),
+        );
+    }
+    to_pretty_json(&payload)
 }
 
 #[allow(clippy::needless_pass_by_value)]
@@ -81,16 +94,25 @@ pub(crate) fn run_edit_file(input: EditFileInput) -> Result<String, String> {
         return Err("Error: Direct modification of task.md is forbidden. You MUST use the TaskGraph tool to maintain your task tree.".to_string());
     }
     let workspace = runtime::workspace::workspace_root();
-    to_pretty_json(
-        edit_file_in_workspace(
-            &input.path,
-            &input.old_string,
-            &input.new_string,
-            input.replace_all.unwrap_or(false),
-            &workspace,
-        )
-        .map_err(io_to_string)?,
+    let output = edit_file_in_workspace(
+        &input.path,
+        &input.old_string,
+        &input.new_string,
+        input.replace_all.unwrap_or(false),
+        &workspace,
     )
+    .map_err(io_to_string)?;
+    // `new_string` is only the replaced fragment; the post-edit content lives on
+    // disk and is what the guard and the working memory must see.
+    let current = std::fs::read_to_string(&output.file_path).unwrap_or_else(|_| output.new_string.clone());
+    runtime::turn_state::record_file_mutation(&output.file_path, Some(&output.original_file), &current);
+    let mut payload = serde_json::to_value(&output).map_err(|e| e.to_string())?;
+    if let Some(defect) = runtime::syntax_guard::check_file_syntax(&output.file_path, &current) {
+        payload["syntax_backpressure"] = serde_json::Value::String(
+            runtime::syntax_guard::backpressure_block(&defect).trim_start().to_string(),
+        );
+    }
+    to_pretty_json(&payload)
 }
 
 #[allow(clippy::needless_pass_by_value)]

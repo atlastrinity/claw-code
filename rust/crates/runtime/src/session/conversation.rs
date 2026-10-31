@@ -10,9 +10,9 @@ use crate::compact::{
 };
 use crate::config::RuntimeFeatureConfig;
 use crate::fractal::{BifurcationEngine, OrbitSample, Regime};
-use crate::session::error_tracker::ErrorTracker;
 use crate::hooks::{HookAbortSignal, HookProgressReporter, HookRunner};
 use crate::security::permissions::{PermissionPolicy, PermissionPrompter};
+use crate::session::error_tracker::ErrorTracker;
 use crate::session::state::{ContentBlock, ConversationMessage, Session};
 use crate::session::usage::{TokenUsage, UsageTracker};
 
@@ -217,7 +217,7 @@ where
             session_tracer: None,
             error_tracker: Mutex::new(ErrorTracker::new()),
             bifurcation: Mutex::new(
-                BifurcationEngine::new().with_halt_at_chaos(bifurcation_halt_from_env())
+                BifurcationEngine::new().with_halt_at_chaos(bifurcation_halt_from_env()),
             ),
         }
     }
@@ -298,7 +298,7 @@ where
         pending_tool_uses: Vec<(String, String, String)>,
         iterations: usize,
         mut prompter: Option<&mut (dyn PermissionPrompter + 'a)>,
-    ) -> Vec<ConversationMessage> {
+    ) -> (Vec<ConversationMessage>, bool) {
         use crate::loop_detection::LoopDetectionMiddleware;
         use crate::middleware::{
             HookMiddleware, MiddlewareChain, PermissionMiddleware, RagBatchingMiddleware,
@@ -319,7 +319,61 @@ where
             })
             .collect::<Vec<_>>();
 
+        // Hard probe gate (M2), evaluated over the whole step in emission
+        // order before batching: `batch_tool_calls` splits reads and mutations
+        // into different middleware contexts, so a per-batch check would
+        // false-block legal probe→mutation steps. A probe emitted ahead of a
+        // mutation proves the agent looked; a blind mutation is refused
+        // pre-execution.
+        let gate_pairs: Vec<(String, String)> = calls
+            .iter()
+            .map(|call| (call.tool_name.clone(), call.input.clone()))
+            .collect();
+        let gate_blocked: Vec<usize> = self
+            .bifurcation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .gate_mutations_for_step(&gate_pairs);
+        let mut gate_refusals = Vec::new();
+        for &index in &gate_blocked {
+            let call = &calls[index];
+            gate_refusals.push((
+                index,
+                ConversationMessage::tool_result(
+                    call.tool_use_id.clone(),
+                    call.tool_name.clone(),
+                    BifurcationEngine::probe_gate_refusal(&call.tool_name),
+                    true,
+                ),
+            ));
+        }
+        let calls: Vec<ToolCallRequest> = calls
+            .into_iter()
+            .enumerate()
+            .filter(|(index, _)| !gate_blocked.contains(index))
+            .map(|(_, call)| call)
+            .collect();
+
         let batches = batch_tool_calls(calls);
+        let mut batch_ids: Vec<String> = Vec::new();
+        for batch in &batches {
+            match batch {
+                ToolBatch::Sequential(call) => batch_ids.push(call.tool_use_id.clone()),
+                ToolBatch::Parallel(calls) => {
+                    batch_ids.extend(calls.iter().map(|call| call.tool_use_id.clone()));
+                }
+            }
+        }
+        let mut emission_order: std::collections::HashMap<String, usize> = batch_ids
+            .into_iter()
+            .enumerate()
+            .map(|(index, id)| (id, index))
+            .collect();
+        for (index, refusal) in &gate_refusals {
+            if let ContentBlock::ToolResult { tool_use_id, .. } = &refusal.blocks[0] {
+                emission_order.insert(tool_use_id.clone(), *index);
+            }
+        }
         let mut result_messages = Vec::new();
         let mut sample = OrbitSample::new(iterations);
         let bifurcation = &self.bifurcation;
@@ -380,12 +434,18 @@ where
                     let (output, is_error) = match executor.execute(&req.tool_name, &req.input) {
                         Ok(output) => (output, false),
                         Err(error) => (
-                            serde_json::to_string(&serde_json::json!({ "error": error.to_string() })).unwrap_or_else(|_| error.to_string()),
-                            true
+                            serde_json::to_string(
+                                &serde_json::json!({ "error": error.to_string() }),
+                            )
+                            .unwrap_or_else(|_| error.to_string()),
+                            true,
                         ),
                     };
                     // Track errors and successes for auto-learning.
-                    let effective_name = crate::session::error_tracker::resolve_effective_tool_name(&req.tool_name, &req.input);
+                    let effective_name = crate::session::error_tracker::resolve_effective_tool_name(
+                        &req.tool_name,
+                        &req.input,
+                    );
                     let category = if is_error {
                         crate::session::error_tracker::normalize_error_category(&output)
                     } else {
@@ -401,9 +461,17 @@ where
                         engine.note_outcome(&effective_name, &req.input, is_error, &category);
                         engine.take_escape()
                     };
-                    record_step_outcome(&mut sample, &effective_name, &category, is_error);
+                    record_step_outcome(
+                        &mut sample,
+                        &effective_name,
+                        &category,
+                        is_error,
+                        output.contains(crate::syntax_guard::SYNTAX_BACKPRESSURE_MARKER),
+                    );
                     let output = if is_error {
-                        let mut tracker = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                        let mut tracker = error_tracker
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
                         tracker.record_error(&effective_name, &output, &req.input);
                         // Per-tool skill hint: append fix directly to error output.
                         if let Some(hint) = tracker.get_skill_hint(&effective_name, &output) {
@@ -412,7 +480,16 @@ where
                             output
                         }
                     } else {
-                        if let Some(skill) = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_success_with_escape(&effective_name, &req.input, &output, escape.as_ref()) {
+                        if let Some(skill) = error_tracker
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .record_success_with_escape(
+                                &effective_name,
+                                &req.input,
+                                &output,
+                                escape.as_ref(),
+                            )
+                        {
                             tracing::info!(
                                 skill = %skill.name,
                                 tool = %skill.tool_name,
@@ -431,19 +508,25 @@ where
                     // The parallel executor takes an `Fn`, so per-call outcomes
                     // land in a side buffer and are folded into the sample once
                     // the batch has finished.
-                    let step_outcomes: Mutex<Vec<(String, String, bool)>> = Mutex::new(Vec::new());
-                    let execution_results = execute_parallel_batch(
-                        &calls_to_execute,
-                        |tool_name, input| {
+                    let step_outcomes: Mutex<Vec<(String, String, bool, bool)>> =
+                        Mutex::new(Vec::new());
+                    let execution_results =
+                        execute_parallel_batch(&calls_to_execute, |tool_name, input| {
                             let result = match executor.execute(tool_name, input) {
                                 Ok(output) => (output, false),
                                 Err(error) => (
-                                    serde_json::to_string(&serde_json::json!({ "error": error.to_string() })).unwrap_or_else(|_| error.to_string()),
-                                    true
+                                    serde_json::to_string(
+                                        &serde_json::json!({ "error": error.to_string() }),
+                                    )
+                                    .unwrap_or_else(|_| error.to_string()),
+                                    true,
                                 ),
                             };
                             // Track errors and successes for auto-learning.
-                            let effective_name = crate::session::error_tracker::resolve_effective_tool_name(tool_name, input);
+                            let effective_name =
+                                crate::session::error_tracker::resolve_effective_tool_name(
+                                    tool_name, input,
+                                );
                             let category = if result.1 {
                                 crate::session::error_tracker::normalize_error_category(&result.0)
                             } else {
@@ -460,24 +543,42 @@ where
                             step_outcomes
                                 .lock()
                                 .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .push((effective_name.to_string(), category, result.1));
+                                .push((
+                                    effective_name.to_string(),
+                                    category,
+                                    result.1,
+                                    result
+                                        .0
+                                        .contains(crate::syntax_guard::SYNTAX_BACKPRESSURE_MARKER),
+                                ));
                             let (output, is_error) = if result.1 {
-                                let mut tracker = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                                let mut tracker = error_tracker
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner);
                                 tracker.record_error(&effective_name, &result.0, input);
                                 // Per-tool skill hint: append fix directly to error output.
-                                let output = if let Some(hint) = tracker.get_skill_hint(&effective_name, &result.0) {
+                                let output = if let Some(hint) =
+                                    tracker.get_skill_hint(&effective_name, &result.0)
+                                {
                                     format!("{}{hint}", result.0)
                                 } else {
                                     result.0
                                 };
                                 (output, true)
                             } else {
-                                let _ = error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_success_with_escape(&effective_name, input, &result.0, escape.as_ref());
+                                let _ = error_tracker
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                    .record_success_with_escape(
+                                        &effective_name,
+                                        input,
+                                        &result.0,
+                                        escape.as_ref(),
+                                    );
                                 result
                             };
                             (output, is_error)
-                        },
-                    );
+                        });
 
                     for (result, req) in execution_results
                         .into_iter()
@@ -491,11 +592,11 @@ where
                         ));
                     }
 
-                    for (tool, category, is_error) in step_outcomes
+                    for (tool, category, is_error, syntax_hit) in step_outcomes
                         .into_inner()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                     {
-                        record_step_outcome(&mut sample, &tool, &category, is_error);
+                        record_step_outcome(&mut sample, &tool, &category, is_error, syntax_hit);
                     }
                 }
 
@@ -507,14 +608,32 @@ where
             result_messages.extend(outcome.messages);
         }
 
+        // Refused-by-gate results merge back in emission order so the API
+        // pairing of tool_use blocks and tool_result blocks is preserved.
+        result_messages.extend(gate_refusals.into_iter().map(|(_, message)| message));
+        result_messages.sort_by_key(|message| {
+            message
+                .blocks
+                .iter()
+                .find_map(|block| match block {
+                    ContentBlock::ToolResult { tool_use_id, .. } => {
+                        emission_order.get(tool_use_id).copied()
+                    }
+                    _ => None,
+                })
+                .unwrap_or(usize::MAX)
+        });
+
         // One trajectory point per iteration: this is where the ladder decides
         // whether the next iteration runs laminar or under a forced orbit split.
-        self.bifurcation
+        let crossed = self
+            .bifurcation
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .observe(&sample);
+            .observe(&sample)
+            .is_some();
 
-        result_messages
+        (result_messages, crossed)
     }
 
     /// Run a session health probe to verify the runtime is functional after compaction.
@@ -564,6 +683,13 @@ where
         self.session
             .push_user_text(user_input.clone())
             .map_err(|error| RuntimeError::new(error.to_string()))?;
+        // The turn's transactional working memory starts empty; the probe gate
+        // is per-turn state too — the ladder itself is session-scoped.
+        crate::turn_state::begin_turn();
+        self.bifurcation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .reset_probe_gate();
 
         let mut assistant_messages = Vec::new();
         let mut tool_results = Vec::new();
@@ -591,7 +717,12 @@ where
             // Inject the bifurcation directive when accumulated resistance has
             // forced a wider thinking mode. Laminar flow adds nothing, so a
             // converging turn pays no token cost for the ladder.
-            if let Ok(engine) = self.bifurcation.lock() {
+            {
+                let mut engine = self
+                    .bifurcation
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                engine.set_turn_file_summary(crate::turn_state::modified_files_summary());
                 if let Some(directive) = engine.directive_section() {
                     system_prompt.push(directive);
                 }
@@ -669,9 +800,9 @@ where
                 .blocks
                 .iter()
                 .filter_map(|block| match block {
-                    ContentBlock::ToolUse { id, name, input, .. } => {
-                        Some((id.clone(), name.clone(), input.clone()))
-                    }
+                    ContentBlock::ToolUse {
+                        id, name, input, ..
+                    } => Some((id.clone(), name.clone(), input.clone())),
                     _ => None,
                 })
                 .collect::<Vec<_>>();
@@ -700,7 +831,7 @@ where
                 break;
             }
 
-            let dispatch_results =
+            let (dispatch_results, ladder_crossed) =
                 self.dispatch_tool_calls(pending_tool_uses, iterations, prompter.as_deref_mut());
             for result_message in dispatch_results {
                 self.session
@@ -708,6 +839,25 @@ where
                     .map_err(|error| RuntimeError::new(error.to_string()))?;
                 self.record_tool_finished(iterations, &result_message);
                 tool_results.push(result_message);
+            }
+
+            // Maxwell's demon (M1): a crossing means the orbits documented in
+            // this turn's older error results are provably dead. Collapse them
+            // in the session context — ids stay, the model stops re-reading
+            // stacktraces it has already been forced past.
+            if ladder_crossed {
+                let pruned = self
+                    .bifurcation
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .prune_dead_orbit_outputs(&mut self.session.messages);
+                if pruned > 0 {
+                    tracing::info!(
+                        pruned,
+                        iteration = iterations,
+                        "dead-orbit context pruned after bifurcation crossing"
+                    );
+                }
             }
 
             // Past the accumulation point for too many steps, more iterations are
@@ -786,7 +936,9 @@ where
 
     /// Returns a reference to the error tracker for shutdown processing.
     pub fn error_tracker(&self) -> std::sync::MutexGuard<'_, ErrorTracker> {
-        self.error_tracker.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+        self.error_tracker
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     #[must_use]
@@ -800,9 +952,7 @@ where
     }
 
     fn maybe_auto_compact(&mut self) -> Option<AutoCompactionEvent> {
-        if self.estimated_tokens()
-            < self.auto_compaction_input_tokens_threshold as usize
-        {
+        if self.estimated_tokens() < self.auto_compaction_input_tokens_threshold as usize {
             return None;
         }
 
@@ -942,14 +1092,24 @@ fn bifurcation_halt_from_env() -> bool {
 }
 
 #[must_use]
-fn parse_auto_compaction_threshold(value: Option<&str>) -> u32 {    value
+fn parse_auto_compaction_threshold(value: Option<&str>) -> u32 {
+    value
         .and_then(|raw| raw.trim().parse::<u32>().ok())
         .filter(|threshold| *threshold > 0)
         .unwrap_or(DEFAULT_AUTO_COMPACTION_INPUT_TOKENS_THRESHOLD)
 }
 
 /// Fold one tool outcome into the orbit sample for the current iteration.
-fn record_step_outcome(sample: &mut OrbitSample, tool: &str, category: &str, is_error: bool) {
+fn record_step_outcome(
+    sample: &mut OrbitSample,
+    tool: &str,
+    category: &str,
+    is_error: bool,
+    syntax_hit: bool,
+) {
+    if syntax_hit {
+        sample.syntax_backpressure = true;
+    }
     if is_error {
         let fingerprint = BifurcationEngine::fingerprint(tool, category);
         if BifurcationEngine::is_transient_category(category) {
@@ -993,9 +1153,19 @@ fn build_assistant_message(
                 });
             }
             AssistantEvent::TextDelta(delta) => text.push_str(&delta),
-            AssistantEvent::ToolUse { id, name, input, signature } => {
+            AssistantEvent::ToolUse {
+                id,
+                name,
+                input,
+                signature,
+            } => {
                 flush_text_block(&mut text, &mut blocks);
-                blocks.push(ContentBlock::ToolUse { id, name, input, signature });
+                blocks.push(ContentBlock::ToolUse {
+                    id,
+                    name,
+                    input,
+                    signature,
+                });
             }
             AssistantEvent::Usage(value) => usage = Some(value),
             AssistantEvent::PromptCache(event) => prompt_cache_events.push(event),
@@ -1139,7 +1309,11 @@ pub fn parse_textual_tool_call(text: &str) -> Option<(String, serde_json::Value)
             .trim_end_matches('`')
             .trim();
         if let Ok(val) = serde_json::from_str::<serde_json::Value>(stripped) {
-            if let Some(name) = val.get("name").or_else(|| val.get("tool")).and_then(|n| n.as_str()) {
+            if let Some(name) = val
+                .get("name")
+                .or_else(|| val.get("tool"))
+                .and_then(|n| n.as_str())
+            {
                 let input = val
                     .get("arguments")
                     .or_else(|| val.get("input"))
@@ -1156,11 +1330,17 @@ pub fn parse_textual_tool_call(text: &str) -> Option<(String, serde_json::Value)
     // or `"mcp__...": { ... }` or `mcp__...: { ... }`
     let clean_lead = trimmed.trim_start_matches('{').trim();
     if let Some((first_part, rest)) = clean_lead.split_once(':') {
-        let tool_name = first_part.trim().trim_matches('"').trim_matches('\'').trim();
+        let tool_name = first_part
+            .trim()
+            .trim_matches('"')
+            .trim_matches('\'')
+            .trim();
         let is_valid_tool_name = !tool_name.is_empty()
             && (tool_name.starts_with("mcp__")
                 || tool_name.starts_with("mcp_")
-                || tool_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
+                || tool_name
+                    .chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-'));
 
         if is_valid_tool_name {
             let rest_trimmed = rest.trim();
@@ -1187,7 +1367,9 @@ pub fn parse_textual_tool_call(text: &str) -> Option<(String, serde_json::Value)
     if let Some((first_line, rest)) = trimmed.split_once('\n') {
         let tool_name = first_line.trim().trim_end_matches(':').trim();
         let is_valid_tool_name = !tool_name.is_empty()
-            && tool_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+            && tool_name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
 
         if is_valid_tool_name {
             let rest_trimmed = rest.trim();
@@ -1252,11 +1434,11 @@ mod tests {
     use crate::compact::CompactionConfig;
     use crate::config::{RuntimeFeatureConfig, RuntimeHookConfig};
     use crate::fractal::Regime;
+    use crate::prompt::{ProjectContext, SystemPromptBuilder};
     use crate::security::permissions::{
         PermissionMode, PermissionPolicy, PermissionPromptDecision, PermissionPrompter,
         PermissionRequest,
     };
-    use crate::prompt::{ProjectContext, SystemPromptBuilder};
     use crate::session::state::{ContentBlock, MessageRole, Session};
     use crate::session::usage::TokenUsage;
     use crate::ToolError;
@@ -1781,9 +1963,8 @@ mod tests {
         }
 
         let mut session = Session::new();
-        session
-            .messages
-            .push(crate::session::state::ConversationMessage::assistant_with_usage(
+        session.messages.push(
+            crate::session::state::ConversationMessage::assistant_with_usage(
                 vec![ContentBlock::Text {
                     text: "earlier".to_string(),
                 }],
@@ -1793,7 +1974,8 @@ mod tests {
                     cache_creation_input_tokens: 2,
                     cache_read_input_tokens: 1,
                 }),
-            ));
+            ),
+        );
 
         let runtime = ConversationRuntime::new(
             session,
@@ -2361,7 +2543,10 @@ mod tests {
         }
 
         impl ApiClient for ProgressingApi {
-            fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+            fn stream(
+                &mut self,
+                _request: ApiRequest,
+            ) -> Result<Vec<AssistantEvent>, RuntimeError> {
                 let n = self.calls.get() + 1;
                 self.calls.set(n);
                 if n > 3 {
@@ -2407,6 +2592,322 @@ mod tests {
         );
     }
 
+    /// End-to-end proof of the Maxwell-demon runtime: the dead error is collapsed
+    /// the moment the ladder crosses, a blind mutation is refused *before* the
+    /// executor ever sees it, and the first read-only probe re-opens the gate.
+    #[test]
+    fn the_demon_prunes_the_blind_write_is_blocked_and_the_probe_unblocks_it() {
+        const BLIND: &str = r#"{"path":"cfg.json","old_string":"a","new_string":"b"}"#;
+        const FIXED: &str = r#"{"path":"cfg.json","old_string":"c","new_string":"d"}"#;
+        const PROBE: &str = r#"{"path":"cfg.json"}"#;
+        // Verbose enough to qualify as a dead-orbit exhibit, with the tail token
+        // placed past the 160-char excerpt the tombstone keeps.
+        let long_error = format!(
+            "No such file or directory: /usr/local/lib/python3.11/site-packages/flake8/__main__.py \
+             {}TRACE_FRAME_MUST_NOT_SURVIVE",
+            "stack frame at 0x7ffd9f0 ".repeat(12)
+        );
+
+        struct ScriptedApi {
+            prompts: Arc<Mutex<Vec<String>>>,
+            calls: std::cell::Cell<usize>,
+        }
+
+        impl ApiClient for ScriptedApi {
+            fn stream(&mut self, request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+                self.prompts
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .push(request.system_prompt.join("\n"));
+                let n = self.calls.get() + 1;
+                self.calls.set(n);
+                let tool = |id: &str, name: &str, input: &str| AssistantEvent::ToolUse {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    input: input.to_string(),
+                    signature: None,
+                };
+                let stop = || AssistantEvent::MessageStop;
+                match n {
+                    // Two identical blind writes: the first runs and fails, the
+                    // second is a closed orbit the middleware refuses.
+                    1 | 2 => Ok(vec![tool(&format!("t{n}"), "edit_file", BLIND), stop()]),
+                    // Same mutation, still no probe in the step → the gate blocks it.
+                    3 => Ok(vec![tool("t3", "edit_file", FIXED), stop()]),
+                    // Probe first, then the identical mutation: legal again.
+                    4 => Ok(vec![
+                        tool("t4a", "read_file", PROBE),
+                        tool("t4b", "edit_file", FIXED),
+                        stop(),
+                    ]),
+                    _ => Ok(vec![AssistantEvent::TextDelta("done".to_string()), stop()]),
+                }
+            }
+        }
+
+        let prompts = Arc::new(Mutex::new(Vec::new()));
+        let executed: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::clone(&executed);
+        let read_recorder = Arc::clone(&executed);
+        let error = long_error.clone();
+
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedApi {
+                prompts: Arc::clone(&prompts),
+                calls: std::cell::Cell::default(),
+            },
+            StaticToolExecutor::new()
+                .register("edit_file", move |input| {
+                    recorder
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(format!("edit_file:{input}"));
+                    if input == BLIND {
+                        Err(ToolError::new(error.clone()))
+                    } else {
+                        Ok(format!("edited {input}"))
+                    }
+                })
+                .register("read_file", move |input| {
+                    read_recorder
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(format!("read_file:{input}"));
+                    Ok(PROBE.to_string())
+                }),
+            PermissionPolicy::new(PermissionMode::DangerFullAccess),
+            vec!["system".to_string()],
+        )
+        .with_max_iterations(5);
+
+        runtime
+            .run_turn("fix the config", None)
+            .expect("turn should complete");
+
+        let results = runtime
+            .session()
+            .messages
+            .iter()
+            .flat_map(|message| message.blocks.iter())
+            .filter_map(|block| match block {
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    output,
+                    is_error,
+                    ..
+                } => Some((tool_use_id.clone(), output.clone(), *is_error)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let tombstones = results
+            .iter()
+            .filter(|(_, output, _)| output.starts_with("[🗑️ Dead orbit collapsed by runtime"))
+            .count();
+        assert_eq!(
+            tombstones,
+            1,
+            "the crossing collapses exactly one stale exhibit: {:?}",
+            results.iter().map(|(_, o, _)| o).collect::<Vec<_>>()
+        );
+        let (id, tombstone, is_error) = results
+            .iter()
+            .find(|(_, output, _)| output.starts_with("[🗑️"))
+            .expect("one tombstone");
+        assert_eq!(id, "t1", "the pairing-critical id survives the rewrite");
+        assert!(
+            *is_error,
+            "collapsing an exhibit must not disguise it as a success"
+        );
+        assert!(
+            tombstone.contains("category=\"file_not_found\""),
+            "{tombstone}"
+        );
+        assert!(tombstone.contains("attempts="), "{tombstone}");
+        assert!(
+            tombstone.contains("No such file or directory"),
+            "the tombstone keeps the one line worth reading"
+        );
+        assert!(
+            !tombstone.contains("TRACE_FRAME_MUST_NOT_SURVIVE"),
+            "the tail beyond the excerpt is purged: {tombstone}"
+        );
+
+        assert!(
+            results.iter().any(|(id, output, is_error)| {
+                id == "t3"
+                    && *is_error
+                    && output.contains("[SYSTEM DIRECTIVE — BIFURCATION: PROBE GATE]")
+            }),
+            "the blind mutation is refused pre-execution, paired by its own id"
+        );
+        assert_eq!(
+            executed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone(),
+            vec![
+                format!("edit_file:{BLIND}"),
+                format!("read_file:{PROBE}"),
+                format!("edit_file:{FIXED}"),
+            ],
+            "the dead orbit and the blind write never reach the executor, and the probe runs first"
+        );
+
+        let prompts = prompts
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        assert_eq!(prompts.len(), 5, "one API call per iteration");
+        assert!(
+            !prompts[0].contains("BIFURCATION"),
+            "a converging first call costs no directive tokens"
+        );
+        assert!(
+            prompts[3].contains("PERIOD-2 ORBIT SPLIT"),
+            "the escalated step is told which thinking mode the ladder forced"
+        );
+
+        let summary = runtime.bifurcation_summary();
+        assert!(summary.contains("pruned_outputs=1"), "{summary}");
+        assert!(summary.contains("trips=1"), "{summary}");
+    }
+
+    /// A write that leaves a broken artifact on disk is not convergence: the
+    /// syntax guard's backpressure holds resistance steady instead of dividing
+    /// it by α, and only the next genuinely clean write contracts the orbit.
+    #[test]
+    fn a_broken_write_backpressures_instead_of_looking_like_progress() {
+        const SHELL_FAILURE: &str = r#"{"command":"echo tuned > /etc/hosts"}"#;
+        const BROKEN: &str = r#"{"path":"cfg.json","new_string":"broken"}"#;
+        const CLEAN: &str = r#"{"path":"cfg.json","new_string":"clean"}"#;
+
+        struct ScriptedApi {
+            calls: std::cell::Cell<usize>,
+        }
+
+        impl ApiClient for ScriptedApi {
+            fn stream(
+                &mut self,
+                _request: ApiRequest,
+            ) -> Result<Vec<AssistantEvent>, RuntimeError> {
+                let n = self.calls.get() + 1;
+                self.calls.set(n);
+                let stop = || AssistantEvent::MessageStop;
+                let text = || AssistantEvent::TextDelta("ok".to_string());
+                let tool = |index: usize, name: &str, input: &str| AssistantEvent::ToolUse {
+                    id: format!("t{index}"),
+                    name: name.to_string(),
+                    input: input.to_string(),
+                    signature: None,
+                };
+                match n {
+                    // A failing shell step buys one quarter of a bifurcation; the
+                    // writes below are then measured against that resistance.
+                    1 => Ok(vec![tool(1, "bash", SHELL_FAILURE), stop()]),
+                    3 => Ok(vec![tool(3, "edit_file", BROKEN), stop()]),
+                    5 => Ok(vec![tool(5, "edit_file", CLEAN), stop()]),
+                    _ => Ok(vec![text(), stop()]),
+                }
+            }
+        }
+
+        let executed: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let recorder = Arc::clone(&executed);
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedApi {
+                calls: std::cell::Cell::default(),
+            },
+            StaticToolExecutor::new()
+                .register("bash", |_input| {
+                    Err(ToolError::new("permission denied: /etc/hosts".to_string()))
+                })
+                .register("edit_file", move |input| {
+                    recorder
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(input.to_string());
+                    if input.contains("broken") {
+                        // What the real file_ops runner returns: the write succeeded,
+                        // and the local guard appends the defect in-band.
+                        Ok(format!(
+                            "{}: line 3: unbalanced delimiters: unexpected closing '}}' \
+                             (expected '{{' to open)",
+                            crate::syntax_guard::SYNTAX_BACKPRESSURE_MARKER
+                        ))
+                    } else {
+                        Ok(r#"{"path":"cfg.json","written":true}"#.to_string())
+                    }
+                }),
+            PermissionPolicy::new(PermissionMode::DangerFullAccess),
+            vec!["system".to_string()],
+        );
+
+        // One novel failure buys exactly one quarter of a bifurcation.
+        runtime
+            .run_turn("step one", None)
+            .expect("first turn should complete");
+        let after_a = runtime.bifurcation_summary();
+        assert!(
+            after_a.contains("regime=laminar pressure=0.250"),
+            "{after_a}"
+        );
+
+        runtime
+            .run_turn("step two", None)
+            .expect("second turn should complete");
+        let after_broken = runtime.bifurcation_summary();
+        assert!(
+            after_broken.contains("pressure=0.250")
+                && after_broken.contains("syntax_backpressure_hits=1"),
+            "a broken artifact must not discount resistance: {after_broken}"
+        );
+        let broken_result = runtime
+            .session()
+            .messages
+            .iter()
+            .flat_map(|message| message.blocks.iter())
+            .find_map(|block| match block {
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    output,
+                    is_error,
+                    ..
+                } if tool_use_id == "t3" => Some((output.clone(), *is_error)),
+                _ => None,
+            })
+            .expect("the broken write ran");
+        assert!(
+            !broken_result.1,
+            "backpressure is feedback, not a failure the model must re-litigate"
+        );
+        assert!(
+            broken_result
+                .0
+                .contains(crate::syntax_guard::SYNTAX_BACKPRESSURE_MARKER),
+            "the guard reports the defect in the tool result itself: {}",
+            broken_result.0
+        );
+
+        runtime
+            .run_turn("step three", None)
+            .expect("third turn should complete");
+        let after_clean = runtime.bifurcation_summary();
+        assert!(
+            after_clean.contains("pressure=0.100") && after_clean.contains("regime=laminar"),
+            "only a clean forward step contracts the orbit by α: {after_clean}"
+        );
+        assert_eq!(
+            executed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone(),
+            vec![BROKEN, CLEAN]
+        );
+    }
+
     #[test]
     fn run_turn_propagates_api_errors() {
         struct FailingApi;
@@ -2443,11 +2944,11 @@ mod tests {
         use super::recover_textual_tool_calls;
         use crate::session::state::{ContentBlock, ConversationMessage};
 
-        let mut msg = ConversationMessage::assistant(vec![
-            ContentBlock::Text {
-                text: "read_file\n{\"description\": \"Read build logs\", \"path\": \"/path/to/log.txt\"}".to_string(),
-            }
-        ]);
+        let mut msg = ConversationMessage::assistant(vec![ContentBlock::Text {
+            text:
+                "read_file\n{\"description\": \"Read build logs\", \"path\": \"/path/to/log.txt\"}"
+                    .to_string(),
+        }]);
 
         recover_textual_tool_calls(&mut msg);
 

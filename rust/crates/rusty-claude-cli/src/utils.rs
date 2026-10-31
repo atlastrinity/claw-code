@@ -1541,10 +1541,10 @@ pub fn print_fractal_status_snapshot(
     output_format: CliOutputFormat,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use runtime::fractal::{
-        default_cascade, BifurcationEngine, CascadeThresholds, Regime,
-        CHAOS_HALT_STEPS, FIRST_BIFURCATION_PRESSURE, FEIGENBAUM_ALPHA, FEIGENBAUM_DELTA,
+        default_cascade, BifurcationEngine, CascadeThresholds, Regime, CHAOS_HALT_STEPS,
+        FEIGENBAUM_ALPHA, FEIGENBAUM_DELTA, FIRST_BIFURCATION_PRESSURE,
         MIN_ATTEMPTS_BEFORE_REFUSAL, NOVEL_STEP_PRESSURE, PRESSURE_GAP, REGRESSION_PRESSURE,
-        REPEAT_STEP_PRESSURE,
+        REPEAT_STEP_PRESSURE, TOMBSTONE_MIN_OUTPUT_CHARS,
     };
     // The schedule clients actually start with, so a standalone `claw fractal`
     // does not report a ceiling no session ever uses.
@@ -1567,7 +1567,9 @@ pub fn print_fractal_status_snapshot(
             println!();
             println!("Live circuit breakers (this process):");
             if live.is_empty() {
-                println!("  (none — no API clients created yet; `claw fractal` is a fresh process)");
+                println!(
+                    "  (none — no API clients created yet; `claw fractal` is a fresh process)"
+                );
             } else {
                 for (id, level, failures, trips) in &live {
                     println!("  {id}: level={level} consecutive_failures={failures} trips={trips}");
@@ -1621,11 +1623,38 @@ pub fn print_fractal_status_snapshot(
                 if halt_env { "ENABLED" } else { "off" }
             );
             println!();
+            println!("Cognitive superconductor — Maxwell's demon (no model switch, ever):");
+            println!(
+                "  M1 dead-orbit pruning: on every crossing, error tool_results ≥{TOMBSTONE_MIN_OUTPUT_CHARS} chars \
+                 from this turn collapse to one-line tombstones (tool_use_id kept, newest result untouched)"
+            );
+            println!(
+                "  M2 hard probe gate: armed by a bifurcation crossing — a mutation only runs behind a \
+                 read-only probe emitted earlier in the same step (wide allow-list: reads, searches, \
+                 TaskGraph, lsp_*, WebSearch/Fetch, verifiers like cargo check|test, git status/diff)"
+            );
+            println!(
+                "  M3 zero-turn syntax guard: local post-write check (json/toml/sh/py + bracket-balance \
+                 for rs/ts/js/c/swift/go); a broken file emits SYNTAX BACKPRESSURE with the line and \
+                 the ladder refuses to contract pressure ÷α for that step"
+            );
+            println!(
+                "  M4 transactional working memory: this turn's touched files (≤{} × 256KB) are listed \
+                 in Quadrupole/Chaos directives — the model sees what it already changed even after pruning",
+                runtime::turn_state::MAX_TRACKED_FILES_PER_TURN
+            );
+            println!(
+                "  per-session counters (pruned_outputs, probe_gate trips, syntax_backpressure_hits) \
+                 surface in the ladder summary() — not in this fresh process"
+            );
+            println!();
             println!(
                 "Wired: compact δ-sampling · cascade alias fallback · API circuit breakers \
                  (anthropic/openai_compat) · tools provider-chain ceiling · REPL retry ladder · \
                  stream-stall charging · conversation loop bifurcation ladder (system-prompt directive, \
-                 dead-orbit middleware gate, orbit-escape provenance in learned skills)"
+                 dead-orbit middleware gate, orbit-escape provenance in learned skills) · \
+                 Maxwell demon (dead-orbit context pruning, step-level probe gate, syntax backpressure, \
+                 turn working set)"
             );
         }
         CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
@@ -1663,6 +1692,33 @@ pub fn print_fractal_status_snapshot(
                     },
                     "transient_categories_handled_by_the_breaker":
                         BifurcationEngine::transient_categories(),
+                    "maxwell_demon": {
+                        "model_switching": "never — the selected model is the only model; gains come from runtime physics",
+                        "dead_orbit_pruning": {
+                            "trigger": "every bifurcation crossing",
+                            "min_output_chars": TOMBSTONE_MIN_OUTPUT_CHARS,
+                            "preserves": ["tool_use_id", "tool_name", "is_error"],
+                            "keeps_newest_result_whole": true,
+                            "live_counter": "pruned_outputs (ladder summary)",
+                        },
+                        "probe_gate": {
+                            "trigger": "armed by first crossing out of laminar flow",
+                            "blocks": "mutations with no read-only probe emitted earlier in the same step",
+                            "clears_on": "any probe call in a gated step",
+                            "live_counter": "probe_gate trips (ladder summary)",
+                        },
+                        "syntax_guard": {
+                            "checks": ["json", "toml", "sh/bash/zsh", "py", "rs", "ts/tsx/js/jsx", "c/cpp/h/swift/go"],
+                            "marker": runtime::syntax_guard::SYNTAX_BACKPRESSURE_MARKER,
+                            "effect": "backpressured step does not contract pressure by α",
+                            "live_counter": "syntax_backpressure_hits (ladder summary)",
+                        },
+                        "working_memory": {
+                            "snapshot_bytes_per_file": runtime::turn_state::MAX_SNAPSHOT_BYTES,
+                            "max_files_per_turn": runtime::turn_state::MAX_TRACKED_FILES_PER_TURN,
+                            "rendered_in": ["quadrupole directive", "chaos directive"],
+                        },
+                    },
                 },
                 "live_breakers": live
                     .iter()
@@ -1679,6 +1735,10 @@ pub fn print_fractal_status_snapshot(
                     "rusty-claude-cli model alias cascade fallback",
                     "api::providers δ-fractal circuit breakers",
                     "runtime::session::conversation bifurcation ladder (directive + gate + escape provenance)",
+                    "runtime::fractal::bifurcation dead-orbit context pruning (Maxwell demon)",
+                    "runtime::session::conversation step-level hard probe gate",
+                    "runtime::syntax_guard zero-turn write backpressure (tools runners)",
+                    "runtime::turn_state transactional working memory (quadrupole/chaos directives)",
                 ],
             });
             println!("{}", serde_json::to_string_pretty(&value)?);

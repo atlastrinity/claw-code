@@ -40,6 +40,25 @@
 //!
 //! Transient failures (`timeout`, `connection_error`, `rate_limit`) are never
 //! refused: retrying those is legitimate and belongs to the circuit breaker.
+//!
+//! ## Cognitive superconductor (Maxwell's demon)
+//!
+//! Three further levers make *any user-selected model* behave at its ceiling
+//! without ever switching it: no call here substitutes a model — the intelligence
+//! comes from context hygiene and execution contracts.
+//!
+//! - [`BifurcationEngine::prune_dead_orbit_outputs`] — every bifurcation
+//!   crossing collapses the stale error `tool_result` blocks of the current turn
+//!   into one-line tombstones that keep the `tool_use_id` pairing intact. The
+//!   model stops re-reading its own dead orbits, and the attention that used to
+//!   drift into those stacktraces is spent on the live problem.
+//! - [`BifurcationEngine::gate_mutations_for_step`] — the hard probe gate: once
+//!   the ladder leaves laminar flow, a mutating call is only allowed if a
+//!   read-only probe was emitted *before* it in the same step. Blind writes are
+//!   refused pre-execution; seeing first is a contract, not advice.
+//! - [`crate::syntax_guard`] backpressure — a syntactically broken write is
+//!   flagged in its own tool output, and [`OrbitSample::syntax_backpressure`]
+//!   stops the ladder from discounting resistance for it.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
@@ -47,6 +66,8 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 
 use super::constants::{FEIGENBAUM_ALPHA, FEIGENBAUM_DELTA};
+use crate::bash_validation::{classify_command, CommandIntent};
+use crate::session::state::{ContentBlock, ConversationMessage, MessageRole};
 
 /// Resistance that opens the first bifurcation (r₁), in units where one failing
 /// step at an unchanged world is worth [`REPEAT_STEP_PRESSURE`].
@@ -92,6 +113,13 @@ pub const TRANSIENT_CATEGORIES: &[&str] = &[
     "rate_limit",
     "network_unreachable",
 ];
+
+/// Error outputs at or below this length are already cheap to attend to — only
+/// verbose ones (stacktraces, large diffs) are worth collapsing into a tombstone.
+pub const TOMBSTONE_MIN_OUTPUT_CHARS: usize = 300;
+
+/// Character budget for the error excerpt kept inside a tombstone.
+const TOMBSTONE_EXCERPT_CHARS: usize = 160;
 
 /// Thinking regime the runtime is currently forcing on the model. Ordered by
 /// severity so `max()` composes the pressure-derived level with a cycle floor.
@@ -223,10 +251,7 @@ impl CascadeThresholds {
     #[must_use]
     pub fn summary_lines(&self) -> Vec<String> {
         vec![
-            format!(
-                "  L1 dichotomy  opens at r ≥ {:.3}",
-                self.r1
-            ),
+            format!("  L1 dichotomy  opens at r ≥ {:.3}", self.r1),
             format!("  L2 quadrupole opens at r ≥ {:.3}", self.r2),
             format!("  L3 chaos      opens at r ≥ {:.3}", self.r3),
             format!(
@@ -338,6 +363,10 @@ pub struct OrbitSample {
     pub successes: Vec<String>,
     /// True when at least one success could have changed the workspace.
     pub mutated_state: bool,
+    /// True when a mutation succeeded but the syntax guard proved the file is
+    /// broken. The world did change — but the step is not clean progress, so
+    /// [`BifurcationEngine::observe`] refuses to contract pressure by α for it.
+    pub syntax_backpressure: bool,
 }
 
 impl OrbitSample {
@@ -372,6 +401,12 @@ impl OrbitSample {
     #[must_use]
     pub fn with_mutation(mut self) -> Self {
         self.mutated_state = true;
+        self
+    }
+
+    #[must_use]
+    pub fn with_syntax_backpressure(mut self) -> Self {
+        self.syntax_backpressure = true;
         self
     }
 }
@@ -421,6 +456,19 @@ pub struct BifurcationEngine {
     /// skill forge.
     pending_escape: Option<Escape>,
     crossings: Vec<(usize, Regime)>,
+    /// Hard probe gate: armed by a bifurcation crossing, cleared when a step
+    /// proves the agent looked before it touched the world. While armed,
+    /// mutating calls that were not preceded by a probe in their own step are
+    /// refused pre-execution.
+    probe_required: bool,
+    /// Blind mutations the gate actually blocked (observability).
+    probe_gate_trips: usize,
+    /// Error tool results collapsed into tombstones by the demon (observability).
+    pruned_outputs: usize,
+    /// Broken-write backpressure hits (observability).
+    syntax_backpressure_hits: usize,
+    /// Turn working-set line rendered into Quadrupole/Chaos directives.
+    turn_file_summary: Option<String>,
 }
 
 impl Default for BifurcationEngine {
@@ -449,6 +497,11 @@ impl BifurcationEngine {
             halt_at_chaos: false,
             pending_escape: None,
             crossings: Vec::new(),
+            probe_required: false,
+            probe_gate_trips: 0,
+            pruned_outputs: 0,
+            syntax_backpressure_hits: 0,
+            turn_file_summary: None,
         }
     }
 
@@ -537,6 +590,336 @@ impl BifurcationEngine {
     #[must_use]
     pub fn fingerprint(tool: &str, category: &str) -> String {
         format!("{tool}:{category}")
+    }
+
+    /// Is the hard probe gate currently armed?
+    #[must_use]
+    pub fn probe_required(&self) -> bool {
+        self.probe_required
+    }
+
+    /// Blind mutations the gate blocked this turn.
+    #[must_use]
+    pub fn probe_gate_trips(&self) -> usize {
+        self.probe_gate_trips
+    }
+
+    /// Error outputs the demon collapsed this turn.
+    #[must_use]
+    pub fn pruned_outputs(&self) -> usize {
+        self.pruned_outputs
+    }
+
+    /// Broken-write backpressure hits this turn.
+    #[must_use]
+    pub fn syntax_backpressure_hits(&self) -> usize {
+        self.syntax_backpressure_hits
+    }
+
+    /// Attach the turn working-set line rendered into escalated directives.
+    pub fn set_turn_file_summary(&mut self, summary: Option<String>) {
+        self.turn_file_summary = summary;
+    }
+
+    // -----------------------------------------------------------------------
+    // Call classification (probe gate)
+    // -----------------------------------------------------------------------
+
+    /// Tools that observe rather than touch: seeing, searching, planning, and
+    /// read-only network lookups. The gate deliberately stays wide — blocking a
+    /// probe would create the very loop it exists to break — so this is a
+    /// conservative allow-list of provably read-only names.
+    const PROBE_TOOLS: &'static [&'static str] = &[
+        "read_file",
+        "list_dir",
+        "glob_search",
+        "grep_search",
+        "search",
+        "read",
+        "ls",
+        "grep",
+        "task_graph",
+        "taskgraph",
+        "skill",
+        "toolsearch",
+        "tool_search",
+        "mcpsearch",
+        "mcp_search",
+        "retrieve_context",
+        "websearch",
+        "web_search",
+        "webfetch",
+        "web_fetch",
+        "lsp",
+        "status",
+        "doctor",
+        "help",
+        "think",
+        "plan",
+    ];
+
+    /// Tools that provably touch the workspace.
+    const MUTATION_TOOLS: &'static [&'static str] = &[
+        "write_file",
+        "edit_file",
+        "new_file",
+        "create_file",
+        "write",
+        "edit",
+    ];
+
+    #[must_use]
+    fn bash_command(input: &str) -> Option<String> {
+        serde_json::from_str::<serde_json::Value>(input)
+            .ok()
+            .and_then(|value| {
+                value
+                    .get("command")
+                    .and_then(serde_json::Value::as_str)
+                    .map(str::to_owned)
+            })
+    }
+
+    /// True when `command` starts with `program sub` (first tokens; paths like
+    /// `./target/debug/cargo test` count as the program).
+    fn command_starts_with(command: &str, program: &str, sub: &str) -> bool {
+        let mut tokens = command.split_whitespace();
+        let Some(first) = tokens.next() else {
+            return false;
+        };
+        let program_ok = first.split('/').next_back() == Some(program);
+        program_ok && tokens.next() == Some(sub)
+    }
+
+    /// Verifiers: commands that *prove* the current state instead of changing
+    /// it (`cargo check`, `git status`, …). These count as probes.
+    #[must_use]
+    fn is_verifier_command(command: &str) -> bool {
+        const VERIFIERS: &[(&str, &str)] = &[
+            ("cargo", "check"),
+            ("cargo", "test"),
+            ("cargo", "build"),
+            ("cargo", "clippy"),
+            ("cargo", "tree"),
+            ("cargo", "fmt"),
+            ("go", "vet"),
+            ("go", "test"),
+            ("go", "build"),
+            ("python3", "test"),
+            ("node", "--check"),
+            ("npm", "test"),
+            ("pnpm", "test"),
+            ("yarn", "test"),
+            ("tsc", "--noEmit"),
+        ];
+        if VERIFIERS
+            .iter()
+            .any(|(program, sub)| Self::command_starts_with(command, program, sub))
+        {
+            return true;
+        }
+        if Self::command_starts_with(command, "python3", "-m")
+            || Self::command_starts_with(command, "python", "-m")
+        {
+            return command.contains("py_compile") || command.contains("pytest");
+        }
+        if matches!(
+            command.split_whitespace().next().unwrap_or(""),
+            "bash" | "sh" | "zsh"
+        ) {
+            return command.contains(" -n");
+        }
+        false
+    }
+
+    /// Does this bash command provably write to the workspace?
+    #[must_use]
+    fn bash_is_mutating(command: &str) -> bool {
+        if Self::is_verifier_command(command) {
+            return false;
+        }
+        if command.split_whitespace().next() == Some("sed") && command.contains(" -i") {
+            return true;
+        }
+        if command.split_whitespace().any(|token| token == "-delete") {
+            return true;
+        }
+        // Unambiguous write intent, or an output redirection (but not `=>` in
+        // awk or an `&>`-style descriptor dup).
+        match classify_command(command) {
+            CommandIntent::Write | CommandIntent::Destructive | CommandIntent::SystemAdmin => {
+                return true;
+            }
+            CommandIntent::PackageManagement => {
+                // cargo/npm/pip install and friends can rewrite the workspace.
+                return command.contains(" install") || command.contains(" add");
+            }
+            _ => {}
+        }
+        Self::has_output_redirect(command)
+    }
+
+    /// Scan for `> file` / `>> file` redirections, skipping `=>`, `&>`-style
+    /// descriptor duplications (`2>&1`) and `>=` comparisons.
+    #[must_use]
+    fn has_output_redirect(command: &str) -> bool {
+        let bytes: Vec<char> = command.chars().collect();
+        let mut index = 0usize;
+        while index < bytes.len() {
+            if bytes[index] == '>' {
+                let prev = if index > 0 { bytes[index - 1] } else { ' ' };
+                if prev == '=' || prev == '<' {
+                    index += 1;
+                    continue;
+                }
+                let next = bytes.get(index + 1).copied().unwrap_or(' ');
+                match next {
+                    '>' => {
+                        // `>>` append is a write unless the source is another
+                        // descriptor (`2>>` duplicates stderr).
+                        let after = bytes.get(index + 2).copied().unwrap_or(' ');
+                        if !after.is_ascii_digit() {
+                            return true;
+                        }
+                        index += 2;
+                        continue;
+                    }
+                    '&' | '|' => {
+                        index += 1;
+                        continue;
+                    }
+                    ' ' | '\t' => return true,
+                    digit if digit.is_ascii_digit() => {
+                        let after = bytes.get(index + 2).copied().unwrap_or(' ');
+                        if after == '&' {
+                            // `2>&1` style: descriptor duplication, not a write.
+                            index += 2;
+                            continue;
+                        }
+                        if after.is_ascii_whitespace() {
+                            return true;
+                        }
+                        index += 2;
+                        continue;
+                    }
+                    _ => return true,
+                }
+            }
+            index += 1;
+        }
+        false
+    }
+
+    /// Read-only/observation call that satisfies the probe gate?
+    #[must_use]
+    pub fn is_probe_call(tool: &str, input: &str) -> bool {
+        let lower = tool.to_lowercase();
+        if lower == "bash" {
+            return Self::bash_is_read_only_probe(input);
+        }
+        if Self::MUTATION_TOOLS.contains(&lower.as_str()) {
+            return false;
+        }
+        if Self::PROBE_TOOLS.contains(&lower.as_str()) {
+            return true;
+        }
+        // Names with a read/search/get prefix (matches is_read_only_tool).
+        Self::is_read_only_tool(&lower) || lower.starts_with("lsp_") || lower.ends_with("_read")
+    }
+
+    fn bash_is_read_only_probe(command_json: &str) -> bool {
+        let Some(command) = Self::bash_command(command_json) else {
+            return false;
+        };
+        if Self::is_verifier_command(&command) {
+            return true;
+        }
+        if Self::bash_is_mutating(&command) {
+            return false;
+        }
+        matches!(classify_command(&command), CommandIntent::ReadOnly)
+    }
+
+    /// Call that provably touches the workspace and therefore needs a probe
+    /// first while the gate is armed. Unknown tools are deliberately *not*
+    /// mutations: the gate blocks blind writes, it does not invent new failure
+    /// modes for tools it cannot classify.
+    #[must_use]
+    pub fn is_mutating_call(tool: &str, input: &str) -> bool {
+        let lower = tool.to_lowercase();
+        if lower == "bash" {
+            let Some(command) = Self::bash_command(input) else {
+                return false;
+            };
+            return Self::bash_is_mutating(&command);
+        }
+        Self::MUTATION_TOOLS.contains(&lower.as_str())
+    }
+
+    /// Maxwell's-demon gate for one step's calls, evaluated in emission order:
+    /// a probe emitted before a mutation proves the agent looked, so the
+    /// mutation runs; a mutation with no probe yet in the step is blind and gets
+    /// its index returned so the caller can refuse it pre-execution.
+    ///
+    /// Arming is done by a bifurcation crossing in [`Self::observe`]; seeing a
+    /// probe anywhere in a gated step disarms the gate for the rest of the turn —
+    /// the contract is "look before you touch after a split", not "probe per
+    /// write".
+    pub fn gate_mutations_for_step(&mut self, calls: &[(String, String)]) -> Vec<usize> {
+        if !self.probe_required {
+            return Vec::new();
+        }
+        let mut blocked = Vec::new();
+        let mut probe_seen = false;
+        for (index, (tool, input)) in calls.iter().enumerate() {
+            if Self::is_probe_call(tool, input) {
+                // Seeing first satisfies the contract for the rest of the turn.
+                probe_seen = true;
+                self.probe_required = false;
+                continue;
+            }
+            if Self::is_mutating_call(tool, input) && !probe_seen {
+                blocked.push(index);
+                self.probe_gate_trips += 1;
+                self.refused_this_step
+                    .push(Self::fingerprint(tool, "probe_gate"));
+            }
+        }
+        blocked
+    }
+
+    /// Refusal text handed back as an `is_error` tool result for a
+    /// gate-blocked mutation.
+    #[must_use]
+    pub fn probe_gate_refusal(tool: &str) -> String {
+        format!(
+            "[SYSTEM DIRECTIVE — BIFURCATION: PROBE GATE]\n\
+             `{tool}` was blocked before execution: the runtime is past the first \
+             bifurcation and this step emitted no read-only probe ahead of the mutation. \
+             Blind writes are exactly the orbit the ladder just closed on you.\n\
+             Emit any one of these first (they are never blocked by the gate), then re-issue \
+             the change with what you learned:\n\
+             - read_file / grep_search / glob_search / list_dir on the target or its consumers\n\
+             - TaskGraph (read current plan state) or Skill / ToolSearch / McpSearch / retrieve_context\n\
+             - WebSearch / WebFetch for external contracts\n\
+             - lsp_* diagnostics, or `bash` read-only/verifier commands: cargo check|test|build|clippy, \
+             go vet|test, tsc --noEmit, python3 -m py_compile, bash -n, git status|diff|log|show, ls, cat, find\n\
+             The probe is not a formality: name in one line what you expect to see and what \
+             would falsify your current hypothesis."
+        )
+    }
+
+    /// Re-arm the gate explicitly (used by callers that want the contract from
+    /// the first non-laminar step even without a fresh crossing).
+    pub fn arm_probe_gate(&mut self) {
+        self.probe_required = true;
+    }
+
+    /// Disarm the gate at the start of a new user turn. Escalation state (the
+    /// regime and pressure) is session-scoped; the "look before you touch"
+    /// contract is re-proved by the next crossing if one happens.
+    pub fn reset_probe_gate(&mut self) {
+        self.probe_required = false;
     }
 
     #[must_use]
@@ -742,6 +1125,11 @@ impl BifurcationEngine {
 
         if saw_failure {
             self.pressure += delta;
+        } else if sample.syntax_backpressure {
+            // The file on disk is broken. The world did change, but a corrupted
+            // artifact is not convergence: resistance is not discounted, and the
+            // model is told which line to fix in the tool output itself.
+            self.syntax_backpressure_hits += 1;
         } else if sample.mutated_state || !sample.successes.is_empty() {
             // Clean forward step: contract the orbit by α.
             self.pressure /= FEIGENBAUM_ALPHA;
@@ -752,7 +1140,10 @@ impl BifurcationEngine {
             .extend(sample.failures.iter().cloned().chain(refused));
 
         let before = self.regime;
-        let derived = self.thresholds.regime_at(self.pressure).max(self.cycle_floor);
+        let derived = self
+            .thresholds
+            .regime_at(self.pressure)
+            .max(self.cycle_floor);
         // The cascade advances at most one doubling per iteration. Without this
         // clamp the later gaps (Δ/δⁿ) are smaller than a single failing step and
         // the ladder would jump straight to chaos, never showing the intermediate
@@ -775,6 +1166,9 @@ impl BifurcationEngine {
 
         if self.regime != before && self.regime > before {
             self.crossings.push((sample.iteration, self.regime));
+            // A crossing means the last orbits were blind: from here a mutation
+            // may only follow a probe, until the agent proves it can look.
+            self.probe_required = true;
             tracing::warn!(
                 iteration = sample.iteration,
                 regime = self.regime.as_str(),
@@ -784,12 +1178,141 @@ impl BifurcationEngine {
             );
             return Some(self.regime);
         }
+        if self.regime == Regime::Laminar {
+            // The agent is converging again; the contract rests until the next
+            // bifurcation.
+            self.probe_required = false;
+        }
         None
     }
 
     fn known_fingerprint(&self, fingerprint: &str) -> bool {
         self.seen_fingerprints.contains(fingerprint)
     }
+
+    // -----------------------------------------------------------------------
+    // Dead-orbit context pruning (Maxwell's demon)
+    // -----------------------------------------------------------------------
+
+    /// Ledger evidence for a prunable orbit: `attempts >= 2` or the failure
+    /// fingerprint already closed in a previous step. The category comes from
+    /// the entry itself, so a tombstone only ever cites a real observed failure.
+    fn dead_orbit_stats(&self, tool: &str) -> Option<(usize, String)> {
+        self.ledger
+            .values()
+            .filter(|entry| entry.tool == tool && !entry.category.is_empty())
+            .max_by_key(|entry| entry.attempts)
+            .map(|entry| {
+                (
+                    entry.attempts.max(MIN_ATTEMPTS_BEFORE_REFUSAL),
+                    entry.category.clone(),
+                )
+            })
+    }
+
+    /// Collapse stale error `tool_result` blocks of the current turn into
+    /// one-line tombstones. Called after a bifurcation crossing: the orbits
+    /// these outputs describe are provably dead, and letting the model re-read
+    /// the same stacktrace every iteration is how attention drifts.
+    ///
+    /// Contract: only the `output` text is rewritten. `tool_use_id`, `tool_name`
+    /// and `is_error` are preserved so the API pairing of tool_use/tool_result
+    /// never breaks. The window is the current turn (after the last user
+    /// message); the newest tool result is kept whole; refusal directives are
+    /// never touched (they are live instructions, not dead evidence).
+    pub fn prune_dead_orbit_outputs(&mut self, messages: &mut [ConversationMessage]) -> usize {
+        let window_start = messages
+            .iter()
+            .rposition(|message| message.role == MessageRole::User)
+            .map_or(0, |index| index + 1);
+        let keep_message = messages
+            .iter()
+            .skip(window_start)
+            .rposition(|message| {
+                message
+                    .blocks
+                    .iter()
+                    .any(|block| matches!(block, ContentBlock::ToolResult { .. }))
+            })
+            .map(|index| window_start + index);
+
+        let mut pruned = 0usize;
+        for (message_index, message) in messages.iter_mut().enumerate().skip(window_start) {
+            if Some(message_index) == keep_message {
+                // The newest tool result is the one the model is reacting to
+                // right now — it stays whole.
+                continue;
+            }
+            for block in &mut message.blocks {
+                let ContentBlock::ToolResult {
+                    tool_name,
+                    output,
+                    is_error,
+                    ..
+                } = block
+                else {
+                    continue;
+                };
+                if !*is_error || output.len() < TOMBSTONE_MIN_OUTPUT_CHARS {
+                    continue;
+                }
+                if output.starts_with("[🗑️") || output.starts_with("[SYSTEM DIRECTIVE") {
+                    continue;
+                }
+                let Some(stats) = self.dead_orbit_stats(tool_name) else {
+                    continue;
+                };
+                *output = self.tombstone(output, stats);
+                pruned += 1;
+            }
+        }
+        self.pruned_outputs += pruned;
+        if pruned > 0 {
+            tracing::info!(
+                pruned,
+                regime = self.regime.as_str(),
+                "dead-orbit outputs collapsed by the runtime demon"
+            );
+        }
+        pruned
+    }
+
+    fn tombstone(&self, output: &str, stats: (usize, String)) -> String {
+        let (attempts, category) = stats;
+        format!(
+            "[🗑️ Dead orbit collapsed by runtime (regime={}, attempts={attempts}, category=\
+             \"{category}\"): \"{excerpt}\". Full stacktrace purged to prevent attention drift.]",
+            self.regime.as_str(),
+            excerpt = Self::first_meaningful_line(output),
+        )
+    }
+
+    /// First line with real content — skips JSON/braces noise and blanks —
+    /// truncated to [`TOMBSTONE_EXCERPT_CHARS`].
+    fn first_meaningful_line(output: &str) -> String {
+        let mut line = output
+            .lines()
+            .map(str::trim)
+            .find(|candidate| {
+                !candidate.is_empty()
+                    && !candidate
+                        .chars()
+                        .all(|ch| matches!(ch, '{' | '}' | '[' | ']' | ',' | '"'))
+            })
+            .unwrap_or_else(|| output.trim())
+            .replace('"', "'");
+        line = line.replace('\n', " ");
+        if line.chars().count() > TOMBSTONE_EXCERPT_CHARS {
+            let cut = line
+                .char_indices()
+                .nth(TOMBSTONE_EXCERPT_CHARS)
+                .map_or(line.len(), |(index, _)| index);
+            line.truncate(cut);
+            line.push('…');
+        }
+        line
+    }
+
     // -----------------------------------------------------------------------
     // Directives
     // -----------------------------------------------------------------------
@@ -799,13 +1322,15 @@ impl BifurcationEngine {
     /// to do about it.
     #[must_use]
     pub fn directive_section(&self) -> Option<String> {
-        let measured = format!(
+        let measured =
+            format!(
             "Measured by the runtime: pressure r={:.3}, thresholds r₁={:.3} r₂={:.3} r∞={:.3}, \
              step #{}, mutation epoch {}.",
             self.pressure, self.thresholds.r1, self.thresholds.r2, self.thresholds.r_infinity,
             self.steps, self.mutation_epoch,
         );
         let blocked = self.dead_orbits_line();
+        let working_set = self.working_set_line();
         let body = match self.regime {
             Regime::Laminar => return None,
             Regime::Dichotomy => format!(
@@ -825,7 +1350,7 @@ impl BifurcationEngine {
             ),
             Regime::Quadrupole => format!(
                 "## 🔀🔀 BIFURCATION L2 — PERIOD-4 QUADRUPLE (runtime-enforced)\n\
-                 {measured}{blocked}\n\
+                 {measured}{blocked}{working_set}\n\
                  Both simple orbits have now met resistance, so the second bifurcation is open. \
                  One more attempt inside the same frame of mind is not allowed. Generate four \
                  orthogonal candidates before acting, one line each:\n\
@@ -837,13 +1362,12 @@ impl BifurcationEngine {
                  4. ROOT-CAUSE — what is the upstream condition that makes every downstream \
                  symptom appear?\n\
                  Choose the candidate that is cheapest to test, run its read-only probe first, \
-                 and add it to TaskGraph as the new active sub-task.{regression}"
-            ,
+                 and add it to TaskGraph as the new active sub-task.{regression}",
                 regression = self.regression_advisory(),
             ),
             Regime::Chaos => format!(
                 "## 💥 BIFURCATION L3 — CHAOS POINT (r ≥ r∞, runtime-enforced)\n\
-                 {measured}{blocked}\n\
+                 {measured}{blocked}{working_set}\n\
                  Local logic inside this basin is exhausted — the cascade has run out of \
                  doublings. Do exactly one of the following, nothing else:\n\
                  A. LEVY STEP — change *scale*, not tactic. Leave the assumed files and inspect \
@@ -878,7 +1402,11 @@ impl BifurcationEngine {
              from the attractor, not around it. Restore the working state before trying \
              anything new, and if the damage is unclear, say so and ask rather than editing \
              further.",
-            if regressed.len() == 1 { "tool" } else { "tools" },
+            if regressed.len() == 1 {
+                "tool"
+            } else {
+                "tools"
+            },
             regressed.join(", ")
         )
     }
@@ -907,6 +1435,22 @@ impl BifurcationEngine {
         format!("\nBlocked orbits: {}.", items.join("; "))
     }
 
+    /// Transactional working memory (M4): what this turn has already touched,
+    /// rendered only when the agent is escalated — below the second bifurcation
+    /// the model still has its own tool results in context.
+    fn working_set_line(&self) -> String {
+        match self.regime {
+            Regime::Quadrupole | Regime::Chaos => {
+                self.turn_file_summary
+                    .as_deref()
+                    .map_or_else(String::new, |summary| {
+                        format!("\nModified files in this turn since last clean state: {summary}")
+                    })
+            }
+            _ => String::new(),
+        }
+    }
+
     /// Human-readable state of the cognitive ladder, mirroring
     /// `FractalRateLimiter::bifurcation_summary` for the transport ladder.
     #[must_use]
@@ -928,10 +1472,20 @@ impl BifurcationEngine {
                     .count(),
                 self.crossings.len(),
             ),
+            format!(
+                "Maxwell demon: pruned_outputs={} probe_gate={} trips={} syntax_backpressure_hits={}",
+                self.pruned_outputs,
+                if self.probe_required { "armed" } else { "open" },
+                self.probe_gate_trips,
+                self.syntax_backpressure_hits,
+            ),
         ];
         lines.extend(self.thresholds.summary_lines());
         for (step, regime) in &self.crossings {
-            lines.push(format!("  crossed → {} at iteration {step}", regime.as_str()));
+            lines.push(format!(
+                "  crossed → {} at iteration {step}",
+                regime.as_str()
+            ));
         }
         if self.halt_at_chaos {
             lines.push(format!(

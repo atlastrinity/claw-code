@@ -35,7 +35,10 @@ fn test_model_cascade_alias_table() {
     for tier in &cascade {
         assert!(!tier.alias.is_empty() && !tier.model_id.is_empty());
         assert_eq!(
-            cascade.iter().filter(|other| other.alias == tier.alias).count(),
+            cascade
+                .iter()
+                .filter(|other| other.alias == tier.alias)
+                .count(),
             1,
             "alias {} must be unique",
             tier.alias
@@ -268,11 +271,9 @@ fn test_clean_progress_contracts_pressure_and_silences_the_ladder() {
         "a converging agent gets no directive"
     );
     assert!(
-        engine.would_refuse(&BifurcationEngine::attempt_key(
-            "bash",
-            "cargo test"
-        ))
-        .is_none(),
+        engine
+            .would_refuse(&BifurcationEngine::attempt_key("bash", "cargo test"))
+            .is_none(),
         "the world moved (edit_file succeeded), so re-running the test is a new experiment"
     );
 }
@@ -282,7 +283,12 @@ fn test_dead_orbit_is_refused_only_while_the_world_is_unchanged() {
     let mut engine = BifurcationEngine::new();
     let key = BifurcationEngine::attempt_key("edit_file", "{\"old_string\": \"x\"}");
 
-    fail_step(&mut engine, "edit_file", "{\"old_string\": \"x\"}", "file_not_found");
+    fail_step(
+        &mut engine,
+        "edit_file",
+        "{\"old_string\": \"x\"}",
+        "file_not_found",
+    );
     let refusal = engine
         .would_refuse(&key)
         .expect("a retry of a call that failed with nothing changed since is a dead orbit");
@@ -333,8 +339,18 @@ fn test_blocked_retries_still_climb_the_ladder() {
 fn test_read_only_success_does_not_reopen_a_dead_orbit() {
     let mut engine = BifurcationEngine::new();
     let key = BifurcationEngine::attempt_key("edit_file", "{\"old_string\": \"x\"}");
-    fail_step(&mut engine, "edit_file", "{\"old_string\": \"x\"}", "file_not_found");
-    fail_step(&mut engine, "edit_file", "{\"old_string\": \"x\"}", "file_not_found");
+    fail_step(
+        &mut engine,
+        "edit_file",
+        "{\"old_string\": \"x\"}",
+        "file_not_found",
+    );
+    fail_step(
+        &mut engine,
+        "edit_file",
+        "{\"old_string\": \"x\"}",
+        "file_not_found",
+    );
 
     ok_step(&mut engine, "read_file", "{\"path\": \"a.rs\"}");
 
@@ -349,7 +365,12 @@ fn test_transient_failures_are_the_breakers_job_not_the_ladders() {
     let mut engine = BifurcationEngine::new();
     let key = BifurcationEngine::attempt_key("web_fetch", "{\"url\": \"https://x\"}");
     for _ in 0..6 {
-        fail_step(&mut engine, "web_fetch", "{\"url\": \"https://x\"}", "timeout");
+        fail_step(
+            &mut engine,
+            "web_fetch",
+            "{\"url\": \"https://x\"}",
+            "timeout",
+        );
     }
     assert_eq!(
         engine.would_refuse(&key),
@@ -389,7 +410,9 @@ fn test_escape_credits_the_ladder_with_the_dead_orbit() {
 
     ok_step(&mut engine, "bash", "python3 -m edge_tts --text hi");
 
-    let escape = engine.take_escape().expect("the orbit split is worth recording");
+    let escape = engine
+        .take_escape()
+        .expect("the orbit split is worth recording");
     assert_eq!(escape.tool, "bash");
     assert_eq!(escape.from_regime, Regime::Dichotomy);
     let provenance = escape.provenance_line();
@@ -402,7 +425,12 @@ fn test_escape_credits_the_ladder_with_the_dead_orbit() {
 fn test_directive_states_measured_evidence_and_the_plan_update() {
     let mut engine = BifurcationEngine::new();
     for _ in 0..3 {
-        fail_step(&mut engine, "edit_file", "{\"old_string\": \"x\"}", "file_not_found");
+        fail_step(
+            &mut engine,
+            "edit_file",
+            "{\"old_string\": \"x\"}",
+            "file_not_found",
+        );
     }
     let directive = engine.directive_section().expect("dichotomy directive");
     assert!(directive.contains("PERIOD-2 ORBIT SPLIT"));
@@ -435,7 +463,10 @@ fn test_chaos_halt_is_bounded_and_off_by_default() {
 fn test_attempt_key_is_stable_and_input_sensitive() {
     let a = BifurcationEngine::attempt_key("bash", "cargo test");
     assert_eq!(a, BifurcationEngine::attempt_key("bash", "cargo test"));
-    assert_ne!(a, BifurcationEngine::attempt_key("bash", "cargo test --offline"));
+    assert_ne!(
+        a,
+        BifurcationEngine::attempt_key("bash", "cargo test --offline")
+    );
     assert_ne!(a, BifurcationEngine::attempt_key("read", "cargo test"));
 }
 
@@ -451,4 +482,410 @@ fn test_ledger_is_bounded() {
         "the summary reports the ledger, got: {}",
         engine.summary()
     );
+}
+
+// ---------------------------------------------------------------------------
+// Cognitive superconductor — Maxwell's demon
+// ---------------------------------------------------------------------------
+
+use crate::session::state::{ContentBlock, ConversationMessage, MessageRole};
+
+fn error_result(id: &str, tool: &str, output: &str) -> ConversationMessage {
+    ConversationMessage {
+        role: MessageRole::Tool,
+        blocks: vec![ContentBlock::ToolResult {
+            tool_use_id: id.to_string(),
+            tool_name: tool.to_string(),
+            output: output.to_string(),
+            is_error: true,
+        }],
+        usage: None,
+    }
+}
+
+fn ok_result(id: &str, tool: &str, output: &str) -> ConversationMessage {
+    let mut message = error_result(id, tool, output);
+    if let ContentBlock::ToolResult { is_error, .. } = &mut message.blocks[0] {
+        *is_error = false;
+    }
+    message
+}
+
+fn output_of(message: &ConversationMessage) -> &str {
+    match &message.blocks[0] {
+        ContentBlock::ToolResult { output, .. } => output,
+        _ => panic!("expected a tool result"),
+    }
+}
+
+fn assistant_tool_use(id: &str, tool: &str, input: &str) -> ConversationMessage {
+    ConversationMessage::assistant(vec![ContentBlock::ToolUse {
+        id: id.to_string(),
+        name: tool.to_string(),
+        input: input.to_string(),
+        signature: None,
+    }])
+}
+
+#[test]
+fn pruning_collapses_dead_orbits_and_preserves_tool_use_ids() {
+    let mut engine = BifurcationEngine::new();
+    let long_error = format!(
+        "{{\n  \"error\": \"panicked at 'fatal: {}'\",\n  \"trace\": \"stack frame one\\nstack frame two\"\n}}",
+        "x".repeat(400)
+    );
+    let mut messages = vec![
+        ConversationMessage::user_text("do the thing"),
+        assistant_tool_use("t1", "edit_file", "{\"path\":\"a.rs\"}"),
+        error_result("t1", "edit_file", &long_error),
+        assistant_tool_use("t2", "edit_file", "{\"path\":\"a.rs\"}"),
+        error_result("t2", "edit_file", &long_error),
+        ok_result("t3", "read_file", "file contents"),
+        error_result(
+            "t4",
+            "edit_file",
+            format!(
+                "[SYSTEM DIRECTIVE — BIFURCATION: DEAD ORBIT REFUSED] {}",
+                "y".repeat(400)
+            )
+            .as_str(),
+        ),
+        error_result("t5", "edit_file", &long_error),
+    ];
+
+    // Two failed attempts at an unchanged world → a dead orbit with real stats.
+    engine.note_attempt("edit_file", "{\"path\":\"a.rs\"}");
+    engine.note_outcome("edit_file", "{\"path\":\"a.rs\"}", true, "file_not_found");
+    engine.note_attempt("edit_file", "{\"path\":\"a.rs\"}");
+    engine.note_outcome("edit_file", "{\"path\":\"a.rs\"}", true, "file_not_found");
+    // The read in between does not move the mutation epoch, so the orbit stays dead.
+
+    let pruned = engine.prune_dead_orbit_outputs(&mut messages);
+    assert_eq!(pruned, 2, "both stale long errors are dead-orbit exhibits");
+
+    // The newest tool result (t5) stays whole: it is what the model is reacting
+    // to now. Refusal directives are live instructions, never dead evidence.
+    assert_eq!(
+        output_of(&messages[7]),
+        long_error,
+        "the newest result is never collapsed"
+    );
+    assert!(output_of(&messages[4]).contains("Full stacktrace purged"));
+    assert!(output_of(&messages[4]).contains("category=\"file_not_found\""));
+    assert!(output_of(&messages[4]).contains("attempts=2"));
+    assert!(output_of(&messages[4]).contains("regime="));
+    assert!(output_of(&messages[4]).starts_with("[🗑️ Dead orbit collapsed by runtime"));
+    assert!(
+        !output_of(&messages[4]).contains("stack frame two"),
+        "stack frames purged"
+    );
+    assert!(
+        output_of(&messages[4]).contains("panicked at 'fatal"),
+        "the excerpt survives"
+    );
+    assert!(
+        output_of(&messages[4]).chars().count() < 400,
+        "the tombstone is one line, not the exhibit"
+    );
+    assert!(
+        output_of(&messages[6]).starts_with("[SYSTEM DIRECTIVE"),
+        "directives are not exhibits"
+    );
+
+    // Pairing-critical fields survive the rewrite.
+    for (index, id) in [(2usize, "t1"), (4, "t2"), (6, "t4")] {
+        let ContentBlock::ToolResult {
+            tool_use_id,
+            tool_name,
+            is_error,
+            ..
+        } = &messages[index].blocks[0]
+        else {
+            panic!("tool result expected");
+        };
+        assert_eq!(tool_use_id, id);
+        assert_eq!(tool_name, "edit_file");
+        assert!(
+            *is_error,
+            "is_error must survive on a pruned error (index {index})"
+        );
+    }
+    assert_eq!(engine.pruned_outputs(), 2, "the counter is observable");
+}
+
+#[test]
+fn pruning_is_quiet_when_the_turn_has_no_dead_orbits() {
+    let mut engine = BifurcationEngine::new();
+    let long = "e".to_string() + &"x".repeat(500);
+    let mut messages = vec![
+        ConversationMessage::user_text("go"),
+        error_result("t1", "write_file", &long),
+        error_result("t2", "write_file", &long),
+    ];
+    // Nothing on the ledger → nothing is provably dead → nothing is collapsed.
+    assert_eq!(engine.prune_dead_orbit_outputs(&mut messages), 0);
+    assert_eq!(output_of(&messages[1]), long);
+}
+
+#[test]
+fn probe_gate_blocks_blind_mutations_and_a_probe_unblocks_it() {
+    let mut engine = BifurcationEngine::new();
+    let mutation = ("edit_file".to_string(), "{\"path\":\"a.rs\"}".to_string());
+    let probe = ("read_file".to_string(), "{\"path\":\"a.rs\"}".to_string());
+
+    // Laminar: no contract yet.
+    assert_eq!(
+        engine.gate_mutations_for_step(std::slice::from_ref(&mutation)),
+        Vec::<usize>::new()
+    );
+    assert!(!engine.probe_required());
+
+    // A crossing arms the gate.
+    fail_step(
+        &mut engine,
+        "edit_file",
+        "{\"path\":\"a.rs\"}",
+        "file_not_found",
+    );
+    fail_step(
+        &mut engine,
+        "edit_file",
+        "{\"path\":\"a.rs\"}",
+        "file_not_found",
+    );
+    assert_eq!(engine.regime(), Regime::Dichotomy);
+    assert!(
+        engine.probe_required(),
+        "the first bifurcation opens the gate"
+    );
+
+    // Blind mutation: blocked, charged to the ladder, trip counted.
+    let blocked = engine.gate_mutations_for_step(std::slice::from_ref(&mutation));
+    assert_eq!(blocked, vec![0]);
+    assert_eq!(engine.probe_gate_trips(), 1);
+    assert!(
+        engine.probe_required(),
+        "a blocked write does not satisfy the contract"
+    );
+
+    // A mutation preceded by a probe in the same step is legal and disarms the
+    // gate for the rest of the turn.
+    assert_eq!(
+        engine.gate_mutations_for_step(&[probe.clone(), mutation.clone()]),
+        Vec::<usize>::new()
+    );
+    assert!(!engine.probe_required());
+    assert_eq!(
+        engine.gate_mutations_for_step(std::slice::from_ref(&mutation)),
+        Vec::<usize>::new()
+    );
+    assert!(BifurcationEngine::probe_gate_refusal("edit_file").contains("PROBE GATE"));
+}
+
+#[test]
+fn probe_gate_classifies_bash_by_what_it_actually_does() {
+    for (command, probe, mutating) in [
+        ("cargo check", true, false),
+        ("cargo test --workspace", true, false),
+        ("git status", true, false),
+        ("git diff HEAD~1", true, false),
+        ("ls -la", true, false),
+        ("cat src/main.rs", true, false),
+        ("bash -n script.sh", true, false),
+        ("python3 -m py_compile mod.py", true, false),
+        ("tsc --noEmit", true, false),
+        ("edge-tts --text hi", false, false),
+        ("wc -l file", true, false),
+        ("echo hi > out.txt", false, true),
+        ("echo hi >> out.txt", false, true),
+        ("rm -f out", false, true),
+        ("sed -i s/a/b/ f.txt", false, true),
+        ("cargo add serde", false, true),
+        ("touch new.rs", false, true),
+    ] {
+        let input = format!("{{\"command\":{}}}", serde_json::json!(command));
+        assert_eq!(
+            BifurcationEngine::is_probe_call("bash", &input),
+            probe,
+            "probe classification for {command:?}"
+        );
+        assert_eq!(
+            BifurcationEngine::is_mutating_call("bash", &input),
+            mutating,
+            "mutation classification for {command:?}"
+        );
+    }
+    // Descriptor duplication is not a write; the verifier override wins over it.
+    let cmd = "{\"command\":\"cargo test 2>&1 | tail -5\"}";
+    assert!(BifurcationEngine::is_probe_call("bash", cmd));
+    assert!(!BifurcationEngine::is_mutating_call("bash", cmd));
+    // Unknown tools are neither: the gate blocks blind writes, it does not
+    // invent failure modes for tools it cannot classify.
+    assert!(!BifurcationEngine::is_mutating_call(
+        "my_mcp_tool",
+        "{\"x\":1}"
+    ));
+    assert!(!BifurcationEngine::is_probe_call(
+        "my_mcp_tool",
+        "{\"x\":1}"
+    ));
+    // Write tools are mutations on their name alone — even a truncated or
+    // malformed payload came from a write call.
+    assert!(BifurcationEngine::is_mutating_call(
+        "write_file",
+        "{\"content\":\"x\"}"
+    ));
+    assert!(BifurcationEngine::is_mutating_call(
+        "write_file",
+        "not json"
+    ));
+    // Unparsable bash is inconclusive, so it is not blocked (fail-open).
+    assert!(!BifurcationEngine::is_mutating_call("bash", "not json"));
+}
+
+#[test]
+fn a_blocked_step_reaches_chaos_instead_of_stalling_at_dichotomy() {
+    // The blocked mutation never executed, but gate_mutations_for_step pushed
+    // probe_gate evidence into the ladder; each gated step must still climb.
+    let mut engine = BifurcationEngine::new();
+    fail_step(
+        &mut engine,
+        "edit_file",
+        "{\"path\":\"a.rs\"}",
+        "file_not_found",
+    );
+    fail_step(
+        &mut engine,
+        "edit_file",
+        "{\"path\":\"a.rs\"}",
+        "file_not_found",
+    );
+    assert_eq!(engine.regime(), Regime::Dichotomy);
+    let mutation = ("edit_file".to_string(), "{\"path\":\"a.rs\"}".to_string());
+    let mut seen = vec![engine.regime()];
+    for _ in 0..8 {
+        let blocked = engine.gate_mutations_for_step(std::slice::from_ref(&mutation));
+        assert!(
+            !blocked.is_empty(),
+            "a blind retry of a blind write stays blocked"
+        );
+        engine.observe(&OrbitSample::new(seen.len()));
+        seen.push(engine.regime());
+    }
+    assert_eq!(
+        *seen.last().unwrap(),
+        Regime::Chaos,
+        "blocked blind writes must escalate the ladder: {seen:?}"
+    );
+}
+
+#[test]
+fn syntax_backpressure_does_not_discount_resistance() {
+    let mut engine = BifurcationEngine::new();
+    fail_step(
+        &mut engine,
+        "write_file",
+        "{\"path\":\"a.json\"}",
+        "syntax_error",
+    );
+    fail_step(
+        &mut engine,
+        "write_file",
+        "{\"path\":\"a.json\"}",
+        "syntax_error",
+    );
+    assert_eq!(engine.regime(), Regime::Dichotomy);
+    let stuck = engine.pressure();
+
+    // A write "succeeds" but the file on disk is broken: no α contraction.
+    engine.observe(
+        &OrbitSample::new(engine.steps() + 1)
+            .with_success("write_file")
+            .with_mutation()
+            .with_syntax_backpressure(),
+    );
+    assert!(
+        engine.pressure() >= stuck - 1e-12,
+        "a corrupted artifact is not convergence: {stuck} → {}",
+        engine.pressure()
+    );
+    assert_eq!(engine.syntax_backpressure_hits(), 1);
+
+    // The same step without the marker *is* clean progress.
+    engine.observe(
+        &OrbitSample::new(engine.steps() + 1)
+            .with_success("write_file")
+            .with_mutation(),
+    );
+    assert!(
+        engine.pressure() < stuck,
+        "a good write still contracts: {}",
+        engine.pressure()
+    );
+}
+
+#[test]
+fn escalated_directives_carry_the_turn_working_set() {
+    let mut engine = BifurcationEngine::new();
+    engine.set_turn_file_summary(Some("/tmp/a.rs (2→4 lines, 2 edits)".to_string()));
+    for _ in 0..3 {
+        fail_step(&mut engine, "bash", "make", "syntax_error");
+    }
+    for _ in 0..4 {
+        fail_step(&mut engine, "bash", "make", "syntax_error");
+    }
+    assert!(
+        engine.regime() >= Regime::Quadrupole,
+        "need L2 for the working set, got {}",
+        engine.regime()
+    );
+    let directive = engine.directive_section().expect("escalated directive");
+    assert!(
+        directive.contains(
+            "Modified files in this turn since last clean state: /tmp/a.rs (2→4 lines, 2 edits)"
+        ),
+        "{directive}"
+    );
+}
+
+#[test]
+fn summary_exposes_the_demon_counters() {
+    let mut engine = BifurcationEngine::new();
+    engine.arm_probe_gate();
+    engine.prune_dead_orbit_outputs(&mut []);
+    let summary = engine.summary();
+    assert!(
+        summary.contains(
+            "Maxwell demon: pruned_outputs=0 probe_gate=armed trips=0 syntax_backpressure_hits=0"
+        ),
+        "{summary}"
+    );
+}
+
+#[test]
+fn reset_probe_gate_disarms_without_disturbing_the_ladder() {
+    let mut engine = BifurcationEngine::new();
+    fail_step(
+        &mut engine,
+        "edit_file",
+        "{\"path\":\"a.rs\"}",
+        "file_not_found",
+    );
+    fail_step(
+        &mut engine,
+        "edit_file",
+        "{\"path\":\"a.rs\"}",
+        "file_not_found",
+    );
+    assert!(engine.probe_required());
+    let regime = engine.regime();
+    let pressure = engine.pressure();
+    engine.reset_probe_gate();
+    assert!(!engine.probe_required());
+    assert_eq!(
+        engine.regime(),
+        regime,
+        "escalation state is session-scoped"
+    );
+    assert_eq!(engine.pressure(), pressure);
 }

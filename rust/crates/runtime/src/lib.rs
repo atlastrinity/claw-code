@@ -42,10 +42,12 @@ mod sse;
 pub mod stale_base;
 pub mod stale_branch;
 pub mod summary_compression;
+pub mod syntax_guard;
 pub mod task_packet;
 pub mod task_registry;
 pub mod team_cron_registry;
 pub mod tool_dispatch;
+pub mod turn_state;
 
 pub mod worker_boot;
 
@@ -188,10 +190,12 @@ pub use stale_branch::{
     apply_policy, check_freshness, BranchFreshness, StaleBranchAction, StaleBranchEvent,
     StaleBranchPolicy,
 };
+pub use syntax_guard::{backpressure_block, check_file_syntax, SYNTAX_BACKPRESSURE_MARKER};
 pub use task_packet::{
     validate_packet, TaskPacket, TaskPacketValidationError, TaskResource, ValidatedPacket,
 };
 pub use task_registry::{LaneBoard, LaneBoardEntry, LaneFreshness, LaneHeartbeat};
+pub use turn_state::{begin_turn, modified_files_summary, record_file_mutation};
 pub use tool_dispatch::{
     batch_tool_calls, dispatch_report, execute_parallel_batch, is_parallelizable, DispatchReport,
     ParallelToolConfig, ToolBatch, ToolCallRequest, ToolCallResult,

@@ -33,6 +33,37 @@ impl<'a> LoopDetectionMiddleware<'a> {
             bifurcation,
         }
     }
+
+    /// Tool-use ids whose call never reached the executor because the runtime
+    /// itself refused it (dead orbit, probe gate, older loop directive).
+    ///
+    /// These emissions must not feed the byte-equality counter: a mutation
+    /// blocked *before* running leaves the world untouched, and counting it as
+    /// an execution would punish the agent twice — once by the gate, then again
+    /// when it retries the same call after a legitimate read-only probe.
+    #[must_use]
+    fn refused_ids(&self) -> std::collections::HashSet<String> {
+        let start = self
+            .session
+            .messages
+            .iter()
+            .rposition(|message| matches!(message.role, MessageRole::User))
+            .map_or(0, |index| index + 1);
+        self.session
+            .messages
+            .iter()
+            .skip(start)
+            .flat_map(|message| message.blocks.iter())
+            .filter_map(|block| match block {
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    output,
+                    ..
+                } if output.starts_with("[SYSTEM DIRECTIVE") => Some(tool_use_id.clone()),
+                _ => None,
+            })
+            .collect()
+    }
 }
 
 impl<'a, 'p> TurnMiddleware<'a, 'p> for LoopDetectionMiddleware<'a> {
@@ -47,6 +78,7 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for LoopDetectionMiddleware<'a> {
     ) -> ToolCallOutcome {
         let mut allowed_calls = Vec::new();
         let mut denied_messages = Vec::new();
+        let refused_ids = self.refused_ids();
 
         for call_state in ctx.calls {
             let tool_name = &call_state.request.tool_name;
@@ -98,11 +130,15 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for LoopDetectionMiddleware<'a> {
                 if matches!(message.role, MessageRole::Assistant) {
                     for block in &message.blocks {
                         if let ContentBlock::ToolUse {
+                            id,
                             name,
                             input: past_input,
                             ..
                         } = block
                         {
+                            if refused_ids.contains(id) {
+                                continue;
+                            }
                             if name == tool_name && past_input == input {
                                 identical_count += 1;
                             }
