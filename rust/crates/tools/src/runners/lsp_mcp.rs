@@ -1,9 +1,9 @@
-use std::time::Duration;
-use reqwest::blocking::Client;
-use serde_json::json;
 use crate::tool_types::*;
 use crate::util::to_pretty_json;
 use crate::{global_lsp_registry, global_mcp_registry};
+use reqwest::blocking::Client;
+use serde_json::json;
+use std::time::Duration;
 
 pub(crate) fn run_lsp(input: LspInput) -> Result<String, String> {
     let registry = global_lsp_registry();

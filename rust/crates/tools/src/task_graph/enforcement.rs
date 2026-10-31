@@ -1,8 +1,8 @@
 use crate::task_graph::store::{parse_task_md_to_nodes, task_graph_store_path};
 use crate::task_graph::types::{TaskNode, TaskStatus};
 use crate::task_graph::validation::validate_task_graph;
-use std::collections::HashSet;
 use serde_json::Value;
+use std::collections::HashSet;
 
 pub fn check_task_graph_enforcement(tool_name: &str, input: &Value) -> Result<(), String> {
     validate_active_task_for_tool(tool_name, input)
@@ -271,7 +271,9 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
             .iter()
             .find(|node| node.status == Some(TaskStatus::Pending) || node.status.is_none())
         {
-            let is_leaf = !nodes.iter().any(|n| n.parent_id.as_ref() == Some(&first_pending.id));
+            let is_leaf = !nodes
+                .iter()
+                .any(|n| n.parent_id.as_ref() == Some(&first_pending.id));
             return Err(format!(
                 "Error: Recursive Planning Required. The next pending task '{}' (\"{}\"){} is not yet decomposed into actionable leaf sub-tasks.\n\
                  You MUST:\n\
@@ -293,87 +295,91 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
         );
     }
 
-fn extract_all_strings(val: &Value, out: &mut String) {
-    match val {
-        Value::String(s) => {
-            out.push(' ');
-            out.push_str(s);
-        }
-        Value::Array(arr) => {
-            for item in arr {
-                extract_all_strings(item, out);
+    fn extract_all_strings(val: &Value, out: &mut String) {
+        match val {
+            Value::String(s) => {
+                out.push(' ');
+                out.push_str(s);
             }
-        }
-        Value::Object(obj) => {
-            for (k, v) in obj {
-                if k != "active_task_id" {
-                    extract_all_strings(v, out);
+            Value::Array(arr) => {
+                for item in arr {
+                    extract_all_strings(item, out);
                 }
             }
+            Value::Object(obj) => {
+                for (k, v) in obj {
+                    if k != "active_task_id" {
+                        extract_all_strings(v, out);
+                    }
+                }
+            }
+            _ => {}
         }
-        _ => {}
     }
-}
 
-fn extract_meaningful_words(text: &str) -> HashSet<String> {
-    const STOP_WORDS: &[&str] = &[
-        "a", "an", "the", "and", "or", "but", "if", "then", "else", "when", "at", "by", "for",
-        "with", "about", "against", "between", "into", "through", "during", "before", "after",
-        "above", "below", "to", "from", "up", "upon", "down", "in", "out", "on", "off", "over",
-        "under", "again", "further", "once", "here", "there", "where", "why", "how", "all",
-        "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not",
-        "only", "own", "same", "so", "than", "too", "very", "can", "will", "just", "don",
-        "should", "now", "add", "new", "file", "create", "update", "run", "make", "do", "set",
-        "get", "use", "edit", "change", "fix", "remove", "delete", "task", "code",
-    ];
-    let stop_set: HashSet<&str> = STOP_WORDS.iter().copied().collect();
+    fn extract_meaningful_words(text: &str) -> HashSet<String> {
+        const STOP_WORDS: &[&str] = &[
+            "a", "an", "the", "and", "or", "but", "if", "then", "else", "when", "at", "by", "for",
+            "with", "about", "against", "between", "into", "through", "during", "before", "after",
+            "above", "below", "to", "from", "up", "upon", "down", "in", "out", "on", "off", "over",
+            "under", "again", "further", "once", "here", "there", "where", "why", "how", "all",
+            "any", "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor",
+            "not", "only", "own", "same", "so", "than", "too", "very", "can", "will", "just",
+            "don", "should", "now", "add", "new", "file", "create", "update", "run", "make", "do",
+            "set", "get", "use", "edit", "change", "fix", "remove", "delete", "task", "code",
+        ];
+        let stop_set: HashSet<&str> = STOP_WORDS.iter().copied().collect();
 
-    text.to_lowercase()
-        .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
-        .filter(|w| w.len() >= 3 && !stop_set.contains(w))
-        .map(|w| w.to_string())
-        .collect()
-}
+        text.to_lowercase()
+            .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
+            .filter(|w| w.len() >= 3 && !stop_set.contains(w))
+            .map(|w| w.to_string())
+            .collect()
+    }
 
-/// Extract meaningful path segments (directory names, file stems) from text
-/// that looks like file paths. This enables matching tool actions against tasks
-/// that describe work on specific modules/files.
-fn extract_path_segments(text: &str) -> HashSet<String> {
-    let mut segments = HashSet::new();
-    for word in text.split_whitespace() {
-        // Detect path-like tokens: contain '/' or '.' with extension or start with '.'
-        if word.contains('/') || word.contains('\\') || (word.contains('.') && word.len() > 4) {
-            let path = std::path::Path::new(word);
-            // Extract the file stem (e.g. "mod" from "mod.rs")
-            if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
-                let s = stem.to_lowercase();
-                if s.len() >= 3 {
-                    segments.insert(s);
+    /// Extract meaningful path segments (directory names, file stems) from text
+    /// that looks like file paths. This enables matching tool actions against tasks
+    /// that describe work on specific modules/files.
+    fn extract_path_segments(text: &str) -> HashSet<String> {
+        let mut segments = HashSet::new();
+        for word in text.split_whitespace() {
+            // Detect path-like tokens: contain '/' or '.' with extension or start with '.'
+            if word.contains('/') || word.contains('\\') || (word.contains('.') && word.len() > 4) {
+                let path = std::path::Path::new(word);
+                // Extract the file stem (e.g. "mod" from "mod.rs")
+                if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                    let s = stem.to_lowercase();
+                    if s.len() >= 3 {
+                        segments.insert(s);
+                    }
                 }
-            }
-            // Extract each directory component (e.g. "parser" from "src/parser/mod.rs")
-            for component in path.components() {
-                if let std::path::Component::Normal(c) = component {
-                    if let Some(c_str) = c.to_str() {
-                        let lower = c_str.to_lowercase();
-                        if lower.len() >= 3 && lower != "src" && lower != "lib" && lower != "mod" {
-                            segments.insert(lower);
+                // Extract each directory component (e.g. "parser" from "src/parser/mod.rs")
+                for component in path.components() {
+                    if let std::path::Component::Normal(c) = component {
+                        if let Some(c_str) = c.to_str() {
+                            let lower = c_str.to_lowercase();
+                            if lower.len() >= 3
+                                && lower != "src"
+                                && lower != "lib"
+                                && lower != "mod"
+                            {
+                                segments.insert(lower);
+                            }
                         }
                     }
                 }
             }
         }
+        segments
     }
-    segments
-}
 
     let mut matched_node_id: Option<String> = None;
 
     // ── Layer 0: Explicit active_task_id or semantic text matching ──
     if let Some(active_task_id) = input.get("active_task_id").and_then(|v| v.as_str()) {
-        let has_matching = nodes.iter().any(|node| {
-            node.id == active_task_id && node.status == Some(TaskStatus::InProgress)
-        });
+        let has_matching = nodes
+            .iter()
+            .any(|node| node.id == active_task_id && node.status == Some(TaskStatus::InProgress));
         if !has_matching {
             return Err(format!(
                 "Error: Strict TaskGraph Enforcement. Task ID '{}' was provided but it is not currently 'in_progress'.",
@@ -427,16 +433,15 @@ fn extract_path_segments(text: &str) -> HashSet<String> {
 
                 // Path-based matching: check if file path segments from the tool input
                 // match words in the task description, or vice versa.
-                let has_path_overlap = input_path_segs.iter().any(|seg| {
-                    task_words.contains(seg)
-                        || task_path_segs.contains(seg)
-                        || task_words.iter().any(|tw| {
-                            (tw.len() >= 4 && seg.contains(tw.as_str()))
-                                || (seg.len() >= 4 && tw.contains(seg.as_str()))
-                        })
-                }) || task_path_segs.iter().any(|seg| {
-                    input_words.contains(seg)
-                });
+                let has_path_overlap =
+                    input_path_segs.iter().any(|seg| {
+                        task_words.contains(seg)
+                            || task_path_segs.contains(seg)
+                            || task_words.iter().any(|tw| {
+                                (tw.len() >= 4 && seg.contains(tw.as_str()))
+                                    || (seg.len() >= 4 && tw.contains(seg.as_str()))
+                            })
+                    }) || task_path_segs.iter().any(|seg| input_words.contains(seg));
 
                 if !has_word_overlap && !has_path_overlap {
                     return Err(format!(
@@ -460,7 +465,9 @@ fn extract_path_segments(text: &str) -> HashSet<String> {
             ));
         }
 
-        let has_subtasks = nodes.iter().any(|n| n.parent_id.as_ref() == Some(matched_id));
+        let has_subtasks = nodes
+            .iter()
+            .any(|n| n.parent_id.as_ref() == Some(matched_id));
         if has_subtasks {
             return Err(format!(
                 "Error: TaskGraph Enforcement. Task '{}' has sub-tasks. You are NOT allowed to execute actions directly under a parent task. You MUST set one of its leaf sub-tasks to 'in_progress' and run the action under it.",
@@ -485,11 +492,15 @@ pub fn auto_create_recovery_subtask(failed_tool: &str, error_msg: &str) -> Resul
     let active_leaf_idx = nodes.iter().position(|n| {
         n.status == Some(TaskStatus::InProgress) && {
             let id = &n.id;
-            !nodes.iter().any(|other| other.parent_id.as_deref() == Some(id))
+            !nodes
+                .iter()
+                .any(|other| other.parent_id.as_deref() == Some(id))
         }
     });
 
-    let Some(leaf_idx) = active_leaf_idx else { return Ok(()); };
+    let Some(leaf_idx) = active_leaf_idx else {
+        return Ok(());
+    };
     let parent_id = nodes[leaf_idx].id.clone();
     let depth = parent_id.split('.').count();
     if depth >= 5 {
@@ -497,7 +508,10 @@ pub fn auto_create_recovery_subtask(failed_tool: &str, error_msg: &str) -> Resul
     }
 
     // Count existing children under parent_id
-    let child_count = nodes.iter().filter(|n| n.parent_id.as_deref() == Some(&parent_id)).count();
+    let child_count = nodes
+        .iter()
+        .filter(|n| n.parent_id.as_deref() == Some(&parent_id))
+        .count();
     let new_child_id = format!("{}.{}", parent_id, child_count + 1);
 
     let clean_error_summary = error_msg
@@ -511,11 +525,19 @@ pub fn auto_create_recovery_subtask(failed_tool: &str, error_msg: &str) -> Resul
     let new_node = TaskNode {
         id: new_child_id.clone(),
         parent_id: Some(parent_id),
-        content: Some(format!("Fix execution error in {}: {}", failed_tool, clean_error_summary)),
+        content: Some(format!(
+            "Fix execution error in {}: {}",
+            failed_tool, clean_error_summary
+        )),
         status: Some(TaskStatus::InProgress),
     };
 
     nodes.push(new_node);
-    crate::task_graph::store::save_task_graph_output(&store_path, &nodes, 1, Some(format!("Auto-recovery subtask {} added", new_child_id)))?;
+    crate::task_graph::store::save_task_graph_output(
+        &store_path,
+        &nodes,
+        1,
+        Some(format!("Auto-recovery subtask {} added", new_child_id)),
+    )?;
     Ok(())
 }

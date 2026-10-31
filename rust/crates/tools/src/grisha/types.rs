@@ -57,7 +57,11 @@ pub struct GrishaExecutionError {
 
 impl GrishaExecutionError {
     #[must_use]
-    pub fn new(code: GrishaErrorCode, description: impl Into<String>, remedy: impl Into<String>) -> Self {
+    pub fn new(
+        code: GrishaErrorCode,
+        description: impl Into<String>,
+        remedy: impl Into<String>,
+    ) -> Self {
         Self {
             code,
             description: description.into(),

@@ -163,9 +163,7 @@ pub async fn run_ingest(
 
         let summaries_dir = workspace.join(".claw").join("summaries");
         if summaries_dir.is_dir() {
-            let walker_summaries = WalkBuilder::new(&summaries_dir)
-                .git_ignore(false)
-                .build();
+            let walker_summaries = WalkBuilder::new(&summaries_dir).git_ignore(false).build();
             for e in walker_summaries.flatten() {
                 let _ = process_entry(e);
             }

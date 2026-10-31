@@ -503,109 +503,118 @@ fn http_checks_print(embeddings_check: bool) {
         };
 
         rt.block_on(async {
-        // OpenAI-compatible providers (OPENAI_BASE_URL, OPENAI_API_KEY)
-        if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-            if !key.trim().is_empty() {
-                let base = std::env::var("OPENAI_BASE_URL")
-                    .ok()
-                    .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
-                let url = openai_models_url(base.as_str());
-                let mut headers = HeaderMap::new();
-                if let Ok(v) = HeaderValue::from_str(format!("Bearer {}", key.trim()).as_str()) {
-                    headers.insert(reqwest::header::AUTHORIZATION, v);
-                }
-                let _ = http_check_and_print("openai", url.as_str(), headers).await;
-
-                if embeddings_check {
-                    let model = std::env::var("OPENAI_EMBEDDING_MODEL")
+            // OpenAI-compatible providers (OPENAI_BASE_URL, OPENAI_API_KEY)
+            if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+                if !key.trim().is_empty() {
+                    let base = std::env::var("OPENAI_BASE_URL")
                         .ok()
-                        .or_else(|| std::env::var("CLAW_RAG_EMBEDDING_MODEL").ok())
-                        .unwrap_or_else(|| "text-embedding-3-small".to_string());
-                    let eurl = openai_embeddings_url(base.as_str());
-                    let mut eheaders = HeaderMap::new();
+                        .unwrap_or_else(|| "https://api.openai.com/v1".to_string());
+                    let url = openai_models_url(base.as_str());
+                    let mut headers = HeaderMap::new();
                     if let Ok(v) = HeaderValue::from_str(format!("Bearer {}", key.trim()).as_str())
                     {
-                        eheaders.insert(reqwest::header::AUTHORIZATION, v);
+                        headers.insert(reqwest::header::AUTHORIZATION, v);
                     }
-                    let _ = openai_embeddings_probe(
-                        "openai embeddings",
-                        eurl.as_str(),
-                        &model,
-                        eheaders,
+                    let _ = http_check_and_print("openai", url.as_str(), headers).await;
+
+                    if embeddings_check {
+                        let model = std::env::var("OPENAI_EMBEDDING_MODEL")
+                            .ok()
+                            .or_else(|| std::env::var("CLAW_RAG_EMBEDDING_MODEL").ok())
+                            .unwrap_or_else(|| "text-embedding-3-small".to_string());
+                        let eurl = openai_embeddings_url(base.as_str());
+                        let mut eheaders = HeaderMap::new();
+                        if let Ok(v) =
+                            HeaderValue::from_str(format!("Bearer {}", key.trim()).as_str())
+                        {
+                            eheaders.insert(reqwest::header::AUTHORIZATION, v);
+                        }
+                        let _ = openai_embeddings_probe(
+                            "openai embeddings",
+                            eurl.as_str(),
+                            &model,
+                            eheaders,
+                        )
+                        .await;
+                    } else {
+                        println!(
+                            "  openai embeddings: skipped (pass --embeddings-check to enable)"
+                        );
+                    }
+                } else {
+                    println!("  openai: skipped (OPENAI_API_KEY empty)");
+                }
+            } else {
+                println!("  openai: skipped (OPENAI_API_KEY unset)");
+            }
+
+            // Anthropic (ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY/AUTH_TOKEN)
+            let a_key = std::env::var("ANTHROPIC_API_KEY").ok();
+            let a_tok = std::env::var("ANTHROPIC_AUTH_TOKEN").ok();
+            let a_base = std::env::var("ANTHROPIC_BASE_URL")
+                .ok()
+                .unwrap_or_else(|| "https://api.anthropic.com".to_string());
+            if a_key.as_deref().is_some_and(|s| !s.trim().is_empty())
+                || a_tok.as_deref().is_some_and(|s| !s.trim().is_empty())
+            {
+                let url = anthropic_models_url(a_base.as_str());
+                let mut headers = HeaderMap::new();
+                headers.insert(
+                    HeaderName::from_static("anthropic-version"),
+                    HeaderValue::from_static("2023-06-01"),
+                );
+                if let Some(k) = a_key.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                    if let Ok(v) = HeaderValue::from_str(k) {
+                        headers.insert(HeaderName::from_static("x-api-key"), v);
+                    }
+                } else if let Some(t) = a_tok.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                    if let Ok(v) = HeaderValue::from_str(format!("Bearer {t}").as_str()) {
+                        headers.insert(reqwest::header::AUTHORIZATION, v);
+                    }
+                }
+                let _ = http_check_and_print("anthropic", url.as_str(), headers).await;
+            } else {
+                println!("  anthropic: skipped (no API key/token)");
+            }
+
+            // Mistral AI (MISTRAL_BASE_URL, MISTRAL_API_KEY)
+            if let Ok(key) = std::env::var("MISTRAL_API_KEY") {
+                if !key.trim().is_empty() {
+                    let base = std::env::var("MISTRAL_BASE_URL")
+                        .ok()
+                        .unwrap_or_else(|| "https://api.mistral.ai/v1".to_string());
+                    let url = openai_models_url(base.as_str());
+                    let mut headers = HeaderMap::new();
+                    if let Ok(v) = HeaderValue::from_str(format!("Bearer {}", key.trim()).as_str())
+                    {
+                        headers.insert(reqwest::header::AUTHORIZATION, v);
+                    }
+                    let _ = http_check_and_print("mistral", url.as_str(), headers).await;
+                } else {
+                    println!("  mistral: skipped (MISTRAL_API_KEY empty)");
+                }
+            } else {
+                println!("  mistral: skipped (MISTRAL_API_KEY unset)");
+            }
+
+            // RAG service (RAG_BASE_URL) — just basic health + stats.
+            if let Ok(base) = std::env::var("RAG_BASE_URL") {
+                let base = base.trim().trim_end_matches('/');
+                if !base.is_empty() {
+                    let headers = HeaderMap::new();
+                    let _ = http_check_and_print(
+                        "rag health",
+                        &format!("{base}/health"),
+                        headers.clone(),
                     )
                     .await;
-                } else {
-                    println!("  openai embeddings: skipped (pass --embeddings-check to enable)");
-                }
-            } else {
-                println!("  openai: skipped (OPENAI_API_KEY empty)");
-            }
-        } else {
-            println!("  openai: skipped (OPENAI_API_KEY unset)");
-        }
-
-        // Anthropic (ANTHROPIC_BASE_URL, ANTHROPIC_API_KEY/AUTH_TOKEN)
-        let a_key = std::env::var("ANTHROPIC_API_KEY").ok();
-        let a_tok = std::env::var("ANTHROPIC_AUTH_TOKEN").ok();
-        let a_base = std::env::var("ANTHROPIC_BASE_URL")
-            .ok()
-            .unwrap_or_else(|| "https://api.anthropic.com".to_string());
-        if a_key.as_deref().is_some_and(|s| !s.trim().is_empty())
-            || a_tok.as_deref().is_some_and(|s| !s.trim().is_empty())
-        {
-            let url = anthropic_models_url(a_base.as_str());
-            let mut headers = HeaderMap::new();
-            headers.insert(
-                HeaderName::from_static("anthropic-version"),
-                HeaderValue::from_static("2023-06-01"),
-            );
-            if let Some(k) = a_key.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-                if let Ok(v) = HeaderValue::from_str(k) {
-                    headers.insert(HeaderName::from_static("x-api-key"), v);
-                }
-            } else if let Some(t) = a_tok.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-                if let Ok(v) = HeaderValue::from_str(format!("Bearer {t}").as_str()) {
-                    headers.insert(reqwest::header::AUTHORIZATION, v);
-                }
-            }
-            let _ = http_check_and_print("anthropic", url.as_str(), headers).await;
-        } else {
-            println!("  anthropic: skipped (no API key/token)");
-        }
-
-        // Mistral AI (MISTRAL_BASE_URL, MISTRAL_API_KEY)
-        if let Ok(key) = std::env::var("MISTRAL_API_KEY") {
-            if !key.trim().is_empty() {
-                let base = std::env::var("MISTRAL_BASE_URL")
-                    .ok()
-                    .unwrap_or_else(|| "https://api.mistral.ai/v1".to_string());
-                let url = openai_models_url(base.as_str());
-                let mut headers = HeaderMap::new();
-                if let Ok(v) = HeaderValue::from_str(format!("Bearer {}", key.trim()).as_str()) {
-                    headers.insert(reqwest::header::AUTHORIZATION, v);
-                }
-                let _ = http_check_and_print("mistral", url.as_str(), headers).await;
-            } else {
-                println!("  mistral: skipped (MISTRAL_API_KEY empty)");
-            }
-        } else {
-            println!("  mistral: skipped (MISTRAL_API_KEY unset)");
-        }
-
-        // RAG service (RAG_BASE_URL) — just basic health + stats.
-        if let Ok(base) = std::env::var("RAG_BASE_URL") {
-            let base = base.trim().trim_end_matches('/');
-            if !base.is_empty() {
-                let headers = HeaderMap::new();
-                let _ =
-                    http_check_and_print("rag health", &format!("{base}/health"), headers.clone())
+                    let _ = http_check_and_print("rag stats", &format!("{base}/v1/stats"), headers)
                         .await;
-                let _ =
-                    http_check_and_print("rag stats", &format!("{base}/v1/stats"), headers).await;
+                }
             }
-        }
-    });
-    }).join();
+        });
+    })
+    .join();
 
     println!("  (TLS validation is performed by the HTTP client; certificate errors surface as request failures.)");
 }

@@ -1138,7 +1138,12 @@ fn persisted_block_json(block: &ContentBlock) -> JsonValue {
                 );
             }
         }
-        ContentBlock::ToolUse { id, name, input, signature } => {
+        ContentBlock::ToolUse {
+            id,
+            name,
+            input,
+            signature,
+        } => {
             object.insert(
                 "type".to_string(),
                 JsonValue::String("tool_use".to_string()),

@@ -1,7 +1,6 @@
+use crate::registry::GlobalToolRegistry;
 use crate::tool_types::*;
 use crate::util::to_pretty_json;
-use crate::registry::GlobalToolRegistry;
-
 
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn run_tool_search(input: ToolSearchInput) -> Result<String, String> {
@@ -13,7 +12,11 @@ pub(crate) fn execute_tool_search(input: ToolSearchInput) -> ToolSearchOutput {
     GlobalToolRegistry::builtin().search(&input.query, input.max_results.unwrap_or(5), None, None)
 }
 
-pub(crate) fn search_tool_specs(query: &str, max_results: usize, specs: &[SearchableToolSpec]) -> Vec<String> {
+pub(crate) fn search_tool_specs(
+    query: &str,
+    max_results: usize,
+    specs: &[SearchableToolSpec],
+) -> Vec<String> {
     let lowered = query.to_lowercase();
     if let Some(selection) = lowered.strip_prefix("select:") {
         return selection
@@ -181,4 +184,3 @@ mod tests {
         assert_eq!(required_hits, vec!["bash"]);
     }
 }
-

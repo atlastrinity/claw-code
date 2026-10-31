@@ -33,6 +33,10 @@ pub fn default_cascade() -> Vec<ModelTier> {
         ModelTier::new("quick", "google/gemma-4-31b-it:free", 0),
         ModelTier::new("stable", "nvidia/nemotron-3-super-120b-a12b:free", 1),
         ModelTier::new("mega", "meta-llama/llama-3.3-70b-instruct:free", 2),
-        ModelTier::new("reasoner", "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free", 3),
+        ModelTier::new(
+            "reasoner",
+            "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+            3,
+        ),
     ]
 }

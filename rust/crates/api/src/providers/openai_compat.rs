@@ -7,9 +7,7 @@ use runtime::fractal::FractalRateLimiter;
 use serde::Deserialize;
 use serde_json::{json, Value};
 
-use crate::breaker::{
-    new_breaker, SharedBreaker, DEFAULT_INITIAL_BACKOFF, DEFAULT_MAX_BACKOFF,
-};
+use crate::breaker::{new_breaker, SharedBreaker, DEFAULT_INITIAL_BACKOFF, DEFAULT_MAX_BACKOFF};
 use crate::error::ApiError;
 use crate::http_client::build_http_client_or_default;
 use crate::types::{
@@ -25,9 +23,11 @@ pub const DEFAULT_XAI_BASE_URL: &str = "https://api.x.ai/v1";
 pub const DEFAULT_OPENAI_BASE_URL: &str = "https://api.openai.com/v1";
 pub const DEFAULT_DASHSCOPE_BASE_URL: &str = "https://dashscope.aliyuncs.com/compatible-mode/v1";
 pub const DEFAULT_GLM_BASE_URL: &str = "https://open.bigmodel.cn/api/paas/v4";
-pub const DEFAULT_CLOUDFLARE_BASE_URL: &str = "https://api.cloudflare.com/client/v4/accounts/default/ai/v1";
+pub const DEFAULT_CLOUDFLARE_BASE_URL: &str =
+    "https://api.cloudflare.com/client/v4/accounts/default/ai/v1";
 pub const DEFAULT_NVIDIA_BASE_URL: &str = "https://integrate.api.nvidia.com/v1";
-pub const DEFAULT_GEMINI_BASE_URL: &str = "https://generativelanguage.googleapis.com/v1beta/openai/";
+pub const DEFAULT_GEMINI_BASE_URL: &str =
+    "https://generativelanguage.googleapis.com/v1beta/openai/";
 pub const DEFAULT_SILICONFLOW_BASE_URL: &str = "https://api.siliconflow.com/v1";
 pub const DEFAULT_MISTRAL_BASE_URL: &str = "https://api.mistral.ai/v1";
 const REQUEST_ID_HEADER: &str = "request-id";
@@ -407,14 +407,19 @@ impl OpenAiCompatClient {
         let response = self.send_with_retry(&streaming_request).await?;
 
         // Catch proxies (like api.z.ai) that occasionally return 200 OK with a JSON error body instead of SSE when streaming
-        if let Some(content_type) = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|h| h.to_str().ok()) {
+        if let Some(content_type) = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|h| h.to_str().ok())
+        {
             if content_type.starts_with("application/json") {
                 let status = response.status();
                 let body = response.text().await.unwrap_or_default();
-                
-                // If it's a rate limit error inside 200 OK JSON, we shouldn't retry it infinitely, 
+
+                // If it's a rate limit error inside 200 OK JSON, we shouldn't retry it infinitely,
                 // but setting retryable to false will at least bubble it up to the user instead of hanging on empty stream!
-                let is_quota = body.to_ascii_lowercase().contains("quota") || body.contains("rate limit");
+                let is_quota =
+                    body.to_ascii_lowercase().contains("quota") || body.contains("rate limit");
                 return Err(ApiError::Api(Box::new(crate::error::ApiErrorInfo {
                     status,
                     error_type: None,
@@ -531,11 +536,8 @@ impl OpenAiCompatClient {
         check_request_body_size_for_base_url(request, self.config(), &self.base_url)?;
 
         let request_url = chat_completions_endpoint(&self.base_url);
-        let payload = build_chat_completion_request_for_base_url(
-            request,
-            self.config(),
-            &self.base_url,
-        );
+        let payload =
+            build_chat_completion_request_for_base_url(request, self.config(), &self.base_url);
         self.http
             .post(&request_url)
             .header("content-type", "application/json")
@@ -621,11 +623,8 @@ impl MessageStream {
                 return Ok(None);
             }
 
-            let chunk_res = tokio::time::timeout(
-                super::STREAM_IDLE_TIMEOUT,
-                self.response.chunk(),
-            )
-            .await;
+            let chunk_res =
+                tokio::time::timeout(super::STREAM_IDLE_TIMEOUT, self.response.chunk()).await;
 
             match chunk_res {
                 Ok(Ok(Some(chunk))) => {
@@ -644,8 +643,6 @@ impl MessageStream {
                     });
                 }
             }
-
-
         }
     }
 }
@@ -1288,7 +1285,18 @@ fn wire_model_for_base_url<'a>(
 
     if matches!(
         lowered_prefix.as_str(),
-        "xai" | "grok" | "qwen" | "kimi" | "glm" | "zhipu" | "zhipuai" | "cloudflare" | "nvidia" | "nim" | "mistral" | "codestral"
+        "xai"
+            | "grok"
+            | "qwen"
+            | "kimi"
+            | "glm"
+            | "zhipu"
+            | "zhipuai"
+            | "cloudflare"
+            | "nvidia"
+            | "nim"
+            | "mistral"
+            | "codestral"
     ) {
         let mut stripped = &model[pos + 1..];
         if config.provider_name == "GLM" && stripped.ends_with(":free") {
@@ -1509,9 +1517,17 @@ pub fn translate_message(message: &InputMessage, model: &str) -> Vec<Value> {
                     InputContentBlock::Thinking {
                         thinking: value, ..
                     } => reasoning.push_str(value),
-                    InputContentBlock::ToolUse { id, name, input, signature } => {
+                    InputContentBlock::ToolUse {
+                        id,
+                        name,
+                        input,
+                        signature,
+                    } => {
                         if model.to_ascii_lowercase().contains("gemini") {
-                            text.push_str(&format!("\n[Асистент викликав інструмент '{}' із аргументами: {}]", name, input));
+                            text.push_str(&format!(
+                                "\n[Асистент викликав інструмент '{}' із аргументами: {}]",
+                                name, input
+                            ));
                             continue;
                         }
 
@@ -1524,17 +1540,30 @@ pub fn translate_message(message: &InputMessage, model: &str) -> Vec<Value> {
                             }
                         });
                         if let Some(sig) = signature {
-                            let func_obj = call.as_object_mut().unwrap().get_mut("function").unwrap().as_object_mut().unwrap();
+                            let func_obj = call
+                                .as_object_mut()
+                                .unwrap()
+                                .get_mut("function")
+                                .unwrap()
+                                .as_object_mut()
+                                .unwrap();
                             func_obj.insert("thought_signature".to_string(), json!(sig));
                             func_obj.insert("thoughtSignature".to_string(), json!(sig));
-                            call.as_object_mut().unwrap().insert("thought_signature".to_string(), json!(sig));
-                            call.as_object_mut().unwrap().insert("thoughtSignature".to_string(), json!(sig));
-                            call.as_object_mut().unwrap().insert("extra_content".to_string(), json!({
-                                "google": {
-                                    "thought_signature": sig,
-                                    "thoughtSignature": sig
-                                }
-                            }));
+                            call.as_object_mut()
+                                .unwrap()
+                                .insert("thought_signature".to_string(), json!(sig));
+                            call.as_object_mut()
+                                .unwrap()
+                                .insert("thoughtSignature".to_string(), json!(sig));
+                            call.as_object_mut().unwrap().insert(
+                                "extra_content".to_string(),
+                                json!({
+                                    "google": {
+                                        "thought_signature": sig,
+                                        "thoughtSignature": sig
+                                    }
+                                }),
+                            );
                         }
                         tool_calls.push(call);
                     }
@@ -1984,14 +2013,16 @@ fn read_env_non_empty(key: &str) -> Result<Option<String>, ApiError> {
         Ok(_) | Err(std::env::VarError::NotPresent) => super::dotenv_value(key),
         Err(error) => return Err(ApiError::from(error)),
     };
-    
-    Ok(raw.map(|val| {
-        if val.contains(',') {
-            val.split(',').next().unwrap_or("").trim().to_string()
-        } else {
-            val
-        }
-    }).filter(|s| !s.is_empty()))
+
+    Ok(raw
+        .map(|val| {
+            if val.contains(',') {
+                val.split(',').next().unwrap_or("").trim().to_string()
+            } else {
+                val
+            }
+        })
+        .filter(|s| !s.is_empty()))
 }
 
 #[must_use]
@@ -2049,7 +2080,7 @@ async fn expect_success(response: reqwest::Response) -> Result<reqwest::Response
     let body = response.text().await.unwrap_or_default();
     let parsed_error = serde_json::from_str::<ErrorEnvelope>(&body).ok();
     let mut retryable = is_retryable_status(status) || is_retryable_400(status, &body);
-    
+
     // Do not retry hard quota limits (429 Too Many Requests)
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
         let lowered_body = body.to_ascii_lowercase();
@@ -2976,7 +3007,10 @@ mod tests {
         assert_eq!(out.len(), 2, "orphaned tool message must be converted");
         assert_eq!(out[0]["role"], json!("assistant"));
         assert_eq!(out[1]["role"], json!("user"));
-        assert_eq!(out[1]["content"], json!("[Tool result for orphaned call]: orphaned"));
+        assert_eq!(
+            out[1]["content"],
+            json!("[Tool result for orphaned call]: orphaned")
+        );
 
         // Mismatched tool_call_id
         let mismatched = vec![
@@ -3037,7 +3071,9 @@ mod tests {
         assert!(super::model_rejects_is_error_field("codestral"));
         assert!(super::model_rejects_is_error_field("codestral-latest"));
         assert!(super::model_rejects_is_error_field("mistral-large-latest"));
-        assert!(super::model_rejects_is_error_field("mistral/mistral-large-latest"));
+        assert!(super::model_rejects_is_error_field(
+            "mistral/mistral-large-latest"
+        ));
         assert!(super::model_rejects_is_error_field("ministral-8b-latest"));
 
         // Other non-strict models should NOT be detected

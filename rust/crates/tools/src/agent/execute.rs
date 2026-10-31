@@ -1,17 +1,14 @@
-use std::collections::BTreeSet;
-use runtime::{
-    ConversationRuntime, LaneEvent,
-    PermissionMode, PermissionPolicy, Session,
-};
-use api::model_family_identity_for;
-use runtime::security::permission_enforcer::PermissionEnforcer;
-use runtime::{load_system_prompt, dedupe_superseded_commit_events};
-use crate::normalization::canonical_allowed_tool_name;
-use crate::tool_specs::mvp_tool_specs;
-use crate::tool_search::canonical_tool_token;
-use crate::tool_types::*;
 use crate::agent::provider::*;
 use crate::agent::summary::*;
+use crate::normalization::canonical_allowed_tool_name;
+use crate::tool_search::canonical_tool_token;
+use crate::tool_specs::mvp_tool_specs;
+use crate::tool_types::*;
+use api::model_family_identity_for;
+use runtime::security::permission_enforcer::PermissionEnforcer;
+use runtime::{dedupe_superseded_commit_events, load_system_prompt};
+use runtime::{ConversationRuntime, LaneEvent, PermissionMode, PermissionPolicy, Session};
+use std::collections::BTreeSet;
 
 pub(crate) const DEFAULT_AGENT_MODEL: &str = "claude-opus-4-6";
 pub(crate) const DEFAULT_AGENT_SYSTEM_DATE: &str = "2026-03-31";
@@ -21,7 +18,10 @@ pub(crate) fn execute_agent(input: AgentInput) -> Result<AgentOutput, String> {
     execute_agent_with_spawn(input, spawn_agent_job)
 }
 
-pub(crate) fn execute_agent_with_spawn<F>(input: AgentInput, spawn_fn: F) -> Result<AgentOutput, String>
+pub(crate) fn execute_agent_with_spawn<F>(
+    input: AgentInput,
+    spawn_fn: F,
+) -> Result<AgentOutput, String>
 where
     F: FnOnce(AgentJob) -> Result<(), String>,
 {
@@ -164,7 +164,10 @@ pub(crate) fn build_agent_runtime(
     ))
 }
 
-pub(crate) fn build_agent_system_prompt(subagent_type: &str, model: &str) -> Result<Vec<String>, String> {
+pub(crate) fn build_agent_system_prompt(
+    subagent_type: &str,
+    model: &str,
+) -> Result<Vec<String>, String> {
     let cwd = runtime::workspace::workspace_root();
     let mut prompt = load_system_prompt(
         cwd,
@@ -381,7 +384,6 @@ pub(crate) const CONTEXTUAL_SUMMARY_WORDS: &[&str] = &[
     "verified",
 ];
 
-
 pub(crate) fn agent_store_dir() -> Result<std::path::PathBuf, String> {
     if let Ok(path) = std::env::var("CLAWD_AGENT_STORE") {
         return Ok(std::path::PathBuf::from(path));
@@ -444,4 +446,3 @@ pub(crate) fn iso8601_now() -> String {
         .as_secs()
         .to_string()
 }
-

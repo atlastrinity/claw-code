@@ -1,6 +1,6 @@
 pub mod breaker;
-pub mod cooldown;
 mod client;
+pub mod cooldown;
 mod error;
 mod http_client;
 pub mod key_rotation;
@@ -33,8 +33,9 @@ pub use providers::openai_compat::{
 };
 pub use providers::{
     detect_provider_kind, max_tokens_for_model, max_tokens_for_model_with_override,
-    metadata_for_model, model_family_identity_for, model_family_identity_for_kind, model_token_limit, provider_diagnostics_for_model,
-    resolve_model_alias, ProviderDiagnostics, ProviderKind,
+    metadata_for_model, model_family_identity_for, model_family_identity_for_kind,
+    model_token_limit, provider_diagnostics_for_model, resolve_model_alias, ProviderDiagnostics,
+    ProviderKind,
 };
 pub use sse::{parse_frame, SseParser};
 pub use types::{

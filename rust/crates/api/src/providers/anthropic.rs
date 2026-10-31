@@ -2,8 +2,8 @@ use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use runtime::fractal::FractalRateLimiter;
 use runtime::format_usd;
+use runtime::fractal::FractalRateLimiter;
 use runtime::{
     load_oauth_credentials, save_oauth_credentials, OAuthConfig, OAuthRefreshRequest,
     OAuthTokenExchangeRequest,
@@ -12,9 +12,7 @@ use serde::Deserialize;
 use serde_json::{Map, Value};
 use telemetry::{AnalyticsEvent, AnthropicRequestProfile, ClientIdentity, SessionTracer};
 
-use crate::breaker::{
-    new_breaker, SharedBreaker, DEFAULT_INITIAL_BACKOFF, DEFAULT_MAX_BACKOFF,
-};
+use crate::breaker::{new_breaker, SharedBreaker, DEFAULT_INITIAL_BACKOFF, DEFAULT_MAX_BACKOFF};
 use crate::error::ApiError;
 use crate::http_client::build_http_client_or_default;
 use crate::prompt_cache::{PromptCache, PromptCacheRecord, PromptCacheStats};
@@ -775,14 +773,16 @@ fn read_env_non_empty(key: &str) -> Result<Option<String>, ApiError> {
         Ok(_) | Err(std::env::VarError::NotPresent) => super::dotenv_value(key),
         Err(error) => return Err(ApiError::from(error)),
     };
-    
-    Ok(raw.map(|val| {
-        if val.contains(',') {
-            val.split(',').next().unwrap_or("").trim().to_string()
-        } else {
-            val
-        }
-    }).filter(|s| !s.is_empty()))
+
+    Ok(raw
+        .map(|val| {
+            if val.contains(',') {
+                val.split(',').next().unwrap_or("").trim().to_string()
+            } else {
+                val
+            }
+        })
+        .filter(|s| !s.is_empty()))
 }
 
 #[cfg(test)]
@@ -895,8 +895,6 @@ impl MessageStream {
                     });
                 }
             }
-
-
         }
     }
 
@@ -1398,7 +1396,8 @@ mod tests {
         let max = client.max_backoff;
         let mut samples = Vec::with_capacity(64);
         for _ in 0..64 {
-            let base = crate::breaker::exponential_backoff(3, initial, max).expect("base attempt 3");
+            let base =
+                crate::breaker::exponential_backoff(3, initial, max).expect("base attempt 3");
             let jittered =
                 crate::breaker::jittered_backoff(3, initial, max).expect("jittered attempt 3");
             assert!(

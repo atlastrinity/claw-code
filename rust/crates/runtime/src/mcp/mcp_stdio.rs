@@ -12,11 +12,11 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::time::timeout;
 
 use crate::config::{McpTransport, RuntimeConfig, ScopedMcpServerConfig};
-use crate::mcp_tool_name;
 use crate::mcp::mcp_client::{McpClientBootstrap, McpClientTransport, McpStdioTransport};
 use crate::mcp::mcp_lifecycle_hardened::{
     McpDegradedReport, McpErrorSurface, McpFailedServer, McpLifecyclePhase,
 };
+use crate::mcp_tool_name;
 
 #[cfg(test)]
 const MCP_INITIALIZE_TIMEOUT_MS: u64 = 5000;
@@ -551,7 +551,8 @@ impl McpServerManager {
             .iter()
             .filter(|(_, route)| route.server_name == server_name)
             .map(|(qualified_name, route)| {
-                let description = format!("MCP tool `{}` on server `{}`", route.raw_name, server_name);
+                let description =
+                    format!("MCP tool `{}` on server `{}`", route.raw_name, server_name);
                 ManagedMcpTool {
                     qualified_name: qualified_name.clone(),
                     raw_name: route.raw_name.clone(),
@@ -711,21 +712,36 @@ impl McpServerManager {
         let mut final_arguments = arguments;
         if qualified_tool_name.contains("sequentialthinking") {
             if let Some(obj) = final_arguments.as_mut().and_then(|v| v.as_object_mut()) {
-                if !obj.contains_key("thoughtNumber") || obj.get("thoughtNumber").and_then(|v| v.as_i64()).is_none() {
+                if !obj.contains_key("thoughtNumber")
+                    || obj.get("thoughtNumber").and_then(|v| v.as_i64()).is_none()
+                {
                     obj.insert("thoughtNumber".to_string(), serde_json::json!(1));
                 }
-                if !obj.contains_key("totalThoughts") || obj.get("totalThoughts").and_then(|v| v.as_i64()).is_none() {
+                if !obj.contains_key("totalThoughts")
+                    || obj.get("totalThoughts").and_then(|v| v.as_i64()).is_none()
+                {
                     obj.insert("totalThoughts".to_string(), serde_json::json!(1));
                 }
-                if !obj.contains_key("nextThoughtNeeded") || obj.get("nextThoughtNeeded").and_then(|v| v.as_bool()).is_none() {
+                if !obj.contains_key("nextThoughtNeeded")
+                    || obj
+                        .get("nextThoughtNeeded")
+                        .and_then(|v| v.as_bool())
+                        .is_none()
+                {
                     obj.insert("nextThoughtNeeded".to_string(), serde_json::json!(false));
                 }
                 if !obj.contains_key("thought") {
-                    let extracted = obj.get("prompt").or_else(|| obj.get("description")).cloned();
+                    let extracted = obj
+                        .get("prompt")
+                        .or_else(|| obj.get("description"))
+                        .cloned();
                     if let Some(val) = extracted {
                         obj.insert("thought".to_string(), val);
                     } else {
-                        obj.insert("thought".to_string(), serde_json::json!("Planning execution steps."));
+                        obj.insert(
+                            "thought".to_string(),
+                            serde_json::json!("Planning execution steps."),
+                        );
                     }
                 }
             } else if final_arguments.is_none() {
@@ -733,7 +749,10 @@ impl McpServerManager {
                 map.insert("thoughtNumber".to_string(), serde_json::json!(1));
                 map.insert("totalThoughts".to_string(), serde_json::json!(1));
                 map.insert("nextThoughtNeeded".to_string(), serde_json::json!(false));
-                map.insert("thought".to_string(), serde_json::json!("Planning execution steps."));
+                map.insert(
+                    "thought".to_string(),
+                    serde_json::json!("Planning execution steps."),
+                );
                 final_arguments = Some(serde_json::Value::Object(map));
             }
         }
@@ -752,31 +771,30 @@ impl McpServerManager {
         loop {
             self.ensure_server_ready(&route.server_name).await?;
             let request_id = self.take_request_id();
-            let response =
-                {
-                    let server = self.server_mut(&route.server_name)?;
-                    let process = server.process.as_mut().ok_or_else(|| {
-                        McpServerManagerError::InvalidResponse {
-                            server_name: route.server_name.clone(),
-                            method: "tools/call",
-                            details: "server process missing after initialization".to_string(),
-                        }
-                    })?;
-                    Self::run_process_request(
-                        &route.server_name,
-                        "tools/call",
-                        timeout_ms,
-                        process.call_tool(
-                            request_id,
-                            McpToolCallParams {
-                                name: route.raw_name.clone(),
-                                arguments: final_arguments.clone(),
-                                meta: None,
-                            },
-                        ),
-                    )
-                    .await
-                };
+            let response = {
+                let server = self.server_mut(&route.server_name)?;
+                let process = server.process.as_mut().ok_or_else(|| {
+                    McpServerManagerError::InvalidResponse {
+                        server_name: route.server_name.clone(),
+                        method: "tools/call",
+                        details: "server process missing after initialization".to_string(),
+                    }
+                })?;
+                Self::run_process_request(
+                    &route.server_name,
+                    "tools/call",
+                    timeout_ms,
+                    process.call_tool(
+                        request_id,
+                        McpToolCallParams {
+                            name: route.raw_name.clone(),
+                            arguments: final_arguments.clone(),
+                            meta: None,
+                        },
+                    ),
+                )
+                .await
+            };
 
             match response {
                 Ok(resp) => return Ok(resp),
@@ -1293,12 +1311,12 @@ impl McpStdioProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
-            
+
         #[cfg(all(unix, not(test)))]
         {
             command.process_group(0);
         }
-            
+
         apply_env(&mut command, &transport.env);
         command.env("CLAW_WORKSPACE_ROOT", crate::workspace::workspace_root());
 
@@ -1580,8 +1598,8 @@ mod tests {
         ConfigSource, McpRemoteServerConfig, McpSdkServerConfig, McpServerConfig,
         McpStdioServerConfig, McpWebSocketServerConfig, ScopedMcpServerConfig,
     };
-    use crate::mcp_tool_name;
     use crate::mcp::mcp_client::McpClientBootstrap;
+    use crate::mcp_tool_name;
 
     use super::{
         spawn_mcp_stdio_process, unsupported_server_failed_server, JsonRpcId, JsonRpcRequest,
@@ -1915,7 +1933,8 @@ mod tests {
     }
 
     fn sample_bootstrap(script_path: &Path) -> McpClientBootstrap {
-        let config = ScopedMcpServerConfig { description: None,
+        let config = ScopedMcpServerConfig {
+            description: None,
             required: false,
             scope: ConfigSource::Local,
             config: McpServerConfig::Stdio(McpStdioServerConfig {
@@ -1983,7 +2002,8 @@ mod tests {
             ),
         ]);
         env.extend(extra_env);
-        ScopedMcpServerConfig { description: None,
+        ScopedMcpServerConfig {
+            description: None,
             required: false,
             scope: ConfigSource::Local,
             config: McpServerConfig::Stdio(McpStdioServerConfig {
@@ -2026,7 +2046,8 @@ mod tests {
 
     #[test]
     fn rejects_non_stdio_bootstrap() {
-        let config = ScopedMcpServerConfig { description: None,
+        let config = ScopedMcpServerConfig {
+            description: None,
             required: false,
             scope: ConfigSource::Local,
             config: McpServerConfig::Sdk(crate::config::McpSdkServerConfig {
@@ -2459,7 +2480,8 @@ mod tests {
             let log_path = root.join("timeout.log");
             let servers = BTreeMap::from([(
                 "slow".to_string(),
-                ScopedMcpServerConfig { description: None,
+                ScopedMcpServerConfig {
+                    description: None,
                     required: false,
                     scope: ConfigSource::Local,
                     config: McpServerConfig::Stdio(McpStdioServerConfig {
@@ -2513,7 +2535,8 @@ mod tests {
             let script_path = write_mcp_server_script();
             let servers = BTreeMap::from([(
                 "broken".to_string(),
-                ScopedMcpServerConfig { description: None,
+                ScopedMcpServerConfig {
+                    description: None,
                     required: false,
                     scope: ConfigSource::Local,
                     config: McpServerConfig::Stdio(McpStdioServerConfig {
@@ -2560,8 +2583,7 @@ mod tests {
     }
 
     #[test]
-    fn given_child_exits_after_discovery_when_calling_then_call_tool_auto_retries_and_succeeds()
-    {
+    fn given_child_exits_after_discovery_when_calling_then_call_tool_auto_retries_and_succeeds() {
         let runtime = Builder::new_current_thread()
             .enable_all()
             .build()
@@ -2663,8 +2685,7 @@ mod tests {
     }
 
     #[test]
-    fn given_tool_call_disconnects_once_when_calling_then_call_tool_auto_retries_and_succeeds(
-    ) {
+    fn given_tool_call_disconnects_once_when_calling_then_call_tool_auto_retries_and_succeeds() {
         let runtime = Builder::new_current_thread()
             .enable_all()
             .build()
@@ -2819,7 +2840,8 @@ mod tests {
                 ),
                 (
                     "broken".to_string(),
-                    ScopedMcpServerConfig { description: None,
+                    ScopedMcpServerConfig {
+                        description: None,
                         required: true,
                         scope: ConfigSource::Local,
                         config: McpServerConfig::Stdio(McpStdioServerConfig {
@@ -2905,7 +2927,8 @@ mod tests {
         let servers = BTreeMap::from([
             (
                 "http".to_string(),
-                ScopedMcpServerConfig { description: None,
+                ScopedMcpServerConfig {
+                    description: None,
                     required: true,
                     scope: ConfigSource::Local,
                     config: McpServerConfig::Http(McpRemoteServerConfig {
@@ -2918,7 +2941,8 @@ mod tests {
             ),
             (
                 "sdk".to_string(),
-                ScopedMcpServerConfig { description: None,
+                ScopedMcpServerConfig {
+                    description: None,
                     required: false,
                     scope: ConfigSource::Local,
                     config: McpServerConfig::Sdk(McpSdkServerConfig {
@@ -2928,7 +2952,8 @@ mod tests {
             ),
             (
                 "ws".to_string(),
-                ScopedMcpServerConfig { description: None,
+                ScopedMcpServerConfig {
+                    description: None,
                     required: false,
                     scope: ConfigSource::Local,
                     config: McpServerConfig::Ws(McpWebSocketServerConfig {
@@ -3139,10 +3164,7 @@ mod tests {
             let result = manager
                 .load_and_discover_server("ws-server".to_string(), ws_config)
                 .await;
-            assert!(
-                result.is_err(),
-                "non-stdio transport should be rejected"
-            );
+            assert!(result.is_err(), "non-stdio transport should be rejected");
         });
     }
 

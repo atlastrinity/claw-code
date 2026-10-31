@@ -1,5 +1,5 @@
-use crate::task_graph::types::TaskNode;
 use super::types::{GrishaErrorCode, GrishaExecutionError};
+use crate::task_graph::types::TaskNode;
 
 /// Outcome of Grisha's plan inspection and review.
 #[derive(Debug, Clone)]
@@ -32,7 +32,10 @@ impl GrishaPlanReviewer {
         for node in &enriched {
             if let Some(content) = &node.content {
                 let unquoted = strip_quotes_for_lang_check(content);
-                if unquoted.chars().any(|c| ('\u{0400}'..='\u{04FF}').contains(&c)) {
+                if unquoted
+                    .chars()
+                    .any(|c| ('\u{0400}'..='\u{04FF}').contains(&c))
+                {
                     remarks.push(format!(
                         "Grisha Note: Task '{}' contains Ukrainian terms as requested by the user. Proceeding with execution.",
                         node.id
@@ -48,7 +51,10 @@ impl GrishaPlanReviewer {
                 let parent_exists_in_stored = existing_nodes.iter().any(|n| n.id == *pid);
                 if !parent_exists_in_input && !parent_exists_in_stored {
                     // Auto-create missing parent node with default title
-                    remarks.push(format!("Auto-created missing parent node '{}' for child '{}'.", pid, node.id));
+                    remarks.push(format!(
+                        "Auto-created missing parent node '{}' for child '{}'.",
+                        pid, node.id
+                    ));
                 }
             }
         }
@@ -58,8 +64,12 @@ impl GrishaPlanReviewer {
             let depth = node.id.split('.').count();
             // If top-level node (depth == 1) and no children in plan
             if depth == 1 {
-                let has_children_in_input = enriched.iter().any(|n| n.parent_id.as_deref() == Some(&node.id));
-                let has_children_in_stored = existing_nodes.iter().any(|n| n.parent_id.as_deref() == Some(&node.id));
+                let has_children_in_input = enriched
+                    .iter()
+                    .any(|n| n.parent_id.as_deref() == Some(&node.id));
+                let has_children_in_stored = existing_nodes
+                    .iter()
+                    .any(|n| n.parent_id.as_deref() == Some(&node.id));
                 if !has_children_in_input && !has_children_in_stored {
                     remarks.push(format!(
                         "Grisha Advisory: Phase '{}' has no leaf sub-tasks. You must decompose it recursively (e.g. '{}.1') using TaskGraph operation 'add' before executing mutating actions under it.",
@@ -146,7 +156,8 @@ fn strip_quotes_for_lang_check(s: &str) -> String {
             '“' => in_fancy_double = true,
             '”' => in_fancy_double = false,
             _ => {
-                if !in_single && !in_double && !in_guillemet && !in_fancy_single && !in_fancy_double {
+                if !in_single && !in_double && !in_guillemet && !in_fancy_single && !in_fancy_double
+                {
                     result.push(c);
                 }
             }
@@ -215,7 +226,10 @@ mod tests {
         }];
         let res = GrishaPlanReviewer::review_and_enhance(&nodes, &existing);
         assert!(res.is_err());
-        assert_eq!(res.unwrap_err().code, GrishaErrorCode::PlanRecursiveDuplicate);
+        assert_eq!(
+            res.unwrap_err().code,
+            GrishaErrorCode::PlanRecursiveDuplicate
+        );
     }
 
     #[test]

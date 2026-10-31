@@ -1939,9 +1939,8 @@ fn slash_command_category(name: &str) -> &'static str {
         "help" | "status" | "cost" | "resume" | "session" | "version" | "usage" | "stats"
         | "rename" | "clear" | "compact" | "history" | "tokens" | "cache" | "exit" | "summary"
         | "tag" | "thinkback" | "copy" | "share" | "feedback" | "rewind" | "pin" | "unpin"
-        | "bookmarks" | "context" | "files" | "focus" | "unfocus" | "retry" | "stop" | "undo" | "goal" => {
-            "Session"
-        }
+        | "bookmarks" | "context" | "files" | "focus" | "unfocus" | "retry" | "stop" | "undo"
+        | "goal" => "Session",
         "model" | "permissions" | "config" | "memory" | "theme" | "vim" | "voice" | "color"
         | "effort" | "fast" | "brief" | "output-style" | "keybindings" | "privacy-settings"
         | "stickers" | "language" | "profile" | "max-tokens" | "temperature" | "system-prompt"
@@ -2308,7 +2307,11 @@ pub fn handle_goal_slash_command(action: Option<&str>, active: &mut bool) -> Str
             "⏸️ Long-running Autonomous Goal Mode disabled (/goal off). Returning to standard turn-based prompt mode.".to_string()
         }
         None | Some("status") | Some("check") => {
-            let status = if *active { "ENABLED (ON)" } else { "DISABLED (OFF)" };
+            let status = if *active {
+                "ENABLED (ON)"
+            } else {
+                "DISABLED (OFF)"
+            };
             format!(
                 "🎯 Autonomous Goal Mode: {}\n  Usage: /goal [on|off|status]\n  When enabled, Claw continues executing pending TaskGraph sub-tasks autonomously without pausing for user input after each step.",
                 status
@@ -3129,8 +3132,11 @@ pub fn resolve_skill_invocation(
                         .filter(|(prefix_rank, distance, _)| *prefix_rank <= 1 || *distance <= 3)
                         .collect::<Vec<_>>();
 
-                    suggestions.sort_unstable_by_key(|(prefix, dist, name)| (*prefix, *dist, name.len(), name.clone()));
-                    let suggested_names: Vec<String> = suggestions.into_iter().map(|(_, _, name)| name).collect();
+                    suggestions.sort_unstable_by_key(|(prefix, dist, name)| {
+                        (*prefix, *dist, name.len(), name.clone())
+                    });
+                    let suggested_names: Vec<String> =
+                        suggestions.into_iter().map(|(_, _, name)| name).collect();
                     if !suggested_names.is_empty() {
                         message.push_str("\n  Did you mean: ");
                         message.push_str(&suggested_names.join(", "));
@@ -3235,14 +3241,17 @@ pub fn get_available_skills(cwd: &Path) -> std::io::Result<Vec<(String, Option<S
             let skill_file = path.join("SKILL.md");
             if skill_file.is_file() {
                 result.push((skill.name, skill.description, skill_file));
-            } else if path.is_file() && path.extension().is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("md")) {
+            } else if path.is_file()
+                && path
+                    .extension()
+                    .is_some_and(|ext| ext.to_string_lossy().eq_ignore_ascii_case("md"))
+            {
                 result.push((skill.name, skill.description, path));
             }
         }
     }
     Ok(result)
 }
-
 
 #[allow(clippy::unnecessary_wraps)]
 fn render_mcp_report_for(
@@ -7293,7 +7302,10 @@ mod tests {
         let result = super::resolve_skill_invocation(&temp, Some("xcod"));
         assert!(result.is_err());
         let err_msg = result.err().unwrap();
-        assert!(err_msg.contains("Did you mean: xcode-bridge"), "Error message was: {err_msg}");
+        assert!(
+            err_msg.contains("Did you mean: xcode-bridge"),
+            "Error message was: {err_msg}"
+        );
 
         let _ = fs::remove_dir_all(temp);
     }

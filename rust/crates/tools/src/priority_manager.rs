@@ -1,7 +1,7 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum DomainKind {
@@ -63,8 +63,7 @@ pub fn detect_domain_from_workspace(workspace_root: &Path) -> DomainKind {
         return DomainKind::Python;
     }
 
-    if workspace_root.join("package.json").exists()
-        || workspace_root.join("tsconfig.json").exists()
+    if workspace_root.join("package.json").exists() || workspace_root.join("tsconfig.json").exists()
     {
         return DomainKind::Web;
     }
@@ -222,7 +221,8 @@ pub fn resolve_tool_priorities(
 // Non-Repetition & Fallback Cascade Tracker
 // ---------------------------------------------------------------------------
 
-static FAILURE_TRACKER: std::sync::OnceLock<Mutex<HashMap<String, u32>>> = std::sync::OnceLock::new();
+static FAILURE_TRACKER: std::sync::OnceLock<Mutex<HashMap<String, u32>>> =
+    std::sync::OnceLock::new();
 
 fn get_tracker() -> &'static Mutex<HashMap<String, u32>> {
     FAILURE_TRACKER.get_or_init(|| Mutex::new(HashMap::new()))
@@ -278,10 +278,22 @@ mod tests {
 
     #[test]
     fn test_domain_detection_from_prompt() {
-        assert_eq!(detect_domain_from_prompt("Build iOS app on simulator"), Some(DomainKind::IOS));
-        assert_eq!(detect_domain_from_prompt("Fix cargo build error in crate"), Some(DomainKind::Rust));
-        assert_eq!(detect_domain_from_prompt("Run pytest unit tests"), Some(DomainKind::Python));
-        assert_eq!(detect_domain_from_prompt("Deploy to Firebase hosting"), Some(DomainKind::Web));
+        assert_eq!(
+            detect_domain_from_prompt("Build iOS app on simulator"),
+            Some(DomainKind::IOS)
+        );
+        assert_eq!(
+            detect_domain_from_prompt("Fix cargo build error in crate"),
+            Some(DomainKind::Rust)
+        );
+        assert_eq!(
+            detect_domain_from_prompt("Run pytest unit tests"),
+            Some(DomainKind::Python)
+        );
+        assert_eq!(
+            detect_domain_from_prompt("Deploy to Firebase hosting"),
+            Some(DomainKind::Web)
+        );
         assert_eq!(detect_domain_from_prompt("Hello world"), None);
     }
 
@@ -290,20 +302,30 @@ mod tests {
         let dir = std::env::temp_dir();
 
         // iOS domain test
-        let config_ios = resolve_tool_priorities(&dir, Some("Build Xcode project for simulator"), None);
+        let config_ios =
+            resolve_tool_priorities(&dir, Some("Build Xcode project for simulator"), None);
         assert_eq!(config_ios.domain, DomainKind::IOS);
         assert_eq!(config_ios.primary_mcp_servers[0], "xcode-bridge");
         assert_eq!(config_ios.primary_mcp_servers[1], "ios-simulator");
 
         // Python domain test
-        let config_py = resolve_tool_priorities(&dir, Some("Analyze python code with pyscn and notebook"), None);
+        let config_py = resolve_tool_priorities(
+            &dir,
+            Some("Analyze python code with pyscn and notebook"),
+            None,
+        );
         assert_eq!(config_py.domain, DomainKind::Python);
-        assert!(config_py.primary_mcp_servers.contains(&"pyscn-mcp".to_string()));
+        assert!(config_py
+            .primary_mcp_servers
+            .contains(&"pyscn-mcp".to_string()));
 
         // Web domain test
-        let config_web = resolve_tool_priorities(&dir, Some("Deploy React app to firebase and render"), None);
+        let config_web =
+            resolve_tool_priorities(&dir, Some("Deploy React app to firebase and render"), None);
         assert_eq!(config_web.domain, DomainKind::Web);
-        assert!(config_web.primary_mcp_servers.contains(&"firebase-mcp-server".to_string()));
+        assert!(config_web
+            .primary_mcp_servers
+            .contains(&"firebase-mcp-server".to_string()));
     }
 
     #[test]

@@ -2,9 +2,9 @@ use crate::mcp::{ListMcpResourcesRequest, McpToolRequest, ReadMcpResourceRequest
 use crate::{
     format_tool_result, GlobalToolRegistry, RuntimeMcpState, TerminalRenderer, ToolSearchRequest,
 };
-use serde::Deserialize;
 use api::ToolResultContentBlock;
 use runtime::{RuntimeError, ToolError, ToolExecutor};
+use serde::Deserialize;
 use std::io;
 use std::io::Write;
 use std::sync::{Arc, Mutex};
@@ -99,11 +99,14 @@ impl CliToolExecutor {
         let Some(mcp_state) = &self.mcp_state else {
             return Err(ToolError::new("MCP state is not initialized"));
         };
-        let mut state = mcp_state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = mcp_state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         if let Some(server_name) = input.load_server {
-            let tools = state.load_server(&server_name)
-                .map_err(|err| ToolError::new(format!("failed to load MCP server {server_name}: {err}")))?;
+            let tools = state.load_server(&server_name).map_err(|err| {
+                ToolError::new(format!("failed to load MCP server {server_name}: {err}"))
+            })?;
 
             let runtime_tools = tools
                 .iter()
@@ -111,7 +114,10 @@ impl CliToolExecutor {
                 .collect::<Vec<_>>();
             self.tool_registry.register_dynamic_tools(runtime_tools);
 
-            let tool_names = tools.iter().map(|t| t.qualified_name.clone()).collect::<Vec<_>>();
+            let tool_names = tools
+                .iter()
+                .map(|t| t.qualified_name.clone())
+                .collect::<Vec<_>>();
             return serde_json::to_string_pretty(&serde_json::json!({
                 "status": "success",
                 "message": format!("Successfully loaded MCP server '{}' with {} tools. You can now use the 'Skill' tool to load any paired instructions or documentation for this MCP server.", server_name, tools.len()),
@@ -128,7 +134,9 @@ impl CliToolExecutor {
             let desc = config.description.as_deref().unwrap_or("");
             if name.to_lowercase().contains(&query)
                 || desc.to_lowercase().contains(&query)
-                || format!("{:?}", config.transport()).to_lowercase().contains(&query)
+                || format!("{:?}", config.transport())
+                    .to_lowercase()
+                    .contains(&query)
             {
                 let is_loaded = loaded.contains(name);
                 results.push(serde_json::json!({
@@ -144,11 +152,13 @@ impl CliToolExecutor {
         serde_json::to_string_pretty(&serde_json::json!({
             "query": query,
             "servers": results
-        })).map_err(|error| ToolError::new(error.to_string()))
+        }))
+        .map_err(|error| ToolError::new(error.to_string()))
     }
 
     fn execute_skill_tool(&self, value: serde_json::Value) -> Result<String, ToolError> {
-        let output = self.tool_registry
+        let output = self
+            .tool_registry
             .execute("Skill", &value)
             .map_err(ToolError::new)?;
 
@@ -189,7 +199,9 @@ impl CliToolExecutor {
             return Ok(output);
         }
 
-        let mut state = mcp_state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut state = mcp_state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut loaded_status = Vec::new();
 
         for server_name in coupled_servers {
@@ -205,17 +217,28 @@ impl CliToolExecutor {
                         .map(crate::mcp::mcp_runtime_tool_definition)
                         .collect::<Vec<_>>();
                     self.tool_registry.register_dynamic_tools(runtime_tools);
-                    loaded_status.push(format!("Successfully started coupled MCP server '{}' with {} tools.", server_name, tools.len()));
+                    loaded_status.push(format!(
+                        "Successfully started coupled MCP server '{}' with {} tools.",
+                        server_name,
+                        tools.len()
+                    ));
                 }
                 Err(err) => {
-                    loaded_status.push(format!("Failed to start coupled MCP server '{}': {}", server_name, err));
+                    loaded_status.push(format!(
+                        "Failed to start coupled MCP server '{}': {}",
+                        server_name, err
+                    ));
                 }
             }
         }
 
         let status_message = format!(
             "\n\n### [Coupled MCP Servers]\n{}",
-            loaded_status.iter().map(|s| format!("- {s}")).collect::<Vec<_>>().join("\n")
+            loaded_status
+                .iter()
+                .map(|s| format!("- {s}"))
+                .collect::<Vec<_>>()
+                .join("\n")
         );
 
         Ok(format!("{}{}", output, status_message))

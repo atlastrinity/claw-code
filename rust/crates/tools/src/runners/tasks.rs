@@ -1,14 +1,10 @@
-use serde_json::{json, Value};
-use runtime::{
-    ConfigLoader,
-    worker_boot::WorkerReadySnapshot,
-    TaskPacket,
-};
 use crate::tool_types::*;
 use crate::util::to_pretty_json;
 use crate::{
-    global_task_registry, global_team_registry, global_cron_registry, global_worker_registry,
+    global_cron_registry, global_task_registry, global_team_registry, global_worker_registry,
 };
+use runtime::{worker_boot::WorkerReadySnapshot, ConfigLoader, TaskPacket};
+use serde_json::{json, Value};
 
 pub(crate) fn run_task_create(input: TaskCreateInput) -> Result<String, String> {
     let registry = global_task_registry();
@@ -191,7 +187,9 @@ pub(crate) fn run_worker_terminate(input: WorkerIdInput) -> Result<String, Strin
 }
 
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) fn run_worker_observe_completion(input: WorkerObserveCompletionInput) -> Result<String, String> {
+pub(crate) fn run_worker_observe_completion(
+    input: WorkerObserveCompletionInput,
+) -> Result<String, String> {
     let worker = global_worker_registry().observe_completion(
         &input.worker_id,
         &input.finish_reason,
@@ -284,4 +282,3 @@ pub(crate) fn run_cron_list(_input: Value) -> Result<String, String> {
         "count": entries.len()
     }))
 }
-

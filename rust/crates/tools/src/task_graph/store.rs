@@ -1,5 +1,5 @@
+use crate::task_graph::types::{TaskGraphOutput, TaskNode, TaskStatus};
 use std::path::{Path, PathBuf};
-use crate::task_graph::types::{TaskNode, TaskStatus, TaskGraphOutput};
 
 pub fn task_graph_store_path() -> Result<PathBuf, String> {
     if let Ok(path) = std::env::var("CLAWD_TASK_GRAPH_STORE") {
@@ -61,7 +61,9 @@ pub fn normalize_single_active_leaf(nodes: &mut [TaskNode]) {
         .filter(|(_, n)| {
             n.status == Some(TaskStatus::InProgress) && {
                 let id = &n.id;
-                !nodes.iter().any(|other| other.parent_id.as_deref() == Some(id))
+                !nodes
+                    .iter()
+                    .any(|other| other.parent_id.as_deref() == Some(id))
             }
         })
         .map(|(idx, _)| idx)
@@ -79,13 +81,18 @@ pub fn normalize_single_active_leaf(nodes: &mut [TaskNode]) {
 }
 
 pub fn create_task_checkpoint(store_path: &Path, completed_nodes: &[TaskNode]) {
-    if completed_nodes.is_empty() { return; }
-    let Some(parent) = store_path.parent() else { return; };
+    if completed_nodes.is_empty() {
+        return;
+    }
+    let Some(parent) = store_path.parent() else {
+        return;
+    };
     let checkpoints_dir = parent.join(".claw").join("checkpoints");
     let _ = std::fs::create_dir_all(&checkpoints_dir);
 
     for node in completed_nodes {
-        let checkpoint_file = checkpoints_dir.join(format!("task_{}.json", node.id.replace('.', "_")));
+        let checkpoint_file =
+            checkpoints_dir.join(format!("task_{}.json", node.id.replace('.', "_")));
         let snapshot = serde_json::json!({
             "task_id": node.id,
             "content": node.content,
@@ -101,7 +108,9 @@ pub fn create_task_checkpoint(store_path: &Path, completed_nodes: &[TaskNode]) {
     }
 }
 
-pub fn compute_active_recursion_branch(nodes: &[TaskNode]) -> (Option<String>, Vec<String>, Option<String>) {
+pub fn compute_active_recursion_branch(
+    nodes: &[TaskNode],
+) -> (Option<String>, Vec<String>, Option<String>) {
     let mut in_progress_nodes: Vec<&TaskNode> = nodes
         .iter()
         .filter(|node| node.status == Some(TaskStatus::InProgress))
@@ -132,7 +141,11 @@ pub fn compute_active_recursion_branch(nodes: &[TaskNode]) -> (Option<String>, V
 
     for (idx, node) in chain_nodes.iter().enumerate() {
         let is_leaf = idx == chain_nodes.len() - 1;
-        let tag = if is_leaf { "⚡ ACTIVE LEAF (Lowest Order)" } else { "📂 PARENT PHASE" };
+        let tag = if is_leaf {
+            "⚡ ACTIVE LEAF (Lowest Order)"
+        } else {
+            "📂 PARENT PHASE"
+        };
         summary_lines.push(format!(
             "[{}] \"{}\" ({})",
             node.id,
@@ -272,7 +285,7 @@ pub fn build_active_hierarchy_prompt() -> Option<String> {
     in_progress_nodes.sort_by(|a, b| b.id.len().cmp(&a.id.len()));
 
     let active_leaf = in_progress_nodes.first()?;
-    
+
     // Find Root node (e.g. "1" or "2" or top level parent)
     let root_id = active_leaf.id.split('.').next().unwrap_or(&active_leaf.id);
     let root_node = nodes.iter().find(|n| n.id == root_id);

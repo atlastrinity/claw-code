@@ -44,7 +44,6 @@ const MAX_INSTRUCTION_FILE_CHARS: usize = 4_000;
 const MAX_TOTAL_INSTRUCTION_CHARS: usize = 12_000;
 const MAX_GIT_DIFF_CHARS: usize = 12_000;
 
-
 /// Neutral identity for the model family line in generated prompts.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum ModelFamilyIdentity {
@@ -233,7 +232,7 @@ impl SystemPromptBuilder {
         sections.push(get_creator_directive_section());
         sections.push(get_atlas_living_identity_section());
         sections.push(get_actions_section());
-        
+
         sections.push(SYSTEM_PROMPT_DYNAMIC_BOUNDARY.to_string());
         sections.push(self.environment_section());
 
@@ -347,12 +346,15 @@ fn discover_instruction_files(
     directories.reverse();
 
     let mut files = Vec::new();
-    
+
     // Always try to load global CLAW.md first as system-wide directives
     let home = if cfg!(test) {
         None
     } else {
-        std::env::var("HOME").ok().or_else(|| std::env::var("USERPROFILE").ok()).map(PathBuf::from)
+        std::env::var("HOME")
+            .ok()
+            .or_else(|| std::env::var("USERPROFILE").ok())
+            .map(PathBuf::from)
     };
     if let Some(home_path) = home {
         let global_claw = home_path.join(".claw").join("CLAW.md");
@@ -665,8 +667,15 @@ pub fn load_system_prompt_with_session(
     extra_sections: Vec<String>,
 ) -> Result<Vec<String>, PromptBuildError> {
     let cwd = cwd.into();
-    let (sections, _) =
-        load_system_prompt_with_session_and_context(cwd, current_date, os_name, os_version, model_family, session_id, extra_sections)?;
+    let (sections, _) = load_system_prompt_with_session_and_context(
+        cwd,
+        current_date,
+        os_name,
+        os_version,
+        model_family,
+        session_id,
+        extra_sections,
+    )?;
     Ok(sections)
 }
 
@@ -851,7 +860,7 @@ fn get_simple_doing_tasks_section() -> String {
 
 fn get_language_policy_section() -> String {
     let user_lang = std::env::var("CLAW_USER_LANGUAGE").unwrap_or_else(|_| "Ukrainian".to_string());
-    
+
     let user_facing_rule = if user_lang.eq_ignore_ascii_case("auto") {
         "2. **User Facing (Auto-Detect):** All direct communication with the user (chat messages, text-to-speech output, explanations, conversational text) MUST be in the same language that the user is currently speaking.".to_string()
     } else {
@@ -965,7 +974,8 @@ mod tests {
         fs::create_dir(root.join(".git")).expect("git boundary");
         fs::write(root.join("CLAW.md"), "root instructions").expect("write root instructions");
         fs::create_dir_all(root.join("apps")).expect("apps dir");
-        fs::write(root.join("apps").join("CLAW.md"), "apps instructions").expect("write apps instructions");
+        fs::write(root.join("apps").join("CLAW.md"), "apps instructions")
+            .expect("write apps instructions");
         fs::write(nested.join("CLAW.md"), "nested rules").expect("write nested rules");
 
         let context = ProjectContext::discover(&nested, "2026-03-31").expect("context should load");
@@ -977,11 +987,7 @@ mod tests {
 
         assert_eq!(
             contents,
-            vec![
-                "root instructions",
-                "apps instructions",
-                "nested rules"
-            ]
+            vec!["root instructions", "apps instructions", "nested rules"]
         );
         fs::remove_dir_all(root).expect("cleanup temp dir");
     }
@@ -1249,9 +1255,7 @@ mod tests {
             ModelFamilyIdentity::Claude,
         )
         .expect("system prompt should load")
-        .join(
-            "\n\n",
-        );
+        .join("\n\n");
         std::env::set_current_dir(previous).expect("restore cwd");
         if let Some(value) = original_home {
             std::env::set_var("HOME", value);

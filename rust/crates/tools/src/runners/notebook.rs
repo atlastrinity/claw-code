@@ -1,7 +1,6 @@
-use serde_json::{json, Value};
 use crate::tool_types::*;
 use crate::util::to_pretty_json;
-
+use serde_json::{json, Value};
 
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn run_notebook_edit(input: NotebookEditInput) -> Result<String, String> {
@@ -9,7 +8,9 @@ pub(crate) fn run_notebook_edit(input: NotebookEditInput) -> Result<String, Stri
     to_pretty_json(result)
 }
 
-pub(crate) fn execute_notebook_edit(input: NotebookEditInput) -> Result<NotebookEditOutput, String> {
+pub(crate) fn execute_notebook_edit(
+    input: NotebookEditInput,
+) -> Result<NotebookEditOutput, String> {
     let path = std::path::PathBuf::from(&input.notebook_path);
     if path.extension().and_then(|ext| ext.to_str()) != Some("ipynb") {
         return Err(String::from(
@@ -142,7 +143,11 @@ pub(crate) fn require_notebook_source(
     }
 }
 
-pub(crate) fn build_notebook_cell(cell_id: &str, cell_type: NotebookCellType, source: &str) -> Value {
+pub(crate) fn build_notebook_cell(
+    cell_id: &str,
+    cell_type: NotebookCellType,
+    source: &str,
+) -> Value {
     let mut cell = json!({
         "cell_type": match cell_type {
             NotebookCellType::Code => "code",

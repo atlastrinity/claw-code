@@ -108,7 +108,9 @@ impl GrishaSimulationDetector {
     /// Returns `Err(GrishaExecutionError)` with `GRISHA_SIM_004` if the assistant printed
     /// faux invocation text (e.g. `[Асистент викликав інструмент...]` or raw JSON tool calls in text)
     /// without sending an actual API tool_use.
-    pub fn check_assistant_text_for_simulated_tool_call(text: &str) -> Result<(), GrishaExecutionError> {
+    pub fn check_assistant_text_for_simulated_tool_call(
+        text: &str,
+    ) -> Result<(), GrishaExecutionError> {
         let trimmed = text.trim();
         if trimmed.is_empty() {
             return Ok(());
@@ -195,7 +197,8 @@ mod tests {
 
     #[test]
     fn test_detects_english_textual_tool_imitation() {
-        let text1 = r#"[Assistant called tool 'TaskGraph' with arguments: {"operation":"update_status"}]"#;
+        let text1 =
+            r#"[Assistant called tool 'TaskGraph' with arguments: {"operation":"update_status"}]"#;
         let res1 = GrishaSimulationDetector::check_assistant_text_for_simulated_tool_call(text1);
         assert!(res1.is_err());
         assert_eq!(res1.unwrap_err().code, GrishaErrorCode::SimTextualToolCall);
@@ -221,6 +224,9 @@ mod tests {
         assert!(GrishaSimulationDetector::check_bash_command(good_cmd4).is_ok());
 
         let good_text = "I have reviewed your project and found 3 components.";
-        assert!(GrishaSimulationDetector::check_assistant_text_for_simulated_tool_call(good_text).is_ok());
+        assert!(
+            GrishaSimulationDetector::check_assistant_text_for_simulated_tool_call(good_text)
+                .is_ok()
+        );
     }
 }

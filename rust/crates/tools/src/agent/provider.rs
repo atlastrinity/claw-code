@@ -1,20 +1,19 @@
-use std::collections::{BTreeMap, BTreeSet};
+use crate::execute::execute_tool_with_enforcer;
+use crate::normalization::canonical_allowed_tool_name;
+use crate::provider_pipeline::{ProviderEntry, ResilientProviderChain};
+use crate::registry::ToolSpec;
+use crate::tool_specs::mvp_tool_specs;
 use api::{
-    resolve_model_alias, ApiError, ContentBlockDelta, InputContentBlock,
-    InputMessage, MessageRequest, MessageResponse, OutputContentBlock, ProviderClient,
+    resolve_model_alias, ApiError, ContentBlockDelta, InputContentBlock, InputMessage,
+    MessageRequest, MessageResponse, OutputContentBlock, ProviderClient,
     StreamEvent as ApiStreamEvent, ToolChoice, ToolDefinition, ToolResultContentBlock,
 };
 use runtime::{
-    ApiClient, ApiRequest, AssistantEvent, ContentBlock, ConversationMessage,
-    MessageRole, PromptCacheEvent, ProviderFallbackConfig,
-    RuntimeError, ToolError, ToolExecutor, ContextBudget, ConfigLoader,
-    security::permission_enforcer::PermissionEnforcer,
+    security::permission_enforcer::PermissionEnforcer, ApiClient, ApiRequest, AssistantEvent,
+    ConfigLoader, ContentBlock, ContextBudget, ConversationMessage, MessageRole, PromptCacheEvent,
+    ProviderFallbackConfig, RuntimeError, ToolError, ToolExecutor,
 };
-use crate::provider_pipeline::{ResilientProviderChain, ProviderEntry};
-use crate::registry::ToolSpec;
-use crate::normalization::canonical_allowed_tool_name;
-use crate::execute::execute_tool_with_enforcer;
-use crate::tool_specs::mvp_tool_specs;
+use std::collections::{BTreeMap, BTreeSet};
 
 pub(crate) struct ProviderRuntimeClient {
     runtime: tokio::runtime::Runtime,
@@ -103,7 +102,8 @@ pub(crate) async fn stream_with_provider(
 ) -> Result<Vec<AssistantEvent>, ApiError> {
     let mut stream = client.stream_message(message_request).await?;
     let mut events = Vec::new();
-    let mut pending_tools: BTreeMap<u32, (String, String, String, Option<String>)> = BTreeMap::new();
+    let mut pending_tools: BTreeMap<u32, (String, String, String, Option<String>)> =
+        BTreeMap::new();
     let mut pending_thinking: BTreeMap<u32, (String, Option<String>)> = BTreeMap::new();
     let mut saw_stop = false;
     let mut token_limit_exceeded = false;
@@ -149,11 +149,14 @@ pub(crate) async fn stream_with_provider(
                     }
                 }
                 ContentBlockDelta::SignatureDelta { signature } => {
-                    if let Some((_, _, _, pending_signature)) = pending_tools.get_mut(&delta.index) {
+                    if let Some((_, _, _, pending_signature)) = pending_tools.get_mut(&delta.index)
+                    {
                         pending_signature
                             .get_or_insert_with(String::new)
                             .push_str(&signature);
-                    } else if let Some((_, pending_signature)) = pending_thinking.get_mut(&delta.index) {
+                    } else if let Some((_, pending_signature)) =
+                        pending_thinking.get_mut(&delta.index)
+                    {
                         pending_signature
                             .get_or_insert_with(String::new)
                             .push_str(&signature);
@@ -168,13 +171,21 @@ pub(crate) async fn stream_with_provider(
                     });
                 }
                 if let Some((id, name, input, signature)) = pending_tools.remove(&stop.index) {
-                    events.push(AssistantEvent::ToolUse { id, name, input, signature });
+                    events.push(AssistantEvent::ToolUse {
+                        id,
+                        name,
+                        input,
+                        signature,
+                    });
                 }
             }
             ApiStreamEvent::MessageDelta(delta) => {
                 events.push(AssistantEvent::Usage(delta.usage.token_usage()));
                 if let Some(reason) = delta.delta.stop_reason.as_deref() {
-                    if reason == "length" || reason == "model_context_window_exceeded" || reason == "max_tokens" {
+                    if reason == "length"
+                        || reason == "model_context_window_exceeded"
+                        || reason == "max_tokens"
+                    {
                         token_limit_exceeded = true;
                     }
                 }
@@ -298,7 +309,12 @@ pub(crate) fn convert_messages(messages: &[ConversationMessage]) -> Vec<InputMes
                         thinking: thinking.clone(),
                         signature: signature.clone(),
                     },
-                    ContentBlock::ToolUse { id, name, input, signature } => InputContentBlock::ToolUse {
+                    ContentBlock::ToolUse {
+                        id,
+                        name,
+                        input,
+                        signature,
+                    } => InputContentBlock::ToolUse {
                         id: id.clone(),
                         name: name.clone(),
                         input: serde_json::from_str(input)
@@ -344,7 +360,12 @@ pub(crate) fn push_output_block(
                 events.push(AssistantEvent::TextDelta(text));
             }
         }
-        OutputContentBlock::ToolUse { id, name, input, signature } => {
+        OutputContentBlock::ToolUse {
+            id,
+            name,
+            input,
+            signature,
+        } => {
             let initial_input = if streaming_tool_input
                 && input.is_object()
                 && input.as_object().is_some_and(serde_json::Map::is_empty)
@@ -388,7 +409,12 @@ pub(crate) fn response_to_events(response: MessageResponse) -> Vec<AssistantEven
             false,
         );
         if let Some((id, name, input, signature)) = pending_tools.remove(&index) {
-            events.push(AssistantEvent::ToolUse { id, name, input, signature });
+            events.push(AssistantEvent::ToolUse {
+                id,
+                name,
+                input,
+                signature,
+            });
         }
     }
 
@@ -435,4 +461,3 @@ pub(crate) fn final_assistant_text(summary: &runtime::TurnSummary) -> String {
         })
         .unwrap_or_default()
 }
-

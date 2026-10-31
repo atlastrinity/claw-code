@@ -984,10 +984,7 @@ async fn fractal_circuit_breaker_sheds_after_consecutive_exhausted_chains() {
     let state = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
     let server = spawn_server(
         state.clone(),
-        vec![
-            http_response("500 Internal Server Error", "application/json", "{}");
-            12
-        ],
+        vec![http_response("500 Internal Server Error", "application/json", "{}"); 12],
     )
     .await;
 
@@ -1076,10 +1073,7 @@ async fn fractal_circuit_breaker_escalates_on_permanent_rejections() {
     let state = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
     let server = spawn_server(
         state.clone(),
-        vec![
-            http_response("400 Bad Request", "application/json", "{}");
-            12
-        ],
+        vec![http_response("400 Bad Request", "application/json", "{}"); 12],
     )
     .await;
 

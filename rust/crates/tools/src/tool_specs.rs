@@ -1,6 +1,6 @@
-use serde_json::json;
-use runtime::PermissionMode;
 use crate::registry::ToolSpec;
+use runtime::PermissionMode;
+use serde_json::json;
 
 #[must_use]
 #[allow(clippy::too_many_lines)]

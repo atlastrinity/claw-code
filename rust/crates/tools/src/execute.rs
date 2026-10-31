@@ -1,22 +1,20 @@
+use runtime::{
+    security::permission_enforcer::{EnforcementResult, PermissionEnforcer},
+    BashCommandInput, ContextBudget, GrepSearchInput, PermissionMode, TaskPacket,
+};
 use serde_json::Value;
 use std::time::Instant;
-use runtime::{
-    BashCommandInput, GrepSearchInput, ContextBudget,
-    PermissionMode,
-    security::permission_enforcer::{EnforcementResult, PermissionEnforcer},
-    TaskPacket,
-};
 
-use crate::util::from_value;
-use crate::tool_types::*;
-use crate::runners::*;
-use crate::web::{run_web_fetch, run_web_search};
-use crate::skills::run_skill;
 use crate::agent::run_agent;
-use crate::tool_search::run_tool_search;
 use crate::config::{run_config, run_enter_plan_mode, run_exit_plan_mode};
 use crate::runners::run_powershell;
-use crate::task_graph::{TaskGraphInput, run_task_graph, validate_active_task_for_tool};
+use crate::runners::*;
+use crate::skills::run_skill;
+use crate::task_graph::{run_task_graph, validate_active_task_for_tool, TaskGraphInput};
+use crate::tool_search::run_tool_search;
+use crate::tool_types::*;
+use crate::util::from_value;
+use crate::web::{run_web_fetch, run_web_search};
 
 /// Check permission before executing a tool. Returns Err with denial reason if blocked.
 pub fn enforce_permission_check(
@@ -32,8 +30,6 @@ pub fn enforce_permission_check(
         EnforcementResult::Denied { reason, .. } => Err(reason),
     }
 }
-
-
 
 pub fn execute_tool(name: &str, input: &Value) -> Result<String, String> {
     execute_tool_with_enforcer(None, name, input, ContextBudget::default_budget())
@@ -258,8 +254,15 @@ fn dispatch_tool(
     let input_summary = serde_json::to_string(input).unwrap_or_default();
     match &mut res {
         Ok(out) => {
-            if out.contains("BUILD FAILED") || out.contains("Command failed with exit code") || out.contains("Supported platforms for the buildables in the current scheme is empty") {
-                if let Some(blocker) = crate::priority_manager::record_and_evaluate_tool_failure(name, &input_summary) {
+            if out.contains("BUILD FAILED")
+                || out.contains("Command failed with exit code")
+                || out.contains(
+                    "Supported platforms for the buildables in the current scheme is empty",
+                )
+            {
+                if let Some(blocker) =
+                    crate::priority_manager::record_and_evaluate_tool_failure(name, &input_summary)
+                {
                     out.push_str("\n\n");
                     out.push_str(&blocker);
                 }
@@ -268,7 +271,9 @@ fn dispatch_tool(
             }
         }
         Err(err_msg) => {
-            if let Some(blocker) = crate::priority_manager::record_and_evaluate_tool_failure(name, &input_summary) {
+            if let Some(blocker) =
+                crate::priority_manager::record_and_evaluate_tool_failure(name, &input_summary)
+            {
                 err_msg.push_str("\n\n");
                 err_msg.push_str(&blocker);
             }
@@ -314,13 +319,23 @@ mod tests {
     #[test]
     fn long_errors_are_truncated_with_the_overflow_counted() {
         let summary = summarize_error(&"x".repeat(5_000));
-        assert!(summary.chars().count() < 400, "summary was {} chars", summary.chars().count());
-        assert!(summary.ends_with("… (+4700 chars)"), "summary was: {summary}");
+        assert!(
+            summary.chars().count() < 400,
+            "summary was {} chars",
+            summary.chars().count()
+        );
+        assert!(
+            summary.ends_with("… (+4700 chars)"),
+            "summary was: {summary}"
+        );
     }
 
     #[test]
     fn embedded_command_output_does_not_break_the_log_line() {
         let summary = summarize_error("exit 1\nstdout:\nline1\n\tline2\r\n");
-        assert!(!summary.contains(['\n', '\r', '\t']), "summary was: {summary:?}");
+        assert!(
+            !summary.contains(['\n', '\r', '\t']),
+            "summary was: {summary:?}"
+        );
     }
 }

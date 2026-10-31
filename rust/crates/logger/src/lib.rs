@@ -10,7 +10,10 @@ use tracing_subscriber::{
 /// interleave with the installed agent's log file.
 #[must_use]
 pub fn log_dir() -> Option<std::path::PathBuf> {
-    resolve_log_dir(std::env::var_os("CLAW_LOG_DIR").as_deref(), dirs::home_dir())
+    resolve_log_dir(
+        std::env::var_os("CLAW_LOG_DIR").as_deref(),
+        dirs::home_dir(),
+    )
 }
 
 fn resolve_log_dir(
@@ -24,7 +27,6 @@ fn resolve_log_dir(
     }
     Some(home?.join(".claw").join("logs"))
 }
-
 
 /// Initialize a daily rotating file logger.
 ///
@@ -93,7 +95,10 @@ mod tests {
             resolve_log_dir(Some(OsStr::new("")), home.clone()),
             Some(PathBuf::from("/home/dev/.claw/logs"))
         );
-        assert_eq!(resolve_log_dir(None, home), Some(PathBuf::from("/home/dev/.claw/logs")));
+        assert_eq!(
+            resolve_log_dir(None, home),
+            Some(PathBuf::from("/home/dev/.claw/logs"))
+        );
     }
 
     #[test]

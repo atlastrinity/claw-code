@@ -1,16 +1,13 @@
 pub(crate) mod execute;
-pub(crate) mod summary;
 pub(crate) mod provider;
+pub(crate) mod summary;
 
 #[allow(unused_imports)]
 pub(crate) use execute::*;
 #[allow(unused_imports)]
-pub(crate) use summary::*;
-#[allow(unused_imports)]
 pub(crate) use provider::*;
-
-
-
+#[allow(unused_imports)]
+pub(crate) use summary::*;
 
 use crate::tool_types::*;
 use crate::util::to_pretty_json;

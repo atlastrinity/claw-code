@@ -1,14 +1,14 @@
+use crate::shell::execute_powershell;
+use crate::tool_types::*;
+use crate::util::{iso8601_now, to_pretty_json};
+use runtime::{
+    check_freshness, execute_bash, BashCommandInput, BashCommandOutput, BranchFreshness,
+    ContextBudget, GrepSearchInput, LaneEvent, LaneEventName, LaneEventStatus, LaneFailureClass,
+    PermissionMode,
+};
+use serde_json::json;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use serde_json::json;
-use runtime::{
-    BashCommandInput, BashCommandOutput, PermissionMode, ContextBudget,
-    execute_bash, check_freshness, BranchFreshness, LaneEvent, LaneEventName,
-    LaneEventStatus, LaneFailureClass, GrepSearchInput,
-};
-use crate::util::{to_pretty_json, iso8601_now};
-use crate::tool_types::*;
-use crate::shell::execute_powershell;
 
 /// Classify bash command permission based on command type and path.
 /// ROADMAP #50: Read-only commands targeting CWD paths get `WorkspaceWrite`,
@@ -125,7 +125,9 @@ pub(crate) fn analyze_command_failure_hint(stdout: &str, stderr: &str) -> Option
     if combined.contains("Supported platforms for the buildables in the current scheme is empty") {
         return Some("💡 DIAGNOSTIC HINT: xcodebuild failed because the Xcode scheme is missing supported platforms. Update .xcodegen.yml to set SDKROOT: iphoneos and SUPPORTED_PLATFORMS: \"iphonesimulator iphoneos\", then run 'xcodegen generate -s .xcodegen.yml'.".to_string());
     }
-    if combined.contains("annotated with '@main' and must provide a main static function") || combined.contains("duplicate attribute '@main'") {
+    if combined.contains("annotated with '@main' and must provide a main static function")
+        || combined.contains("duplicate attribute '@main'")
+    {
         return Some("💡 DIAGNOSTIC HINT: Swift compilation failed due to multiple '@main' entry points. Inspect your Swift files (e.g. SceneDelegate.swift vs App.swift) and remove redundant '@main' annotations.".to_string());
     }
     if combined.contains("Unable to find a device matching the provided destination specifier") {
@@ -138,7 +140,15 @@ pub(crate) fn analyze_command_failure_hint(stdout: &str, stderr: &str) -> Option
 }
 
 pub(crate) fn run_bash(input: BashCommandInput, budget: ContextBudget) -> Result<String, String> {
-    if input.command.contains("task.md") && (input.command.contains('>') || input.command.contains("sed ") || input.command.contains("awk ") || input.command.contains("ed ") || input.command.contains("vim ") || input.command.contains("nano ") || input.command.contains("echo ")) {
+    if input.command.contains("task.md")
+        && (input.command.contains('>')
+            || input.command.contains("sed ")
+            || input.command.contains("awk ")
+            || input.command.contains("ed ")
+            || input.command.contains("vim ")
+            || input.command.contains("nano ")
+            || input.command.contains("echo "))
+    {
         return Err("Error: Direct modification of task.md via bash is forbidden. You MUST use the TaskGraph tool to maintain your task tree.".to_string());
     }
     if let Some(output) = workspace_test_branch_preflight(&input.command) {
@@ -301,11 +311,6 @@ pub(crate) fn branch_divergence_output(
         sandbox_status: None,
     }
 }
-
-
-
-
-
 
 pub(crate) fn classify_file_path_permission(path: &str, allow_missing: bool) -> PermissionMode {
     if path_within_current_workspace(path, allow_missing) {
@@ -485,10 +490,13 @@ pub(crate) fn is_within_workspace(path: &str) -> bool {
 }
 
 pub(crate) fn run_powershell(input: PowerShellInput) -> Result<String, String> {
-    if input.command.contains("task.md") && (input.command.contains('>') || input.command.contains("Set-Content") || input.command.contains("Add-Content") || input.command.contains("Out-File")) {
+    if input.command.contains("task.md")
+        && (input.command.contains('>')
+            || input.command.contains("Set-Content")
+            || input.command.contains("Add-Content")
+            || input.command.contains("Out-File"))
+    {
         return Err("Error: Direct modification of task.md via powershell is forbidden. You MUST use the TaskGraph tool to maintain your task tree.".to_string());
     }
     to_pretty_json(execute_powershell(input).map_err(|error| error.to_string())?)
 }
-
-

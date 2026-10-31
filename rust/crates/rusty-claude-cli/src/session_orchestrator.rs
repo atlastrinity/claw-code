@@ -326,7 +326,10 @@ pub fn run_resume_command(
         }
         SlashCommand::Fractal => Ok(ResumeCommandOutcome {
             session: session.clone(),
-            message: Some("Feigenbaum fractal control plane — see `claw fractal --output-format json`".to_string()),
+            message: Some(
+                "Feigenbaum fractal control plane — see `claw fractal --output-format json`"
+                    .to_string(),
+            ),
             json: None,
         }),
         SlashCommand::Cost => {

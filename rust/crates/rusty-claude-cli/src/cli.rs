@@ -8,7 +8,10 @@ pub fn allowed_tools_missing_error(flag: &str) -> String {
     format!("missing_argument: {} requires a tool list before subcommands or flags.\nUsage: {} <tool-name>[,<tool-name>...]  e.g. {} read,glob", flag, flag, flag)
 }
 
-pub fn normalize_allowed_tools(values: &[String], flag_name: &str) -> Result<Option<AllowedToolSet>, String> {
+pub fn normalize_allowed_tools(
+    values: &[String],
+    flag_name: &str,
+) -> Result<Option<AllowedToolSet>, String> {
     if values.is_empty() {
         return Ok(None);
     }
@@ -34,7 +37,6 @@ use crate::{
 };
 use commands::{classify_skills_slash_command, SkillSlashDispatch};
 use std::io::IsTerminal;
-
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CliPreset {
@@ -768,12 +770,17 @@ pub fn parse_args(args: &[String]) -> Result<CliAction, String> {
     }
 
     let allowed_tools = normalize_allowed_tools(&allowed_tool_values, &allowed_tools_flag)?;
-    
+
     let permission_mode = permission_mode_override.unwrap_or_else(default_permission_mode);
     let stdin_is_terminal = std::io::stdin().is_terminal();
-    
+
     // Enforcement of Non-TTY Safety
-    if matches!(permission_mode, PermissionMode::DangerFullAccess) && !stdin_is_terminal && !accept_danger_non_interactive && !cfg!(test) && std::env::var("CARGO_MANIFEST_DIR").is_err() {
+    if matches!(permission_mode, PermissionMode::DangerFullAccess)
+        && !stdin_is_terminal
+        && !accept_danger_non_interactive
+        && !cfg!(test)
+        && std::env::var("CARGO_MANIFEST_DIR").is_err()
+    {
         return Err("permission modes 'danger-full-access' and 'allow' are refused when stdin is not a TTY (non-interactive).\nUse --permission-mode read-only or workspace-write for CI/automation, or pass --accept-danger-non-interactive if you accept the risk.".to_string());
     }
 

@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 pub const DEFAULT_COOLDOWN_DURATION: Duration = Duration::from_secs(60);
 
 /// Thread-safe global key cooldown tracker for all LLM providers.
-pub static GLOBAL_KEY_COOLDOWN: LazyLock<KeyCooldownTracker> = LazyLock::new(KeyCooldownTracker::new);
+pub static GLOBAL_KEY_COOLDOWN: LazyLock<KeyCooldownTracker> =
+    LazyLock::new(KeyCooldownTracker::new);
 
 #[derive(Debug, Clone)]
 pub struct KeyCooldownTracker {
@@ -40,7 +41,9 @@ impl KeyCooldownTracker {
     }
 
     fn save_to_disk(&self) {
-        let Some(path) = Self::get_persistence_path() else { return; };
+        let Some(path) = Self::get_persistence_path() else {
+            return;
+        };
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -62,8 +65,12 @@ impl KeyCooldownTracker {
     }
 
     fn load_from_disk(&self) {
-        let Some(path) = Self::get_persistence_path() else { return; };
-        if !path.exists() { return; }
+        let Some(path) = Self::get_persistence_path() else {
+            return;
+        };
+        if !path.exists() {
+            return;
+        }
         if let Ok(content) = std::fs::read_to_string(&path) {
             if let Ok(entries) = serde_json::from_str::<Vec<(String, usize, u64)>>(&content) {
                 let now = Instant::now();
@@ -87,7 +94,9 @@ impl KeyCooldownTracker {
         self.save_to_disk();
         eprintln!(
             "❄️ API key index {} for model '{}' marked in {}s cooldown",
-            key_index, model, duration.as_secs()
+            key_index,
+            model,
+            duration.as_secs()
         );
     }
 
@@ -176,7 +185,6 @@ impl KeyCooldownTracker {
             || lower.contains("http error")
             || lower.contains("network error")
     }
-
 }
 
 #[cfg(test)]
@@ -211,8 +219,17 @@ mod tests {
 
     #[test]
     fn test_should_trigger_cooldown_detects_network_and_decoding_errors() {
-        assert!(KeyCooldownTracker::should_trigger_cooldown("http error: error decoding response body", 0));
-        assert!(KeyCooldownTracker::should_trigger_cooldown("connection reset by peer", 0));
-        assert!(KeyCooldownTracker::should_trigger_cooldown("rate limit exceeded", 429));
+        assert!(KeyCooldownTracker::should_trigger_cooldown(
+            "http error: error decoding response body",
+            0
+        ));
+        assert!(KeyCooldownTracker::should_trigger_cooldown(
+            "connection reset by peer",
+            0
+        ));
+        assert!(KeyCooldownTracker::should_trigger_cooldown(
+            "rate limit exceeded",
+            429
+        ));
     }
 }

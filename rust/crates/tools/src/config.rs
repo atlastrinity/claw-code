@@ -1,11 +1,10 @@
+use crate::shell::command_exists;
+use crate::tool_types::*;
+use crate::util::to_pretty_json;
+use serde_json::{json, Value};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
-use serde_json::{json, Value};
-use crate::tool_types::*;
-use crate::util::to_pretty_json;
-use crate::shell::command_exists;
-
 
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn run_config(input: ConfigInput) -> Result<String, String> {
@@ -74,7 +73,9 @@ pub(crate) fn execute_config(input: ConfigInput) -> Result<ConfigOutput, String>
 
 pub(crate) const PERMISSION_DEFAULT_MODE_PATH: &[&str] = &["permissions", "defaultMode"];
 
-pub(crate) fn execute_enter_plan_mode(_input: EnterPlanModeInput) -> Result<PlanModeOutput, String> {
+pub(crate) fn execute_enter_plan_mode(
+    _input: EnterPlanModeInput,
+) -> Result<PlanModeOutput, String> {
     let settings_path = config_file_for_scope(ConfigScope::Settings)?;
     let state_path = plan_mode_state_file()?;
     let mut document = read_json_object(&settings_path)?;
@@ -440,7 +441,10 @@ pub(crate) fn supported_config_setting(setting: &str) -> Option<ConfigSettingSpe
     })
 }
 
-pub(crate) fn normalize_config_value(spec: ConfigSettingSpec, value: ConfigValue) -> Result<Value, String> {
+pub(crate) fn normalize_config_value(
+    spec: ConfigSettingSpec,
+    value: ConfigValue,
+) -> Result<Value, String> {
     let normalized = match (spec.kind, value) {
         (ConfigKind::Boolean, ConfigValue::Bool(value)) => Value::Bool(value),
         (ConfigKind::Boolean, ConfigValue::String(value)) => {
@@ -513,7 +517,10 @@ pub(crate) fn read_json_object(path: &Path) -> Result<serde_json::Map<String, Va
     }
 }
 
-pub(crate) fn write_json_object(path: &Path, value: &serde_json::Map<String, Value>) -> Result<(), String> {
+pub(crate) fn write_json_object(
+    path: &Path,
+    value: &serde_json::Map<String, Value>,
+) -> Result<(), String> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).map_err(|error| error.to_string())?;
     }
@@ -536,7 +543,11 @@ pub(crate) fn get_nested_value<'a>(
     Some(current)
 }
 
-pub(crate) fn set_nested_value(root: &mut serde_json::Map<String, Value>, path: &[&str], new_value: Value) {
+pub(crate) fn set_nested_value(
+    root: &mut serde_json::Map<String, Value>,
+    path: &[&str],
+    new_value: Value,
+) {
     let (first, rest) = path.split_first().expect("config path must not be empty");
     if rest.is_empty() {
         root.insert((*first).to_string(), new_value);
@@ -553,7 +564,10 @@ pub(crate) fn set_nested_value(root: &mut serde_json::Map<String, Value>, path: 
     set_nested_value(map, rest, new_value);
 }
 
-pub(crate) fn remove_nested_value(root: &mut serde_json::Map<String, Value>, path: &[&str]) -> bool {
+pub(crate) fn remove_nested_value(
+    root: &mut serde_json::Map<String, Value>,
+    path: &[&str],
+) -> bool {
     let Some((first, rest)) = path.split_first() else {
         return false;
     };
@@ -618,4 +632,3 @@ pub(crate) fn clear_plan_mode_state(path: &Path) -> Result<(), String> {
         Err(error) => Err(error.to_string()),
     }
 }
-

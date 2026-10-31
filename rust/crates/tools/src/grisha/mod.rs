@@ -1,10 +1,10 @@
-pub mod types;
 pub mod detector;
 pub mod plan_reviewer;
+pub mod types;
 
-pub use types::{GrishaErrorCode, GrishaExecutionError};
 pub use detector::GrishaSimulationDetector;
-pub use plan_reviewer::{GrishaPlanReviewer, GrishaPlanReviewOutcome};
+pub use plan_reviewer::{GrishaPlanReviewOutcome, GrishaPlanReviewer};
+pub use types::{GrishaErrorCode, GrishaExecutionError};
 
 /// Central Grisha Supervisor interface.
 pub struct GrishaSupervisor;
@@ -61,16 +61,14 @@ impl GrishaSupervisor {
             let prev_children: Vec<&crate::task_graph::types::TaskNode> = current_nodes
                 .iter()
                 .filter(|n| {
-                    n.id.starts_with(&format!("{}.", prev_phase_id))
-                        || n.id == prev_phase_id
+                    n.id.starts_with(&format!("{}.", prev_phase_id)) || n.id == prev_phase_id
                 })
                 .collect();
 
             let incomplete: Vec<String> = prev_children
                 .iter()
                 .filter(|n| {
-                    n.status != Some(TaskStatus::Completed)
-                        && n.status != Some(TaskStatus::Failed)
+                    n.status != Some(TaskStatus::Completed) && n.status != Some(TaskStatus::Failed)
                 })
                 .map(|n| format!("'{}' ({:?})", n.id, n.status.unwrap_or(TaskStatus::Pending)))
                 .collect();

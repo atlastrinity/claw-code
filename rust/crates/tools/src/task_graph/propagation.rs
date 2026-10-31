@@ -92,10 +92,7 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
                     && parent_node.status != Some(TaskStatus::Failed)
                 {
                     parents_to_fail.push(parent_node.id.clone());
-                } else if !all_finished
-                    && any_started
-                    && parent_status != TaskStatus::InProgress
-                {
+                } else if !all_finished && any_started && parent_status != TaskStatus::InProgress {
                     parents_to_reopen.push(parent_node.id.clone());
                 }
             }
@@ -134,8 +131,9 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
                         .iter()
                         .any(|c| c.status == Some(TaskStatus::InProgress));
                     if !has_active_child {
-                        if let Some(first_pending) =
-                            children.iter().find(|c| c.status == Some(TaskStatus::Pending))
+                        if let Some(first_pending) = children
+                            .iter()
+                            .find(|c| c.status == Some(TaskStatus::Pending))
                         {
                             children_to_activate.push(first_pending.id.clone());
                         }
@@ -156,26 +154,33 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
         //    the agent manually transitions between siblings.
         let mut siblings_to_advance = Vec::new();
         for node in &*current_nodes {
-            if node.status == Some(TaskStatus::Completed) || node.status == Some(TaskStatus::Failed) {
+            if node.status == Some(TaskStatus::Completed) || node.status == Some(TaskStatus::Failed)
+            {
                 // Find siblings under the same parent, sorted by id
                 let mut siblings: Vec<&TaskNode> = current_nodes
                     .iter()
                     .filter(|n| n.parent_id == node.parent_id && n.id != node.id)
                     .collect();
                 siblings.sort_by(|a, b| {
-                    let a_parts: Vec<u32> = a.id.split('.').filter_map(|s| s.parse().ok()).collect();
-                    let b_parts: Vec<u32> = b.id.split('.').filter_map(|s| s.parse().ok()).collect();
+                    let a_parts: Vec<u32> =
+                        a.id.split('.').filter_map(|s| s.parse().ok()).collect();
+                    let b_parts: Vec<u32> =
+                        b.id.split('.').filter_map(|s| s.parse().ok()).collect();
                     a_parts.cmp(&b_parts)
                 });
 
                 // Check if any sibling is already InProgress
-                let has_active_sibling = siblings.iter().any(|s| s.status == Some(TaskStatus::InProgress));
+                let has_active_sibling = siblings
+                    .iter()
+                    .any(|s| s.status == Some(TaskStatus::InProgress));
                 if !has_active_sibling {
                     // Find the next sibling that comes after this node and is Pending
-                    let node_parts: Vec<u32> = node.id.split('.').filter_map(|s| s.parse().ok()).collect();
+                    let node_parts: Vec<u32> =
+                        node.id.split('.').filter_map(|s| s.parse().ok()).collect();
                     if let Some(next_sib) = siblings.iter().find(|s| {
                         s.status == Some(TaskStatus::Pending) && {
-                            let s_parts: Vec<u32> = s.id.split('.').filter_map(|p| p.parse().ok()).collect();
+                            let s_parts: Vec<u32> =
+                                s.id.split('.').filter_map(|p| p.parse().ok()).collect();
                             s_parts > node_parts
                         }
                     }) {

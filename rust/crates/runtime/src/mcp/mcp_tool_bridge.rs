@@ -15,8 +15,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
-use crate::mcp_tool_name;
 use crate::mcp::mcp_stdio::McpServerManager;
+use crate::mcp_tool_name;
 use serde::{Deserialize, Serialize};
 
 /// Status of a managed MCP server connection.
@@ -273,13 +273,22 @@ impl McpToolRegistry {
         let mut final_arguments = arguments.clone();
         if tool_name == "sequentialthinking" || tool_name.ends_with("sequentialthinking") {
             if let Some(obj) = final_arguments.as_object_mut() {
-                if !obj.contains_key("thoughtNumber") || obj.get("thoughtNumber").and_then(|v| v.as_i64()).is_none() {
+                if !obj.contains_key("thoughtNumber")
+                    || obj.get("thoughtNumber").and_then(|v| v.as_i64()).is_none()
+                {
                     obj.insert("thoughtNumber".to_string(), serde_json::json!(1));
                 }
-                if !obj.contains_key("totalThoughts") || obj.get("totalThoughts").and_then(|v| v.as_i64()).is_none() {
+                if !obj.contains_key("totalThoughts")
+                    || obj.get("totalThoughts").and_then(|v| v.as_i64()).is_none()
+                {
                     obj.insert("totalThoughts".to_string(), serde_json::json!(1));
                 }
-                if !obj.contains_key("nextThoughtNeeded") || obj.get("nextThoughtNeeded").and_then(|v| v.as_bool()).is_none() {
+                if !obj.contains_key("nextThoughtNeeded")
+                    || obj
+                        .get("nextThoughtNeeded")
+                        .and_then(|v| v.as_bool())
+                        .is_none()
+                {
                     obj.insert("nextThoughtNeeded".to_string(), serde_json::json!(false));
                 }
                 if !obj.contains_key("thought") {
@@ -453,7 +462,8 @@ mod tests {
         server_name: &str,
         log_path: &Path,
     ) -> ScopedMcpServerConfig {
-        ScopedMcpServerConfig { description: None,
+        ScopedMcpServerConfig {
+            description: None,
             required: false,
             scope: ConfigSource::Local,
             config: McpServerConfig::Stdio(McpStdioServerConfig {

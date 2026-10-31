@@ -1,7 +1,7 @@
-use std::time::Duration;
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::{json, Value};
+use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // RAG tools: retrieve_context + ingest_context

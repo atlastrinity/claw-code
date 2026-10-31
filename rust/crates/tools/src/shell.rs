@@ -1,9 +1,9 @@
+use crate::runners::workspace_test_branch_preflight;
+use crate::tool_types::*;
+use crate::util::iso8601_now;
 use serde_json::json;
 use std::process::Command;
 use std::time::{Duration, Instant};
-use crate::tool_types::*;
-use crate::util::iso8601_now;
-use crate::runners::workspace_test_branch_preflight;
 
 #[allow(dead_code)]
 pub(crate) fn iso8601_timestamp() -> String {
@@ -19,7 +19,9 @@ pub(crate) fn iso8601_timestamp() -> String {
 }
 
 #[allow(clippy::needless_pass_by_value)]
-pub(crate) fn execute_powershell(input: PowerShellInput) -> std::io::Result<runtime::BashCommandOutput> {
+pub(crate) fn execute_powershell(
+    input: PowerShellInput,
+) -> std::io::Result<runtime::BashCommandOutput> {
     let _ = &input.description;
     if let Some(output) = workspace_test_branch_preflight(&input.command) {
         return Ok(output);
@@ -159,9 +161,7 @@ pub(crate) fn execute_shell_command(
                     dangerously_disable_sandbox: None,
                     return_code_interpretation: Some(String::from(return_code_interpretation)),
                     no_output_expected: Some(false),
-                    structured_content: Some(vec![test_timeout_provenance(
-                        command, t_ms, is_test,
-                    )]),
+                    structured_content: Some(vec![test_timeout_provenance(command, t_ms, is_test)]),
                     persisted_output_path: None,
                     persisted_output_size: None,
                     sandbox_status: None,
@@ -256,4 +256,3 @@ mod tests {
         assert_eq!(val_timeout["failureClass"], "timeout");
     }
 }
-

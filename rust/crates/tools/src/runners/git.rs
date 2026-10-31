@@ -1,8 +1,8 @@
-use std::process::Command;
-use serde_json::json;
-use runtime::{BashCommandOutput, LaneEvent, LaneEventName, LaneEventStatus, LaneFailureClass};
 use crate::tool_types::*;
-use crate::util::{to_pretty_json, iso8601_now};
+use crate::util::{iso8601_now, to_pretty_json};
+use runtime::{BashCommandOutput, LaneEvent, LaneEventName, LaneEventStatus, LaneFailureClass};
+use serde_json::json;
+use std::process::Command;
 
 pub(crate) fn run_git_status(input: GitStatusInput) -> Result<String, String> {
     let mut args: Vec<&str> = vec!["status"];
@@ -241,4 +241,3 @@ pub(crate) fn branch_divergence_output(
         sandbox_status: None,
     }
 }
-

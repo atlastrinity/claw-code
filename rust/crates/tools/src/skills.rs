@@ -1,7 +1,6 @@
 use crate::tool_types::*;
 use crate::util::to_pretty_json;
 
-
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn run_skill(input: SkillInput) -> Result<String, String> {
     let result = execute_skill(input)?;
@@ -22,10 +21,6 @@ pub(crate) fn execute_skill(input: SkillInput) -> Result<SkillOutput, String> {
     })
 }
 
-
-
-
-
 pub(crate) fn resolve_skill_path(skill: &str) -> Result<std::path::PathBuf, String> {
     let stripped = skill.strip_prefix("file://").unwrap_or(skill);
     let path = std::path::Path::new(stripped);
@@ -45,11 +40,14 @@ pub(crate) fn resolve_skill_path(skill: &str) -> Result<std::path::PathBuf, Stri
     let cwd = runtime::workspace::workspace_root();
     match commands::resolve_skill_path(&cwd, skill_name) {
         Ok(path) => Ok(path),
-        Err(_) => resolve_skill_path_from_compat_roots(skill_name).map_err(|_| format!("unknown skill: {skill}")),
+        Err(_) => resolve_skill_path_from_compat_roots(skill_name)
+            .map_err(|_| format!("unknown skill: {skill}")),
     }
 }
 
-pub(crate) fn resolve_skill_path_from_compat_roots(skill: &str) -> Result<std::path::PathBuf, String> {
+pub(crate) fn resolve_skill_path_from_compat_roots(
+    skill: &str,
+) -> Result<std::path::PathBuf, String> {
     let requested = skill.trim().trim_start_matches('/').trim_start_matches('$');
     if requested.is_empty() {
         return Err(String::from("skill must not be empty"));
@@ -124,7 +122,10 @@ pub(crate) fn skill_lookup_roots() -> Vec<SkillLookupRoot> {
     roots
 }
 
-pub(crate) fn push_project_skill_lookup_roots(roots: &mut Vec<SkillLookupRoot>, cwd: &std::path::Path) {
+pub(crate) fn push_project_skill_lookup_roots(
+    roots: &mut Vec<SkillLookupRoot>,
+    cwd: &std::path::Path,
+) {
     for ancestor in cwd.ancestors() {
         push_prefixed_skill_lookup_roots(roots, &ancestor.join(".omc"));
         push_prefixed_skill_lookup_roots(roots, &ancestor.join(".agents"));
@@ -134,7 +135,10 @@ pub(crate) fn push_project_skill_lookup_roots(roots: &mut Vec<SkillLookupRoot>, 
     }
 }
 
-pub(crate) fn push_home_skill_lookup_roots(roots: &mut Vec<SkillLookupRoot>, home: &std::path::Path) {
+pub(crate) fn push_home_skill_lookup_roots(
+    roots: &mut Vec<SkillLookupRoot>,
+    home: &std::path::Path,
+) {
     push_prefixed_skill_lookup_roots(roots, &home.join(".omc"));
     push_prefixed_skill_lookup_roots(roots, &home.join(".claw"));
     push_prefixed_skill_lookup_roots(roots, &home.join(".codex"));
@@ -161,7 +165,10 @@ pub(crate) fn push_home_skill_lookup_roots(roots: &mut Vec<SkillLookupRoot>, hom
     );
 }
 
-pub(crate) fn push_prefixed_skill_lookup_roots(roots: &mut Vec<SkillLookupRoot>, prefix: &std::path::Path) {
+pub(crate) fn push_prefixed_skill_lookup_roots(
+    roots: &mut Vec<SkillLookupRoot>,
+    prefix: &std::path::Path,
+) {
     push_skill_lookup_root(roots, prefix.join("skills"), SkillLookupOrigin::SkillsDir);
     push_skill_lookup_root(
         roots,
@@ -313,7 +320,6 @@ pub(crate) const DEFAULT_AGENT_MODEL: &str = "claude-opus-4-6";
 pub(crate) const DEFAULT_AGENT_SYSTEM_DATE: &str = "2026-03-31";
 #[allow(dead_code)]
 pub(crate) const DEFAULT_AGENT_MAX_ITERATIONS: usize = 50;
-
 
 pub(crate) fn parse_skill_description(contents: &str) -> Option<String> {
     for line in contents.lines() {

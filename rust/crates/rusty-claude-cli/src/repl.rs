@@ -33,7 +33,11 @@ pub(crate) fn decide_autonomous_continuation(
         || lower.contains("чекаю");
 
     // Grisha Simulation Check: detect plain-text simulated tool calls
-    if let Err(sim_err) = tools::grisha::GrishaSimulationDetector::check_assistant_text_for_simulated_tool_call(last_assistant_text) {
+    if let Err(sim_err) =
+        tools::grisha::GrishaSimulationDetector::check_assistant_text_for_simulated_tool_call(
+            last_assistant_text,
+        )
+    {
         let prompt = format!(
             "<system-reminder>GRISHA SUPERVISOR ALARM [{}]:\n{}\n\nHOW TO PROCEED:\n{}\n\nCRITICAL: Plain text descriptions or fake JSON strings are NEVER executed by the system. You MUST execute the tool directly through the structured JSON tool call (function call) interface right now.</system-reminder>",
             sim_err.code, sim_err.description, sim_err.remedy
@@ -52,7 +56,8 @@ pub(crate) fn decide_autonomous_continuation(
                 return (false, String::new());
             }
             let nodes = tools::task_graph::parse_task_md_to_nodes(content);
-            let (_active_leaf, _chain, branch_summary) = tools::task_graph::compute_active_recursion_branch(&nodes);
+            let (_active_leaf, _chain, branch_summary) =
+                tools::task_graph::compute_active_recursion_branch(&nodes);
             let task_context = branch_summary.unwrap_or_else(|| {
                 content
                     .lines()
@@ -61,12 +66,12 @@ pub(crate) fn decide_autonomous_continuation(
                     .collect::<Vec<_>>()
                     .join("\n")
             });
-            
+
             let prompt = format!("<system-reminder>CRITICAL: You stopped generating tool calls, but the TaskGraph still contains active/pending tasks:\n{}\n\nIf you have finished the work, you MUST immediately call the TaskGraph tool with operation 'update_status' to mark the active/completed tasks. If you are not finished, continue working on the active lowest-order leaf task using the appropriate tools.</system-reminder>", task_context);
             return (true, prompt);
         }
     }
-    
+
     // In conversational / interactive chat mode (no active tasks in task.md), never auto-continue.
     // The system has completed its turn and presented output/questions to the user.
     (false, String::new())
@@ -146,11 +151,12 @@ pub fn run_repl(
                 // matches a known skill name, invoke it as `/skills <input>`
                 // rather than forwarding raw text to the LLM (ROADMAP #36).
                 let cwd = std::env::current_dir().unwrap_or_default();
-                let (mut current_input, display_input) = if let Some(prompt) = try_resolve_bare_skill_prompt(&cwd, &trimmed) {
-                    (prompt, trimmed.clone())
-                } else {
-                    (trimmed.clone(), trimmed.clone())
-                };
+                let (mut current_input, display_input) =
+                    if let Some(prompt) = try_resolve_bare_skill_prompt(&cwd, &trimmed) {
+                        (prompt, trimmed.clone())
+                    } else {
+                        (trimmed.clone(), trimmed.clone())
+                    };
 
                 editor.push_history(input);
                 cli.record_prompt_history(&display_input);
@@ -171,7 +177,9 @@ pub fn run_repl(
                         auto_continue_count += 1;
                     } else {
                         if auto_continue_count >= max_auto_continue {
-                            println!("⚠️ Reached maximum auto-continuation limit. Returning to chat.");
+                            println!(
+                                "⚠️ Reached maximum auto-continuation limit. Returning to chat."
+                            );
                         }
                         break;
                     }
@@ -296,7 +304,11 @@ impl Drop for BuiltRuntime {
                 if persisted > 0 {
                     eprintln!(
                         "🧠 Auto-learning: збережено {persisted} навичок з {} помилок сесії",
-                        tracker.error_summary().iter().map(|(_, _, c)| c).sum::<usize>()
+                        tracker
+                            .error_summary()
+                            .iter()
+                            .map(|(_, _, c)| c)
+                            .sum::<usize>()
                     );
                 }
             }
@@ -503,7 +515,8 @@ impl LiveCli {
     fn run_turn(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
         tracing::info!(input_len = input.len(), session_id = %self.session.id, "starting turn");
         let hook_abort_signal = runtime::HookAbortSignal::new();
-        self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
+        self.runtime
+            .set_hook_abort_signal(hook_abort_signal.clone());
         let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
         let mut spinner = Spinner::new();
         let mut stdout = io::stdout();
@@ -604,7 +617,8 @@ impl LiveCli {
                             "  Server context window: {} tokens — setting auto-compaction threshold to {}",
                             window, threshold
                         );
-                        self.runtime.set_auto_compaction_input_tokens_threshold(threshold);
+                        self.runtime
+                            .set_auto_compaction_input_tokens_threshold(threshold);
                     }
 
                     // A single compaction pass may not free enough context space.
@@ -658,7 +672,8 @@ impl LiveCli {
                         *self.runtime.session_mut() = result.compacted_session.clone();
 
                         let hook_abort_signal = runtime::HookAbortSignal::new();
-                        self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
+                        self.runtime
+                            .set_hook_abort_signal(hook_abort_signal.clone());
                         let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
                         let mut rp = CliPermissionPrompter::new(self.permission_mode);
                         let retry_result = self.runtime.run_turn(input, Some(&mut rp));
@@ -767,7 +782,8 @@ impl LiveCli {
                         std::thread::sleep(wait);
 
                         let hook_abort_signal = runtime::HookAbortSignal::new();
-                        self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
+                        self.runtime
+                            .set_hook_abort_signal(hook_abort_signal.clone());
                         let new_monitor = HookAbortMonitor::spawn(hook_abort_signal);
                         let mut new_prompter = CliPermissionPrompter::new(self.permission_mode);
 
@@ -867,7 +883,8 @@ impl LiveCli {
     }
     fn run_prompt_compact(&mut self, input: &str) -> Result<(), Box<dyn std::error::Error>> {
         let hook_abort_signal = runtime::HookAbortSignal::new();
-        self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
+        self.runtime
+            .set_hook_abort_signal(hook_abort_signal.clone());
         let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
         let result = self.runtime.run_turn(input, Some(&mut permission_prompter));
@@ -884,7 +901,8 @@ impl LiveCli {
         output_format: crate::cli::CliOutputFormat,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let hook_abort_signal = runtime::HookAbortSignal::new();
-        self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
+        self.runtime
+            .set_hook_abort_signal(hook_abort_signal.clone());
         let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
         let result = self.runtime.run_turn(input, Some(&mut permission_prompter));
@@ -931,7 +949,8 @@ impl LiveCli {
         output_format: crate::cli::CliOutputFormat,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let hook_abort_signal = runtime::HookAbortSignal::new();
-        self.runtime.set_hook_abort_signal(hook_abort_signal.clone());
+        self.runtime
+            .set_hook_abort_signal(hook_abort_signal.clone());
         let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
         let mut permission_prompter = CliPermissionPrompter::new(self.permission_mode);
         let result = self.runtime.run_turn(input, Some(&mut permission_prompter));
@@ -998,7 +1017,8 @@ impl LiveCli {
                 false
             }
             SlashCommand::Goal { action } => {
-                let msg = commands::handle_goal_slash_command(action.as_deref(), &mut self.goal_mode);
+                let msg =
+                    commands::handle_goal_slash_command(action.as_deref(), &mut self.goal_mode);
                 println!("{msg}");
                 false
             }
@@ -2030,7 +2050,8 @@ mod tests {
     fn test_active_task_with_question_and_auto_decide_triggers_prompt() {
         let text = "Чи слід мені обрати варіант А чи варіант Б?";
         let task_md = "# Tasks\n- [ ] Implement feature A\n";
-        let (should_continue, prompt) = decide_autonomous_continuation(text, Some(task_md), false, true);
+        let (should_continue, prompt) =
+            decide_autonomous_continuation(text, Some(task_md), false, true);
         assert!(should_continue);
         assert!(prompt.contains("CLAW_AUTO_DECIDE is enabled"));
     }
@@ -2039,7 +2060,8 @@ mod tests {
     fn test_active_task_with_question_without_auto_decide_waits_for_user() {
         let text = "Чи слід мені обрати варіант А чи варіант Б?";
         let task_md = "# Tasks\n- [ ] Implement feature A\n";
-        let (should_continue, prompt) = decide_autonomous_continuation(text, Some(task_md), false, false);
+        let (should_continue, prompt) =
+            decide_autonomous_continuation(text, Some(task_md), false, false);
         assert!(!should_continue);
         assert!(prompt.is_empty());
     }
@@ -2048,7 +2070,8 @@ mod tests {
     fn test_active_task_without_question_triggers_task_graph_prompt() {
         let text = "Я виконав перший крок і підготував структури.";
         let task_md = "# Tasks\n- [ ] Implement feature A\n";
-        let (should_continue, prompt) = decide_autonomous_continuation(text, Some(task_md), false, false);
+        let (should_continue, prompt) =
+            decide_autonomous_continuation(text, Some(task_md), false, false);
         assert!(should_continue);
         assert!(prompt.contains("TaskGraph"));
     }
@@ -2057,7 +2080,8 @@ mod tests {
     fn test_active_task_with_ukrainian_question_and_emoji_waits_for_user() {
         let text = "Ви підтвердили вік у спливаючому вікні? Дайте мені знати, коли буде готово! 🚀";
         let task_md = "# Tasks\n- [ ] Implement feature A\n";
-        let (should_continue, prompt) = decide_autonomous_continuation(text, Some(task_md), false, false);
+        let (should_continue, prompt) =
+            decide_autonomous_continuation(text, Some(task_md), false, false);
         assert!(!should_continue);
         assert!(prompt.is_empty());
     }
@@ -2066,9 +2090,9 @@ mod tests {
     fn test_completed_tasks_do_not_auto_continue() {
         let text = "Всі завдання завершено!";
         let task_md = "# Tasks\n- [x] Implement feature A\n";
-        let (should_continue, prompt) = decide_autonomous_continuation(text, Some(task_md), false, true);
+        let (should_continue, prompt) =
+            decide_autonomous_continuation(text, Some(task_md), false, true);
         assert!(!should_continue);
         assert!(prompt.is_empty());
     }
 }
-

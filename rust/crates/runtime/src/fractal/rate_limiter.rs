@@ -173,7 +173,9 @@ impl FractalRateLimiter {
 
     #[must_use]
     pub fn all_levels(&self) -> Vec<LevelParams> {
-        (0..=self.max_level).map(|lvl| self.level_params(lvl)).collect()
+        (0..=self.max_level)
+            .map(|lvl| self.level_params(lvl))
+            .collect()
     }
 
     #[must_use]
@@ -191,8 +193,16 @@ impl FractalRateLimiter {
             String::new(),
         ];
         for params in self.all_levels() {
-            let marker = if params.level == self.current_level { " ← ACTIVE" } else { "" };
-            let chaos = if params.level >= self.max_level { " 💥 SHED" } else { "" };
+            let marker = if params.level == self.current_level {
+                " ← ACTIVE"
+            } else {
+                ""
+            };
+            let chaos = if params.level >= self.max_level {
+                " 💥 SHED"
+            } else {
+                ""
+            };
             lines.push(format!(
                 "  L{}: pause={:>6.1}s{}{}",
                 params.level, params.pause_secs, marker, chaos

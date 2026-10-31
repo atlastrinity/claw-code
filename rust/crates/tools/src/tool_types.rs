@@ -1,10 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::util::deserialize_optional_usize;
+use runtime::worker_boot::WorkerTaskReceipt;
+use runtime::{LaneEvent, LaneEventBlocker, McpDegradedReport};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use runtime::{LaneEvent, LaneEventBlocker, McpDegradedReport};
-use runtime::worker_boot::WorkerTaskReceipt;
-use crate::util::deserialize_optional_usize;
 
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
@@ -54,8 +54,6 @@ pub(crate) struct WebSearchInput {
     pub allowed_domains: Option<Vec<String>>,
     pub blocked_domains: Option<Vec<String>>,
 }
-
-
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct SkillInput {
@@ -402,8 +400,6 @@ pub(crate) struct WebSearchOutput {
     #[serde(rename = "durationSeconds")]
     pub duration_seconds: f64,
 }
-
-
 
 #[derive(Debug, Serialize)]
 pub(crate) struct SkillOutput {

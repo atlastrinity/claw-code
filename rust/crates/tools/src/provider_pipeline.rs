@@ -247,8 +247,10 @@ impl ResilientProviderChain {
                 ..Default::default()
             };
 
-            let attempt =
-                runtime.block_on(crate::agent::provider::stream_with_provider(&entry.client, &message_request));
+            let attempt = runtime.block_on(crate::agent::provider::stream_with_provider(
+                &entry.client,
+                &message_request,
+            ));
             match attempt {
                 Ok(events) => {
                     breaker.record_success();

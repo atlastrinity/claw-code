@@ -150,7 +150,10 @@ impl RuntimeMcpState {
                 available_servers.insert(name.clone(), config.clone());
             }
         }
-        if manager.server_names().is_empty() && manager.unsupported_servers().is_empty() && available_servers.is_empty() {
+        if manager.server_names().is_empty()
+            && manager.unsupported_servers().is_empty()
+            && available_servers.is_empty()
+        {
             return Ok(None);
         }
 
@@ -256,7 +259,9 @@ impl RuntimeMcpState {
         self.manager.server_names()
     }
 
-    pub fn available_servers(&self) -> &std::collections::BTreeMap<String, runtime::ScopedMcpServerConfig> {
+    pub fn available_servers(
+        &self,
+    ) -> &std::collections::BTreeMap<String, runtime::ScopedMcpServerConfig> {
         &self.available_servers
     }
 
@@ -276,11 +281,16 @@ impl RuntimeMcpState {
         }
 
         let Some(config) = self.available_servers.get(name).cloned() else {
-            return Err(format!("Server '{}' is not defined in availableMcpServers", name));
+            return Err(format!(
+                "Server '{}' is not defined in availableMcpServers",
+                name
+            ));
         };
 
         self.runtime.block_on(async {
-            self.manager.load_and_discover_server(name.to_string(), config).await
+            self.manager
+                .load_and_discover_server(name.to_string(), config)
+                .await
                 .map_err(|e| e.to_string())
         })
     }
@@ -304,9 +314,10 @@ impl RuntimeMcpState {
         qualified_tool_name: &str,
         arguments: Option<serde_json::Value>,
     ) -> Result<String, ToolError> {
-        let first_result = self
-            .runtime
-            .block_on(self.manager.call_tool(qualified_tool_name, arguments.clone()));
+        let first_result = self.runtime.block_on(
+            self.manager
+                .call_tool(qualified_tool_name, arguments.clone()),
+        );
 
         let response = match first_result {
             Ok(resp) => resp,
@@ -412,7 +423,6 @@ pub fn build_runtime_mcp_state(
     let Some((mcp_state, discovery)) = RuntimeMcpState::new(runtime_config)? else {
         return Ok((None, Vec::new()));
     };
-
 
     let mut runtime_tools = discovery
         .tools

@@ -695,10 +695,10 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             };
             let effective_prompt = merge_prompt_with_stdin(&prompt, stdin_context.as_deref());
             let resolved_model = resolve_repl_model(model)?;
-            
+
             let mut extra_sections = Vec::new();
             let cwd = std::env::current_dir()?;
-            
+
             // Auto match and load skills
             if let Ok(matched_paths) = utils::auto_match_skills(&cwd, &effective_prompt) {
                 for path in matched_paths {
@@ -714,13 +714,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 let content = std::fs::read_to_string(&skill_path)?;
                 extra_sections.push(content);
             }
-            
+
             let runtime_format = if compact && output_format == CliOutputFormat::Text {
                 CliOutputFormat::Json
             } else {
                 output_format
             };
-            let mut cli = LiveCli::new_with_output_format(resolved_model, true, tools, permission_mode, extra_sections, runtime_format)?;
+            let mut cli = LiveCli::new_with_output_format(
+                resolved_model,
+                true,
+                tools,
+                permission_mode,
+                extra_sections,
+                runtime_format,
+            )?;
             cli.set_reasoning_effort(reasoning_effort);
             cli.run_turn_with_output(&effective_prompt, output_format, compact)?;
         }
@@ -833,7 +840,7 @@ fn cleanup_orphaned_processes() {
     let mut sys = sysinfo::System::new_all();
     sys.refresh_all();
     let current_pid = std::process::id();
-    
+
     // Only target known background MCP helper servers, NOT the main CLI binaries (claw, claw-analog).
     // Killing "claw" or "claw-analog" causes child commands or parallel terminal sessions to kill their parent!
     let targets = [
@@ -850,7 +857,7 @@ fn cleanup_orphaned_processes() {
         "mcp_proxy_bundle.js",
         "pyscn-mcp",
     ];
-    
+
     for (pid, process) in sys.processes() {
         if pid.as_u32() == current_pid {
             continue;
@@ -864,17 +871,17 @@ fn cleanup_orphaned_processes() {
             .join(" ");
 
         let is_target = targets.iter().any(|&t| {
-            name_str == t
-                || name_str.ends_with(&format!("/{}", t))
-                || cmd_str.contains(t)
+            name_str == t || name_str.ends_with(&format!("/{}", t)) || cmd_str.contains(t)
         });
-        
+
         if is_target {
-            let is_orphaned = process
-                .parent()
-                .is_none_or(|ppid| ppid.as_u32() == 1);
+            let is_orphaned = process.parent().is_none_or(|ppid| ppid.as_u32() == 1);
             if is_orphaned {
-                tracing::info!("Killing orphaned daemon process: {} (PID: {})", name_str, pid);
+                tracing::info!(
+                    "Killing orphaned daemon process: {} (PID: {})",
+                    name_str,
+                    pid
+                );
                 process.kill();
             }
         }
@@ -1199,7 +1206,8 @@ fn parse_direct_slash_cli_action(
                     base_commit,
                     reasoning_effort: reasoning_effort.clone(),
                     allow_broad_cwd,
-                    preset: None, attach_skill: None,
+                    preset: None,
+                    attach_skill: None,
                 }),
                 SkillSlashDispatch::Local => Ok(CliAction::Skills {
                     args,

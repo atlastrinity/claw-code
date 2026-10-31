@@ -466,7 +466,13 @@ impl ConfigLoader {
             all_warnings.extend(validation.warnings);
             validate_optional_hooks_config(&parsed.object, &entry.path)?;
             merge_mcp_servers(&mut mcp, entry.source, &parsed.object, &entry.path)?;
-            merge_mcp_servers_with_key(&mut available_mcp, entry.source, &parsed.object, &entry.path, "availableMcpServers")?;
+            merge_mcp_servers_with_key(
+                &mut available_mcp,
+                entry.source,
+                &parsed.object,
+                &entry.path,
+                "availableMcpServers",
+            )?;
             deep_merge_objects(&mut merged, &parsed.object);
             loaded_entries.push(entry);
         }
@@ -507,7 +513,13 @@ impl ConfigLoader {
             all_warnings.extend(validation.warnings.iter().map(|w| w.to_string()));
             validate_optional_hooks_config(&parsed.object, &entry.path)?;
             merge_mcp_servers(&mut mcp, entry.source, &parsed.object, &entry.path)?;
-            merge_mcp_servers_with_key(&mut available_mcp, entry.source, &parsed.object, &entry.path, "availableMcpServers")?;
+            merge_mcp_servers_with_key(
+                &mut available_mcp,
+                entry.source,
+                &parsed.object,
+                &entry.path,
+                "availableMcpServers",
+            )?;
             deep_merge_objects(&mut merged, &parsed.object);
             loaded_entries.push(entry);
         }
@@ -609,9 +621,13 @@ impl ConfigLoader {
                 continue;
             }
 
-            if let Err(error) =
-                merge_mcp_servers_with_key(&mut available_mcp, entry.source, &parsed.object, &entry.path, "availableMcpServers")
-            {
+            if let Err(error) = merge_mcp_servers_with_key(
+                &mut available_mcp,
+                entry.source,
+                &parsed.object,
+                &entry.path,
+                "availableMcpServers",
+            ) {
                 let detail = error.to_string();
                 load_error.get_or_insert_with(|| detail.clone());
                 files.push(ConfigFileReport::load_error(
@@ -645,7 +661,8 @@ impl ConfigLoader {
 
         annotate_config_file_precedence(&mut files);
 
-        let runtime_config = match build_runtime_config(merged, loaded_entries, mcp, available_mcp) {
+        let runtime_config = match build_runtime_config(merged, loaded_entries, mcp, available_mcp)
+        {
             Ok(config) => Some(config),
             Err(error) => {
                 load_error.get_or_insert_with(|| error.to_string());
@@ -975,7 +992,6 @@ impl RuntimeConfig {
     pub fn trusted_roots_with_overrides(&self, per_call_roots: &[String]) -> Vec<String> {
         merge_trusted_roots(self.trusted_roots(), per_call_roots)
     }
-
 }
 
 impl RuntimeFeatureConfig {
@@ -1774,7 +1790,10 @@ fn validate_mcp_server_keys(
             )));
         }
     };
-    if let Some(key) = object.keys().find(|key| !allowed.contains(&key.as_str()) && *key != "description") {
+    if let Some(key) = object
+        .keys()
+        .find(|key| !allowed.contains(&key.as_str()) && *key != "description")
+    {
         return Err(ConfigError::Parse(format!(
             "{context}: unknown MCP server field {key}"
         )));

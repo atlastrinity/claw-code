@@ -1,9 +1,9 @@
+use crate::tool_types::*;
+use crate::util::{iso8601_timestamp, to_pretty_json};
+use serde_json::json;
 use std::path::Path;
 use std::process::Command;
 use std::time::{Duration, Instant};
-use serde_json::json;
-use crate::tool_types::*;
-use crate::util::{to_pretty_json, iso8601_timestamp};
 
 pub(crate) const MAX_SLEEP_DURATION_MS: u64 = 86_400_000;
 
@@ -218,7 +218,6 @@ pub(crate) fn detect_first_command(commands: &[&'static str]) -> Option<&'static
         .copied()
         .find(|command| crate::shell::command_exists(command))
 }
-
 
 #[allow(clippy::needless_pass_by_value)]
 pub(crate) fn run_sleep(input: SleepInput) -> Result<String, String> {

@@ -464,11 +464,17 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for HookMiddleware<'a> {
 
                 if new_is_error {
                     let directive = format_grisha_tool_failure_directive(tool_name, &new_output);
-                    
+
                     if let Ok(mut json) = serde_json::from_str::<serde_json::Value>(&new_output) {
                         if let Some(obj) = json.as_object_mut() {
-                            obj.insert("system_directive".to_string(), serde_json::Value::String(directive.clone()));
-                            obj.insert("grisha_recovery_guidance".to_string(), serde_json::Value::String(directive.clone()));
+                            obj.insert(
+                                "system_directive".to_string(),
+                                serde_json::Value::String(directive.clone()),
+                            );
+                            obj.insert(
+                                "grisha_recovery_guidance".to_string(),
+                                serde_json::Value::String(directive.clone()),
+                            );
                             if let Ok(serialized) = serde_json::to_string(&json) {
                                 new_output = serialized;
                             } else {
@@ -583,7 +589,10 @@ fn merge_hook_feedback(messages: &[String], output: String, is_error: bool) -> S
             } else {
                 "hook_feedback"
             };
-            obj.insert(label.to_string(), serde_json::Value::String(feedback_text.clone()));
+            obj.insert(
+                label.to_string(),
+                serde_json::Value::String(feedback_text.clone()),
+            );
             if let Ok(serialized) = serde_json::to_string(&json) {
                 return serialized;
             }
@@ -608,35 +617,63 @@ fn format_grisha_tool_failure_directive(tool_name: &str, output: &str) -> String
 
     let mut action_items = Vec::new();
 
-    let diagnosis = if lower.contains("old_string and new_string must differ") || lower.contains("must differ") {
+    let diagnosis = if lower.contains("old_string and new_string must differ")
+        || lower.contains("must differ")
+    {
         action_items.push("1. The target file already contains the replacement content, or `old_string` and `new_string` are identical.");
         action_items.push("2. Use `read_file` to verify the actual file content on disk.");
         action_items.push("3. Do NOT repeat the edit_file call with identical strings. Move to the next task or verify the build.");
-        "File edit parameter error: `old_string` and `new_string` are identical (no-op edit).".to_string()
-    } else if lower.contains("old_string not found in file") || lower.contains("target not matched") {
-        action_items.push("1. Use `read_file` to inspect the exact lines and formatting of the target file.");
+        "File edit parameter error: `old_string` and `new_string` are identical (no-op edit)."
+            .to_string()
+    } else if lower.contains("old_string not found in file") || lower.contains("target not matched")
+    {
+        action_items.push(
+            "1. Use `read_file` to inspect the exact lines and formatting of the target file.",
+        );
         action_items.push("2. Copy the exact character sequence from the file into `old_string` without assuming or guessing contents.");
         "The `old_string` exact text was not found in the target file.".to_string()
-    } else if lower.contains(".xcodeproj") && (lower.contains("does not exist") || lower.contains("not found")) {
+    } else if lower.contains(".xcodeproj")
+        && (lower.contains("does not exist") || lower.contains("not found"))
+    {
         action_items.push("1. Verify project structure via `glob_search` or `list_dir` (e.g. check if .xcodeproj is inside a subfolder like `NetPulsePro/`).");
         action_items.push("2. Provide the exact path to `-project` (e.g. `xcodebuild -project NetPulsePro/NetPulsePro.xcodeproj`).");
         action_items.push("3. If the project file needs to be generated first, run `xcodegen generate` inside the project folder.");
         "Target Xcode project or workspace was not found at the specified path.".to_string()
-    } else if lower.contains("xcodebuild:") || lower.contains("exit_code: 65") || lower.contains("exit_code: 66") || lower.contains("exit_code: 101") {
+    } else if lower.contains("xcodebuild:")
+        || lower.contains("exit_code: 65")
+        || lower.contains("exit_code: 66")
+        || lower.contains("exit_code: 101")
+    {
         action_items.push("1. Inspect compiler/build error diagnostics above for missing symbols, wrong flags, or missing settings.");
         action_items.push("2. Follow RECURSIVE ROOT-CAUSE RECOVERY MANDATE: Decompose the active task into `.1 Diagnose Root Cause`, `.2 Apply Fix`, `.3 Verify` using TaskGraph.");
-        action_items.push("3. Apply the necessary code or configuration fixes before re-running the build.");
+        action_items.push(
+            "3. Apply the necessary code or configuration fixes before re-running the build.",
+        );
         "Build, compilation, or test command failed during execution.".to_string()
-    } else if lower.contains("does not exist") || lower.contains("no such file") || lower.contains("not found") {
+    } else if lower.contains("does not exist")
+        || lower.contains("no such file")
+        || lower.contains("not found")
+    {
         action_items.push("1. Use `glob_search` or `list_dir` to locate the correct file path.");
         action_items.push("2. Verify whether the tool expects an absolute or relative path from the workspace root.");
-        "The referenced file or directory path does not exist in the current working directory.".to_string()
-    } else if lower.contains("sequential control enforcement") || lower.contains("plan-first") || lower.contains("strict taskgraph") {
-        action_items.push("1. Check the active leaf task via `TaskGraph` operation: `view` or read `task.md`.");
+        "The referenced file or directory path does not exist in the current working directory."
+            .to_string()
+    } else if lower.contains("sequential control enforcement")
+        || lower.contains("plan-first")
+        || lower.contains("strict taskgraph")
+    {
+        action_items.push(
+            "1. Check the active leaf task via `TaskGraph` operation: `view` or read `task.md`.",
+        );
         action_items.push("2. Focus only on the active leaf task, or update/decompose tasks before executing mutating actions.");
         "Action is blocked by TaskGraph plan enforcement rules.".to_string()
-    } else if (lower.contains("mcp server") && !lower.contains("fallback mcp server")) || lower.contains("timed out") || lower.contains("connection refused") {
-        action_items.push("1. Check if the required MCP server or simulator device is booted and responsive.");
+    } else if (lower.contains("mcp server") && !lower.contains("fallback mcp server"))
+        || lower.contains("timed out")
+        || lower.contains("connection refused")
+    {
+        action_items.push(
+            "1. Check if the required MCP server or simulator device is booted and responsive.",
+        );
         action_items.push("2. Use diagnostic or discovery tools to re-verify connectivity.");
         "MCP server or external subsystem communication failed or timed out.".to_string()
     } else {
@@ -950,10 +987,8 @@ mod rag_middleware_tests {
 
     #[test]
     fn format_grisha_tool_failure_directive_diagnoses_old_string_mismatch() {
-        let directive = format_grisha_tool_failure_directive(
-            "edit_file",
-            "old_string not found in file",
-        );
+        let directive =
+            format_grisha_tool_failure_directive("edit_file", "old_string not found in file");
         assert!(directive.contains("GRISHA QUALITY & ROOT-CAUSE RECOVERY DIRECTIVE"));
         assert!(directive.contains("The `old_string` exact text was not found"));
         assert!(directive.contains("read_file"));
@@ -961,10 +996,8 @@ mod rag_middleware_tests {
 
     #[test]
     fn format_grisha_tool_failure_directive_diagnoses_compilation_failure() {
-        let directive = format_grisha_tool_failure_directive(
-            "bash",
-            "error: build failed with exit_code: 65",
-        );
+        let directive =
+            format_grisha_tool_failure_directive("bash", "error: build failed with exit_code: 65");
         assert!(directive.contains("GRISHA QUALITY & ROOT-CAUSE RECOVERY DIRECTIVE"));
         assert!(directive.contains("Build, compilation, or test command failed"));
         assert!(directive.contains("RECURSIVE ROOT-CAUSE RECOVERY MANDATE"));
@@ -991,4 +1024,3 @@ mod rag_middleware_tests {
         assert!(!directive.contains("MCP server or external subsystem communication failed"));
     }
 }
-

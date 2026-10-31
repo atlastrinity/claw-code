@@ -1,7 +1,7 @@
-use std::time::{Duration, Instant};
-use reqwest::blocking::Client;
 use crate::tool_types::*;
 use crate::web::search::*;
+use reqwest::blocking::Client;
+use std::time::{Duration, Instant};
 
 pub(crate) fn execute_web_fetch(input: &WebFetchInput) -> Result<WebFetchOutput, String> {
     let started = Instant::now();
@@ -244,4 +244,3 @@ pub(crate) fn preview_text(input: &str, max_chars: usize) -> String {
     let shortened = input.chars().take(max_chars).collect::<String>();
     format!("{}…", shortened.trim_end())
 }
-

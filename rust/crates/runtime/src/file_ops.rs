@@ -330,7 +330,11 @@ pub fn edit_file(
 }
 
 /// Expands a glob pattern and returns matching filenames.
-pub fn glob_search(pattern: &str, path: Option<&str>, max_glob_files: usize) -> io::Result<GlobSearchOutput> {
+pub fn glob_search(
+    pattern: &str,
+    path: Option<&str>,
+    max_glob_files: usize,
+) -> io::Result<GlobSearchOutput> {
     glob_search_impl(pattern, path, None, max_glob_files)
 }
 
@@ -413,7 +417,10 @@ fn glob_search_impl(
 }
 
 /// Runs a regex search over workspace files with optional context lines.
-pub fn grep_search(input: &GrepSearchInput, max_lines_budget: usize) -> io::Result<GrepSearchOutput> {
+pub fn grep_search(
+    input: &GrepSearchInput,
+    max_lines_budget: usize,
+) -> io::Result<GrepSearchOutput> {
     grep_search_impl(input, None, max_lines_budget)
 }
 
@@ -877,16 +884,26 @@ mod tests {
             .expect("write inside workspace should succeed");
 
         // Reading inside workspace should succeed
-        let result =
-            read_file_in_workspace(inside.to_string_lossy().as_ref(), None, None, &workspace, 1000);
+        let result = read_file_in_workspace(
+            inside.to_string_lossy().as_ref(),
+            None,
+            None,
+            &workspace,
+            1000,
+        );
         assert!(result.is_ok());
 
         // Reading outside workspace should fail
         let outside = temp_path("outside-boundary.txt");
         write_file(outside.to_string_lossy().as_ref(), "unsafe content")
             .expect("write outside should succeed");
-        let result =
-            read_file_in_workspace(outside.to_string_lossy().as_ref(), None, None, &workspace, 1000);
+        let result = read_file_in_workspace(
+            outside.to_string_lossy().as_ref(),
+            None,
+            None,
+            &workspace,
+            1000,
+        );
         assert!(result.is_err());
         let error = result.unwrap_err();
         assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
@@ -926,8 +943,13 @@ mod tests {
         let link_path = workspace.join("linked-secret.txt");
         std::os::unix::fs::symlink(&outside_file, &link_path).expect("symlink should create");
 
-        let result =
-            read_file_in_workspace(link_path.to_string_lossy().as_ref(), None, None, &workspace, 1000);
+        let result = read_file_in_workspace(
+            link_path.to_string_lossy().as_ref(),
+            None,
+            None,
+            &workspace,
+            1000,
+        );
 
         assert!(result.is_err(), "symlink escape must be rejected");
         let error = result.unwrap_err();
@@ -990,22 +1012,25 @@ mod tests {
             .expect("glob should succeed");
         assert_eq!(globbed.num_files, 1);
 
-        let grep_output = grep_search(&GrepSearchInput {
-            pattern: String::from("hello"),
-            path: Some(dir.to_string_lossy().into_owned()),
-            glob: Some(String::from("**/*.rs")),
-            output_mode: Some(String::from("content")),
-            before: None,
-            after: None,
-            context_short: None,
-            context: None,
-            line_numbers: Some(true),
-            case_insensitive: Some(false),
-            file_type: None,
-            head_limit: Some(10),
-            offset: Some(0),
-            multiline: Some(false),
-        }, 1000)
+        let grep_output = grep_search(
+            &GrepSearchInput {
+                pattern: String::from("hello"),
+                path: Some(dir.to_string_lossy().into_owned()),
+                glob: Some(String::from("**/*.rs")),
+                output_mode: Some(String::from("content")),
+                before: None,
+                after: None,
+                context_short: None,
+                context: None,
+                line_numbers: Some(true),
+                case_insensitive: Some(false),
+                file_type: None,
+                head_limit: Some(10),
+                offset: Some(0),
+                multiline: Some(false),
+            },
+            1000,
+        )
         .expect("grep should succeed");
         assert!(grep_output.content.unwrap_or_default().contains("hello"));
     }
@@ -1048,8 +1073,8 @@ mod tests {
         std::fs::write(dir.join("b.toml"), "[package]").unwrap();
         std::fs::write(dir.join("c.txt"), "hello").unwrap();
 
-        let result =
-            glob_search("*.{rs,toml}", Some(dir.to_str().unwrap()), 1000).expect("glob should succeed");
+        let result = glob_search("*.{rs,toml}", Some(dir.to_str().unwrap()), 1000)
+            .expect("glob should succeed");
         assert_eq!(
             result.num_files, 2,
             "should match .rs and .toml but not .txt"
@@ -1072,8 +1097,8 @@ mod tests {
         std::fs::write(dir.join(".build/checkouts/pkg/AGENTS.md"), ".build").unwrap();
         std::fs::write(dir.join("target/debug/deps/AGENTS.md"), "target").unwrap();
 
-        let result =
-            glob_search("**/AGENTS.md", Some(dir.to_str().unwrap()), 1000).expect("glob should succeed");
+        let result = glob_search("**/AGENTS.md", Some(dir.to_str().unwrap()), 1000)
+            .expect("glob should succeed");
 
         assert_eq!(result.num_files, 2, "ignored dirs should be pruned");
         assert!(result

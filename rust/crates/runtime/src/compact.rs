@@ -934,7 +934,9 @@ mod tests {
             } else {
                 session
                     .messages
-                    .push(ConversationMessage::assistant(vec![ContentBlock::Text { text }]));
+                    .push(ConversationMessage::assistant(vec![ContentBlock::Text {
+                        text,
+                    }]));
             }
         }
 

@@ -1,6 +1,3 @@
-use std::sync::{Mutex, OnceLock, RwLock};
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use crate::error::ApiError;
 use crate::key_rotation;
 use crate::prompt_cache::{PromptCache, PromptCacheRecord, PromptCacheStats};
@@ -8,6 +5,9 @@ use crate::providers::anthropic::{self, AnthropicClient, AuthSource};
 use crate::providers::openai_compat::{self, OpenAiCompatClient, OpenAiCompatConfig};
 use crate::providers::{self, ProviderKind};
 use crate::types::{MessageRequest, MessageResponse, StreamEvent};
+use std::collections::HashMap;
+use std::sync::{Mutex, OnceLock, RwLock};
+use std::time::{Duration, Instant};
 
 fn get_active_key_index(model: &str) -> usize {
     static ACTIVE_KEYS: OnceLock<RwLock<HashMap<String, usize>>> = OnceLock::new();
@@ -304,11 +304,21 @@ impl ProviderClient {
                             OpenAiCompatConfig::dashscope()
                         }
                         Some(meta) if meta.auth_env == "GLM_API_KEY" => OpenAiCompatConfig::glm(),
-                        Some(meta) if meta.auth_env == "CLOUDFLARE_API_TOKEN" => OpenAiCompatConfig::cloudflare(),
-                        Some(meta) if meta.auth_env == "NVIDIA_API_KEY" => OpenAiCompatConfig::nvidia(),
-                        Some(meta) if meta.auth_env == "GEMINI_API_KEY" => OpenAiCompatConfig::gemini(),
-                        Some(meta) if meta.auth_env == "SILICONFLOW_API_KEY" => OpenAiCompatConfig::siliconflow(),
-                        Some(meta) if meta.auth_env == "MISTRAL_API_KEY" => OpenAiCompatConfig::mistral(),
+                        Some(meta) if meta.auth_env == "CLOUDFLARE_API_TOKEN" => {
+                            OpenAiCompatConfig::cloudflare()
+                        }
+                        Some(meta) if meta.auth_env == "NVIDIA_API_KEY" => {
+                            OpenAiCompatConfig::nvidia()
+                        }
+                        Some(meta) if meta.auth_env == "GEMINI_API_KEY" => {
+                            OpenAiCompatConfig::gemini()
+                        }
+                        Some(meta) if meta.auth_env == "SILICONFLOW_API_KEY" => {
+                            OpenAiCompatConfig::siliconflow()
+                        }
+                        Some(meta) if meta.auth_env == "MISTRAL_API_KEY" => {
+                            OpenAiCompatConfig::mistral()
+                        }
                         _ => OpenAiCompatConfig::openai(),
                     };
                     Ok(Self::OpenAi(OpenAiCompatClient::from_env(config)?))
@@ -325,20 +335,15 @@ impl ProviderClient {
         let api_key_env = match providers::detect_provider_kind(&resolved_model) {
             ProviderKind::Anthropic => "ANTHROPIC_API_KEY",
             ProviderKind::Xai => "XAI_API_KEY",
-            ProviderKind::OpenAi => {
-                match providers::metadata_for_model(&resolved_model) {
-                    Some(meta) => meta.auth_env,
-                    None => "OPENAI_API_KEY",
-                }
-            }
+            ProviderKind::OpenAi => match providers::metadata_for_model(&resolved_model) {
+                Some(meta) => meta.auth_env,
+                None => "OPENAI_API_KEY",
+            },
         };
         key_rotation::has_key_at_index(api_key_env, key_index)
     }
 
-    pub fn from_model_with_key_index(
-        model: &str,
-        key_index: usize,
-    ) -> Result<Self, ApiError> {
+    pub fn from_model_with_key_index(model: &str, key_index: usize) -> Result<Self, ApiError> {
         let resolved_model = providers::resolve_model_alias(model);
         let client = Self::client_for_model_at_index(&resolved_model, key_index)?;
         Ok(client.bound_to_model(&resolved_model))
@@ -355,16 +360,13 @@ impl ProviderClient {
         }
     }
 
-    fn client_for_model_at_index(
-        resolved_model: &str,
-        key_index: usize,
-    ) -> Result<Self, ApiError> {
+    fn client_for_model_at_index(resolved_model: &str, key_index: usize) -> Result<Self, ApiError> {
         match providers::detect_provider_kind(resolved_model) {
             ProviderKind::Anthropic => {
                 let auth_env = "ANTHROPIC_API_KEY";
                 let api_key = key_rotation::key_at_index(auth_env, key_index);
                 let auth_token = key_rotation::key_at_index("ANTHROPIC_AUTH_TOKEN", key_index);
-                
+
                 let auth_source = match (api_key, auth_token) {
                     (Some(api_key), Some(bearer_token)) => AuthSource::ApiKeyAndBearer {
                         api_key,
@@ -372,11 +374,13 @@ impl ProviderClient {
                     },
                     (Some(api_key), None) => AuthSource::ApiKey(api_key),
                     (None, Some(bearer_token)) => AuthSource::BearerToken(bearer_token),
-                    (None, None) => return Err(ApiError::Auth("Missing ANTHROPIC_API_KEY".to_string())),
+                    (None, None) => {
+                        return Err(ApiError::Auth("Missing ANTHROPIC_API_KEY".to_string()))
+                    }
                 };
-                
+
                 let mut client = AnthropicClient::from_auth(auth_source);
-                
+
                 // For base URL, try numbered env var, then default
                 let base_url_keys = key_rotation::parse_keys("ANTHROPIC_BASE_URL");
                 if let Some(url) = base_url_keys.into_iter().nth(key_index.saturating_sub(1)) {
@@ -384,15 +388,18 @@ impl ProviderClient {
                         client = client.with_base_url(url);
                     }
                 }
-                
+
                 Ok(Self::Anthropic(client))
             }
             ProviderKind::Xai => {
                 let config = OpenAiCompatConfig::xai();
-                let api_key = key_rotation::key_at_index(config.api_key_env, key_index)
-                    .unwrap_or_default();
+                let api_key =
+                    key_rotation::key_at_index(config.api_key_env, key_index).unwrap_or_default();
                 if api_key.is_empty() {
-                    return Err(ApiError::Auth(format!("Missing credentials for provider: {}", config.provider_name)));
+                    return Err(ApiError::Auth(format!(
+                        "Missing credentials for provider: {}",
+                        config.provider_name
+                    )));
                 }
                 let base_url_keys = key_rotation::parse_keys(config.base_url_env);
                 let base_url = base_url_keys
@@ -418,24 +425,37 @@ impl ProviderClient {
                             OpenAiCompatConfig::dashscope()
                         }
                         Some(meta) if meta.auth_env == "GLM_API_KEY" => OpenAiCompatConfig::glm(),
-                        Some(meta) if meta.auth_env == "CLOUDFLARE_API_TOKEN" => OpenAiCompatConfig::cloudflare(),
-                        Some(meta) if meta.auth_env == "NVIDIA_API_KEY" => OpenAiCompatConfig::nvidia(),
-                        Some(meta) if meta.auth_env == "GEMINI_API_KEY" => OpenAiCompatConfig::gemini(),
-                        Some(meta) if meta.auth_env == "SILICONFLOW_API_KEY" => OpenAiCompatConfig::siliconflow(),
-                        Some(meta) if meta.auth_env == "MISTRAL_API_KEY" => OpenAiCompatConfig::mistral(),
+                        Some(meta) if meta.auth_env == "CLOUDFLARE_API_TOKEN" => {
+                            OpenAiCompatConfig::cloudflare()
+                        }
+                        Some(meta) if meta.auth_env == "NVIDIA_API_KEY" => {
+                            OpenAiCompatConfig::nvidia()
+                        }
+                        Some(meta) if meta.auth_env == "GEMINI_API_KEY" => {
+                            OpenAiCompatConfig::gemini()
+                        }
+                        Some(meta) if meta.auth_env == "SILICONFLOW_API_KEY" => {
+                            OpenAiCompatConfig::siliconflow()
+                        }
+                        Some(meta) if meta.auth_env == "MISTRAL_API_KEY" => {
+                            OpenAiCompatConfig::mistral()
+                        }
                         _ => OpenAiCompatConfig::openai(),
                     };
-                    
+
                     let api_key = key_rotation::key_at_index(config.api_key_env, key_index)
                         .unwrap_or_default();
-                    
+
                     if api_key.is_empty() {
-                        return Err(ApiError::Auth(format!("Missing credentials for provider: {}", config.provider_name)));
+                        return Err(ApiError::Auth(format!(
+                            "Missing credentials for provider: {}",
+                            config.provider_name
+                        )));
                     }
-                    
+
                     let base_url = key_rotation::key_at_index(config.base_url_env, key_index)
                         .unwrap_or_else(|| openai_compat::read_base_url(config));
-                    
+
                     let client = OpenAiCompatClient::new(api_key, config).with_base_url(base_url);
                     Ok(Self::OpenAi(client))
                 }
@@ -489,100 +509,102 @@ impl ProviderClient {
         }
     }
 
-
-pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLockGuard> {
-    let pacing_started = Instant::now();
-    let home = std::env::var("HOME").unwrap_or_default();
-    let mut narration_wait = Duration::ZERO;
-    if !home.is_empty() {
-        let lock_path = std::path::Path::new(&home).join(".claw/narration.lock");
-        let max_wait_secs: u64 = std::env::var("CLAW_TTS_WAIT_SECS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(30);
-        let start = std::time::Instant::now();
-        // Give background voice narrator a brief window to detect new session entry and touch lock
-        tokio::time::sleep(std::time::Duration::from_millis(40)).await;
-        while lock_path.exists() {
-            if start.elapsed().as_secs() > max_wait_secs {
-                let _ = std::fs::remove_file(&lock_path);
-                break;
+    pub(crate) async fn apply_api_pause(
+        model: &str,
+        estimated_tokens: usize,
+    ) -> Option<ApiLockGuard> {
+        let pacing_started = Instant::now();
+        let home = std::env::var("HOME").unwrap_or_default();
+        let mut narration_wait = Duration::ZERO;
+        if !home.is_empty() {
+            let lock_path = std::path::Path::new(&home).join(".claw/narration.lock");
+            let max_wait_secs: u64 = std::env::var("CLAW_TTS_WAIT_SECS")
+                .ok()
+                .and_then(|v| v.parse().ok())
+                .unwrap_or(30);
+            let start = std::time::Instant::now();
+            // Give background voice narrator a brief window to detect new session entry and touch lock
+            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+            while lock_path.exists() {
+                if start.elapsed().as_secs() > max_wait_secs {
+                    let _ = std::fs::remove_file(&lock_path);
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
             }
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            narration_wait = start.elapsed();
         }
-        narration_wait = start.elapsed();
-    }
 
-    let interval_wait = apply_minimum_interval().await;
+        let interval_wait = apply_minimum_interval().await;
 
-    // Apply model-specific TPM rate limiting
-    let mut limit = if model.contains("glm") {
-        20_000
-    } else if model.contains("gemini") || model.contains("stable") {
-        250_000
-    } else if model.contains("mistral") || model.contains("codestral") {
-        200_000
-    } else {
-        100_000
-    };
-
-    if model.contains("glm") {
-        if let Ok(val) = std::env::var("CLAW_GLM_TPM_LIMIT") {
-            if let Ok(parsed) = val.parse::<usize>() {
-                limit = parsed;
-            }
-        }
-    } else if model.contains("gemini") || model.contains("stable") {
-        if let Ok(val) = std::env::var("CLAW_GEMINI_TPM_LIMIT") {
-            if let Ok(parsed) = val.parse::<usize>() {
-                limit = parsed;
-            }
-        }
-    } else if let Ok(val) = std::env::var("CLAW_DEFAULT_TPM_LIMIT") {
-        if let Ok(parsed) = val.parse::<usize>() {
-            limit = parsed;
-        }
-    }
-
-    if let Ok(val) = std::env::var("CLAW_TPM_LIMIT") {
-        if let Ok(parsed) = val.parse::<usize>() {
-            limit = parsed;
-        }
-    }
-
-    let mut tpm_wait = Duration::ZERO;
-    if limit > 0 {
-        let limiter = if model.contains("glm") {
-            GLM_LIMITER.get_or_init(TpmRateLimiter::new)
+        // Apply model-specific TPM rate limiting
+        let mut limit = if model.contains("glm") {
+            20_000
         } else if model.contains("gemini") || model.contains("stable") {
-            GEMINI_LIMITER.get_or_init(TpmRateLimiter::new)
+            250_000
+        } else if model.contains("mistral") || model.contains("codestral") {
+            200_000
         } else {
-            DEFAULT_LIMITER.get_or_init(TpmRateLimiter::new)
+            100_000
         };
 
-        tpm_wait = limiter.acquire(limit, estimated_tokens).await;
-    }
+        if model.contains("glm") {
+            if let Ok(val) = std::env::var("CLAW_GLM_TPM_LIMIT") {
+                if let Ok(parsed) = val.parse::<usize>() {
+                    limit = parsed;
+                }
+            }
+        } else if model.contains("gemini") || model.contains("stable") {
+            if let Ok(val) = std::env::var("CLAW_GEMINI_TPM_LIMIT") {
+                if let Ok(parsed) = val.parse::<usize>() {
+                    limit = parsed;
+                }
+            }
+        } else if let Ok(val) = std::env::var("CLAW_DEFAULT_TPM_LIMIT") {
+            if let Ok(parsed) = val.parse::<usize>() {
+                limit = parsed;
+            }
+        }
 
-    // One line per request, split by cause: a slow turn is otherwise
-    // indistinguishable from a slow provider, and the three waits below have
-    // three completely different fixes.
-    tracing::info!(
-        model = %model,
-        estimated_tokens,
-        tpm_limit = limit,
-        narration_wait_ms = narration_wait.as_millis() as u64,
-        interval_wait_ms = interval_wait.as_millis() as u64,
-        tpm_wait_ms = tpm_wait.as_millis() as u64,
-        total_pacing_ms = pacing_started.elapsed().as_millis() as u64,
-        "api pacing"
-    );
+        if let Ok(val) = std::env::var("CLAW_TPM_LIMIT") {
+            if let Ok(parsed) = val.parse::<usize>() {
+                limit = parsed;
+            }
+        }
 
-    if !home.is_empty() {
-        Some(ApiLockGuard::new(&home))
-    } else {
-        None
+        let mut tpm_wait = Duration::ZERO;
+        if limit > 0 {
+            let limiter = if model.contains("glm") {
+                GLM_LIMITER.get_or_init(TpmRateLimiter::new)
+            } else if model.contains("gemini") || model.contains("stable") {
+                GEMINI_LIMITER.get_or_init(TpmRateLimiter::new)
+            } else {
+                DEFAULT_LIMITER.get_or_init(TpmRateLimiter::new)
+            };
+
+            tpm_wait = limiter.acquire(limit, estimated_tokens).await;
+        }
+
+        // One line per request, split by cause: a slow turn is otherwise
+        // indistinguishable from a slow provider, and the three waits below have
+        // three completely different fixes.
+        tracing::info!(
+            model = %model,
+            estimated_tokens,
+            tpm_limit = limit,
+            narration_wait_ms = narration_wait.as_millis() as u64,
+            interval_wait_ms = interval_wait.as_millis() as u64,
+            tpm_wait_ms = tpm_wait.as_millis() as u64,
+            total_pacing_ms = pacing_started.elapsed().as_millis() as u64,
+            "api pacing"
+        );
+
+        if !home.is_empty() {
+            Some(ApiLockGuard::new(&home))
+        } else {
+            None
+        }
     }
-}
 
     pub async fn send_message(
         &self,
@@ -611,9 +633,7 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
 
         loop {
             if key_index != start_index {
-                eprintln!(
-                    "\n🔄 Using model '{model}' with rotated API key index {key_index}..."
-                );
+                eprintln!("\n🔄 Using model '{model}' with rotated API key index {key_index}...");
             }
 
             let mut rotated_request = request.clone();
@@ -622,13 +642,17 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
             let client_res = if key_index == start_index {
                 match self {
                     Self::Anthropic(client) => client.send_message(&rotated_request).await,
-                    Self::Xai(client) | Self::OpenAi(client) => client.send_message(&rotated_request).await,
+                    Self::Xai(client) | Self::OpenAi(client) => {
+                        client.send_message(&rotated_request).await
+                    }
                 }
             } else if let Ok(fallback_client) =
                 ProviderClient::from_model_with_key_index(model, key_index)
             {
                 match fallback_client {
-                    ProviderClient::Anthropic(client) => client.send_message(&rotated_request).await,
+                    ProviderClient::Anthropic(client) => {
+                        client.send_message(&rotated_request).await
+                    }
                     ProviderClient::Xai(client) | ProviderClient::OpenAi(client) => {
                         client.send_message(&rotated_request).await
                     }
@@ -738,9 +762,7 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
 
         loop {
             if key_index != start_index {
-                eprintln!(
-                    "\n🔄 Using model '{model}' with rotated API key index {key_index}..."
-                );
+                eprintln!("\n🔄 Using model '{model}' with rotated API key index {key_index}...");
             }
 
             let mut rotated_request = request.clone();
@@ -862,10 +884,7 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
 
     /// Remember the first context-window overflow seen during key rotation;
     /// later overloads are noise next to a measured overflow.
-    fn capture_context_window(
-        params: &mut Option<(String, u32, u32, u32, u32)>,
-        error: &ApiError,
-    ) {
+    fn capture_context_window(params: &mut Option<(String, u32, u32, u32, u32)>, error: &ApiError) {
         if let ApiError::ContextWindowExceeded {
             model,
             estimated_input_tokens,
@@ -910,8 +929,9 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
             };
         }
 
-        last_error
-            .unwrap_or_else(|| ApiError::Auth(format!("Missing credentials for model: {requested_model}")))
+        last_error.unwrap_or_else(|| {
+            ApiError::Auth(format!("Missing credentials for model: {requested_model}"))
+        })
     }
 }
 
@@ -1071,8 +1091,14 @@ mod tests {
     #[test]
     fn minimum_interval_parses_only_positive_seconds() {
         use super::minimum_interval_from;
-        assert_eq!(minimum_interval_from(Some("5")), Some(Duration::from_secs(5)));
-        assert_eq!(minimum_interval_from(Some(" 5 ")), Some(Duration::from_secs(5)));
+        assert_eq!(
+            minimum_interval_from(Some("5")),
+            Some(Duration::from_secs(5))
+        );
+        assert_eq!(
+            minimum_interval_from(Some(" 5 ")),
+            Some(Duration::from_secs(5))
+        );
         assert_eq!(minimum_interval_from(Some("0")), None);
         assert_eq!(minimum_interval_from(Some("-1")), None);
         assert_eq!(minimum_interval_from(Some("soon")), None);
@@ -1103,8 +1129,8 @@ mod tests {
         ];
         // Budget 20 000, 15 000 used, 8 000 requested → must free 3 000.
         // The +10 s expiry alone frees 5 000, which is enough.
-        let wait = minimal_wait(&entries, 15_000, 20_000, 8_000, now)
-            .expect("a finite wait must exist");
+        let wait =
+            minimal_wait(&entries, 15_000, 20_000, 8_000, now).expect("a finite wait must exist");
         assert_eq!(wait, Duration::from_secs(10), "waited for the wrong expiry");
     }
 
@@ -1119,8 +1145,8 @@ mod tests {
         ];
         // 7 000 used of a 10 000 budget, 6 000 requested → must free 3 000,
         // which only the third expiry provides.
-        let wait = minimal_wait(&entries, 7_000, 10_000, 6_000, now)
-            .expect("a finite wait must exist");
+        let wait =
+            minimal_wait(&entries, 7_000, 10_000, 6_000, now).expect("a finite wait must exist");
         assert_eq!(wait, Duration::from_secs(20));
     }
 

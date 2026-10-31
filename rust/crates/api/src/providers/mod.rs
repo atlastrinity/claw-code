@@ -527,7 +527,9 @@ pub fn metadata_for_model(model: &str) -> Option<ProviderMetadata> {
     // These are hosted on SiliconFlow but use the upstream model naming.
     // We only match here when SILICONFLOW_API_KEY is present to avoid
     // accidentally capturing these model names for other providers.
-    if (canonical.starts_with("Qwen/") || canonical.starts_with("deepseek-ai/") || canonical.starts_with("meta-llama/"))
+    if (canonical.starts_with("Qwen/")
+        || canonical.starts_with("deepseek-ai/")
+        || canonical.starts_with("meta-llama/"))
         && openai_compat::has_api_key("SILICONFLOW_API_KEY")
     {
         return Some(ProviderMetadata {
@@ -935,7 +937,8 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
             max_output_tokens: 8_192,
             context_window_tokens: 131_072,
         }),
-        "glm-4" | "glm-4-flash" | "glm-4v-flash" | "glm-4-plus" | "glm-4.5" | "glm-4.5-air" | "glm-4.6" | "glm-4.7" | "glm-4.7-flash" => Some(ModelTokenLimit {
+        "glm-4" | "glm-4-flash" | "glm-4v-flash" | "glm-4-plus" | "glm-4.5" | "glm-4.5-air"
+        | "glm-4.6" | "glm-4.7" | "glm-4.7-flash" => Some(ModelTokenLimit {
             max_output_tokens: 4_096,
             context_window_tokens: 128_000,
         }),
@@ -962,10 +965,12 @@ pub fn model_token_limit(model: &str) -> Option<ModelTokenLimit> {
         }),
         // Mistral AI models
         // Codestral has 256k context window; Mistral Large, Medium, Small, Ministral, Pixtral, Nemo have 128k context window.
-        "codestral-latest" | "codestral-2508" | "codestral-2501" | "codestral-2405" => Some(ModelTokenLimit {
-            max_output_tokens: 32_768,
-            context_window_tokens: 256_000,
-        }),
+        "codestral-latest" | "codestral-2508" | "codestral-2501" | "codestral-2405" => {
+            Some(ModelTokenLimit {
+                max_output_tokens: 32_768,
+                context_window_tokens: 256_000,
+            })
+        }
         "mistral-large-latest"
         | "mistral-large-2512"
         | "mistral-large-2411"
@@ -1346,7 +1351,7 @@ mod tests {
     #[test]
     fn test_siliconflow_routing_rules() {
         let _lock = env_lock();
-        
+
         // When SILICONFLOW_API_KEY is not set
         let _guard_silicon = EnvVarGuard::set("SILICONFLOW_API_KEY", None);
         let _guard_anthropic = EnvVarGuard::set("ANTHROPIC_API_KEY", None);
@@ -1384,26 +1389,11 @@ mod tests {
 
     #[test]
     fn test_mistral_routing_and_token_limits() {
-        assert_eq!(
-            resolve_model_alias("codestral"),
-            "codestral-latest"
-        );
-        assert_eq!(
-            resolve_model_alias("mistral"),
-            "mistral-large-latest"
-        );
-        assert_eq!(
-            resolve_model_alias("mistral-small"),
-            "mistral-small-latest"
-        );
-        assert_eq!(
-            resolve_model_alias("ministral"),
-            "ministral-8b-latest"
-        );
-        assert_eq!(
-            resolve_model_alias("pixtral"),
-            "pixtral-large-latest"
-        );
+        assert_eq!(resolve_model_alias("codestral"), "codestral-latest");
+        assert_eq!(resolve_model_alias("mistral"), "mistral-large-latest");
+        assert_eq!(resolve_model_alias("mistral-small"), "mistral-small-latest");
+        assert_eq!(resolve_model_alias("ministral"), "ministral-8b-latest");
+        assert_eq!(resolve_model_alias("pixtral"), "pixtral-large-latest");
 
         let codestral_caps = provider_capabilities_for_model("codestral");
         assert_eq!(codestral_caps.provider, ProviderKind::OpenAi);
@@ -1421,7 +1411,8 @@ mod tests {
         let mistral_limit = model_token_limit("mistral-large-latest").expect("mistral-large limit");
         assert_eq!(mistral_limit.context_window_tokens, 128_000);
 
-        let mistral_small_limit = model_token_limit("mistral-small-latest").expect("mistral-small limit");
+        let mistral_small_limit =
+            model_token_limit("mistral-small-latest").expect("mistral-small limit");
         assert_eq!(mistral_small_limit.context_window_tokens, 128_000);
 
         // Key rotation support test
@@ -1440,8 +1431,10 @@ mod tests {
             Some("key2".to_string())
         );
 
-        let _client = crate::client::ProviderClient::from_model("codestral").expect("from_model codestral");
-        let _client2 = crate::client::ProviderClient::from_model_with_key_index("codestral", 2).expect("from_model_with_key_index codestral 2");
+        let _client =
+            crate::client::ProviderClient::from_model("codestral").expect("from_model codestral");
+        let _client2 = crate::client::ProviderClient::from_model_with_key_index("codestral", 2)
+            .expect("from_model_with_key_index codestral 2");
 
         std::env::remove_var("MISTRAL_API_KEY");
         std::env::remove_var("MISTRAL_BASE_URL");

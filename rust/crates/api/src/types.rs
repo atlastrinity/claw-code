@@ -76,7 +76,7 @@ impl MessageRequest {
                     let properties = schema_map
                         .entry("properties")
                         .or_insert_with(|| serde_json::json!({}));
-                    
+
                     if let serde_json::Value::Object(ref mut props_map) = properties {
                         props_map.insert(
                             "description".to_string(),
@@ -91,7 +91,7 @@ impl MessageRequest {
                     let required = schema_map
                         .entry("required")
                         .or_insert_with(|| serde_json::json!([]));
-                    
+
                     if let serde_json::Value::Array(ref mut req_arr) = required {
                         let desc_val = serde_json::json!("description");
                         if !req_arr.contains(&desc_val) {

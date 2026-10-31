@@ -18,7 +18,7 @@ pub fn build_file_tree(root: &Path, max_depth: usize) -> String {
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| "workspace".to_string());
-    
+
     tree_out.push_str(&format!("{}\n", root_name));
 
     // walkdir yields the root directory itself first, so we skip it
@@ -43,7 +43,10 @@ pub fn build_file_tree(root: &Path, max_depth: usize) -> String {
     for entry in entries {
         if rendered_lines >= MAX_FILE_TREE_LINES || tree_out.len() >= MAX_FILE_TREE_CHARS {
             let omitted = total_entries.saturating_sub(rendered_lines);
-            tree_out.push_str(&format!("  ... [{} directory entries omitted — size capped for prompt context]\n", omitted));
+            tree_out.push_str(&format!(
+                "  ... [{} directory entries omitted — size capped for prompt context]\n",
+                omitted
+            ));
             break;
         }
 
@@ -52,12 +55,12 @@ pub fn build_file_tree(root: &Path, max_depth: usize) -> String {
             continue;
         }
         let indent = "  ".repeat(depth);
-        
+
         let mut name = entry.file_name().to_string_lossy().into_owned();
         if entry.file_type().is_dir() {
             name.push('/');
         }
-        
+
         tree_out.push_str(&format!("{}|- {}\n", indent, name));
         rendered_lines += 1;
     }
@@ -72,27 +75,26 @@ fn is_not_ignored(entry: &walkdir::DirEntry) -> bool {
         !matches!(
             name.as_ref(),
             ".git"
-            | "target"
-            | "node_modules"
-            | "build"
-            | ".build"
-            | "dist"
-            | ".idea"
-            | ".vscode"
-            | "__pycache__"
-            | ".sandbox-tmp"
-            | ".sandbox-home"
-            | ".claw"
-            | ".claw-rag"
-            | ".pyscn"
-            | ".port_sessions"
-            | "vendor"
-            | ".omx"
-            | "audio_output"
-            | "audio_output_test"
+                | "target"
+                | "node_modules"
+                | "build"
+                | ".build"
+                | "dist"
+                | ".idea"
+                | ".vscode"
+                | "__pycache__"
+                | ".sandbox-tmp"
+                | ".sandbox-home"
+                | ".claw"
+                | ".claw-rag"
+                | ".pyscn"
+                | ".port_sessions"
+                | "vendor"
+                | ".omx"
+                | "audio_output"
+                | "audio_output_test"
         )
     } else {
         true
     }
 }
-

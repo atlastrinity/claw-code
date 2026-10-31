@@ -30,7 +30,10 @@ pub struct BreakerHandle {
 pub type SharedBreaker = Arc<BreakerHandle>;
 
 pub fn lock(breaker: &SharedBreaker) -> MutexGuard<'_, FractalRateLimiter> {
-    breaker.limiter.lock().unwrap_or_else(PoisonError::into_inner)
+    breaker
+        .limiter
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
 }
 
 fn new_handle(label: String, max_retries: u32) -> SharedBreaker {
@@ -299,7 +302,6 @@ pub fn note_stall(breaker: &SharedBreaker, reason: &str) -> usize {
     after
 }
 
-
 /// Per-attempt backoff: `initial * 2^(attempt-1)`, capped at `max`.
 ///
 /// This is the intra-chain schedule; the δ breaker governs what happens
@@ -405,16 +407,26 @@ mod tests {
     fn error_summary_keeps_the_status_and_caps_the_body() {
         let short = error_summary(&api_error(401, "token expired or incorrect"));
         assert!(short.contains("401"), "summary was: {short}");
-        assert!(short.contains("token expired or incorrect"), "summary was: {short}");
+        assert!(
+            short.contains("token expired or incorrect"),
+            "summary was: {short}"
+        );
 
         let long = error_summary(&api_error(400, &"x".repeat(5_000)));
-        assert!(long.len() < 500, "summary should be truncated, was {} chars", long.len());
+        assert!(
+            long.len() < 500,
+            "summary should be truncated, was {} chars",
+            long.len()
+        );
         assert!(long.contains("chars)"), "truncation marker missing: {long}");
     }
 
     #[test]
     fn error_summary_strips_control_characters() {
         let summary = error_summary(&api_error(500, "line1\nline2\ttab"));
-        assert!(!summary.contains('\n') && !summary.contains('\t'), "summary was: {summary:?}");
+        assert!(
+            !summary.contains('\n') && !summary.contains('\t'),
+            "summary was: {summary:?}"
+        );
     }
 }

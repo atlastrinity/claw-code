@@ -510,7 +510,11 @@ impl TerminalRenderer {
 
     fn start_quote(&self, state: &mut RenderState, output: &mut String) {
         state.quote += 1;
-        let _ = write!(output, "{}", style_ansi("│ ", Some(self.color_theme.quote), false, false, false));
+        let _ = write!(
+            output,
+            "{}",
+            style_ansi("│ ", Some(self.color_theme.quote), false, false, false)
+        );
     }
 
     fn start_item(state: &mut RenderState, output: &mut String) {
@@ -552,7 +556,13 @@ impl TerminalRenderer {
         let _ = write!(
             output,
             "{}",
-            style_ansi("╰─", Some(self.color_theme.code_block_border), true, false, false)
+            style_ansi(
+                "╰─",
+                Some(self.color_theme.code_block_border),
+                true,
+                false,
+                false
+            )
         );
         output.push_str("\n\n");
     }
@@ -594,8 +604,20 @@ impl TerminalRenderer {
             })
             .collect::<Vec<_>>();
 
-        let border = style_ansi("│", Some(self.color_theme.table_border), false, false, false);
-        let separator_plus = style_ansi("┼", Some(self.color_theme.table_border), false, false, false);
+        let border = style_ansi(
+            "│",
+            Some(self.color_theme.table_border),
+            false,
+            false,
+            false,
+        );
+        let separator_plus = style_ansi(
+            "┼",
+            Some(self.color_theme.table_border),
+            false,
+            false,
+            false,
+        );
         let separator = widths
             .iter()
             .map(|width| "─".repeat(*width + 2))
@@ -624,7 +646,13 @@ impl TerminalRenderer {
     }
 
     fn render_table_row(&self, row: &[String], widths: &[usize], is_header: bool) -> String {
-        let border = style_ansi("│", Some(self.color_theme.table_border), false, false, false);
+        let border = style_ansi(
+            "│",
+            Some(self.color_theme.table_border),
+            false,
+            false,
+            false,
+        );
         let mut line = String::new();
         line.push_str(&border);
 
@@ -2466,9 +2494,9 @@ pub fn render_last_tool_debug_report(
         .rev()
         .find_map(|message| {
             message.blocks.iter().rev().find_map(|block| match block {
-                ContentBlock::ToolUse { id, name, input, .. } => {
-                    Some((id.clone(), name.clone(), input.clone()))
-                }
+                ContentBlock::ToolUse {
+                    id, name, input, ..
+                } => Some((id.clone(), name.clone(), input.clone())),
                 _ => None,
             })
         })
@@ -2621,7 +2649,9 @@ pub fn render_export_text(session: &Session) -> String {
             match block {
                 ContentBlock::Text { text } => lines.push(text.clone()),
                 ContentBlock::Thinking { .. } => {}
-                ContentBlock::ToolUse { id, name, input, .. } => {
+                ContentBlock::ToolUse {
+                    id, name, input, ..
+                } => {
                     lines.push(format!("[tool_use id={id} name={name}] {input}"));
                 }
                 ContentBlock::ToolResult {
@@ -2688,7 +2718,9 @@ pub fn render_session_markdown(session: &Session, session_id: &str, session_path
                     }
                 }
                 ContentBlock::Thinking { .. } => {}
-                ContentBlock::ToolUse { id, name, input, .. } => {
+                ContentBlock::ToolUse {
+                    id, name, input, ..
+                } => {
                     lines.push(format!(
                         "**Tool call** `{name}` _(id `{}`)_",
                         short_tool_id(id)

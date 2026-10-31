@@ -1,9 +1,9 @@
-use std::process::Command;
-use serde::Serialize;
-use runtime::{LaneCommitProvenance, LaneEventBlocker, LaneFailureClass};
-use runtime::summary_compression::compress_summary_text;
-use crate::tool_types::*;
 use crate::global_cron_registry;
+use crate::tool_types::*;
+use runtime::summary_compression::compress_summary_text;
+use runtime::{LaneCommitProvenance, LaneEventBlocker, LaneFailureClass};
+use serde::Serialize;
+use std::process::Command;
 
 #[allow(dead_code)]
 pub(crate) const MIN_LANE_SUMMARY_WORDS: usize = 7;
@@ -726,4 +726,3 @@ pub(crate) fn classify_lane_failure(error: &str) -> LaneFailureClass {
         LaneFailureClass::Infra
     }
 }
-

@@ -1,23 +1,21 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use plugins::PluginTool;
-use serde_json::Value;
 use runtime::{
-    McpDegradedReport,
+    security::permission_enforcer::PermissionEnforcer, ContextBudget, McpDegradedReport,
     PermissionMode,
-    security::permission_enforcer::PermissionEnforcer,
-    ContextBudget,
 };
+use serde_json::Value;
 
-use api::ToolDefinition;
-use crate::tool_types::*;
-use crate::util::*;
-use crate::tool_specs::mvp_tool_specs;
 use crate::execute::execute_tool_with_enforcer;
 use crate::normalization;
 use crate::normalization::canonical_allowed_tool_name;
-use crate::tool_search::{normalize_tool_search_query, search_tool_specs};
 use crate::task_graph::validate_active_task_for_tool;
+use crate::tool_search::{normalize_tool_search_query, search_tool_specs};
+use crate::tool_specs::mvp_tool_specs;
+use crate::tool_types::*;
+use crate::util::*;
+use api::ToolDefinition;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ToolManifestEntry {
@@ -272,17 +270,20 @@ impl GlobalToolRegistry {
         });
 
         let runtime_lock = self.runtime_tools.lock().unwrap();
-        let runtime = runtime_lock.iter().filter_map(|tool| {
-            if self.is_tool_injected(&tool.name) {
-                Some(ToolDefinition {
-                    name: tool.name.clone(),
-                    description: tool.description.clone(),
-                    input_schema: tool.input_schema.clone(),
-                })
-            } else {
-                None
-            }
-        }).collect::<Vec<_>>();
+        let runtime = runtime_lock
+            .iter()
+            .filter_map(|tool| {
+                if self.is_tool_injected(&tool.name) {
+                    Some(ToolDefinition {
+                        name: tool.name.clone(),
+                        description: tool.description.clone(),
+                        input_schema: tool.input_schema.clone(),
+                    })
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
 
         builtin.chain(plugins).chain(runtime).collect()
     }
@@ -331,7 +332,10 @@ impl GlobalToolRegistry {
     #[must_use]
     pub fn actual_tool_names(&self) -> Vec<String> {
         let runtime_lock = self.runtime_tools.lock().unwrap();
-        let runtime = runtime_lock.iter().map(|tool| tool.name.clone()).collect::<Vec<_>>();
+        let runtime = runtime_lock
+            .iter()
+            .map(|tool| tool.name.clone())
+            .collect::<Vec<_>>();
         mvp_tool_specs()
             .iter()
             .map(|spec| spec.name.to_string())
@@ -402,7 +406,11 @@ impl GlobalToolRegistry {
     }
     #[must_use]
     pub fn has_runtime_tool(&self, name: &str) -> bool {
-        self.runtime_tools.lock().unwrap().iter().any(|tool| tool.name == name)
+        self.runtime_tools
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|tool| tool.name == name)
     }
 
     #[must_use]
@@ -451,7 +459,12 @@ impl GlobalToolRegistry {
             .iter()
             .find(|spec| spec.name.eq_ignore_ascii_case(raw_name))
         {
-            return execute_tool_with_enforcer(self.enforcer.as_ref(), spec.name, &coerced_input, self.budget);
+            return execute_tool_with_enforcer(
+                self.enforcer.as_ref(),
+                spec.name,
+                &coerced_input,
+                self.budget,
+            );
         }
 
         // Then try canonical names
@@ -465,7 +478,12 @@ impl GlobalToolRegistry {
             .iter()
             .find(|spec| normalization::canonical_allowed_tool_name(spec.name) == resolved_name)
         {
-            return execute_tool_with_enforcer(self.enforcer.as_ref(), spec.name, &coerced_input, self.budget);
+            return execute_tool_with_enforcer(
+                self.enforcer.as_ref(),
+                spec.name,
+                &coerced_input,
+                self.budget,
+            );
         }
 
         // Check plugin tools

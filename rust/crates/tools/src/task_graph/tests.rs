@@ -1,9 +1,9 @@
 use crate::execute_tool;
 use crate::task_graph::{
-    check_task_graph_enforcement, validate_active_task_for_tool, validate_task_graph, TaskNode, TaskStatus,
+    check_task_graph_enforcement, validate_active_task_for_tool, validate_task_graph, TaskNode,
+    TaskStatus,
 };
 use serde_json::json;
-
 
 pub struct TaskGraphEnvGuard {
     _lock_guard: std::sync::MutexGuard<'static, ()>,
@@ -23,7 +23,11 @@ fn env_guard() -> TaskGraphEnvGuard {
 fn temp_path(name: &str) -> std::path::PathBuf {
     static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
     let count = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let dir = std::env::temp_dir().join(format!("claw_task_graph_dir_{}_{}", std::process::id(), count));
+    let dir = std::env::temp_dir().join(format!(
+        "claw_task_graph_dir_{}_{}",
+        std::process::id(),
+        count
+    ));
     let _ = std::fs::create_dir_all(&dir);
     dir.join(name)
 }
@@ -124,7 +128,9 @@ fn task_graph_validation_and_propagation() {
         }),
     );
     assert!(err_res.is_err());
-    assert!(err_res.unwrap_err().contains("preceding sibling task '1.1' is currently 'Pending'"));
+    assert!(err_res
+        .unwrap_err()
+        .contains("preceding sibling task '1.1' is currently 'Pending'"));
 
     // 3. Mark "1.1" as in_progress. This should automatically propagate in_progress to its parent "1"
     let _update_1 = execute_tool(
@@ -141,7 +147,12 @@ fn task_graph_validation_and_propagation() {
     // Load the saved nodes to verify parent "1" propagated to InProgress
     let store_content = std::fs::read_to_string(&path).expect("read store");
     let nodes: serde_json::Value = serde_json::from_str(&store_content).expect("parse store");
-    let parent_node = nodes.as_array().unwrap().iter().find(|n| n["id"] == "1").unwrap();
+    let parent_node = nodes
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == "1")
+        .unwrap();
     assert_eq!(parent_node["status"].as_str().unwrap(), "in_progress");
 
     // 4. Completing parent task "1" directly cascades completion to all sub-tasks (1.1, 1.2)
@@ -158,8 +169,18 @@ fn task_graph_validation_and_propagation() {
 
     let store_content2 = std::fs::read_to_string(&path).expect("read store");
     let nodes2: serde_json::Value = serde_json::from_str(&store_content2).expect("parse store");
-    let sub1 = nodes2.as_array().unwrap().iter().find(|n| n["id"] == "1.1").unwrap();
-    let sub2 = nodes2.as_array().unwrap().iter().find(|n| n["id"] == "1.2").unwrap();
+    let sub1 = nodes2
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == "1.1")
+        .unwrap();
+    let sub2 = nodes2
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == "1.2")
+        .unwrap();
     assert_eq!(sub1["status"].as_str().unwrap(), "completed");
     assert_eq!(sub2["status"].as_str().unwrap(), "completed");
 
@@ -230,7 +251,12 @@ fn task_graph_upward_auto_completion_and_cascading() {
     // Verify parent "1" automatically propagated to completed
     let store_content = std::fs::read_to_string(&path).expect("read store");
     let nodes: serde_json::Value = serde_json::from_str(&store_content).expect("parse store");
-    let parent_node = nodes.as_array().unwrap().iter().find(|n| n["id"] == "1").unwrap();
+    let parent_node = nodes
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|n| n["id"] == "1")
+        .unwrap();
     assert_eq!(parent_node["status"].as_str().unwrap(), "completed");
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
@@ -294,9 +320,21 @@ fn task_graph_records_progress_even_when_the_graph_contradicts_itself() {
             .unwrap_or("<missing>")
             .to_string()
     };
-    assert_eq!(status_of("2"), "in_progress", "phase 2 carries finished work");
-    assert_eq!(status_of("2.2"), "completed", "the new status must be persisted");
-    assert_eq!(status_of("2.3"), "completed", "earlier progress must survive");
+    assert_eq!(
+        status_of("2"),
+        "in_progress",
+        "phase 2 carries finished work"
+    );
+    assert_eq!(
+        status_of("2.2"),
+        "completed",
+        "the new status must be persisted"
+    );
+    assert_eq!(
+        status_of("2.3"),
+        "completed",
+        "earlier progress must survive"
+    );
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(path);
@@ -361,9 +399,15 @@ fn task_graph_auto_create_parents_and_failed_restoration() {
     let nodes: serde_json::Value = serde_json::from_str(&store_content).expect("parse store");
     let arr = nodes.as_array().unwrap();
     assert_eq!(arr.len(), 3);
-    assert!(arr.iter().any(|n| n["id"] == "1" && n["content"] == "Phase 1"));
-    assert!(arr.iter().any(|n| n["id"] == "1.1" && n["content"] == "Task 1.1"));
-    assert!(arr.iter().any(|n| n["id"] == "1.1.1" && n["content"] == "Deep Subtask"));
+    assert!(arr
+        .iter()
+        .any(|n| n["id"] == "1" && n["content"] == "Phase 1"));
+    assert!(arr
+        .iter()
+        .any(|n| n["id"] == "1.1" && n["content"] == "Task 1.1"));
+    assert!(arr
+        .iter()
+        .any(|n| n["id"] == "1.1.1" && n["content"] == "Deep Subtask"));
 
     // 2. Simulate deletion from task.md by calling execute_task_graph after modifying task.md to omit 1.1.1
     let parent_dir = path.parent().unwrap();
@@ -390,7 +434,10 @@ fn task_graph_auto_create_parents_and_failed_restoration() {
     let store_content2 = std::fs::read_to_string(&path).expect("read store");
     let nodes2: serde_json::Value = serde_json::from_str(&store_content2).expect("parse store");
     let arr2 = nodes2.as_array().unwrap();
-    let restored_node = arr2.iter().find(|n| n["id"] == "1.1.1").expect("restored node");
+    let restored_node = arr2
+        .iter()
+        .find(|n| n["id"] == "1.1.1")
+        .expect("restored node");
     assert_eq!(restored_node["status"].as_str().unwrap(), "failed");
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
@@ -445,11 +492,10 @@ fn task_graph_read_only_whitelist_passes_without_graph() {
     assert!(validate_active_task_for_tool("glob_search", &json!({"pattern": "*.rs"})).is_ok());
     assert!(validate_active_task_for_tool("grep_search", &json!({"query": "test"})).is_ok());
     assert!(validate_active_task_for_tool("ToolSearch", &json!({"query": "build"})).is_ok());
-    assert!(validate_active_task_for_tool(
-        "TaskGraph",
-        &json!({"operation": "add", "nodes": []})
-    )
-    .is_ok());
+    assert!(
+        validate_active_task_for_tool("TaskGraph", &json!({"operation": "add", "nodes": []}))
+            .is_ok()
+    );
     assert!(validate_active_task_for_tool("Skill", &json!({"skill": "test"})).is_ok());
     assert!(validate_active_task_for_tool("web_search", &json!({"query": "rust"})).is_ok());
 
@@ -906,7 +952,10 @@ fn task_graph_no_in_progress_blocks_action() {
             "description": "Edit pending task file"
         }),
     );
-    assert!(result.is_ok(), "Action should succeed by auto-promoting first pending task");
+    assert!(
+        result.is_ok(),
+        "Action should succeed by auto-promoting first pending task"
+    );
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(path);
@@ -1134,7 +1183,8 @@ fn task_graph_strict_enforcement_rules() {
     );
     let err_msg = result_rule3.unwrap_err();
     assert!(
-        err_msg.contains("is a top-level phase") || err_msg.contains("is a top-level task (Level 1)"),
+        err_msg.contains("is a top-level phase")
+            || err_msg.contains("is a top-level task (Level 1)"),
         "Expected top-level phase or Level 1 rejection, got: {}",
         err_msg
     );
@@ -1206,8 +1256,7 @@ fn task_graph_downward_in_progress_propagation() {
     .expect("TaskGraph update_status should succeed");
 
     let graph_content = std::fs::read_to_string(&path).expect("read graph store");
-    let nodes: serde_json::Value =
-        serde_json::from_str(&graph_content).expect("parse store json");
+    let nodes: serde_json::Value = serde_json::from_str(&graph_content).expect("parse store json");
     let _node_1_1_1 = nodes
         .as_array()
         .unwrap()
@@ -1249,8 +1298,7 @@ fn task_graph_update_status_auto_upserts_missing_nodes() {
     .expect("update_status on missing node should auto-create node");
 
     let graph_content = std::fs::read_to_string(&path).expect("read graph store");
-    let nodes: serde_json::Value =
-        serde_json::from_str(&graph_content).expect("parse store json");
+    let nodes: serde_json::Value = serde_json::from_str(&graph_content).expect("parse store json");
     let _node_1_1_1 = nodes
         .as_array()
         .unwrap()
@@ -1319,7 +1367,9 @@ fn task_graph_parent_description_and_unclosed_subtasks_in_error() {
     assert!(val_err.contains("2 unclosed sub-task(s)"));
     assert!(val_err.contains("Inspect remote schema and connections"));
     assert!(val_err.contains("Run integration tests on remote DB"));
-    assert!(val_err.contains("update its status to 'failed' (or remove it) to mark it as skipped (-)"));
+    assert!(
+        val_err.contains("update its status to 'failed' (or remove it) to mark it as skipped (-)")
+    );
     assert!(val_err.contains("break it down recursively into smaller sub-subtasks"));
 
     let _ = std::fs::remove_file(&path);
@@ -1341,7 +1391,8 @@ fn task_graph_auto_demotes_completed_parent_when_subtask_is_added_or_opened() {
                 {"id": "1.1", "parent_id": "1", "content": "Child Task", "status": "completed"}
             ]
         }),
-    ).expect("initial add succeeds");
+    )
+    .expect("initial add succeeds");
 
     // Now add a new subtask 1.2 under already completed parent 1
     let result = execute_tool(
@@ -1352,7 +1403,8 @@ fn task_graph_auto_demotes_completed_parent_when_subtask_is_added_or_opened() {
                 {"id": "1.2", "parent_id": "1", "content": "New Subtask", "status": "in_progress"}
             ]
         }),
-    ).expect("add subtask to completed parent should auto-demote parent to in_progress");
+    )
+    .expect("add subtask to completed parent should auto-demote parent to in_progress");
 
     let output: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(output["nodes_updated"].as_u64().unwrap_or(0), 1);
@@ -1394,11 +1446,18 @@ fn task_graph_recursive_planning_and_level_2_enforcement() {
                 {"id": "1.1.1", "status": "in_progress"}
             ]
         }),
-    ).expect("setting 1.1.1 to in_progress should succeed");
+    )
+    .expect("setting 1.1.1 to in_progress should succeed");
 
     // 3. Verify enforcement permits mutating action (write_file) for active leaf 1.1.1
-    let tool_check = check_task_graph_enforcement("write_file", &json!({"path": "src/utils.rs", "content": "fn help(){}"}));
-    assert!(tool_check.is_ok(), "mutating action matching active leaf 1.1.1 must be permitted");
+    let tool_check = check_task_graph_enforcement(
+        "write_file",
+        &json!({"path": "src/utils.rs", "content": "fn help(){}"}),
+    );
+    assert!(
+        tool_check.is_ok(),
+        "mutating action matching active leaf 1.1.1 must be permitted"
+    );
 
     // 4. Complete 1.1.1 and 1.1.2 — parent 1.1 and root 1 must auto-complete via bubble-up
     let _ = execute_tool(
@@ -1409,7 +1468,8 @@ fn task_graph_recursive_planning_and_level_2_enforcement() {
                 {"id": "1.1.1", "status": "completed"}
             ]
         }),
-    ).expect("completing 1.1.1");
+    )
+    .expect("completing 1.1.1");
 
     let _ = execute_tool(
         "TaskGraph",
@@ -1419,10 +1479,15 @@ fn task_graph_recursive_planning_and_level_2_enforcement() {
                 {"id": "1.1.2", "status": "completed"}
             ]
         }),
-    ).expect("completing 1.1.2");
+    )
+    .expect("completing 1.1.2");
 
-    let saved_nodes: Vec<TaskNode> = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
-    assert_eq!(saved_nodes.iter().find(|n| n.id == "1").unwrap().status, Some(TaskStatus::Completed));
+    let saved_nodes: Vec<TaskNode> =
+        serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    assert_eq!(
+        saved_nodes.iter().find(|n| n.id == "1").unwrap().status,
+        Some(TaskStatus::Completed)
+    );
 
     // 5. Add a level 2 leaf task (Phase 2 -> 2.1) and set 2.1 in_progress
     let _ = execute_tool(
@@ -1437,8 +1502,14 @@ fn task_graph_recursive_planning_and_level_2_enforcement() {
     ).expect("adding level 2 leaf task");
 
     // Level 2 leaf task (2.1) must pass enforcement without error
-    let tool_check_l2 = check_task_graph_enforcement("write_file", &json!({"path": "README.md", "content": "docs"}));
-    assert!(tool_check_l2.is_ok(), "level 2 leaf task 2.1 must pass enforcement without mandatory level 3 error");
+    let tool_check_l2 = check_task_graph_enforcement(
+        "write_file",
+        &json!({"path": "README.md", "content": "docs"}),
+    );
+    assert!(
+        tool_check_l2.is_ok(),
+        "level 2 leaf task 2.1 must pass enforcement without mandatory level 3 error"
+    );
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(&path);
@@ -1502,7 +1573,10 @@ fn task_graph_level1_only_graph_blocks_mutating_action() {
         "write_file",
         &json!({"path": "setup.sh", "content": "echo hello"}),
     );
-    assert!(result.is_err(), "Level 1 only graph should block mutating actions");
+    assert!(
+        result.is_err(),
+        "Level 1 only graph should block mutating actions"
+    );
     let err = result.unwrap_err();
     assert!(
         err.contains("Recursive Planning Required"),
@@ -1547,7 +1621,10 @@ fn task_graph_sibling_auto_advance_on_completion() {
     // Check that 1.2 was auto-advanced to in_progress
     let content = std::fs::read_to_string(&path).expect("read store");
     let nodes: Vec<serde_json::Value> = serde_json::from_str(&content).expect("parse json");
-    let node_1_2 = nodes.iter().find(|n| n["id"] == "1.2").expect("node 1.2 should exist");
+    let node_1_2 = nodes
+        .iter()
+        .find(|n| n["id"] == "1.2")
+        .expect("node 1.2 should exist");
     assert_eq!(
         node_1_2["status"].as_str().unwrap(),
         "in_progress",
@@ -1555,7 +1632,10 @@ fn task_graph_sibling_auto_advance_on_completion() {
     );
 
     // 1.3 should still be pending
-    let node_1_3 = nodes.iter().find(|n| n["id"] == "1.3").expect("node 1.3 should exist");
+    let node_1_3 = nodes
+        .iter()
+        .find(|n| n["id"] == "1.3")
+        .expect("node 1.3 should exist");
     assert_eq!(
         node_1_3["status"].as_str().unwrap(),
         "pending",
@@ -1589,7 +1669,10 @@ fn test_grisha_simulation_detector_blocks_echo_chains() {
     let res = execute_tool("bash", &json!({"command": sim_cmd}));
     assert!(res.is_err());
     let err_msg = res.unwrap_err();
-    assert!(err_msg.contains("GRISHA_SIM_003") || err_msg.contains("Faux Execution / Simulation Detected"));
+    assert!(
+        err_msg.contains("GRISHA_SIM_003")
+            || err_msg.contains("Faux Execution / Simulation Detected")
+    );
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(path);
@@ -1643,12 +1726,16 @@ fn test_grisha_plan_review_and_smart_recursive_branch() {
     )
     .expect("Update status should succeed");
 
-    let update_out: serde_json::Value = serde_json::from_str(&update_out_str).expect("parse output");
+    let update_out: serde_json::Value =
+        serde_json::from_str(&update_out_str).expect("parse output");
     assert_eq!(update_out["active_leaf_id"].as_str().unwrap(), "1.1.1");
     let chain = update_out["active_recursion_chain"].as_array().unwrap();
     let chain_ids: Vec<&str> = chain.iter().filter_map(|v| v.as_str()).collect();
     assert_eq!(chain_ids, vec!["1", "1.1", "1.1.1"]);
-    assert!(update_out["active_branch_summary"].as_str().unwrap().contains("ACTIVE LEAF"));
+    assert!(update_out["active_branch_summary"]
+        .as_str()
+        .unwrap()
+        .contains("ACTIVE LEAF"));
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(path);
@@ -1657,7 +1744,8 @@ fn test_grisha_plan_review_and_smart_recursive_branch() {
 #[test]
 fn test_mixed_finished_parent_auto_advances_to_next_phase() {
     let _guard = env_guard();
-    let test_dir = std::env::temp_dir().join(format!("claw_test_auto_advance_{}", std::process::id()));
+    let test_dir =
+        std::env::temp_dir().join(format!("claw_test_auto_advance_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&test_dir);
     let path = test_dir.join(".clawd-task-graph.json");
     std::env::set_var("CLAWD_TASK_GRAPH_STORE", path.to_str().unwrap());
@@ -1690,7 +1778,8 @@ fn test_mixed_finished_parent_auto_advances_to_next_phase() {
                 {"id": "1.3.2", "status": "completed"}
             ]
         }),
-    ).expect("Complete 1.3.2 should succeed and auto-advance");
+    )
+    .expect("Complete 1.3.2 should succeed and auto-advance");
 
     let out: serde_json::Value = serde_json::from_str(&out_str).expect("parse output");
     // Verify that Phase 2 was automatically promoted to InProgress down to leaf 2.1.1
@@ -1706,7 +1795,8 @@ fn test_mixed_finished_parent_auto_advances_to_next_phase() {
 #[test]
 fn test_recursive_reopen_resets_subsequent_phases_to_pending() {
     let _guard = env_guard();
-    let test_dir = std::env::temp_dir().join(format!("claw_test_reopen_reset_{}", std::process::id()));
+    let test_dir =
+        std::env::temp_dir().join(format!("claw_test_reopen_reset_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&test_dir);
     let path = test_dir.join(".clawd-task-graph.json");
     std::env::set_var("CLAWD_TASK_GRAPH_STORE", path.to_str().unwrap());
@@ -1723,7 +1813,8 @@ fn test_recursive_reopen_resets_subsequent_phases_to_pending() {
                 {"id": "1.3", "parent_id": "1", "content": "Next step", "status": "pending"}
             ]
         }),
-    ).expect("Add phase should succeed");
+    )
+    .expect("Add phase should succeed");
 
     // 2. Reopen 1.2 via recursive subtask addition
     let out_str = execute_tool(
@@ -1750,7 +1841,8 @@ fn test_recursive_reopen_resets_subsequent_phases_to_pending() {
 #[test]
 fn test_parent_with_failed_and_completed_children_stays_failed_and_advances() {
     let _guard = env_guard();
-    let test_dir = std::env::temp_dir().join(format!("claw_test_failed_mixed_{}", std::process::id()));
+    let test_dir =
+        std::env::temp_dir().join(format!("claw_test_failed_mixed_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&test_dir);
     let path = test_dir.join(".clawd-task-graph.json");
     std::env::set_var("CLAWD_TASK_GRAPH_STORE", path.to_str().unwrap());
@@ -1784,7 +1876,8 @@ fn test_parent_with_failed_and_completed_children_stays_failed_and_advances() {
                 {"id": "2.2", "status": "completed"}
             ]
         }),
-    ).expect("Completing 2.2 should propagate Phase 2 to Failed and auto-advance to Phase 3");
+    )
+    .expect("Completing 2.2 should propagate Phase 2 to Failed and auto-advance to Phase 3");
 
     let out: serde_json::Value = serde_json::from_str(&out_str).expect("parse output");
     // Verify that Phase 2 is marked Failed and Phase 3 (3.1) is auto-promoted to InProgress
@@ -1800,7 +1893,8 @@ fn test_parent_with_failed_and_completed_children_stays_failed_and_advances() {
 #[test]
 fn test_recursive_recovery_workflow_on_failed_step() {
     let _guard = env_guard();
-    let test_dir = std::env::temp_dir().join(format!("claw_test_rec_recovery_{}", std::process::id()));
+    let test_dir =
+        std::env::temp_dir().join(format!("claw_test_rec_recovery_{}", std::process::id()));
     let _ = std::fs::create_dir_all(&test_dir);
     let path = test_dir.join(".clawd-task-graph.json");
     std::env::set_var("CLAWD_TASK_GRAPH_STORE", path.to_str().unwrap());
@@ -1833,10 +1927,15 @@ fn test_recursive_recovery_workflow_on_failed_step() {
                 {"id": "2.1.3", "status": "failed"}
             ]
         }),
-    ).expect("Marking 2.1.3 failed should trigger Grisha advisory and auto-advance 2.2");
+    )
+    .expect("Marking 2.1.3 failed should trigger Grisha advisory and auto-advance 2.2");
 
-    let fail_out: serde_json::Value = serde_json::from_str(&fail_out_str).expect("parse fail output");
-    assert!(fail_out["alert"].as_str().unwrap().contains("Grisha Root-Cause Recovery Advisory"));
+    let fail_out: serde_json::Value =
+        serde_json::from_str(&fail_out_str).expect("parse fail output");
+    assert!(fail_out["alert"]
+        .as_str()
+        .unwrap()
+        .contains("Grisha Root-Cause Recovery Advisory"));
 
     // 3. Recursive Recovery: Decompose failed step 2.1.3 into deeper level-4 diagnostic & fix subtasks!
     let rec_out_str = execute_tool(
@@ -1865,7 +1964,8 @@ fn test_recursive_recovery_workflow_on_failed_step() {
             "operation": "update_status",
             "nodes": [{"id": "2.1.3.1", "status": "completed"}]
         }),
-    ).expect("Complete 2.1.3.1");
+    )
+    .expect("Complete 2.1.3.1");
     let step1_out: serde_json::Value = serde_json::from_str(&step1_out_str).unwrap();
     assert_eq!(step1_out["active_leaf_id"].as_str().unwrap(), "2.1.3.2");
 
@@ -1876,7 +1976,8 @@ fn test_recursive_recovery_workflow_on_failed_step() {
             "operation": "update_status",
             "nodes": [{"id": "2.1.3.2", "status": "completed"}]
         }),
-    ).expect("Complete 2.1.3.2");
+    )
+    .expect("Complete 2.1.3.2");
     let step2_out: serde_json::Value = serde_json::from_str(&step2_out_str).unwrap();
     assert_eq!(step2_out["active_leaf_id"].as_str().unwrap(), "2.1.3.3");
 
@@ -1887,7 +1988,8 @@ fn test_recursive_recovery_workflow_on_failed_step() {
             "operation": "update_status",
             "nodes": [{"id": "2.1.3.3", "status": "completed"}]
         }),
-    ).expect("Complete 2.1.3.3");
+    )
+    .expect("Complete 2.1.3.3");
     let step3_out: serde_json::Value = serde_json::from_str(&step3_out_str).unwrap();
     assert_eq!(step3_out["active_leaf_id"].as_str().unwrap(), "2.2");
 
@@ -1898,7 +2000,8 @@ fn test_recursive_recovery_workflow_on_failed_step() {
             "operation": "update_status",
             "nodes": [{"id": "2.2", "status": "completed"}]
         }),
-    ).expect("Complete 2.2");
+    )
+    .expect("Complete 2.2");
     let final_out: serde_json::Value = serde_json::from_str(&final_out_str).unwrap();
     assert_eq!(final_out["active_leaf_id"].as_str().unwrap(), "3.1");
     let final_chain = final_out["active_recursion_chain"].as_array().unwrap();
@@ -1942,7 +2045,9 @@ fn test_task_graph_rejects_duplicate_ancestor_task() {
 
     assert!(res.is_err());
     let err = res.unwrap_err();
-    assert!(err.contains("GRISHA_PLAN_003") || err.contains("recursive duplicate of ancestor task"));
+    assert!(
+        err.contains("GRISHA_PLAN_003") || err.contains("recursive duplicate of ancestor task")
+    );
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(&path);
@@ -1973,7 +2078,9 @@ fn test_task_graph_rejects_depth_exceeded() {
 
     assert!(res.is_err());
     let err = res.unwrap_err();
-    assert!(err.contains("GRISHA_PLAN_004") || err.contains("exceeds maximum allowed hierarchy depth"));
+    assert!(
+        err.contains("GRISHA_PLAN_004") || err.contains("exceeds maximum allowed hierarchy depth")
+    );
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(&path);

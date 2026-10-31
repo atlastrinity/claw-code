@@ -451,8 +451,7 @@ fn status_and_sandbox_emit_json_when_requested() {
     assert!(fractal["limiter"]["levels"]
         .as_array()
         .is_some_and(|l| !l.is_empty()));
-    let slash_fractal =
-        assert_json_command(&root, &["--output-format", "json", "/fractal"]);
+    let slash_fractal = assert_json_command(&root, &["--output-format", "json", "/fractal"]);
     assert_eq!(slash_fractal["kind"], "fractal");
 }
 

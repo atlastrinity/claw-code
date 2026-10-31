@@ -70,7 +70,10 @@ pub struct BashCommandOutput {
 }
 
 /// Executes a shell command with the requested sandbox settings.
-pub fn execute_bash(input: BashCommandInput, max_output_bytes: usize) -> io::Result<BashCommandOutput> {
+pub fn execute_bash(
+    input: BashCommandInput,
+    max_output_bytes: usize,
+) -> io::Result<BashCommandOutput> {
     let cwd = env::current_dir()?;
     let sandbox_status = sandbox_status_for_input(&input, &cwd);
 
@@ -102,7 +105,12 @@ pub fn execute_bash(input: BashCommandInput, max_output_bytes: usize) -> io::Res
     }
 
     let runtime = Builder::new_current_thread().enable_all().build()?;
-    runtime.block_on(execute_bash_async(input, sandbox_status, cwd, max_output_bytes))
+    runtime.block_on(execute_bash_async(
+        input,
+        sandbox_status,
+        cwd,
+        max_output_bytes,
+    ))
 }
 
 /// Detect git push to main and emit ship provenance event
@@ -485,17 +493,20 @@ mod tests {
 
     #[test]
     fn executes_simple_command() {
-        let output = execute_bash(BashCommandInput {
-            command: String::from("printf 'hello'"),
-            timeout: Some(1_000),
-            description: None,
-            run_in_background: Some(false),
-            dangerously_disable_sandbox: Some(false),
-            namespace_restrictions: Some(false),
-            isolate_network: Some(false),
-            filesystem_mode: Some(FilesystemIsolationMode::WorkspaceOnly),
-            allowed_mounts: None,
-        }, 16384)
+        let output = execute_bash(
+            BashCommandInput {
+                command: String::from("printf 'hello'"),
+                timeout: Some(1_000),
+                description: None,
+                run_in_background: Some(false),
+                dangerously_disable_sandbox: Some(false),
+                namespace_restrictions: Some(false),
+                isolate_network: Some(false),
+                filesystem_mode: Some(FilesystemIsolationMode::WorkspaceOnly),
+                allowed_mounts: None,
+            },
+            16384,
+        )
         .expect("bash command should execute");
 
         assert_eq!(output.stdout, "hello");
@@ -505,17 +516,20 @@ mod tests {
 
     #[test]
     fn disables_sandbox_when_requested() {
-        let output = execute_bash(BashCommandInput {
-            command: String::from("printf 'hello'"),
-            timeout: Some(1_000),
-            description: None,
-            run_in_background: Some(false),
-            dangerously_disable_sandbox: Some(true),
-            namespace_restrictions: None,
-            isolate_network: None,
-            filesystem_mode: None,
-            allowed_mounts: None,
-        }, 16384)
+        let output = execute_bash(
+            BashCommandInput {
+                command: String::from("printf 'hello'"),
+                timeout: Some(1_000),
+                description: None,
+                run_in_background: Some(false),
+                dangerously_disable_sandbox: Some(true),
+                namespace_restrictions: None,
+                isolate_network: None,
+                filesystem_mode: None,
+                allowed_mounts: None,
+            },
+            16384,
+        )
         .expect("bash command should execute");
 
         assert!(!output.sandbox_status.expect("sandbox status").enabled);
@@ -523,17 +537,20 @@ mod tests {
 
     #[test]
     fn timed_out_test_command_is_classified_as_hung_test_with_provenance() {
-        let output = execute_bash(BashCommandInput {
-            command: String::from("sleep 1 # cargo test slow_case"),
-            timeout: Some(1),
-            description: None,
-            run_in_background: Some(false),
-            dangerously_disable_sandbox: Some(false),
-            namespace_restrictions: Some(false),
-            isolate_network: Some(false),
-            filesystem_mode: Some(FilesystemIsolationMode::WorkspaceOnly),
-            allowed_mounts: None,
-        }, 16384)
+        let output = execute_bash(
+            BashCommandInput {
+                command: String::from("sleep 1 # cargo test slow_case"),
+                timeout: Some(1),
+                description: None,
+                run_in_background: Some(false),
+                dangerously_disable_sandbox: Some(false),
+                namespace_restrictions: Some(false),
+                isolate_network: Some(false),
+                filesystem_mode: Some(FilesystemIsolationMode::WorkspaceOnly),
+                allowed_mounts: None,
+            },
+            16384,
+        )
         .expect("bash command should return structured timeout");
 
         assert!(output.interrupted);
@@ -548,17 +565,20 @@ mod tests {
 
     #[test]
     fn prevents_stdin_hangs_by_redirecting_to_null() {
-        let output = execute_bash(BashCommandInput {
-            command: String::from("cat"),
-            timeout: Some(2_000),
-            description: None,
-            run_in_background: Some(false),
-            dangerously_disable_sandbox: Some(true),
-            namespace_restrictions: None,
-            isolate_network: None,
-            filesystem_mode: None,
-            allowed_mounts: None,
-        }, 16384)
+        let output = execute_bash(
+            BashCommandInput {
+                command: String::from("cat"),
+                timeout: Some(2_000),
+                description: None,
+                run_in_background: Some(false),
+                dangerously_disable_sandbox: Some(true),
+                namespace_restrictions: None,
+                isolate_network: None,
+                filesystem_mode: None,
+                allowed_mounts: None,
+            },
+            16384,
+        )
         .expect("bash command should execute cleanly");
 
         assert!(
@@ -675,7 +695,10 @@ fn truncate_output(s: &str, max_bytes: usize) -> String {
         end -= 1;
     }
     let mut truncated = s[..end].to_string();
-    truncated.push_str(&format!("\n\n[output truncated — exceeded {} bytes]", max_bytes));
+    truncated.push_str(&format!(
+        "\n\n[output truncated — exceeded {} bytes]",
+        max_bytes
+    ));
     truncated
 }
 

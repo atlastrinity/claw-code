@@ -36,17 +36,112 @@ impl ErrorCategory {
         let lower = error_msg.to_lowercase();
 
         let patterns: &[(&[&str], Self)] = &[
-            (&["permission denied", "access denied", "not permitted", "eacces", "operation not permitted"], Self::PermissionDenied),
-            (&["no such file", "file not found", "not found", "does not exist", "enoent"], Self::FileNotFound),
-            (&["already exists", "eexist", "file exists"], Self::AlreadyExists),
-            (&["invalid argument", "invalid input", "invalid parameter", "missing required", "type mismatch", "validation error", "schema validation"], Self::InvalidArguments),
-            (&["timeout", "timed out", "deadline exceeded", "etimedout", "navigation timeout"], Self::NetworkOrTimeout),
-            (&["connection refused", "connection reset", "econnrefused", "econnreset", "socket hang up", "network unreachable"], Self::ConnectionError),
-            (&["rate limit", "too many requests", "429", "quota exceeded", "resource exhausted"], Self::RateLimitOrQuota),
-            (&["out of memory", "oom", "heap limit", "javascript heap out of memory"], Self::OutOfMemory),
-            (&["resource busy", "locked", "ebusy", "database is locked", "file is locked"], Self::ResourceBusyOrLocked),
-            (&["syntax error", "parse error", "invalid syntax", "unexpected token", "json parse error"], Self::SyntaxOrParseError),
-            (&["command not found", "executable not found", "module not found", "cannot find module", "no such command"], Self::MissingDependency),
+            (
+                &[
+                    "permission denied",
+                    "access denied",
+                    "not permitted",
+                    "eacces",
+                    "operation not permitted",
+                ],
+                Self::PermissionDenied,
+            ),
+            (
+                &[
+                    "no such file",
+                    "file not found",
+                    "not found",
+                    "does not exist",
+                    "enoent",
+                ],
+                Self::FileNotFound,
+            ),
+            (
+                &["already exists", "eexist", "file exists"],
+                Self::AlreadyExists,
+            ),
+            (
+                &[
+                    "invalid argument",
+                    "invalid input",
+                    "invalid parameter",
+                    "missing required",
+                    "type mismatch",
+                    "validation error",
+                    "schema validation",
+                ],
+                Self::InvalidArguments,
+            ),
+            (
+                &[
+                    "timeout",
+                    "timed out",
+                    "deadline exceeded",
+                    "etimedout",
+                    "navigation timeout",
+                ],
+                Self::NetworkOrTimeout,
+            ),
+            (
+                &[
+                    "connection refused",
+                    "connection reset",
+                    "econnrefused",
+                    "econnreset",
+                    "socket hang up",
+                    "network unreachable",
+                ],
+                Self::ConnectionError,
+            ),
+            (
+                &[
+                    "rate limit",
+                    "too many requests",
+                    "429",
+                    "quota exceeded",
+                    "resource exhausted",
+                ],
+                Self::RateLimitOrQuota,
+            ),
+            (
+                &[
+                    "out of memory",
+                    "oom",
+                    "heap limit",
+                    "javascript heap out of memory",
+                ],
+                Self::OutOfMemory,
+            ),
+            (
+                &[
+                    "resource busy",
+                    "locked",
+                    "ebusy",
+                    "database is locked",
+                    "file is locked",
+                ],
+                Self::ResourceBusyOrLocked,
+            ),
+            (
+                &[
+                    "syntax error",
+                    "parse error",
+                    "invalid syntax",
+                    "unexpected token",
+                    "json parse error",
+                ],
+                Self::SyntaxOrParseError,
+            ),
+            (
+                &[
+                    "command not found",
+                    "executable not found",
+                    "module not found",
+                    "cannot find module",
+                    "no such command",
+                ],
+                Self::MissingDependency,
+            ),
             (&["unknown tool"], Self::UnknownTool),
         ];
 
@@ -62,7 +157,11 @@ impl ErrorCategory {
             .filter(|c| c.is_alphanumeric() || *c == ' ')
             .take(80)
             .collect::<String>();
-        let cat = stripped.split_whitespace().take(8).collect::<Vec<_>>().join("_");
+        let cat = stripped
+            .split_whitespace()
+            .take(8)
+            .collect::<Vec<_>>()
+            .join("_");
         if cat.is_empty() {
             Self::ToolSpecific("general_error".to_string())
         } else {
@@ -210,8 +309,10 @@ impl DynamicSkill {
             .bifurcation_provenance
             .as_deref()
             .map(|provenance| {
-                format!("\n## 🔀 How this was found\n{provenance}\nThe repeated approach is the \
-                         anti-pattern here; this alternative is what cleared the block.\n")
+                format!(
+                    "\n## 🔀 How this was found\n{provenance}\nThe repeated approach is the \
+                         anti-pattern here; this alternative is what cleared the block.\n"
+                )
             })
             .unwrap_or_default();
 
@@ -283,17 +384,27 @@ pub fn diff_tool_inputs(failed_input: &str, successful_input: &str) -> Option<St
             for (k, v_succ) in &s_obj {
                 match f_obj.get(k) {
                     Some(v_fail) if v_fail != v_succ => {
-                        diffs.push(format!("- Changed `{k}`: `{}` ➔ `{}`", truncate_val(v_fail), truncate_val(v_succ)));
+                        diffs.push(format!(
+                            "- Changed `{k}`: `{}` ➔ `{}`",
+                            truncate_val(v_fail),
+                            truncate_val(v_succ)
+                        ));
                     }
                     None => {
-                        diffs.push(format!("- Added parameter `{k}`: `{}`", truncate_val(v_succ)));
+                        diffs.push(format!(
+                            "- Added parameter `{k}`: `{}`",
+                            truncate_val(v_succ)
+                        ));
                     }
                     _ => {}
                 }
             }
             for (k, v_fail) in &f_obj {
                 if !s_obj.contains_key(k) {
-                    diffs.push(format!("- Removed parameter `{k}` (was `{}`)", truncate_val(v_fail)));
+                    diffs.push(format!(
+                        "- Removed parameter `{k}` (was `{}`)",
+                        truncate_val(v_fail)
+                    ));
                 }
             }
             if diffs.is_empty() {
@@ -302,9 +413,10 @@ pub fn diff_tool_inputs(failed_input: &str, successful_input: &str) -> Option<St
                 Some(diffs.join("\n"))
             }
         }
-        _ => {
-            Some(format!("- Adjusted input payload to: `{}`", truncate(successful_input, 150)))
-        }
+        _ => Some(format!(
+            "- Adjusted input payload to: `{}`",
+            truncate(successful_input, 150)
+        )),
     }
 }
 
@@ -316,7 +428,9 @@ fn truncate_val(v: &serde_json::Value) -> String {
 /// Normalizes an error message into a category key for deduplication.
 #[must_use]
 pub fn normalize_error_category(error_msg: &str) -> String {
-    ErrorCategory::from_error_message(error_msg).as_str().to_string()
+    ErrorCategory::from_error_message(error_msg)
+        .as_str()
+        .to_string()
 }
 
 /// Truncates tool input JSON to a short summary for storage.
@@ -342,15 +456,22 @@ fn now_ms() -> u64 {
 /// `qualifiedName` or `tool` field from the input JSON so we track errors
 /// per-actual-MCP-tool, not under the generic wrapper name.
 #[must_use]
-pub fn resolve_effective_tool_name<'a>(tool_name: &'a str, input: &'a str) -> std::borrow::Cow<'a, str> {
+pub fn resolve_effective_tool_name<'a>(
+    tool_name: &'a str,
+    input: &'a str,
+) -> std::borrow::Cow<'a, str> {
     if tool_name == "MCPTool" || tool_name == "call_mcp_tool" || tool_name == "McpTool" {
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(input) {
-            if let Some(name) = v.get("qualifiedName").and_then(|v| v.as_str())
+            if let Some(name) = v
+                .get("qualifiedName")
+                .and_then(|v| v.as_str())
                 .or_else(|| v.get("tool").and_then(|v| v.as_str()))
                 .or_else(|| v.get("ToolName").and_then(|v| v.as_str()))
                 .or_else(|| v.get("name").and_then(|v| v.as_str()))
             {
-                let server = v.get("ServerName").and_then(|v| v.as_str())
+                let server = v
+                    .get("ServerName")
+                    .and_then(|v| v.as_str())
                     .or_else(|| v.get("server").and_then(|v| v.as_str()))
                     .unwrap_or("");
                 if !server.is_empty() {
@@ -412,8 +533,7 @@ impl ErrorTracker {
         if is_recurring {
             for skill in &mut self.dynamic_skills {
                 if skill.tool_name == tool_name
-                    && normalize_error_category(&skill.error_pattern)
-                        == key.1
+                    && normalize_error_category(&skill.error_pattern) == key.1
                 {
                     skill.errors_after_creation += 1;
                 }
@@ -425,7 +545,12 @@ impl ErrorTracker {
 
     /// Records a successful tool execution. If there was a recurring error
     /// on this tool before, generates a dynamic skill and returns it.
-    pub fn record_success(&mut self, tool_name: &str, input: &str, output: &str) -> Option<DynamicSkill> {
+    pub fn record_success(
+        &mut self,
+        tool_name: &str,
+        input: &str,
+        output: &str,
+    ) -> Option<DynamicSkill> {
         self.record_success_with_escape(tool_name, input, output, None)
     }
 
@@ -448,8 +573,7 @@ impl ErrorTracker {
             }
             // Check if we already have a skill for this. If so, reinforce it.
             if let Some(existing) = self.dynamic_skills.iter_mut().find(|s| {
-                s.tool_name == tool_name
-                    && normalize_error_category(&s.error_pattern) == *category
+                s.tool_name == tool_name && normalize_error_category(&s.error_pattern) == *category
             }) {
                 existing.success_count += 1;
                 existing.was_effective = true;
@@ -476,7 +600,9 @@ impl ErrorTracker {
         }
 
         // Get the representative error message and failing input from the records.
-        let records = self.error_counts.get(&(tool_name.to_string(), category.clone()));
+        let records = self
+            .error_counts
+            .get(&(tool_name.to_string(), category.clone()));
         let error_msg = records
             .and_then(|r| r.last())
             .map(|r| r.error_message.clone())
@@ -557,7 +683,11 @@ impl ErrorTracker {
         ];
 
         for skill in &self.dynamic_skills {
-            let diff_note = skill.input_diff.as_deref().map(|d| format!(" (Adjusted: {d})")).unwrap_or_default();
+            let diff_note = skill
+                .input_diff
+                .as_deref()
+                .map(|d| format!(" (Adjusted: {d})"))
+                .unwrap_or_default();
             let found_note = skill
                 .bifurcation_provenance
                 .as_deref()
@@ -587,8 +717,7 @@ impl ErrorTracker {
 
         // 1. Check dynamic skills from the current session.
         if let Some(skill) = self.dynamic_skills.iter().find(|s| {
-            s.tool_name == tool_name
-                && normalize_error_category(&s.error_pattern) == category
+            s.tool_name == tool_name && normalize_error_category(&s.error_pattern) == category
         }) {
             let cat_enum = ErrorCategory::from_error_message(error_msg);
             let root_cause = cat_enum.root_cause_explanation();
@@ -609,8 +738,18 @@ impl ErrorTracker {
             .or_else(|_| std::env::var("USERPROFILE"))
             .unwrap_or_else(|_| ".".to_string());
         let candidate_paths = [
-            PathBuf::from(&home).join(".claw").join("skills").join("omc-learned").join(&expected_name).join("SKILL.md"),
-            PathBuf::from(&home).join(".claude").join("skills").join("omc-learned").join(&expected_name).join("SKILL.md"),
+            PathBuf::from(&home)
+                .join(".claw")
+                .join("skills")
+                .join("omc-learned")
+                .join(&expected_name)
+                .join("SKILL.md"),
+            PathBuf::from(&home)
+                .join(".claude")
+                .join("skills")
+                .join("omc-learned")
+                .join(&expected_name)
+                .join("SKILL.md"),
             learned_skills_dir().join(&expected_name).join("SKILL.md"),
         ];
         for persisted_path in &candidate_paths {
@@ -666,7 +805,9 @@ fn extract_solution_from_skill_md(content: &str) -> String {
 
     for line in content.lines() {
         let trimmed = line.trim();
-        if trimmed.starts_with("## ") && (trimmed.contains("Solution") || trimmed.contains("Recommended Solution")) {
+        if trimmed.starts_with("## ")
+            && (trimmed.contains("Solution") || trimmed.contains("Recommended Solution"))
+        {
             in_solution = true;
             continue;
         }
@@ -683,7 +824,11 @@ fn extract_solution_from_skill_md(content: &str) -> String {
         // Fallback: return everything after the frontmatter.
         content
             .find("---\n")
-            .and_then(|first| content[first + 4..].find("---\n").map(|second| first + 4 + second + 4))
+            .and_then(|first| {
+                content[first + 4..]
+                    .find("---\n")
+                    .map(|second| first + 4 + second + 4)
+            })
             .map(|body_start| content[body_start..].trim().to_string())
             .unwrap_or_else(|| content.to_string())
     } else {
@@ -716,9 +861,7 @@ pub fn temp_skills_dir() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    PathBuf::from(home)
-        .join(".claw")
-        .join("tmp_skills")
+    PathBuf::from(home).join(".claw").join("tmp_skills")
 }
 
 /// Writes a dynamic skill to temporary storage.
@@ -777,11 +920,17 @@ pub fn learned_skills_dir() -> PathBuf {
     let home = std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_else(|_| ".".to_string());
-    let claw_dir = PathBuf::from(&home).join(".claw").join("skills").join("omc-learned");
+    let claw_dir = PathBuf::from(&home)
+        .join(".claw")
+        .join("skills")
+        .join("omc-learned");
     if claw_dir.exists() {
         return claw_dir;
     }
-    let claude_dir = PathBuf::from(&home).join(".claude").join("skills").join("omc-learned");
+    let claude_dir = PathBuf::from(&home)
+        .join(".claude")
+        .join("skills")
+        .join("omc-learned");
     if claude_dir.exists() {
         return claude_dir;
     }
@@ -796,17 +945,33 @@ mod tests {
 
     #[test]
     fn normalize_error_category_maps_common_patterns() {
-        assert_eq!(normalize_error_category("Permission denied: /foo/bar"), "permission_denied");
-        assert_eq!(normalize_error_category("No such file or directory: test.txt"), "file_not_found");
-        assert_eq!(normalize_error_category("Connection refused on port 8080"), "connection_error");
-        assert_eq!(normalize_error_category("Request timed out after 30s"), "timeout");
-        assert_eq!(normalize_error_category("unknown tool: foobar"), "unknown_tool");
+        assert_eq!(
+            normalize_error_category("Permission denied: /foo/bar"),
+            "permission_denied"
+        );
+        assert_eq!(
+            normalize_error_category("No such file or directory: test.txt"),
+            "file_not_found"
+        );
+        assert_eq!(
+            normalize_error_category("Connection refused on port 8080"),
+            "connection_error"
+        );
+        assert_eq!(
+            normalize_error_category("Request timed out after 30s"),
+            "timeout"
+        );
+        assert_eq!(
+            normalize_error_category("unknown tool: foobar"),
+            "unknown_tool"
+        );
     }
 
     #[test]
     fn first_error_is_not_recurring() {
         let mut tracker = ErrorTracker::new();
-        let is_recurring = tracker.record_error("write_file", "Permission denied: /etc/hosts", "{}");
+        let is_recurring =
+            tracker.record_error("write_file", "Permission denied: /etc/hosts", "{}");
         assert!(!is_recurring);
     }
 
@@ -814,7 +979,8 @@ mod tests {
     fn second_error_same_category_is_recurring() {
         let mut tracker = ErrorTracker::new();
         tracker.record_error("write_file", "Permission denied: /etc/hosts", "{}");
-        let is_recurring = tracker.record_error("write_file", "Access denied for /etc/passwd", "{}");
+        let is_recurring =
+            tracker.record_error("write_file", "Access denied for /etc/passwd", "{}");
         assert!(is_recurring);
     }
 
@@ -831,7 +997,11 @@ mod tests {
         let mut tracker = ErrorTracker::new();
         tracker.record_error("bash", "command not found: cargo", "{}");
         tracker.record_error("bash", "command not found: cargo", "{}");
-        let skill = tracker.record_success("bash", "{\"command\": \"~/.cargo/bin/cargo build\"}", "Build succeeded");
+        let skill = tracker.record_success(
+            "bash",
+            "{\"command\": \"~/.cargo/bin/cargo build\"}",
+            "Build succeeded",
+        );
         assert!(skill.is_some());
         let skill = skill.unwrap();
         assert!(skill.name.starts_with("autolearn-bash-"));
@@ -947,7 +1117,8 @@ mod tests {
     #[test]
     fn diff_tool_inputs_detects_parameter_changes() {
         let failed = r#"{"url": "https://example.com"}"#;
-        let success = r#"{"url": "https://example.com", "timeout": 30000, "waitUntil": "domcontentloaded"}"#;
+        let success =
+            r#"{"url": "https://example.com", "timeout": 30000, "waitUntil": "domcontentloaded"}"#;
         let diff = diff_tool_inputs(failed, success);
         assert!(diff.is_some());
         let d = diff.unwrap();
@@ -983,7 +1154,9 @@ mod tests {
     fn get_skill_hint_returns_none_when_no_skill() {
         run_isolated_test(|| {
             let tracker = ErrorTracker::new();
-            assert!(tracker.get_skill_hint("bash", "permission denied").is_none());
+            assert!(tracker
+                .get_skill_hint("bash", "permission denied")
+                .is_none());
         });
     }
 
@@ -1012,7 +1185,9 @@ mod tests {
             tracker.record_success("bash", "{}", "ok");
 
             // Different tool.
-            assert!(tracker.get_skill_hint("write_file", "permission denied").is_none());
+            assert!(tracker
+                .get_skill_hint("write_file", "permission denied")
+                .is_none());
         });
     }
 
@@ -1025,7 +1200,9 @@ mod tests {
             tracker.record_success("bash", "{}", "ok");
 
             // Different error category.
-            assert!(tracker.get_skill_hint("bash", "connection refused on port 80").is_none());
+            assert!(tracker
+                .get_skill_hint("bash", "connection refused on port 80")
+                .is_none());
         });
     }
 
@@ -1156,15 +1333,23 @@ mod tests {
         run_isolated_test(|| {
             let mut tracker = ErrorTracker::new();
             // 1. First error - not recurring yet
-            assert!(!tracker.record_error("read_file", "No such file or directory: /tmp/missing.txt", r#"{"path": "/tmp/missing.txt"}"#));
+            assert!(!tracker.record_error(
+                "read_file",
+                "No such file or directory: /tmp/missing.txt",
+                r#"{"path": "/tmp/missing.txt"}"#
+            ));
             // 2. Second error - becomes recurring
-            assert!(tracker.record_error("read_file", "File not found: /tmp/missing.txt", r#"{"path": "/tmp/missing.txt"}"#));
+            assert!(tracker.record_error(
+                "read_file",
+                "File not found: /tmp/missing.txt",
+                r#"{"path": "/tmp/missing.txt"}"#
+            ));
 
             // 3. Success - generates dynamic skill with parameter diff
             let skill = tracker.record_success(
                 "read_file",
                 r#"{"path": "/tmp/existing.txt"}"#,
-                "File content loaded successfully"
+                "File content loaded successfully",
             );
             assert!(skill.is_some(), "Dynamic skill should be created");
             let s = skill.unwrap();
@@ -1178,7 +1363,7 @@ mod tests {
             let second_skill = tracker.record_success(
                 "read_file",
                 r#"{"path": "/tmp/another.txt"}"#,
-                "Another content loaded"
+                "Another content loaded",
             );
             assert!(second_skill.is_none(), "Should not create duplicate skill");
             let skills = tracker.dynamic_skills();
@@ -1187,7 +1372,11 @@ mod tests {
             assert_eq!(skills[0].effectiveness_score(), 1.0);
 
             // 5. Subsequent error - decreases effectiveness score
-            tracker.record_error("read_file", "File not found: /tmp/bad.txt", r#"{"path": "/tmp/bad.txt"}"#);
+            tracker.record_error(
+                "read_file",
+                "File not found: /tmp/bad.txt",
+                r#"{"path": "/tmp/bad.txt"}"#,
+            );
             let updated_skills = tracker.dynamic_skills();
             assert_eq!(updated_skills[0].errors_after_creation, 1);
             assert_eq!(updated_skills[0].effectiveness_score(), 2.0 / 3.0);
@@ -1198,8 +1387,16 @@ mod tests {
     fn test_skill_persisted_to_claw_skills_omc_learned() {
         run_isolated_test(|| {
             let mut tracker = ErrorTracker::new();
-            tracker.record_error("playwright_navigate", "Navigation timeout of 30000 ms exceeded", r#"{"url": "https://slow.site"}"#);
-            tracker.record_error("playwright_navigate", "TimeoutError: timed out", r#"{"url": "https://slow.site"}"#);
+            tracker.record_error(
+                "playwright_navigate",
+                "Navigation timeout of 30000 ms exceeded",
+                r#"{"url": "https://slow.site"}"#,
+            );
+            tracker.record_error(
+                "playwright_navigate",
+                "TimeoutError: timed out",
+                r#"{"url": "https://slow.site"}"#,
+            );
 
             let skill = tracker.record_success(
                 "playwright_navigate",
@@ -1211,8 +1408,16 @@ mod tests {
 
             // Verify file was written to disk in ~/.claw/skills/omc-learned
             let home = std::env::var("HOME").map(PathBuf::from).unwrap();
-            let expected_path = home.join(".claw").join("skills").join("omc-learned").join(&s.name).join("SKILL.md");
-            assert!(expected_path.is_file(), "SKILL.md should be written to ~/.claw/skills/omc-learned/");
+            let expected_path = home
+                .join(".claw")
+                .join("skills")
+                .join("omc-learned")
+                .join(&s.name)
+                .join("SKILL.md");
+            assert!(
+                expected_path.is_file(),
+                "SKILL.md should be written to ~/.claw/skills/omc-learned/"
+            );
 
             let content = std::fs::read_to_string(&expected_path).unwrap();
             assert!(content.contains("name: autolearn-playwright_navigate-timeout"));

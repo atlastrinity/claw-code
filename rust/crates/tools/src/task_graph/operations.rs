@@ -55,7 +55,8 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
     match input.operation {
         TaskGraphOperation::Add => {
             // Grisha Plan Review & Enrichment Gatekeeper
-            let review_outcome = crate::grisha::GrishaSupervisor::review_plan(&input.nodes, &current_nodes)?;
+            let review_outcome =
+                crate::grisha::GrishaSupervisor::review_plan(&input.nodes, &current_nodes)?;
             if !review_outcome.remarks.is_empty() {
                 grisha_remarks = Some(review_outcome.remarks);
             }
@@ -94,7 +95,10 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         }
         TaskGraphOperation::UpdateStatus => {
             // Grisha Phase Transition Gate: prevent starting Phase N if Phase N-1 is incomplete
-            crate::grisha::GrishaSupervisor::validate_phase_transition(&input.nodes, &current_nodes)?;
+            crate::grisha::GrishaSupervisor::validate_phase_transition(
+                &input.nodes,
+                &current_nodes,
+            )?;
 
             let mut cascade_completed = Vec::new();
 
@@ -265,8 +269,7 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                 .collect();
             if !children.is_empty() {
                 let all_finished = children.iter().all(|c| {
-                    c.status == Some(TaskStatus::Completed)
-                        || c.status == Some(TaskStatus::Failed)
+                    c.status == Some(TaskStatus::Completed) || c.status == Some(TaskStatus::Failed)
                 });
                 if all_finished {
                     finished_parent_ids.push(node.id.clone());
@@ -278,7 +281,9 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
     let mut alerts = Vec::new();
     if !newly_failed_nodes.is_empty() {
         for fid in &newly_failed_nodes {
-            let has_children = current_nodes.iter().any(|n| n.parent_id.as_ref() == Some(fid));
+            let has_children = current_nodes
+                .iter()
+                .any(|n| n.parent_id.as_ref() == Some(fid));
             if !has_children {
                 let depth = fid.split('.').count();
                 if depth < 4 {
@@ -303,8 +308,13 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         ));
     }
 
-    if let Some(active) = current_nodes.iter().find(|n| n.status == Some(TaskStatus::InProgress)) {
-        let has_children = current_nodes.iter().any(|n| n.parent_id.as_ref() == Some(&active.id));
+    if let Some(active) = current_nodes
+        .iter()
+        .find(|n| n.status == Some(TaskStatus::InProgress))
+    {
+        let has_children = current_nodes
+            .iter()
+            .any(|n| n.parent_id.as_ref() == Some(&active.id));
         if !has_children {
             let depth = active.id.split('.').count();
             if depth < 3 {
@@ -332,5 +342,11 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         None
     };
 
-    save_task_graph_output_with_review(&store_path, &current_nodes, updated_count, alert, grisha_remarks)
+    save_task_graph_output_with_review(
+        &store_path,
+        &current_nodes,
+        updated_count,
+        alert,
+        grisha_remarks,
+    )
 }

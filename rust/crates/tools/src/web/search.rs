@@ -1,6 +1,6 @@
-use std::collections::BTreeSet;
 use crate::tool_types::*;
-use crate::web::fetch::{html_to_text, decode_html_entities};
+use crate::web::fetch::{decode_html_entities, html_to_text};
+use std::collections::BTreeSet;
 
 pub(crate) fn extract_search_hits(html: &str) -> Vec<SearchHit> {
     if html.contains("compTitle options-toggle") {
@@ -241,7 +241,10 @@ mod tests {
     #[test]
     fn test_host_matches_list() {
         let allowed = vec!["github.com".to_string(), "rust-lang.org".to_string()];
-        assert!(host_matches_list("https://github.com/rust-lang/rust", &allowed));
+        assert!(host_matches_list(
+            "https://github.com/rust-lang/rust",
+            &allowed
+        ));
         assert!(host_matches_list("https://api.github.com/user", &allowed));
         assert!(!host_matches_list("https://notgithub.com/foo", &allowed));
         assert!(!host_matches_list("invalid_url", &allowed));
@@ -270,7 +273,3 @@ mod tests {
         assert_eq!(hits[1].url, "https://example.com/b");
     }
 }
-
-
-
-
