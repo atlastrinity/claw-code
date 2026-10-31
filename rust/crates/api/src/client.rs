@@ -811,6 +811,7 @@ impl ProviderClient {
 
                     let status_code = err.status_code().unwrap_or(0);
                     let err_str = format!("{err:?}");
+                    let retry_after = err.retry_after();
                     // A transport/connection failure (no HTTP response) is the
                     // endpoint's problem, not this key's: every key in the pool
                     // hits the same host, so cooling this one and rotating would
@@ -832,11 +833,9 @@ impl ProviderClient {
                     }
 
                     overload_fail_count += 1;
-                    crate::cooldown::GLOBAL_KEY_COOLDOWN.mark_cooldown(
-                        model,
-                        key_index,
-                        crate::cooldown::DEFAULT_COOLDOWN_DURATION,
-                    );
+                    let cooldown =
+                        crate::cooldown::KeyCooldownTracker::cooldown_duration(retry_after);
+                    crate::cooldown::GLOBAL_KEY_COOLDOWN.mark_cooldown(model, key_index, cooldown);
 
                     let (next_key, min_wait) = crate::cooldown::GLOBAL_KEY_COOLDOWN
                         .find_available_key(model, total_keys, key_index + 1);
@@ -862,7 +861,8 @@ impl ProviderClient {
                         tokio::time::sleep(std::time::Duration::from_secs(wait_secs)).await;
                     } else {
                         eprintln!(
-                            "❄️ API key {key_index} placed in 60s cooldown. Switching to available key {next_key}..."
+                            "❄️ API key {key_index} placed in {}s cooldown. Switching to available key {next_key}...",
+                            cooldown.as_secs()
                         );
                     }
 

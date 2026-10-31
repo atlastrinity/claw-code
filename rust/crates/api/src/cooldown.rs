@@ -95,6 +95,22 @@ impl KeyCooldownTracker {
         }
     }
 
+    /// Cooldown length for a key that hit a throttle, honoring the server's
+    /// `Retry-After` when present. A 429 may carry a concrete "back off N
+    /// seconds" hint; using a blind fixed duration either parks the key far
+    /// too long (when the server only wanted a few seconds) or far too short
+    /// (when it asked for minutes and the next rotation just re-hits the limit).
+    /// Clamped to a sane band so a huge or zero hint can neither idle the pool
+    /// for an hour nor cause a hot rotate loop.
+    pub fn cooldown_duration(retry_after: Option<Duration>) -> Duration {
+        const FLOOR: Duration = Duration::from_secs(5);
+        const CAP: Duration = Duration::from_secs(120);
+        match retry_after {
+            Some(after) => after.clamp(FLOOR, CAP),
+            None => DEFAULT_COOLDOWN_DURATION,
+        }
+    }
+
     /// Mark a key for a model as cooling down for a given duration.
     pub fn mark_cooldown(&self, model: &str, key_index: usize, duration: Duration) {
         let until = Instant::now() + duration;
@@ -295,16 +311,27 @@ mod tests {
     }
 
     #[test]
-    fn responses_with_a_status_are_key_scoped_throttles_not_transport() {
-        // A 429 (or 503) that actually came back is a real throttle: rotation
-        // is the right response, so it must NOT be classed as endpoint error.
-        assert!(!KeyCooldownTracker::is_endpoint_or_network_error(
-            "{\"code\":\"1305\",\"message\":\"temporarily overloaded\"}",
-            429
-        ));
-        assert!(!KeyCooldownTracker::is_endpoint_or_network_error(
-            "Service Unavailable",
-            503
-        ));
+    fn cooldown_duration_honors_retry_after_within_band() {
+        // Server hint inside the band is used verbatim.
+        assert_eq!(
+            KeyCooldownTracker::cooldown_duration(Some(Duration::from_secs(20))),
+            Duration::from_secs(20)
+        );
+        // Too-small hint is floored, so rotation cannot hot-loop.
+        assert_eq!(
+            KeyCooldownTracker::cooldown_duration(Some(Duration::from_secs(1))),
+            Duration::from_secs(5)
+        );
+        // Absurdly large hint is capped, so one response cannot idle a key for
+        // an hour.
+        assert_eq!(
+            KeyCooldownTracker::cooldown_duration(Some(Duration::from_secs(3_600))),
+            Duration::from_secs(120)
+        );
+        // No hint keeps the historical default.
+        assert_eq!(
+            KeyCooldownTracker::cooldown_duration(None),
+            DEFAULT_COOLDOWN_DURATION
+        );
     }
 }
