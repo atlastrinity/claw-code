@@ -1724,6 +1724,42 @@ def get_heuristic_taskgraph_ua(op: str, nodes: list, descriptions: dict) -> tupl
     return "Сформувала покроковий план завдань та розпочинаю координацію.", "формування плану"
 
 
+def is_silent_plan_tick(tool_name: str, input_str) -> bool:
+    """True for TaskGraph calls that only move a checkbox.
+
+    Рухи плану не є подіями для озвучки: на них Тетяна наздоганяє рантайм
+    цілими чергами («План», «План», «План»), тоді як слухачеві важливі зміни
+    світу та межі фаз. Завершена коренева фаза — це межа, її озвучуємо.
+    """
+    if tool_name != "TaskGraph":
+        return False
+    if isinstance(input_str, dict):
+        params = input_str
+    elif isinstance(input_str, str):
+        try:
+            params = json.loads(input_str)
+        except Exception:
+            return False
+    else:
+        return False
+    if not isinstance(params, dict):
+        return False
+    op = str(params.get("operation", "")).lower()
+    if op == "view":
+        return True
+    if op != "update_status":
+        return False
+    for node in params.get("nodes") or []:
+        if not isinstance(node, dict):
+            continue
+        status = str(node.get("status", "")).lower()
+        if status == "failed":
+            return False
+        if status == "completed" and "." not in str(node.get("id", "")):
+            return False
+    return True
+
+
 def make_natural_tool_use(tool_name: str, input_str: str) -> tuple[str, str]:
     try:
         params = json.loads(input_str) if isinstance(input_str, str) else (input_str or {})
@@ -1902,10 +1938,14 @@ def process_session_entry(data: dict, player: VoicePlayer):
                     tool_name = block.get("name", "")
                     input_str = block.get("input", "")
                     if tool_name:
+                        if is_silent_plan_tick(tool_name, input_str):
+                            player.last_action_desc = "оновлення статусу завдання"
+                            player.last_action_tool = tool_name
+                            continue
                         natural_tool, action_desc = make_natural_tool_use(tool_name, input_str)
                         player.last_action_desc = action_desc
                         player.last_action_tool = tool_name
-                        
+
                         # TaskGraph belongs exclusively to Tetiana (Coordinator)
                         if tool_name == "TaskGraph":
                             player.speak("tetiana", "План", natural_tool)

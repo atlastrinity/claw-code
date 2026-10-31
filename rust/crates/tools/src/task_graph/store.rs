@@ -201,26 +201,28 @@ pub fn compute_active_recursion_branch(
     chain_nodes.reverse();
 
     let chain_ids: Vec<String> = chain_nodes.iter().map(|n| n.id.clone()).collect();
-    let mut summary_lines = Vec::new();
-
-    for (idx, node) in chain_nodes.iter().enumerate() {
-        let is_leaf = idx == chain_nodes.len() - 1;
-        let tag = if is_leaf {
-            "⚡ ACTIVE LEAF (Lowest Order)"
-        } else {
-            "📂 PARENT PHASE"
-        };
+    // The old rendering printed every ancestor's full title on every graph
+    // response, so a deep plan spent most of its tokens re-reading a plan the
+    // model had already seen. The leaf and its immediate parent are what the next
+    // action depends on; the rest is one line of ids.
+    let leaf_title = active_leaf.content.as_deref().unwrap_or("");
+    let mut summary_lines = vec![format!(
+        "⚡ ACTIVE LEAF [{leaf_id}] \"{leaf_title}\" — finish this before any sibling."
+    )];
+    if chain_nodes.len() >= 2 {
+        let parent = chain_nodes[chain_nodes.len() - 2];
         summary_lines.push(format!(
-            "[{}] \"{}\" ({})",
-            node.id,
-            node.content.as_deref().unwrap_or(""),
-            tag
+            "   under [{}] \"{}\"",
+            parent.id,
+            parent.content.as_deref().unwrap_or("")
         ));
     }
-
+    if chain_ids.len() >= 2 {
+        summary_lines.push(format!("   chain: {}", chain_ids.join(" → ")));
+    }
     let summary = format!(
-        "Recursive Task Chain (Finish lowest order leaf task first):\n{}\n\nStrict recursive dependency active. Full graph available in task.md or via TaskGraph operation 'view'.",
-        summary_lines.join(" ->\n  ")
+        "{}\nFull graph: task.md or TaskGraph operation 'view'.",
+        summary_lines.join("\n")
     );
 
     (Some(leaf_id), chain_ids, Some(summary))

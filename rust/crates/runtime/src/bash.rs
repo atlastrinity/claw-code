@@ -38,34 +38,54 @@ pub struct BashCommandInput {
 }
 
 /// Output returned from a bash tool invocation.
+///
+/// The optional fields are almost always unset, and a pretty-printed `null` per
+/// unset field costs more context than the command output itself: a `ls` that
+/// printed three lines arrived at the model as eleven lines of scaffolding.
+/// Absent keys deserialize to `None`, so dropping them is loss-free.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BashCommandOutput {
     pub stdout: String,
     pub stderr: String,
-    #[serde(rename = "rawOutputPath")]
+    #[serde(rename = "rawOutputPath", skip_serializing_if = "Option::is_none")]
     pub raw_output_path: Option<String>,
     pub interrupted: bool,
-    #[serde(rename = "isImage")]
+    #[serde(rename = "isImage", skip_serializing_if = "Option::is_none")]
     pub is_image: Option<bool>,
-    #[serde(rename = "backgroundTaskId")]
+    #[serde(rename = "backgroundTaskId", skip_serializing_if = "Option::is_none")]
     pub background_task_id: Option<String>,
-    #[serde(rename = "backgroundedByUser")]
+    #[serde(rename = "backgroundedByUser", skip_serializing_if = "Option::is_none")]
     pub backgrounded_by_user: Option<bool>,
-    #[serde(rename = "assistantAutoBackgrounded")]
+    #[serde(
+        rename = "assistantAutoBackgrounded",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub assistant_auto_backgrounded: Option<bool>,
-    #[serde(rename = "dangerouslyDisableSandbox")]
+    #[serde(
+        rename = "dangerouslyDisableSandbox",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub dangerously_disable_sandbox: Option<bool>,
-    #[serde(rename = "returnCodeInterpretation")]
+    #[serde(
+        rename = "returnCodeInterpretation",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub return_code_interpretation: Option<String>,
-    #[serde(rename = "noOutputExpected")]
+    #[serde(rename = "noOutputExpected", skip_serializing_if = "Option::is_none")]
     pub no_output_expected: Option<bool>,
-    #[serde(rename = "structuredContent")]
+    #[serde(rename = "structuredContent", skip_serializing_if = "Option::is_none")]
     pub structured_content: Option<Vec<serde_json::Value>>,
-    #[serde(rename = "persistedOutputPath")]
+    #[serde(
+        rename = "persistedOutputPath",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub persisted_output_path: Option<String>,
-    #[serde(rename = "persistedOutputSize")]
+    #[serde(
+        rename = "persistedOutputSize",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub persisted_output_size: Option<u64>,
-    #[serde(rename = "sandboxStatus")]
+    #[serde(rename = "sandboxStatus", skip_serializing_if = "Option::is_none")]
     pub sandbox_status: Option<SandboxStatus>,
 }
 
