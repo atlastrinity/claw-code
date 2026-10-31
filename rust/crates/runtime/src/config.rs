@@ -2641,15 +2641,37 @@ fn deep_merge_objects(
             (Some(JsonValue::Object(existing)), JsonValue::Object(incoming)) => {
                 deep_merge_objects(existing, incoming);
             }
-            // #106: concatenate arrays instead of replacing
+            // #106: arrays accumulate across config layers — but as a *union*,
+            // not a multiset. The same entry declared in both user and project
+            // scope must appear once. Pure concatenation made `claw config` and
+            // the `# Runtime config` prompt section show `allowedTools: ["*"]`
+            // doubled to `["*", "*"]`, `injectedTools` printed twice, and every
+            // MCP `args` array mirrored — even though the runtime itself
+            // collapses tools into a `BTreeSet` and replaces MCP servers per
+            // key. The model was being told a false version of its own config.
             (Some(JsonValue::Array(existing)), JsonValue::Array(incoming)) => {
-                existing.extend(incoming.iter().cloned());
+                union_arrays(existing, incoming);
             }
             _ => {
                 target.insert(key.clone(), value.clone());
             }
         }
     }
+}
+
+/// Concatenate `incoming` onto `existing`, keeping the first occurrence of
+/// each element and dropping exact duplicates. Distinct entries still
+/// accumulate across scopes (#106); only repeats collapse. Order preserving
+/// first-seen matters because these arrays feed command arguments and tool
+/// grants that are otherwise read positionally.
+fn union_arrays(existing: &mut Vec<JsonValue>, incoming: &[JsonValue]) {
+    let mut out: Vec<JsonValue> = Vec::with_capacity(existing.len() + incoming.len());
+    for value in existing.iter().chain(incoming) {
+        if !out.contains(value) {
+            out.push(value.clone());
+        }
+    }
+    *existing = out;
 }
 
 #[cfg(test)]
@@ -3591,6 +3613,59 @@ mod tests {
         );
         assert_eq!(env.get("C"), Some(&JsonValue::String("3".to_string())));
         assert!(target.contains_key("sandbox"));
+    }
+
+    #[test]
+    fn deep_merge_objects_unions_arrays_instead_of_mirroring_them() {
+        // A user scope and a project scope that declare the same entries must
+        // not double them in the merged view. `allowedTools: ["*"]` merged onto
+        // `["*"]` was becoming `["*", "*"]`, and an MCP server defined in both
+        // files got its `args` concatenated into a broken command line.
+        let mut target =
+            JsonValue::parse(r#"{"allowedTools":["*"],"servers":{"pw":{"args":["-y","pkg"]}}}"#)
+                .expect("target parses")
+                .as_object()
+                .expect("target object")
+                .clone();
+        let source = JsonValue::parse(
+            r#"{"allowedTools":["*","read_file"],"servers":{"pw":{"args":["-y","pkg"]}}}"#,
+        )
+        .expect("source parses")
+        .as_object()
+        .expect("source object")
+        .clone();
+
+        deep_merge_objects(&mut target, &source);
+
+        let JsonValue::Array(tools) = target.get("allowedTools").expect("tools present") else {
+            panic!("allowedTools should remain an array");
+        };
+        let expected_tools = vec![
+            JsonValue::String("*".to_string()),
+            JsonValue::String("read_file".to_string()),
+        ];
+        assert_eq!(
+            tools, &expected_tools,
+            "the shared \"*\" collapses while the distinct grant still accumulates"
+        );
+
+        let args = target
+            .get("servers")
+            .and_then(JsonValue::as_object)
+            .and_then(|s| s.get("pw"))
+            .and_then(JsonValue::as_object)
+            .and_then(|p| p.get("args"))
+            .and_then(JsonValue::as_array)
+            .expect("nested args reachable");
+        let expected_args = [
+            JsonValue::String("-y".to_string()),
+            JsonValue::String("pkg".to_string()),
+        ];
+        assert_eq!(
+            args,
+            &expected_args[..],
+            "an identical nested args array is not mirrored"
+        );
     }
 
     #[test]
