@@ -121,10 +121,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             embeddings = st.embeddings_written,
             "ingest complete"
         );
-        eprintln!(
-            "ingest: files={} chunks={} embeddings={}",
-            st.files_indexed, st.chunks_total, st.embeddings_written
-        );
         return Ok(());
     }
 
@@ -162,7 +158,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         listen = %format!("http://{addr}"),
         "claw-rag-service starting"
     );
-    eprintln!(
+    println!(
         "claw-rag-service db={} listen=http://{addr}",
         state.db_path.display()
     );
@@ -245,10 +241,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                                     chunks = st.chunks_total,
                                     embeddings = st.embeddings_written,
                                     "auto-ingest complete"
-                                );
-                                eprintln!(
-                                    "[claw-rag-service] Auto-ingest complete: files={} chunks={} embeddings={}",
-                                    st.files_indexed, st.chunks_total, st.embeddings_written
                                 );
                             }
                         }
