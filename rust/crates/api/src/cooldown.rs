@@ -12,6 +12,12 @@ pub static GLOBAL_KEY_COOLDOWN: LazyLock<KeyCooldownTracker> =
 #[derive(Debug, Clone)]
 pub struct KeyCooldownTracker {
     cooldowns: Arc<RwLock<HashMap<(String, usize), Instant>>>,
+    /// When false, `mark_cooldown` keeps state in memory only and never touches
+    /// the shared on-disk file. Unit tests build trackers via `new_empty`, so
+    /// they must not write into the real `~/.claw/cooldowns.json` at runtime —
+    /// otherwise test fixtures (e.g. a `glm-4.7-flash-test` model key) leak into
+    /// a live session's cooldown state.
+    persist: bool,
 }
 
 impl Default for KeyCooldownTracker {
@@ -24,6 +30,7 @@ impl KeyCooldownTracker {
     pub fn new() -> Self {
         let tracker = Self {
             cooldowns: Arc::new(RwLock::new(HashMap::new())),
+            persist: true,
         };
         tracker.load_from_disk();
         tracker
@@ -32,6 +39,7 @@ impl KeyCooldownTracker {
     pub fn new_empty() -> Self {
         Self {
             cooldowns: Arc::new(RwLock::new(HashMap::new())),
+            persist: false,
         }
     }
 
@@ -41,6 +49,9 @@ impl KeyCooldownTracker {
     }
 
     fn save_to_disk(&self) {
+        if !self.persist {
+            return;
+        }
         let Some(path) = Self::get_persistence_path() else {
             return;
         };
