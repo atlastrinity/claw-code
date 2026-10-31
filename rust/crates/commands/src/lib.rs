@@ -4442,6 +4442,16 @@ fn parse_agent_frontmatter(
     )
 }
 
+/// "1 active agent", "2 active agents" — the definition reports count one thing
+/// and `claw skills show <name>` almost always prints exactly one.
+fn pluralize(count: usize, noun: &str) -> String {
+    if count == 1 {
+        format!("{count} {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
+}
+
 fn render_agents_report(agents: &[AgentSummary]) -> String {
     if agents.is_empty() {
         return "No agents found.".to_string();
@@ -4453,7 +4463,7 @@ fn render_agents_report(agents: &[AgentSummary]) -> String {
         .count();
     let mut lines = vec![
         "Agents".to_string(),
-        format!("  {total_active} active agents"),
+        format!("  {}", pluralize(total_active, "active agent")),
         String::new(),
     ];
 
@@ -4601,7 +4611,7 @@ fn render_skills_report(skills: &[SkillSummary]) -> String {
         .count();
     let mut lines = vec![
         "Skills".to_string(),
-        format!("  {total_active} available skills"),
+        format!("  {}", pluralize(total_active, "available skill")),
         String::new(),
     ];
 
@@ -6627,6 +6637,15 @@ mod tests {
 
         let _ = fs::remove_dir_all(workspace);
         let _ = fs::remove_dir_all(user_home);
+    }
+
+    #[test]
+    fn definition_reports_count_one_in_the_singular() {
+        // `claw skills show <name>` prints exactly one row; the header said
+        // "1 available skills".
+        assert_eq!(super::pluralize(1, "available skill"), "1 available skill");
+        assert_eq!(super::pluralize(0, "available skill"), "0 available skills");
+        assert_eq!(super::pluralize(2, "active agent"), "2 active agents");
     }
 
     #[test]
