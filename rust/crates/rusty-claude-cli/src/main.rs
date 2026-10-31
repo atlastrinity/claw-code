@@ -762,7 +762,36 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 runtime_format,
             )?;
             cli.set_reasoning_effort(reasoning_effort);
-            cli.run_turn_with_output(&effective_prompt, output_format, compact)?;
+            if output_format == CliOutputFormat::Text {
+                // A one-shot prompt is not a one-step task. While the graph still
+                // has open leaves the run owns the plan, so the headless path
+                // continues the way the repl does instead of returning after the
+                // first text answer — which is how a run left half the work
+                // undone and reported it as finished. JSON output keeps exactly
+                // one payload per invocation: a stream of objects is not JSON.
+                let mut input = effective_prompt.clone();
+                let mut continuations = 0usize;
+                let limit = repl::auto_continue_limit();
+                loop {
+                    cli.run_turn_with_output(&input, output_format, compact)?;
+                    let (should_continue, prompt) = repl::check_autonomous_continuation(&cli);
+                    if !should_continue {
+                        break;
+                    }
+                    if continuations >= limit {
+                        eprintln!(
+                            "⚠️ Auto-continuation limit ({limit}) reached with unfinished leaves \
+                             — reporting the gap instead of looping."
+                        );
+                        break;
+                    }
+                    continuations += 1;
+                    eprintln!("🤖 Autonomous mode: task graph still has open leaves — continuing.");
+                    input = prompt;
+                }
+            } else {
+                cli.run_turn_with_output(&effective_prompt, output_format, compact)?;
+            }
         }
         CliAction::Doctor {
             output_format,

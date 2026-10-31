@@ -47,14 +47,6 @@ pub(crate) fn decide_autonomous_continuation(
 
     if let Some(content) = task_md_content {
         if content.contains("- [ ]") || content.contains("- [/]") {
-            let auto_decide = goal_mode || auto_decide_env;
-            if is_question {
-                if auto_decide {
-                    let prompt = "<system-reminder>CLAW_AUTO_DECIDE is enabled. You just asked the user a question or offered options. Do NOT wait for user input. Analyze the current state, session history, and task summaries. Pick the option that leads to the best progress and results (prioritizing forward momentum over extreme safety), and proceed immediately using the appropriate tools.</system-reminder>".to_string();
-                    return (true, prompt);
-                }
-                return (false, String::new());
-            }
             let nodes = tools::task_graph::parse_task_md_to_nodes(content);
             let (_active_leaf, _chain, branch_summary) =
                 tools::task_graph::compute_active_recursion_branch(&nodes);
@@ -67,6 +59,23 @@ pub(crate) fn decide_autonomous_continuation(
                     .join("\n")
             });
 
+            if is_question {
+                // Unfinished leaves in the graph make a question a stall, not a
+                // hand-off: the run would end with a plan half-executed and the
+                // user asked to finish it. Decide inside the plan, report the
+                // decision, keep moving — a real authority gap still surfaces
+                // through the permission prompt or the chaos hand-off.
+                let momentum = if goal_mode || auto_decide_env {
+                    " CLAW_AUTO_DECIDE/goal mode is on: prefer forward momentum over caution."
+                } else {
+                    ""
+                };
+                let prompt = format!(
+                    "<system-reminder>CLAW autonomy: you stopped to ask, but the TaskGraph still has unfinished leaves:\n{}\n\nDo NOT wait for user input.{} Analyze the current state and session history, pick the option that leads to the best verified progress, and execute the active lowest-order leaf with real tools right now. Record any decision you had to make for yourself — and only a decision you genuinely lack the authority to make — in the final report instead of asking.{}</system-reminder>",
+                    task_context, momentum, momentum
+                );
+                return (true, prompt);
+            }
             let prompt = format!("<system-reminder>CRITICAL: You stopped generating tool calls, but the TaskGraph still contains active/pending tasks:\n{}\n\nIf you have finished the work, you MUST immediately call the TaskGraph tool with operation 'update_status' to mark the active/completed tasks. If you are not finished, continue working on the active lowest-order leaf task using the appropriate tools.</system-reminder>", task_context);
             return (true, prompt);
         }
@@ -77,7 +86,19 @@ pub(crate) fn decide_autonomous_continuation(
     (false, String::new())
 }
 
-fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
+/// How many forced continuations one submitted prompt may spend before control
+/// returns to the user. Sized for a whole plan, not a single step: a run that
+/// stops at eight leaves the graph half-done, which is the failure this exists to
+/// prevent. `CLAW_MAX_AUTO_CONTINUE` still tightens it.
+pub(crate) fn auto_continue_limit() -> usize {
+    std::env::var("CLAW_MAX_AUTO_CONTINUE")
+        .ok()
+        .and_then(|value| value.trim().parse().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(32)
+}
+
+pub(crate) fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
     let mut last_assistant_text = String::new();
     if let Some(last_msg) = cli.runtime.session().messages.last() {
         if last_msg.role == runtime::MessageRole::Assistant {
@@ -162,10 +183,7 @@ pub fn run_repl(
                 cli.record_prompt_history(&display_input);
 
                 let mut auto_continue_count = 0;
-                let max_auto_continue = std::env::var("CLAW_MAX_AUTO_CONTINUE")
-                    .ok()
-                    .and_then(|v| v.parse().ok())
-                    .unwrap_or(8);
+                let max_auto_continue = auto_continue_limit();
 
                 loop {
                     cli.run_turn(&current_input)?;
@@ -2057,17 +2075,24 @@ mod tests {
         let (should_continue, prompt) =
             decide_autonomous_continuation(text, Some(task_md), false, true);
         assert!(should_continue);
-        assert!(prompt.contains("CLAW_AUTO_DECIDE is enabled"));
+        assert!(prompt.contains("CLAW_AUTO_DECIDE/goal mode is on"));
+        assert!(prompt.contains("Implement feature A"));
     }
 
     #[test]
-    fn test_active_task_with_question_without_auto_decide_waits_for_user() {
+    fn test_open_plan_work_overrides_a_question_without_env_flags() {
+        // A question with unfinished leaves is a stall, not a hand-off: the run
+        // owns the plan until the finale and decides inside it.
         let text = "Чи слід мені обрати варіант А чи варіант Б?";
         let task_md = "# Tasks\n- [ ] Implement feature A\n";
         let (should_continue, prompt) =
             decide_autonomous_continuation(text, Some(task_md), false, false);
-        assert!(!should_continue);
-        assert!(prompt.is_empty());
+        assert!(should_continue);
+        assert!(prompt.contains("Do NOT wait for user input"));
+        assert!(
+            !prompt.contains("CLAW_AUTO_DECIDE/goal mode is on"),
+            "the momentum note belongs to the explicit opt-in only"
+        );
     }
 
     #[test]
@@ -2081,13 +2106,23 @@ mod tests {
     }
 
     #[test]
-    fn test_active_task_with_ukrainian_question_and_emoji_waits_for_user() {
+    fn test_ukrainian_question_with_open_plan_continues() {
         let text = "Ви підтвердили вік у спливаючому вікні? Дайте мені знати, коли буде готово! 🚀";
-        let task_md = "# Tasks\n- [ ] Implement feature A\n";
+        let task_md = "# Tasks\n- [/] Implement feature A\n";
         let (should_continue, prompt) =
             decide_autonomous_continuation(text, Some(task_md), false, false);
-        assert!(!should_continue);
-        assert!(prompt.is_empty());
+        assert!(should_continue);
+        assert!(prompt.contains("execute the active lowest-order leaf"));
+    }
+
+    #[test]
+    fn test_in_progress_leaf_counts_as_open_work() {
+        let text = "Готово, зупиняюсь тут.";
+        let task_md = "# Tasks\n- [/] Implement feature A\n";
+        let (should_continue, prompt) =
+            decide_autonomous_continuation(text, Some(task_md), false, false);
+        assert!(should_continue);
+        assert!(prompt.contains("Implement feature A"));
     }
 
     #[test]

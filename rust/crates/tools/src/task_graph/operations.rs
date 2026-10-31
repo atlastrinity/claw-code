@@ -378,10 +378,11 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
             alerts.push(format!(
                 "⛔ GRAPH CLOSED WITH UNFINISHED WORK — this is not a success.\n\
                  {completed} of {} tasks completed; these were abandoned:\n{lost}\n\
-                 Do NOT tell the user the goal was achieved and do NOT ask for the next task. \
-                 Report the completed part and this list of unfinished work plainly, state why \
-                 each item failed, and either propose one concrete way to finish it or ask the \
-                 user which trade-off they want.",
+                 Do NOT tell the user the goal was achieved. Report the completed part and this \
+                 list of unfinished work plainly, state why each item failed, and name one \
+                 concrete way to finish each one. Do not ask the user which trade-off they want — \
+                 a closed graph is a report, not a question; only a decision the user alone can \
+                 make (authority, credential, money) belongs in a request.",
                 current_nodes.len()
             ));
         }
