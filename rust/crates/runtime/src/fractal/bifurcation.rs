@@ -55,7 +55,11 @@
 //! - [`BifurcationEngine::gate_mutations_for_step`] — the hard probe gate: once
 //!   the ladder leaves laminar flow, a mutating call is only allowed if a
 //!   read-only probe was emitted *before* it in the same step. Blind writes are
-//!   refused pre-execution; seeing first is a contract, not advice.
+//!   refused pre-execution; seeing first is a contract, not advice. The contract
+//!   is discharged by a probe that returned something
+//!   ([`OrbitSample::successful_probe`]), never by one that errored, and it
+//!   carries into the next user turn instead of resetting: a turn that begins
+//!   mid-cascade gets no free blind write.
 //! - [`crate::syntax_guard`] backpressure — a syntactically broken write is
 //!   flagged in its own tool output, and [`OrbitSample::syntax_backpressure`]
 //!   stops the ladder from discounting resistance for it.
@@ -367,6 +371,11 @@ pub struct OrbitSample {
     /// broken. The world did change — but the step is not clean progress, so
     /// [`BifurcationEngine::observe`] refuses to contract pressure by α for it.
     pub syntax_backpressure: bool,
+    /// True when this step ran a read-only probe that actually returned
+    /// something. Emitting `read_file` on a path that does not exist is not
+    /// looking — it is the orbit the gate exists to break — so a failed probe
+    /// cannot discharge [`BifurcationEngine::probe_required`].
+    pub successful_probe: bool,
 }
 
 impl OrbitSample {
@@ -389,6 +398,12 @@ impl OrbitSample {
         let fingerprint = fingerprint.into();
         self.failures.push(fingerprint.clone());
         self.transient_failures.push(fingerprint);
+        self
+    }
+
+    #[must_use]
+    pub fn with_successful_probe(mut self) -> Self {
+        self.successful_probe = true;
         self
     }
 
@@ -861,10 +876,11 @@ impl BifurcationEngine {
     /// mutation runs; a mutation with no probe yet in the step is blind and gets
     /// its index returned so the caller can refuse it pre-execution.
     ///
-    /// Arming is done by a bifurcation crossing in [`Self::observe`]; seeing a
-    /// probe anywhere in a gated step disarms the gate for the rest of the turn —
-    /// the contract is "look before you touch after a split", not "probe per
-    /// write".
+    /// Arming is done by a bifurcation crossing in [`Self::observe`]. Disarming
+    /// is *not* decided here: at this point the probe has not run yet, and
+    /// `read_file` on a path that does not exist is the orbit itself, not the
+    /// escape from it. [`Self::observe`] discharges the contract once the step's
+    /// probe has actually returned something.
     pub fn gate_mutations_for_step(&mut self, calls: &[(String, String)]) -> Vec<usize> {
         if !self.probe_required {
             return Vec::new();
@@ -873,9 +889,9 @@ impl BifurcationEngine {
         let mut probe_seen = false;
         for (index, (tool, input)) in calls.iter().enumerate() {
             if Self::is_probe_call(tool, input) {
-                // Seeing first satisfies the contract for the rest of the turn.
+                // A probe ahead of the mutation satisfies this step; the gate
+                // stays armed until the probe's outcome is known.
                 probe_seen = true;
-                self.probe_required = false;
                 continue;
             }
             if Self::is_mutating_call(tool, input) && !probe_seen {
@@ -904,6 +920,8 @@ impl BifurcationEngine {
              - WebSearch / WebFetch for external contracts\n\
              - lsp_* diagnostics, or `bash` read-only/verifier commands: cargo check|test|build|clippy, \
              go vet|test, tsc --noEmit, python3 -m py_compile, bash -n, git status|diff|log|show, ls, cat, find\n\
+             The probe has to return something: a read that errors is another point of the same \
+             orbit and keeps the gate armed. Pick a path you expect to exist.\n\
              The probe is not a formality: name in one line what you expect to see and what \
              would falsify your current hypothesis."
         )
@@ -915,11 +933,14 @@ impl BifurcationEngine {
         self.probe_required = true;
     }
 
-    /// Disarm the gate at the start of a new user turn. Escalation state (the
-    /// regime and pressure) is session-scoped; the "look before you touch"
-    /// contract is re-proved by the next crossing if one happens.
-    pub fn reset_probe_gate(&mut self) {
-        self.probe_required = false;
+    /// Re-establish the "look before you touch" contract at the start of a new
+    /// user turn. The regime is session-scoped: a turn that begins while the
+    /// orbit is still past the first bifurcation is exactly the one that must
+    /// not be allowed a blind write, so the gate carries over instead of being
+    /// cleared. Discharging it takes a probe that returned something (see
+    /// [`Self::observe`]) or the orbit genuinely re-converging to laminar.
+    pub fn rearm_probe_gate_for_turn(&mut self) {
+        self.probe_required = self.regime > Regime::Laminar;
     }
 
     #[must_use]
@@ -1153,6 +1174,14 @@ impl BifurcationEngine {
         } else {
             derived
         };
+
+        if self.probe_required && sample.successful_probe {
+            // The demon rests on evidence, not on intent: a probe that returned
+            // something is a look, one that errored is another point of the same
+            // orbit. Discharging here (after execution) is what makes a failed
+            // `read_file` unable to buy a blind write in the next step.
+            self.probe_required = false;
+        }
 
         if self.regime == Regime::Chaos {
             self.chaos_steps += 1;

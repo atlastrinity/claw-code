@@ -13,6 +13,32 @@ use tokio::task::JoinHandle;
 pub const SCENARIO_PREFIX: &str = "PARITY_SCENARIO:";
 pub const DEFAULT_MODEL: &str = "claude-sonnet-4-6";
 
+/// Mirrors `runtime::syntax_guard::SYNTAX_BACKPRESSURE_MARKER`; the mock stays
+/// dependency-free on purpose, so the literal is duplicated deliberately.
+const SYNTAX_BACKPRESSURE_MARKER: &str = "⚠️ SYNTAX BACKPRESSURE";
+
+/// A `write_file` call whose payload parses as JSON but whose *content* is
+/// syntactically broken: the guard must report it without failing the tool.
+const BROKEN_JSON_WRITE: &str =
+    r#"{"path":"generated/broken.json","content":"{\n  \"a\": 1,\n  \"b\": {\"c\": 2\n}\n"}"#;
+
+/// Scripted trajectory for the probe-gate scenario: novel failures of reads that
+/// all error, then the same call again — the dead-orbit gate refuses it, that
+/// refusal closes the orbit and the crossing arms the probe gate. The failed
+/// probes must not discharge it, so the next step's mutation with no probe in it
+/// is blocked pre-execution. The step after that puts a probe that *returns*
+/// something ahead of its mutation, which is the legal pattern the gate is
+/// required not to false-block.
+const PROBE_GATE_MISSING_A: &str = r#"{"path":"missing-a.txt"}"#;
+const PROBE_GATE_MISSING_B: &str = r#"{"path":"missing-b.txt"}"#;
+const PROBE_GATE_MISSING_C: &str = r#"{"path":"missing-c.txt"}"#;
+const PROBE_GATE_BLIND_WRITE: &str =
+    r#"{"path":"blind.txt","content":"written without looking\n"}"#;
+const PROBE_GATE_FIXTURE_READ: &str = r#"{"path":"fixture.txt"}"#;
+const PROBE_GATE_ALLOWED_WRITE: &str =
+    r#"{"path":"after-probe.txt","content":"written after looking\n"}"#;
+const PROBE_GATE_MARKER: &str = "PROBE GATE";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CapturedRequest {
     pub method: String,
@@ -100,6 +126,8 @@ enum Scenario {
     PluginToolRoundtrip,
     AutoCompactTriggered,
     TokenCostReporting,
+    SyntaxBackpressure,
+    ProbeGateBlocksBlindMutation,
 }
 
 impl Scenario {
@@ -117,6 +145,8 @@ impl Scenario {
             "plugin_tool_roundtrip" => Some(Self::PluginToolRoundtrip),
             "auto_compact_triggered" => Some(Self::AutoCompactTriggered),
             "token_cost_reporting" => Some(Self::TokenCostReporting),
+            "syntax_backpressure" => Some(Self::SyntaxBackpressure),
+            "probe_gate_blocks_blind_mutation" => Some(Self::ProbeGateBlocksBlindMutation),
             _ => None,
         }
     }
@@ -135,6 +165,8 @@ impl Scenario {
             Self::PluginToolRoundtrip => "plugin_tool_roundtrip",
             Self::AutoCompactTriggered => "auto_compact_triggered",
             Self::TokenCostReporting => "token_cost_reporting",
+            Self::SyntaxBackpressure => "syntax_backpressure",
+            Self::ProbeGateBlocksBlindMutation => "probe_gate_blocks_blind_mutation",
         }
     }
 }
@@ -307,6 +339,40 @@ fn flatten_tool_result_content(content: &[api::ToolResultContentBlock]) -> Strin
         .join("\n")
 }
 
+/// Every tool result in execution order, as `(tool name, output, is_error)`.
+fn tool_result_log(request: &MessageRequest) -> Vec<(String, String, bool)> {
+    let mut names_by_id = HashMap::new();
+    for message in &request.messages {
+        for block in &message.content {
+            if let InputContentBlock::ToolUse { id, name, .. } = block {
+                names_by_id.insert(id.clone(), name.clone());
+            }
+        }
+    }
+
+    let mut log = Vec::new();
+    for message in &request.messages {
+        for block in &message.content {
+            if let InputContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } = block
+            {
+                log.push((
+                    names_by_id
+                        .get(tool_use_id)
+                        .cloned()
+                        .unwrap_or_else(|| tool_use_id.clone()),
+                    flatten_tool_result_content(content),
+                    *is_error,
+                ));
+            }
+        }
+    }
+    log
+}
+
 #[allow(clippy::too_many_lines)]
 fn build_http_response(request: &MessageRequest, scenario: Scenario) -> String {
     let response = if request.stream {
@@ -463,6 +529,50 @@ fn build_stream_body(request: &MessageRequest, scenario: Scenario) -> String {
         }
         Scenario::TokenCostReporting => {
             final_text_sse_with_usage("token cost reporting parity complete.", 1_000, 500)
+        }
+        Scenario::SyntaxBackpressure => match latest_tool_result(request) {
+            Some((tool_output, is_error)) => final_text_sse(&format!(
+                "syntax backpressure observed: marker={} is_error={is_error}",
+                tool_output.contains(SYNTAX_BACKPRESSURE_MARKER)
+            )),
+            None => tool_use_sse(
+                "toolu_syntax_backpressure",
+                "write_file",
+                &[BROKEN_JSON_WRITE],
+            ),
+        },
+        Scenario::ProbeGateBlocksBlindMutation => {
+            let results = tool_result_log(request);
+            match results.len() {
+                0 => tool_use_sse("toolu_pg_a", "read_file", &[PROBE_GATE_MISSING_A]),
+                1 => tool_use_sse("toolu_pg_b", "read_file", &[PROBE_GATE_MISSING_B]),
+                2 => tool_use_sse("toolu_pg_c", "read_file", &[PROBE_GATE_MISSING_C]),
+                3 => tool_use_sse("toolu_pg_repeat", "read_file", &[PROBE_GATE_MISSING_A]),
+                4 => tool_use_sse("toolu_pg_blind", "write_file", &[PROBE_GATE_BLIND_WRITE]),
+                5 => tool_uses_sse(&[
+                    ToolUseSse {
+                        tool_id: "toolu_pg_probe",
+                        tool_name: "read_file",
+                        partial_json_chunks: &[PROBE_GATE_FIXTURE_READ],
+                    },
+                    ToolUseSse {
+                        tool_id: "toolu_pg_allowed",
+                        tool_name: "write_file",
+                        partial_json_chunks: &[PROBE_GATE_ALLOWED_WRITE],
+                    },
+                ]),
+                _ => {
+                    let blocked = results.iter().any(|(name, output, _)| {
+                        name == "write_file" && output.contains(PROBE_GATE_MARKER)
+                    });
+                    let allowed = results.iter().any(|(name, output, is_error)| {
+                        name == "write_file" && !*is_error && output.contains("after-probe.txt")
+                    });
+                    final_text_sse(&format!(
+                        "probe gate e2e: blind_blocked={blocked} probed_write_ran={allowed}"
+                    ))
+                }
+            }
         }
     }
 }
@@ -634,6 +744,74 @@ fn build_message_response(request: &MessageRequest, scenario: Scenario) -> Messa
             1_000,
             500,
         ),
+        Scenario::SyntaxBackpressure => match latest_tool_result(request) {
+            Some((tool_output, is_error)) => text_message_response(
+                "msg_syntax_backpressure_final",
+                &format!(
+                    "syntax backpressure observed: marker={} is_error={is_error}",
+                    tool_output.contains(SYNTAX_BACKPRESSURE_MARKER)
+                ),
+            ),
+            None => tool_message_response(
+                "msg_syntax_backpressure_tool",
+                "toolu_syntax_backpressure",
+                "write_file",
+                serde_json::from_str(BROKEN_JSON_WRITE)
+                    .expect("broken-json write payload should parse"),
+            ),
+        },
+        Scenario::ProbeGateBlocksBlindMutation => {
+            let read_tool = |msg_id: &str, tool_id: &str, input: &'static str| {
+                let parsed =
+                    serde_json::from_str(input).expect("probe gate read payload should parse");
+                tool_message_response(msg_id, tool_id, "read_file", parsed)
+            };
+            let results = tool_result_log(request);
+            match results.len() {
+                0 => read_tool("msg_pg_a", "toolu_pg_a", PROBE_GATE_MISSING_A),
+                1 => read_tool("msg_pg_b", "toolu_pg_b", PROBE_GATE_MISSING_B),
+                2 => read_tool("msg_pg_c", "toolu_pg_c", PROBE_GATE_MISSING_C),
+                3 => read_tool("msg_pg_repeat", "toolu_pg_repeat", PROBE_GATE_MISSING_A),
+                4 => tool_message_response(
+                    "msg_pg_blind",
+                    "toolu_pg_blind",
+                    "write_file",
+                    serde_json::from_str(PROBE_GATE_BLIND_WRITE)
+                        .expect("blind write payload should parse"),
+                ),
+                5 => tool_message_response_many(
+                    "msg_pg_probed",
+                    &[
+                        ToolUseMessage {
+                            tool_id: "toolu_pg_probe",
+                            tool_name: "read_file",
+                            input: serde_json::from_str(PROBE_GATE_FIXTURE_READ)
+                                .expect("probe payload should parse"),
+                        },
+                        ToolUseMessage {
+                            tool_id: "toolu_pg_allowed",
+                            tool_name: "write_file",
+                            input: serde_json::from_str(PROBE_GATE_ALLOWED_WRITE)
+                                .expect("allowed write payload should parse"),
+                        },
+                    ],
+                ),
+                _ => {
+                    let blocked = results.iter().any(|(name, output, _)| {
+                        name == "write_file" && output.contains(PROBE_GATE_MARKER)
+                    });
+                    let allowed = results.iter().any(|(name, output, is_error)| {
+                        name == "write_file" && !*is_error && output.contains("after-probe.txt")
+                    });
+                    text_message_response(
+                        "msg_pg_final",
+                        &format!(
+                            "probe gate e2e: blind_blocked={blocked} probed_write_ran={allowed}"
+                        ),
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -651,6 +829,8 @@ fn request_id_for(scenario: Scenario) -> &'static str {
         Scenario::PluginToolRoundtrip => "req_plugin_tool_roundtrip",
         Scenario::AutoCompactTriggered => "req_auto_compact_triggered",
         Scenario::TokenCostReporting => "req_token_cost_reporting",
+        Scenario::SyntaxBackpressure => "req_syntax_backpressure",
+        Scenario::ProbeGateBlocksBlindMutation => "req_probe_gate_blocks_blind_mutation",
     }
 }
 

@@ -464,6 +464,7 @@ where
                     record_step_outcome(
                         &mut sample,
                         &effective_name,
+                        &req.input,
                         &category,
                         is_error,
                         output.contains(crate::syntax_guard::SYNTAX_BACKPRESSURE_MARKER),
@@ -508,8 +509,7 @@ where
                     // The parallel executor takes an `Fn`, so per-call outcomes
                     // land in a side buffer and are folded into the sample once
                     // the batch has finished.
-                    let step_outcomes: Mutex<Vec<(String, String, bool, bool)>> =
-                        Mutex::new(Vec::new());
+                    let step_outcomes: Mutex<Vec<StepOutcome>> = Mutex::new(Vec::new());
                     let execution_results =
                         execute_parallel_batch(&calls_to_execute, |tool_name, input| {
                             let result = match executor.execute(tool_name, input) {
@@ -545,6 +545,7 @@ where
                                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                                 .push((
                                     effective_name.to_string(),
+                                    input.to_string(),
                                     category,
                                     result.1,
                                     result
@@ -592,11 +593,18 @@ where
                         ));
                     }
 
-                    for (tool, category, is_error, syntax_hit) in step_outcomes
+                    for (tool, input, category, is_error, syntax_hit) in step_outcomes
                         .into_inner()
                         .unwrap_or_else(std::sync::PoisonError::into_inner)
                     {
-                        record_step_outcome(&mut sample, &tool, &category, is_error, syntax_hit);
+                        record_step_outcome(
+                            &mut sample,
+                            &tool,
+                            &input,
+                            &category,
+                            is_error,
+                            syntax_hit,
+                        );
                     }
                 }
 
@@ -684,12 +692,13 @@ where
             .push_user_text(user_input.clone())
             .map_err(|error| RuntimeError::new(error.to_string()))?;
         // The turn's transactional working memory starts empty; the probe gate
-        // is per-turn state too — the ladder itself is session-scoped.
+        // carries the session's regime into this turn — a turn that begins past
+        // the first bifurcation is not entitled to a blind write.
         crate::turn_state::begin_turn();
         self.bifurcation
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .reset_probe_gate();
+            .rearm_probe_gate_for_turn();
 
         let mut assistant_messages = Vec::new();
         let mut tool_results = Vec::new();
@@ -1099,10 +1108,16 @@ fn parse_auto_compaction_threshold(value: Option<&str>) -> u32 {
         .unwrap_or(DEFAULT_AUTO_COMPACTION_INPUT_TOKENS_THRESHOLD)
 }
 
+/// One executed call as the parallel batch reports it back: effective tool name,
+/// raw input, error category, whether it failed, whether the syntax guard
+/// flagged the artifact.
+type StepOutcome = (String, String, String, bool, bool);
+
 /// Fold one tool outcome into the orbit sample for the current iteration.
 fn record_step_outcome(
     sample: &mut OrbitSample,
     tool: &str,
+    input: &str,
     category: &str,
     is_error: bool,
     syntax_hit: bool,
@@ -1117,6 +1132,9 @@ fn record_step_outcome(
         }
         sample.failures.push(fingerprint);
         return;
+    }
+    if BifurcationEngine::is_probe_call(tool, input) {
+        sample.successful_probe = true;
     }
     if !BifurcationEngine::is_read_only_tool(tool) {
         sample.mutated_state = true;
@@ -2772,6 +2790,151 @@ mod tests {
         let summary = runtime.bifurcation_summary();
         assert!(summary.contains("pruned_outputs=1"), "{summary}");
         assert!(summary.contains("trips=1"), "{summary}");
+    }
+
+    /// Emitting `read_file` is not the same as looking. Every probe in this
+    /// trajectory errors, so none of them may discharge the contract, and the
+    /// mutation that follows them is still refused — until a probe that actually
+    /// returns something runs.
+    #[test]
+    fn probes_that_error_do_not_buy_a_blind_write() {
+        const MISSING_ONE: &str = r#"{"path":"gone-1.json"}"#;
+        const MISSING_TWO: &str = r#"{"path":"gone-2.json"}"#;
+        const MISSING_THREE: &str = r#"{"path":"gone-3.json"}"#;
+        const BLIND: &str = r#"{"path":"cfg.json","new_string":"blind"}"#;
+        const FOUND: &str = r#"{"path":"cfg.json"}"#;
+
+        struct ScriptedApi {
+            calls: std::cell::Cell<usize>,
+        }
+
+        impl ApiClient for ScriptedApi {
+            fn stream(
+                &mut self,
+                _request: ApiRequest,
+            ) -> Result<Vec<AssistantEvent>, RuntimeError> {
+                let n = self.calls.get() + 1;
+                self.calls.set(n);
+                let tool = |id: &str, name: &str, input: &str| AssistantEvent::ToolUse {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    input: input.to_string(),
+                    signature: None,
+                };
+                let stop = || AssistantEvent::MessageStop;
+                match n {
+                    // Three reads that all fail: the second closes the orbit and
+                    // crosses the first bifurcation, which arms the gate.
+                    1 => Ok(vec![tool("t1", "read_file", MISSING_ONE), stop()]),
+                    2 => Ok(vec![tool("t2", "read_file", MISSING_TWO), stop()]),
+                    3 => Ok(vec![tool("t3", "read_file", MISSING_THREE), stop()]),
+                    // The mutation after them is blind in the only way that
+                    // matters: nothing was ever learned.
+                    4 => Ok(vec![tool("t4", "edit_file", BLIND), stop()]),
+                    // A probe that returns something, emitted ahead of it.
+                    5 => Ok(vec![
+                        tool("t5a", "read_file", FOUND),
+                        tool("t5b", "edit_file", BLIND),
+                        stop(),
+                    ]),
+                    _ => Ok(vec![AssistantEvent::TextDelta("done".to_string()), stop()]),
+                }
+            }
+        }
+
+        let executed: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+        let read_recorder = Arc::clone(&executed);
+        let edit_recorder = Arc::clone(&executed);
+
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            ScriptedApi {
+                calls: std::cell::Cell::default(),
+            },
+            StaticToolExecutor::new()
+                .register("read_file", move |input| {
+                    read_recorder
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(format!("read_file:{input}"));
+                    if input == FOUND {
+                        Ok("{ \"here\": true }".to_string())
+                    } else {
+                        Err(ToolError::new(
+                            "No such file or directory: cfg/gone.json".to_string(),
+                        ))
+                    }
+                })
+                .register("edit_file", move |input| {
+                    edit_recorder
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .push(format!("edit_file:{input}"));
+                    Ok(format!("edited {input}"))
+                }),
+            PermissionPolicy::new(PermissionMode::DangerFullAccess),
+            vec!["system".to_string()],
+        )
+        .with_max_iterations(6);
+
+        runtime
+            .run_turn("fix the config", None)
+            .expect("turn should complete");
+
+        assert_eq!(
+            executed
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone(),
+            vec![
+                format!("read_file:{MISSING_ONE}"),
+                format!("read_file:{MISSING_TWO}"),
+                format!("read_file:{MISSING_THREE}"),
+                format!("read_file:{FOUND}"),
+                format!("edit_file:{BLIND}"),
+            ],
+            "three failed probes must not let the write through, the successful one must"
+        );
+
+        let refused = runtime
+            .session()
+            .messages
+            .iter()
+            .flat_map(|message| message.blocks.iter())
+            .filter_map(|block| match block {
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    output,
+                    is_error,
+                    ..
+                } => Some((tool_use_id.clone(), output.clone(), *is_error)),
+                _ => None,
+            })
+            .find(|(id, _, _)| id == "t4")
+            .expect("the blind write gets an answer, not silence");
+        assert!(
+            refused.2,
+            "a gate refusal is an error the model must route around"
+        );
+        assert!(
+            refused
+                .1
+                .contains("[SYSTEM DIRECTIVE — BIFURCATION: PROBE GATE]"),
+            "{}",
+            refused.1
+        );
+        assert!(
+            refused.1.contains("has to return something"),
+            "the refusal must teach that a failed probe does not clear it: {}",
+            refused.1
+        );
+        assert!(
+            runtime
+                .bifurcation_summary()
+                .contains("probe_gate=open trips=1"),
+            "one trip, then the probe that returned discharges the contract: {}",
+            runtime.bifurcation_summary()
+        );
     }
 
     /// A write that leaves a broken artifact on disk is not convergence: the

@@ -105,5 +105,23 @@
     "parity_refs": [
       "Token counting / cost tracking accuracy"
     ]
+  },
+  {
+    "name": "syntax_backpressure",
+    "category": "file-tools",
+    "description": "Proves the runtime's zero-turn syntax guard end to end: a broken JSON write still succeeds, the defect is reported in the tool result without flipping is_error, the payload stays valid JSON, and the model sees the marker on the next request.",
+    "parity_refs": [
+      "Cognitive superconductor \u2014 M3 syntax backpressure",
+      "File tools \u2014 harness-validated flows"
+    ]
+  },
+  {
+    "name": "probe_gate_blocks_blind_mutation",
+    "category": "permissions",
+    "description": "Crosses the first bifurcation with repeated failures, then checks a blind write_file is refused before it can touch the filesystem and the same write succeeds once a read-only probe precedes it in the step.",
+    "parity_refs": [
+      "Cognitive superconductor \u2014 M2 hard probe gate",
+      "Permissions \u2014 harness-validated gates"
+    ]
   }
 ]

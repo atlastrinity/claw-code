@@ -148,6 +148,26 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
             extra_env: None,
             resume_session: None,
         },
+        ScenarioCase {
+            name: "syntax_backpressure",
+            permission_mode: "workspace-write",
+            tools: Some("write_file"),
+            stdin: None,
+            prepare: prepare_noop,
+            assert: assert_syntax_backpressure,
+            extra_env: None,
+            resume_session: None,
+        },
+        ScenarioCase {
+            name: "probe_gate_blocks_blind_mutation",
+            permission_mode: "workspace-write",
+            tools: Some("read_file,write_file"),
+            stdin: None,
+            prepare: prepare_probe_gate_fixture,
+            assert: assert_probe_gate_blocks_blind_mutation,
+            extra_env: None,
+            resume_session: None,
+        },
     ];
 
     let case_names = cases.iter().map(|case| case.name).collect::<Vec<_>>();
@@ -194,8 +214,8 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
         .collect();
     assert_eq!(
         messages_only.len(),
-        21,
-        "twelve scenarios should produce twenty-one /v1/messages requests (total captured: {}, includes count_tokens)",
+        30,
+        "fourteen scenarios should produce thirty /v1/messages requests (total captured: {}, includes count_tokens)",
         captured.len()
     );
     assert!(messages_only.iter().all(|request| request.stream));
@@ -228,6 +248,15 @@ fn clean_env_cli_reaches_mock_anthropic_service_across_scripted_parity_scenarios
             "plugin_tool_roundtrip",
             "auto_compact_triggered",
             "token_cost_reporting",
+            "syntax_backpressure",
+            "syntax_backpressure",
+            "probe_gate_blocks_blind_mutation",
+            "probe_gate_blocks_blind_mutation",
+            "probe_gate_blocks_blind_mutation",
+            "probe_gate_blocks_blind_mutation",
+            "probe_gate_blocks_blind_mutation",
+            "probe_gate_blocks_blind_mutation",
+            "probe_gate_blocks_blind_mutation",
         ]
     );
 
@@ -745,6 +774,136 @@ fn assert_token_cost_reporting(_: &HarnessWorkspace, run: &ScenarioRun) {
             .as_str()
             .is_some_and(|cost| cost.starts_with('$')),
         "estimated_cost should be a dollar-prefixed string"
+    );
+}
+
+/// The runtime's zero-turn syntax guard, end to end: the real `claw` binary
+/// writes a syntactically broken JSON file, the runner reports the defect
+/// without failing the tool, and the marker reaches the model in the next
+/// request. Only the model's own echo could prove that last hop, so the mock
+/// reports what it saw in the tool result.
+fn assert_syntax_backpressure(workspace: &HarnessWorkspace, run: &ScenarioRun) {
+    assert_eq!(run.response["iterations"], Value::from(2));
+    assert_eq!(
+        run.response["tool_uses"][0]["name"],
+        Value::String("write_file".to_string())
+    );
+
+    let tool_output = run.response["tool_results"][0]["output"]
+        .as_str()
+        .expect("tool output");
+    // Backpressure is feedback, not a failure: the write itself worked.
+    assert_eq!(
+        run.response["tool_results"][0]["is_error"],
+        Value::Bool(false),
+        "a broken artifact must not be reported as a tool failure"
+    );
+    assert!(
+        tool_output.contains("SYNTAX BACKPRESSURE"),
+        "the guard must speak in the tool result itself: {tool_output}"
+    );
+
+    let parsed: Value = serde_json::from_str(tool_output)
+        .expect("the tool result stays parseable JSON for CLI consumers");
+    let note = parsed["syntax_backpressure"]
+        .as_str()
+        .expect("backpressure rides in a JSON field");
+    assert!(note.contains("line"), "the defect needs a line: {note}");
+
+    let written = workspace.root.join("generated").join("broken.json");
+    let contents = fs::read_to_string(&written).expect("the broken file really landed");
+    assert!(
+        !serde_json::from_str::<Value>(&contents).is_ok_and(|value| value.is_object()),
+        "the guard must not silently repair the artifact: {contents}"
+    );
+
+    assert!(
+        run.response["message"]
+            .as_str()
+            .expect("message text")
+            .contains("syntax backpressure observed: marker=true is_error=false"),
+        "the model must have seen the marker: {:?}",
+        run.response["message"]
+    );
+}
+
+fn prepare_probe_gate_fixture(workspace: &HarnessWorkspace) {
+    fs::write(workspace.root.join("fixture.txt"), "probe me\n").expect("fixture write");
+}
+
+/// The hard probe gate, end to end: after the trajectory crosses the first
+/// bifurcation, a mutation with no probe in its step is refused *before it can
+/// touch the filesystem*, and the same mutation runs once the model looks first.
+fn assert_probe_gate_blocks_blind_mutation(workspace: &HarnessWorkspace, run: &ScenarioRun) {
+    assert_eq!(run.response["iterations"], Value::from(7));
+    let tool_results = run.response["tool_results"]
+        .as_array()
+        .expect("tool results array");
+    assert_eq!(
+        tool_results.len(),
+        7,
+        "three failures, one repeat, one blocked write, then probe + write"
+    );
+
+    let repeat = &tool_results[3];
+    assert_eq!(
+        repeat["is_error"],
+        Value::Bool(true),
+        "the identical retry is refused: {repeat:?}"
+    );
+    assert!(
+        repeat["output"]
+            .as_str()
+            .expect("repeat output")
+            .contains("DEAD ORBIT REFUSED"),
+        "the closing orbit is what arms the gate: {:?}",
+        repeat["output"]
+    );
+
+    let blocked = &tool_results[4];
+    assert_eq!(
+        blocked["tool_name"],
+        Value::String("write_file".to_string()),
+        "step five is the blind mutation"
+    );
+    assert_eq!(
+        blocked["is_error"],
+        Value::Bool(true),
+        "a gate refusal is an error the model must route around"
+    );
+    let blocked_output = blocked["output"].as_str().expect("blocked output");
+    assert!(
+        blocked_output.contains("PROBE GATE"),
+        "the refusal must name the gate: {blocked_output}"
+    );
+    assert!(
+        blocked_output.contains("read_file"),
+        "the refusal must list the probes that clear it: {blocked_output}"
+    );
+
+    let allowed = tool_results.last().expect("the probed write ran");
+    assert_eq!(
+        allowed["is_error"],
+        Value::Bool(false),
+        "a mutation behind a probe in the same step is allowed: {allowed:?}"
+    );
+
+    assert!(
+        !workspace.root.join("blind.txt").exists(),
+        "the blocked mutation must leave the world untouched"
+    );
+    assert!(
+        workspace.root.join("after-probe.txt").exists(),
+        "the probed mutation must really run"
+    );
+
+    assert!(
+        run.response["message"]
+            .as_str()
+            .expect("message text")
+            .contains("probe gate e2e: blind_blocked=true probed_write_ran=true"),
+        "the model saw both the refusal and the success: {:?}",
+        run.response["message"]
     );
 }
 

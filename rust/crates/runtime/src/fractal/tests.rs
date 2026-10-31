@@ -628,7 +628,7 @@ fn pruning_is_quiet_when_the_turn_has_no_dead_orbits() {
 }
 
 #[test]
-fn probe_gate_blocks_blind_mutations_and_a_probe_unblocks_it() {
+fn probe_gate_blocks_blind_mutations_and_lets_probed_mutations_through() {
     let mut engine = BifurcationEngine::new();
     let mutation = ("edit_file".to_string(), "{\"path\":\"a.rs\"}".to_string());
     let probe = ("read_file".to_string(), "{\"path\":\"a.rs\"}".to_string());
@@ -668,16 +668,16 @@ fn probe_gate_blocks_blind_mutations_and_a_probe_unblocks_it() {
         "a blocked write does not satisfy the contract"
     );
 
-    // A mutation preceded by a probe in the same step is legal and disarms the
-    // gate for the rest of the turn.
+    // A mutation preceded by a probe in the same step is legal — but emitting
+    // the probe is not yet proof of looking; see
+    // `only_a_probe_that_returned_something_discharges_the_gate`.
     assert_eq!(
         engine.gate_mutations_for_step(&[probe.clone(), mutation.clone()]),
         Vec::<usize>::new()
     );
-    assert!(!engine.probe_required());
-    assert_eq!(
-        engine.gate_mutations_for_step(std::slice::from_ref(&mutation)),
-        Vec::<usize>::new()
+    assert!(
+        engine.probe_required(),
+        "the gate waits for the probe's outcome, not its emission"
     );
     assert!(BifurcationEngine::probe_gate_refusal("edit_file").contains("PROBE GATE"));
 }
@@ -863,8 +863,12 @@ fn summary_exposes_the_demon_counters() {
 }
 
 #[test]
-fn reset_probe_gate_disarms_without_disturbing_the_ladder() {
+fn a_turn_that_begins_past_the_first_bifurcation_starts_gated() {
     let mut engine = BifurcationEngine::new();
+    // Laminar: a fresh turn has no contract to carry.
+    engine.rearm_probe_gate_for_turn();
+    assert!(!engine.probe_required());
+
     fail_step(
         &mut engine,
         "edit_file",
@@ -880,12 +884,66 @@ fn reset_probe_gate_disarms_without_disturbing_the_ladder() {
     assert!(engine.probe_required());
     let regime = engine.regime();
     let pressure = engine.pressure();
-    engine.reset_probe_gate();
-    assert!(!engine.probe_required());
+    engine.rearm_probe_gate_for_turn();
+    assert!(
+        engine.probe_required(),
+        "the next turn must not get a free blind write while the orbit is still splitting"
+    );
     assert_eq!(
         engine.regime(),
         regime,
         "escalation state is session-scoped"
     );
     assert_eq!(engine.pressure(), pressure);
+}
+
+#[test]
+fn only_a_probe_that_returned_something_discharges_the_gate() {
+    let mut engine = BifurcationEngine::new();
+    let mutation = ("edit_file".to_string(), "{\"path\":\"a.rs\"}".to_string());
+    let probe = (
+        "read_file".to_string(),
+        "{\"path\":\"missing.rs\"}".to_string(),
+    );
+    fail_step(
+        &mut engine,
+        "edit_file",
+        "{\"path\":\"a.rs\"}",
+        "file_not_found",
+    );
+    fail_step(
+        &mut engine,
+        "edit_file",
+        "{\"path\":\"a.rs\"}",
+        "file_not_found",
+    );
+    assert!(engine.probe_required());
+
+    // The probe emitted, ran, and failed: that is one more point of the same
+    // orbit, not a look. The gate stays armed and the next blind write is blocked.
+    engine.gate_mutations_for_step(&[probe.clone(), mutation.clone()]);
+    engine.observe(&OrbitSample::new(engine.steps() + 1).with_failure(
+        BifurcationEngine::fingerprint("read_file", "file_not_found"),
+    ));
+    assert!(
+        engine.probe_required(),
+        "a failed probe cannot buy a blind write"
+    );
+    assert_eq!(
+        engine.gate_mutations_for_step(std::slice::from_ref(&mutation)),
+        vec![0]
+    );
+
+    // A probe that returned something discharges the contract for the turn.
+    engine.gate_mutations_for_step(&[probe.clone(), mutation.clone()]);
+    engine.observe(
+        &OrbitSample::new(engine.steps() + 1)
+            .with_success("read_file")
+            .with_successful_probe(),
+    );
+    assert!(!engine.probe_required());
+    assert_eq!(
+        engine.gate_mutations_for_step(std::slice::from_ref(&mutation)),
+        Vec::<usize>::new()
+    );
 }
