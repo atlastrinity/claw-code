@@ -8829,6 +8829,9 @@ pub fn write_mcp_server_fixture(script_path: &Path) {
             "    if request is None:",
             "        break",
             "    method = request['method']",
+            "    if 'id' not in request:",
+            "        continue  # JSON-RPC notification: never answered",
+
             "    if method == 'initialize':",
             "        send_message({",
             "            'jsonrpc': '2.0',",

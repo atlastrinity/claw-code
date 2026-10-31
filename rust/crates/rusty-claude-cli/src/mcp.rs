@@ -118,6 +118,22 @@ pub struct RuntimeMcpState {
     pending_servers: Vec<String>,
     degraded_report: Option<runtime::McpDegradedReport>,
     available_servers: std::collections::BTreeMap<String, runtime::ScopedMcpServerConfig>,
+    /// Servers that failed to load, with how many times and why. A dead server
+    /// costs a full spawn plus two protocol timeouts per attempt, and the agent
+    /// will keep paying it while it believes one more retry is the fix. After
+    /// MCP_LOAD_FAILURE_LIMIT attempts the state answers from this record
+    /// instead of trying again, and re-arms once MCP_LOAD_RETRY_AFTER passes.
+    load_failures: std::collections::BTreeMap<String, McpLoadFailure>,
+}
+
+const MCP_LOAD_FAILURE_LIMIT: u32 = 2;
+const MCP_LOAD_RETRY_AFTER: std::time::Duration = std::time::Duration::from_secs(600);
+
+#[derive(Debug, Clone)]
+struct McpLoadFailure {
+    attempts: u32,
+    last_attempt: std::time::Instant,
+    reason: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -237,6 +253,7 @@ impl RuntimeMcpState {
                 pending_servers,
                 degraded_report,
                 available_servers,
+                load_failures: std::collections::BTreeMap::new(),
             },
             discovery,
         )))
@@ -276,23 +293,87 @@ impl RuntimeMcpState {
         if self.manager.server_names().contains(&name.to_string()) {
             let existing_tools = self.manager.tools_for_server(name);
             if !existing_tools.is_empty() {
+                self.load_failures.remove(name);
                 return Ok(existing_tools);
             }
         }
 
         let Some(config) = self.available_servers.get(name).cloned() else {
+            let known = self
+                .available_servers
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ");
             return Err(format!(
-                "Server '{}' is not defined in availableMcpServers",
-                name
+                "Server '{name}' is not defined in availableMcpServers. Configured servers: \
+                 [{known}]"
             ));
         };
 
-        self.runtime.block_on(async {
+        // A server that has already refused to come up is not going to change its
+        // mind because the agent asked again; answer from the record instead of
+        // paying another spawn and two protocol timeouts.
+        if let Some(failure) = self.load_failures.get(name) {
+            if failure.attempts >= MCP_LOAD_FAILURE_LIMIT
+                && failure.last_attempt.elapsed() < MCP_LOAD_RETRY_AFTER
+            {
+                return Err(format!(
+                    "MCP server `{name}` is unavailable: {} failed load attempts in a row. \
+                     Last failure: {}",
+                    failure.attempts, failure.reason
+                ));
+            }
+        }
+
+        let attempt = self.runtime.block_on(async {
             self.manager
                 .load_and_discover_server(name.to_string(), config)
                 .await
-                .map_err(|e| e.to_string())
-        })
+        });
+
+        match attempt {
+            Ok(tools) => {
+                self.load_failures.remove(name);
+                Ok(tools)
+            }
+            Err(error) => {
+                let reason = error.to_string();
+                let failure =
+                    self.load_failures
+                        .entry(name.to_string())
+                        .or_insert(McpLoadFailure {
+                            attempts: 0,
+                            last_attempt: std::time::Instant::now(),
+                            reason: reason.clone(),
+                        });
+                failure.attempts += 1;
+                failure.last_attempt = std::time::Instant::now();
+                failure.reason = reason.clone();
+                Err(if failure.attempts >= MCP_LOAD_FAILURE_LIMIT {
+                    format!(
+                        "MCP server `{name}` is unavailable: {} failed load attempts in a row. \
+                         Last failure: {reason}",
+                        failure.attempts
+                    )
+                } else {
+                    format!("MCP server `{name}` failed to load: {reason}")
+                })
+            }
+        }
+    }
+
+    /// Whether `name` is a server the session was actually configured with.
+    #[must_use]
+    pub fn server_is_configured(&self, name: &str) -> bool {
+        self.available_servers.contains_key(name)
+    }
+
+    /// Failed load attempts recorded for `name`, for callers that have to
+    /// explain why a configured server is not reachable.
+    #[must_use]
+    pub fn load_failure_count(&self, name: &str) -> u32 {
+        self.load_failures.get(name).map_or(0, |f| f.attempts)
     }
 
     fn extract_server_name(&self, qualified_tool_name: &str) -> Option<String> {

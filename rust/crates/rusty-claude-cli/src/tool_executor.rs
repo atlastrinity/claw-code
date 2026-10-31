@@ -104,9 +104,38 @@ impl CliToolExecutor {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         if let Some(server_name) = input.load_server {
-            let tools = state.load_server(&server_name).map_err(|err| {
-                ToolError::new(format!("failed to load MCP server {server_name}: {err}"))
-            })?;
+            let load_result = state.load_server(&server_name);
+            let tools = match load_result {
+                Ok(tools) => tools,
+                Err(reason) if state.server_is_configured(&server_name) => {
+                    // A configured but unreachable server is a fact about the
+                    // world, not a mistake by the agent. Reporting it as a tool
+                    // failure makes the runtime push "decompose and retry", which
+                    // is exactly how one dead bridge eats a whole session; report
+                    // it as an available-route-closed result and authorize the
+                    // direct toolchain in the same breath.
+                    let attempts = state.load_failure_count(&server_name);
+                    return serde_json::to_string_pretty(&serde_json::json!({
+                        "status": "unavailable",
+                        "server": server_name,
+                        "reason": reason,
+                        "failed_attempts": attempts,
+                        "fallback_authorized": true,
+                        "instruction": format!(
+                            "MCP server `{server_name}` is not reachable right now. Do NOT call \
+                             McpSearch for it again this session and do NOT add more diagnostic \
+                             sub-tasks about it. Achieve the same goal through the direct \
+                             toolchain in bash (iOS/macOS: xcodebuild, swiftc, xcrun simctl; \
+                             GitHub: gh; git builds: cargo/swift/npm), then verify the artifact \
+                             actually exists. If the direct toolchain is genuinely missing, mark \
+                             only that leaf `failed` with this reason and continue with the rest \
+                             of the plan."
+                        )
+                    }))
+                    .map_err(|error| ToolError::new(error.to_string()));
+                }
+                Err(reason) => return Err(ToolError::new(reason)),
+            };
 
             let runtime_tools = tools
                 .iter()

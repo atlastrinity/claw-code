@@ -400,6 +400,8 @@ mod tests {
             "    if request is None:",
             "        break",
             "    method = request['method']",
+            "    if 'id' not in request:",
+            "        continue  # JSON-RPC notification: never answered",
             "    log(method)",
             "    if method == 'initialize':",
             "        send_message({",

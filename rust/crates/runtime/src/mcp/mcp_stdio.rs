@@ -1,7 +1,8 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::io;
 use std::process::Stdio;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::de::DeserializeOwned;
@@ -27,6 +28,28 @@ const MCP_INITIALIZE_TIMEOUT_MS: u64 = 10_000;
 const MCP_LIST_TOOLS_TIMEOUT_MS: u64 = 300;
 #[cfg(not(test))]
 const MCP_LIST_TOOLS_TIMEOUT_MS: u64 = 30_000;
+
+/// How many of the server's own stderr lines are kept for diagnostics. A server
+/// that hangs, crashes, or refuses to answer usually says *why* on stderr, and
+/// that is the one piece of evidence a timeout cannot carry on its own.
+const MCP_STDERR_TAIL_LINES: usize = 40;
+
+/// Bounded ring of the child's stderr, shared between the drain task and the
+/// request path that formats errors.
+type StderrTail = Arc<Mutex<VecDeque<String>>>;
+
+fn stderr_tail_snapshot(tail: &StderrTail) -> String {
+    let lines = tail
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .iter()
+        .cloned()
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        return String::new();
+    }
+    lines.join("\n")
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(untagged)]
@@ -259,6 +282,9 @@ pub enum McpServerManagerError {
         server_name: String,
         method: &'static str,
         source: io::Error,
+        /// Last lines the server wrote to its own stderr before the transport
+        /// broke; empty when the server never spoke.
+        stderr_tail: String,
     },
     JsonRpc {
         server_name: String,
@@ -274,6 +300,9 @@ pub enum McpServerManagerError {
         server_name: String,
         method: &'static str,
         timeout_ms: u64,
+        /// Last lines the server wrote to its own stderr while it was silent on
+        /// stdout — the difference between "hung" and "crashed with a message".
+        stderr_tail: String,
     },
     UnknownTool {
         qualified_name: String,
@@ -281,6 +310,22 @@ pub enum McpServerManagerError {
     UnknownServer {
         server_name: String,
     },
+}
+
+/// Appending the server's own stderr to a transport/timeout error is what turns
+/// "the server hung for 30 s" into something the agent can act on.
+fn write_stderr_tail(f: &mut std::fmt::Formatter<'_>, stderr_tail: &str) -> std::fmt::Result {
+    if stderr_tail.trim().is_empty() {
+        return write!(
+            f,
+            "\nThe server wrote nothing to stderr; it is either wedged or waiting on a \
+             resource it never got."
+        );
+    }
+    write!(
+        f,
+        "\nLast lines from the server's own stderr:\n{stderr_tail}"
+    )
 }
 
 impl std::fmt::Display for McpServerManagerError {
@@ -291,10 +336,14 @@ impl std::fmt::Display for McpServerManagerError {
                 server_name,
                 method,
                 source,
-            } => write!(
-                f,
-                "MCP server `{server_name}` transport failed during {method}: {source}"
-            ),
+                stderr_tail,
+            } => {
+                write!(
+                    f,
+                    "MCP server `{server_name}` transport failed during {method}: {source}"
+                )?;
+                write_stderr_tail(f, stderr_tail)
+            }
             Self::JsonRpc {
                 server_name,
                 method,
@@ -316,10 +365,14 @@ impl std::fmt::Display for McpServerManagerError {
                 server_name,
                 method,
                 timeout_ms,
-            } => write!(
-                f,
-                "MCP server `{server_name}` timed out after {timeout_ms} ms while handling {method}"
-            ),
+                stderr_tail,
+            } => {
+                write!(
+                    f,
+                    "MCP server `{server_name}` timed out after {timeout_ms} ms while handling {method}"
+                )?;
+                write_stderr_tail(f, stderr_tail)
+            }
             Self::UnknownTool { qualified_name } => {
                 write!(f, "unknown MCP tool `{qualified_name}`")
             }
@@ -390,11 +443,18 @@ impl McpServerManagerError {
                 server_name,
                 method,
                 source,
-            } => BTreeMap::from([
-                ("server".to_string(), server_name.clone()),
-                ("method".to_string(), (*method).to_string()),
-                ("io_kind".to_string(), source.kind().to_string()),
-            ]),
+                stderr_tail,
+            } => {
+                let mut context = BTreeMap::from([
+                    ("server".to_string(), server_name.clone()),
+                    ("method".to_string(), (*method).to_string()),
+                    ("io_kind".to_string(), source.kind().to_string()),
+                ]);
+                if !stderr_tail.trim().is_empty() {
+                    context.insert("stderr_tail".to_string(), stderr_tail.clone());
+                }
+                context
+            }
             Self::JsonRpc {
                 server_name,
                 method,
@@ -417,11 +477,18 @@ impl McpServerManagerError {
                 server_name,
                 method,
                 timeout_ms,
-            } => BTreeMap::from([
-                ("server".to_string(), server_name.clone()),
-                ("method".to_string(), (*method).to_string()),
-                ("timeout_ms".to_string(), timeout_ms.to_string()),
-            ]),
+                stderr_tail,
+            } => {
+                let mut context = BTreeMap::from([
+                    ("server".to_string(), server_name.clone()),
+                    ("method".to_string(), (*method).to_string()),
+                    ("timeout_ms".to_string(), timeout_ms.to_string()),
+                ]);
+                if !stderr_tail.trim().is_empty() {
+                    context.insert("stderr_tail".to_string(), stderr_tail.clone());
+                }
+                context
+            }
             Self::UnknownTool { qualified_name } => {
                 BTreeMap::from([("qualified_tool".to_string(), qualified_name.clone())])
             }
@@ -780,10 +847,12 @@ impl McpServerManager {
                         details: "server process missing after initialization".to_string(),
                     }
                 })?;
+                let stderr_tail = process.stderr_tail();
                 Self::run_process_request(
                     &route.server_name,
                     "tools/call",
                     timeout_ms,
+                    stderr_tail,
                     process.call_tool(
                         request_id,
                         McpToolCallParams {
@@ -961,10 +1030,12 @@ impl McpServerManager {
                         details: "server process missing after initialization".to_string(),
                     }
                 })?;
+                let stderr_tail = process.stderr_tail();
                 Self::run_process_request(
                     server_name,
                     "tools/list",
                     MCP_LIST_TOOLS_TIMEOUT_MS,
+                    stderr_tail,
                     process.list_tools(
                         request_id,
                         Some(McpListToolsParams {
@@ -1029,10 +1100,12 @@ impl McpServerManager {
                         details: "server process missing after initialization".to_string(),
                     }
                 })?;
+                let stderr_tail = process.stderr_tail();
                 Self::run_process_request(
                     server_name,
                     "resources/list",
                     MCP_LIST_TOOLS_TIMEOUT_MS,
+                    stderr_tail,
                     process.list_resources(
                         request_id,
                         Some(McpListResourcesParams {
@@ -1091,10 +1164,12 @@ impl McpServerManager {
                         details: "server process missing after initialization".to_string(),
                     }
                 })?;
+                let stderr_tail = process.stderr_tail();
                 Self::run_process_request(
                     server_name,
                     "resources/read",
                     MCP_LIST_TOOLS_TIMEOUT_MS,
+                    stderr_tail,
                     process.read_resource(
                         request_id,
                         McpReadResourceParams {
@@ -1158,6 +1233,7 @@ impl McpServerManager {
         server_name: &str,
         method: &'static str,
         timeout_ms: u64,
+        stderr_tail: StderrTail,
         future: F,
     ) -> Result<T, McpServerManagerError>
     where
@@ -1176,11 +1252,13 @@ impl McpServerManager {
                 server_name: server_name.to_string(),
                 method,
                 source,
+                stderr_tail: stderr_tail_snapshot(&stderr_tail),
             }),
             Err(_) => Err(McpServerManagerError::Timeout {
                 server_name: server_name.to_string(),
                 method,
                 timeout_ms,
+                stderr_tail: stderr_tail_snapshot(&stderr_tail),
             }),
         }
     }
@@ -1231,10 +1309,12 @@ impl McpServerManager {
                         details: "server process missing before initialize".to_string(),
                     }
                 })?;
+                let stderr_tail = process.stderr_tail();
                 Self::run_process_request(
                     server_name,
                     "initialize",
                     MCP_INITIALIZE_TIMEOUT_MS,
+                    stderr_tail,
                     process.initialize(request_id, default_initialize_params()),
                 )
                 .await
@@ -1273,6 +1353,24 @@ impl McpServerManager {
                 return Err(error);
             }
 
+            // Spec-complete handshake: the client MUST confirm with
+            // `notifications/initialized` before the server serves other methods.
+            let notify_result = {
+                let server = self.server_mut(server_name)?;
+                match server.process.as_mut() {
+                    Some(process) => process.notify_initialized().await,
+                    None => Err(io::Error::other("server process missing after initialize")),
+                }
+            };
+            if let Err(error) = notify_result {
+                self.reset_server(server_name).await?;
+                return Err(McpServerManagerError::InvalidResponse {
+                    server_name: server_name.to_string(),
+                    method: "notifications/initialized",
+                    details: format!("server did not accept the handshake completion: {error}"),
+                });
+            }
+
             let server = self.server_mut(server_name)?;
             server.initialized = true;
             return Ok(());
@@ -1285,6 +1383,10 @@ pub struct McpStdioProcess {
     child: Child,
     stdin: ChildStdin,
     stdout: BufReader<ChildStdout>,
+    /// Bounded ring of the child's stderr, filled by the drain task spawned in
+    /// [`Self::spawn`]. Survives as long as the process handle does, which is
+    /// exactly the window a timeout or transport break needs explained.
+    stderr_tail: StderrTail,
 }
 
 impl Drop for McpStdioProcess {
@@ -1331,12 +1433,24 @@ impl McpStdioProcess {
             .ok_or_else(|| io::Error::other("stdio MCP process missing stdout pipe"))?;
 
         // Route child stderr into the tracing log file instead of inheriting
-        // it, so server banners/trace output do not pollute CLI stdout/stderr.
+        // it, so server banners/trace output do not pollute CLI stdout/stderr,
+        // and keep the newest lines in a ring the error paths can quote.
+        let stderr_tail: StderrTail = Arc::new(Mutex::new(VecDeque::new()));
         if let Some(stderr) = child.stderr.take() {
             let label = transport.command.clone();
+            let tail = Arc::clone(&stderr_tail);
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
+                    {
+                        let mut ring = tail
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+                        ring.push_back(line.clone());
+                        while ring.len() > MCP_STDERR_TAIL_LINES {
+                            ring.pop_front();
+                        }
+                    }
                     tracing::info!(target: "mcp::stderr", server = %label, "{line}");
                 }
             });
@@ -1346,7 +1460,14 @@ impl McpStdioProcess {
             child,
             stdin,
             stdout: BufReader::new(stdout),
+            stderr_tail,
         })
+    }
+
+    /// Handle on the ring of the server's own recent stderr lines.
+    #[must_use]
+    pub fn stderr_tail(&self) -> StderrTail {
+        Arc::clone(&self.stderr_tail)
     }
 
     pub async fn write_all(&mut self, bytes: &[u8]) -> io::Result<()> {
@@ -1428,6 +1549,31 @@ impl McpStdioProcess {
         self.write_jsonrpc_message(request).await
     }
 
+    /// Send a JSON-RPC notification (no `id`, no response expected).
+    pub async fn send_notification(
+        &mut self,
+        method: &str,
+        params: Option<JsonValue>,
+    ) -> io::Result<()> {
+        let mut message = serde_json::Map::new();
+        message.insert("jsonrpc".to_string(), serde_json::json!("2.0"));
+        message.insert("method".to_string(), serde_json::json!(method));
+        if let Some(params) = params {
+            message.insert("params".to_string(), params);
+        }
+        self.write_jsonrpc_message(&serde_json::Value::Object(message))
+            .await
+    }
+
+    /// The MCP handshake is `initialize` → response → `notifications/initialized`
+    /// from the client. Servers that gate their method dispatch on that final
+    /// notification never answer `tools/list` without it, which shows up as a
+    /// silent timeout rather than an error.
+    pub async fn notify_initialized(&mut self) -> io::Result<()> {
+        self.send_notification("notifications/initialized", None)
+            .await
+    }
+
     pub async fn read_response<T: DeserializeOwned>(&mut self) -> io::Result<JsonRpcResponse<T>> {
         loop {
             let payload = self.read_frame().await?;
@@ -1436,8 +1582,12 @@ impl McpStdioProcess {
                 Err(error) => return Err(io::Error::new(io::ErrorKind::InvalidData, error)),
             };
 
-            // If the message is a JSON-RPC notification (has method and no id, or no id field), skip it
-            if value.get("id").is_none() || value.get("method").is_some() {
+            // Skip anything that is not a response to our pending request:
+            // server-initiated notifications, and the null-id error frames a
+            // server may emit for a notification it does not understand.
+            if value.get("method").is_some()
+                || matches!(value.get("id"), None | Some(JsonValue::Null))
+            {
                 continue;
             }
 
@@ -1713,6 +1863,16 @@ mod tests {
             "    if request is None:",
             "        break",
             "    method = request['method']",
+            "    if 'id' not in request:",
+            "        continue  # JSON-RPC notification: never answered",
+            "    if 'id' not in request:",
+            "        # JSON-RPC notification: never answered. Record the handshake",
+            "        # completion so tests can assert the client sent it.",
+            "        if method == 'notifications/initialized':",
+            "            marker = os.environ.get('MCP_NOTIFICATION_MARKER')",
+            "            if marker:",
+            "                open(marker, 'w').close()",
+            "        continue",
             "    if method == 'initialize':",
             "        send_message({",
             "            'jsonrpc': '2.0',",
@@ -1861,6 +2021,9 @@ mod tests {
             "    if request is None:",
             "        break",
             "    method = request['method']",
+            "    if 'id' not in request:",
+            "        log(method)",
+            "        continue  # JSON-RPC notification: never answered",
             "    log(method)",
             "    if method == 'initialize':",
             "        if FAIL_ONCE_MODE == 'initialize_hang' and should_fail_once():",
@@ -2511,6 +2674,7 @@ mod tests {
                     server_name,
                     method,
                     timeout_ms,
+                    ..
                 } => {
                     assert_eq!(server_name, "slow");
                     assert_eq!(method, "tools/call");
@@ -2627,7 +2791,14 @@ mod tests {
             let log = fs::read_to_string(&log_path).expect("read log");
             assert_eq!(
                 log.lines().collect::<Vec<_>>(),
-                vec!["initialize", "tools/list", "initialize", "tools/call"]
+                vec![
+                    "initialize",
+                    "notifications/initialized",
+                    "tools/list",
+                    "initialize",
+                    "notifications/initialized",
+                    "tools/call",
+                ]
             );
 
             manager.shutdown().await.expect("shutdown");
@@ -2676,7 +2847,13 @@ mod tests {
             let log = fs::read_to_string(&log_path).expect("read log");
             assert_eq!(
                 log.lines().collect::<Vec<_>>(),
-                vec!["initialize", "initialize-hang", "initialize", "tools/list"]
+                vec![
+                    "initialize",
+                    "initialize-hang",
+                    "initialize",
+                    "notifications/initialized",
+                    "tools/list",
+                ]
             );
 
             manager.shutdown().await.expect("shutdown");
@@ -2741,10 +2918,12 @@ mod tests {
                 log.lines().collect::<Vec<_>>(),
                 vec![
                     "initialize",
+                    "notifications/initialized",
                     "tools/list",
                     "tools/call",
                     "tools/call-disconnect",
                     "initialize",
+                    "notifications/initialized",
                     "tools/call",
                 ]
             );
@@ -3043,7 +3222,12 @@ mod tests {
             assert_eq!(log.lines().filter(|line| *line == "initialize").count(), 1);
             assert_eq!(
                 log.lines().collect::<Vec<_>>(),
-                vec!["initialize", "tools/list", "tools/call"]
+                vec![
+                    "initialize",
+                    "notifications/initialized",
+                    "tools/list",
+                    "tools/call",
+                ]
             );
 
             manager.shutdown().await.expect("shutdown");
@@ -3203,6 +3387,127 @@ mod tests {
                 .expect("second call should succeed");
             assert!(result.result.is_some());
 
+            cleanup_script(&script_path);
+        });
+    }
+    fn write_silent_stderr_server_script() -> PathBuf {
+        let root = temp_dir();
+        fs::create_dir_all(&root).expect("temp dir");
+        let script_path = root.join("silent-stderr-server.py");
+        let script = [
+            "#!/usr/bin/env python3",
+            "import json, sys, time",
+            "print('refusing to serve: developer license has not been accepted', file=sys.stderr, flush=True)",
+            "while True:",
+            "    line = sys.stdin.buffer.readline()",
+            "    if not line:",
+            "        break",
+            "    try:",
+            "        message = json.loads(line.decode())",
+            "    except Exception:",
+            "        continue",
+            "    if 'id' not in message:",
+            "        continue",
+            "    if message['method'] == 'initialize':",
+            "        result = {",
+            "            'jsonrpc': '2.0',",
+            "            'id': message['id'],",
+            "            'result': {",
+            "                'protocolVersion': message['params']['protocolVersion'],",
+            "                'capabilities': {'tools': {}},",
+            "                'serverInfo': {'name': 'silent', 'version': '1.0.0'}",
+            "            }",
+            "        }",
+            r"        sys.stdout.buffer.write((json.dumps(result) + '\n').encode())",
+            "        sys.stdout.buffer.flush()",
+            "    else:",
+            "        time.sleep(30)",
+            "",
+        ]
+        .join("\n");
+        fs::write(&script_path, script).expect("write script");
+        let mut permissions = fs::metadata(&script_path).expect("metadata").permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&script_path, permissions).expect("chmod");
+        script_path
+    }
+
+    #[test]
+    fn discovery_completes_the_initialize_handshake_with_a_notification() {
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let script_path = write_manager_mcp_server_script();
+            let root = script_path.parent().expect("script parent");
+            let log_path = root.join("handshake.log");
+            let servers = BTreeMap::from([(
+                "srv".to_string(),
+                manager_server_config(&script_path, "srv", &log_path),
+            )]);
+
+            let mut manager = McpServerManager::from_servers(&servers);
+            let tools = manager.discover_tools().await.expect("discover tools");
+            assert_eq!(tools.len(), 1);
+
+            let log = fs::read_to_string(&log_path).expect("server method log");
+            let initialized_at = log
+                .find("notifications/initialized")
+                .unwrap_or_else(|| panic!("client never completed the handshake: {log}"));
+            assert!(
+                log.find("initialize\n")
+                    .is_some_and(|at| at < initialized_at),
+                "the completion notification must follow the initialize response: {log}"
+            );
+            let tools_list_at = log
+                .rfind("tools/list")
+                .unwrap_or_else(|| panic!("tools/list was never logged: {log}"));
+            assert!(
+                initialized_at < tools_list_at,
+                "tools/list must only be sent after the handshake completed: {log}"
+            );
+
+            manager.shutdown().await.expect("shutdown");
+            cleanup_script(&script_path);
+        });
+    }
+
+    #[test]
+    fn timeout_errors_carry_the_servers_own_stderr() {
+        let runtime = Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("runtime");
+        runtime.block_on(async {
+            let script_path = write_silent_stderr_server_script();
+            let servers = BTreeMap::from([(
+                "silent".to_string(),
+                ScopedMcpServerConfig {
+                    description: None,
+                    required: false,
+                    scope: ConfigSource::Local,
+                    config: McpServerConfig::Stdio(McpStdioServerConfig {
+                        command: "python3".to_string(),
+                        args: vec![script_path.to_string_lossy().into_owned()],
+                        env: BTreeMap::new(),
+                        tool_call_timeout_ms: None,
+                    }),
+                },
+            )]);
+
+            let mut manager = McpServerManager::from_servers(&servers);
+            let error = manager
+                .discover_tools()
+                .await
+                .expect_err("a silent server must not discover tools");
+            let surface = error.to_string();
+            assert!(
+                surface.contains("developer license has not been accepted"),
+                "the timeout must quote what the server said about itself: {surface}"
+            );
+
+            let _ = manager.shutdown().await;
             cleanup_script(&script_path);
         });
     }
