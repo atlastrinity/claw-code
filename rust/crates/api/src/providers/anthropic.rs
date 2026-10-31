@@ -460,10 +460,11 @@ impl AnthropicClient {
                                 Map::new(),
                             );
                         }
-                        crate::breaker::lock(&self.breaker).on_success();
+                        crate::breaker::note_success(&self.breaker);
                         return Ok(response);
                     }
                     Err(error) if error.is_retryable() && attempts <= self.max_retries + 1 => {
+                        self.log_retryable_attempt(attempts, &error);
                         self.record_request_failure(attempts, &error);
                         last_error = Some(error);
                     }
@@ -473,17 +474,18 @@ impl AnthropicClient {
                         // A permanent failure is a failed chain too: without
                         // this the breaker never escalates and every outer
                         // retry layer keeps hammering a rejecting provider.
-                        crate::breaker::lock(&self.breaker).on_failure();
+                        crate::breaker::note_failure(&self.breaker, &error);
                         return Err(error);
                     }
                 },
                 Err(error) if error.is_retryable() && attempts <= self.max_retries + 1 => {
+                    self.log_retryable_attempt(attempts, &error);
                     self.record_request_failure(attempts, &error);
                     last_error = Some(error);
                 }
                 Err(error) => {
                     self.record_request_failure(attempts, &error);
-                    crate::breaker::lock(&self.breaker).on_failure();
+                    crate::breaker::note_failure(&self.breaker, &error);
                     return Err(error);
                 }
             }
@@ -498,14 +500,37 @@ impl AnthropicClient {
             } else {
                 crate::breaker::jittered_backoff(attempts, self.initial_backoff, self.max_backoff)?
             };
+            tracing::warn!(
+                provider = "anthropic",
+                model = %request.model,
+                attempt = attempts,
+                max_attempts = self.max_retries + 1,
+                retry_in_ms = delay.as_millis() as u64,
+                "retrying request chain after backoff"
+            );
             tokio::time::sleep(delay).await;
         }
 
-        crate::breaker::lock(&self.breaker).on_failure();
-        Err(ApiError::RetriesExhausted {
+        let error = ApiError::RetriesExhausted {
             attempts,
             last_error: Box::new(last_error.expect("retry loop must capture an error")),
-        })
+        };
+        crate::breaker::note_failure(&self.breaker, &error);
+        Err(error)
+    }
+
+    /// The per-attempt cause. Without this the only thing a log reader sees is
+    /// the eventual `RetriesExhausted`/`CircuitOpen`, which names no status and
+    /// no provider message — the failure that actually opened the breaker is
+    /// unrecoverable from the log.
+    fn log_retryable_attempt(&self, attempt: u32, error: &ApiError) {
+        tracing::warn!(
+            provider = "anthropic",
+            attempt,
+            max_attempts = self.max_retries + 1,
+            error = %error,
+            "request attempt failed with a retryable error"
+        );
     }
 
     async fn send_raw_request(
@@ -599,7 +624,7 @@ impl AnthropicClient {
     /// Count an accepted-but-silent stream as a failed chain (see
     /// `ProviderClient::record_stream_stall`).
     pub fn record_stream_stall(&self) {
-        crate::breaker::lock(&self.breaker).on_failure();
+        crate::breaker::note_stall(&self.breaker, "stream accepted but produced no content");
     }
 
     fn record_request_failure(&self, attempt: u32, error: &ApiError) {

@@ -237,6 +237,104 @@ fn task_graph_upward_auto_completion_and_cascading() {
     let _ = std::fs::remove_file(path);
 }
 
+/// Regression for the failure logged at 2026-10-31T00:40:02Z: the store held a
+/// `Pending` phase whose sub-task was already `Completed`, so every later
+/// `update_status` was rejected with "TaskGraph Inconsistency". Because
+/// validation ran before the store write, the rejection also threw the new
+/// status away — the contradiction lived in the stored graph, not in the call,
+/// so retrying could never repair it and each attempt cost a full round-trip.
+#[test]
+fn task_graph_records_progress_even_when_the_graph_contradicts_itself() {
+    let _guard = env_guard();
+    let path = temp_path("contradictory_graph.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    std::fs::write(
+        &path,
+        serde_json::to_string_pretty(&json!([
+            {"id": "1", "content": "Phase 1", "status": "in_progress"},
+            {"id": "1.1", "parent_id": "1", "content": "Earlier work", "status": "in_progress"},
+            {"id": "2", "content": "Phase 2", "status": "pending"},
+            {"id": "2.1", "parent_id": "2", "content": "Inspect", "status": "pending"},
+            {"id": "2.2", "parent_id": "2", "content": "Summarize", "status": "pending"},
+            {"id": "2.3", "parent_id": "2", "content": "Verify", "status": "completed"}
+        ]))
+        .expect("serialize seed"),
+    )
+    .expect("write seed store");
+
+    let result = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [{"id": "2.2", "status": "completed"}]
+        }),
+    );
+
+    // Two phases open at once still violates sequential control, so the call
+    // reports it — but the report must no longer be the unrepairable
+    // "parent is Pending while its sub-task is Completed" contradiction.
+    let problem = result.expect_err("phase 1 is still open, so phase 2 must be flagged");
+    assert!(
+        !problem.contains("is marked as Pending, but its sub-task"),
+        "phase 2 carries finished work and must not be demoted back to Pending: {problem}"
+    );
+    assert!(
+        problem.contains("were still recorded"),
+        "the agent must be told not to repeat the write: {problem}"
+    );
+
+    let store_content = std::fs::read_to_string(&path).expect("read store");
+    let nodes: Vec<serde_json::Value> = serde_json::from_str(&store_content).expect("parse store");
+    let status_of = |id: &str| {
+        nodes
+            .iter()
+            .find(|n| n["id"] == id)
+            .and_then(|n| n["status"].as_str())
+            .unwrap_or("<missing>")
+            .to_string()
+    };
+    assert_eq!(status_of("2"), "in_progress", "phase 2 carries finished work");
+    assert_eq!(status_of("2.2"), "completed", "the new status must be persisted");
+    assert_eq!(status_of("2.3"), "completed", "earlier progress must survive");
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+/// A parent's status is derived from its children: once work is recorded under
+/// it, it is in progress. Without this the graph below has no repair path at all
+/// and every write to it is rejected.
+#[test]
+fn propagation_promotes_a_pending_parent_whose_children_started() {
+    use crate::task_graph::propagation::propagate_task_statuses;
+
+    let mut nodes: Vec<TaskNode> = serde_json::from_value(json!([
+        {"id": "2", "content": "Phase 2", "status": "pending"},
+        {"id": "2.1", "parent_id": "2", "content": "Inspect", "status": "pending"},
+        {"id": "2.2", "parent_id": "2", "content": "Summarize", "status": "pending"},
+        {"id": "2.3", "parent_id": "2", "content": "Verify", "status": "completed"}
+    ]))
+    .expect("parse seed");
+
+    propagate_task_statuses(&mut nodes);
+
+    let status_of = |id: &str| {
+        nodes
+            .iter()
+            .find(|n| n.id == id)
+            .and_then(|n| n.status)
+            .unwrap_or(TaskStatus::Pending)
+    };
+    assert_eq!(status_of("2"), TaskStatus::InProgress);
+    assert_eq!(status_of("2.3"), TaskStatus::Completed);
+    assert!(
+        validate_task_graph(&nodes).is_ok(),
+        "propagation must reach a state validation accepts: {:?}",
+        validate_task_graph(&nodes).err()
+    );
+}
+
 #[test]
 fn task_graph_auto_create_parents_and_failed_restoration() {
     let _guard = env_guard();
@@ -1880,6 +1978,3 @@ fn test_task_graph_rejects_depth_exceeded() {
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(&path);
 }
-
-
-

@@ -17,11 +17,30 @@ use runtime::fractal::{FractalRateLimiter, BREAKER_DECAY_PERIOD, MAX_BREAKER_PAU
 
 use crate::error::ApiError;
 
+/// A breaker shared by all clones of one client, tagged with the
+/// `{provider}#{model}` identity it was created under so every log line it
+/// produces can be attributed without the caller passing a label around.
+#[derive(Debug)]
+pub struct BreakerHandle {
+    pub label: String,
+    limiter: Mutex<FractalRateLimiter>,
+}
+
 /// A breaker shared by all clones of one client.
-pub type SharedBreaker = Arc<Mutex<FractalRateLimiter>>;
+pub type SharedBreaker = Arc<BreakerHandle>;
 
 pub fn lock(breaker: &SharedBreaker) -> MutexGuard<'_, FractalRateLimiter> {
-    breaker.lock().unwrap_or_else(PoisonError::into_inner)
+    breaker.limiter.lock().unwrap_or_else(PoisonError::into_inner)
+}
+
+fn new_handle(label: String, max_retries: u32) -> SharedBreaker {
+    Arc::new(BreakerHandle {
+        label,
+        limiter: Mutex::new(FractalRateLimiter::new(
+            BREAKER_BASE_PAUSE_SECS,
+            breaker_ceiling(max_retries),
+        )),
+    })
 }
 
 /// Built-in retry-chain count when `CLAW_API_MAX_RETRIES` is unset or
@@ -70,10 +89,7 @@ const BREAKER_BASE_PAUSE_SECS: f64 = 1.0;
 /// so escalation survives reconnects and key rotation.
 #[must_use]
 pub fn new_breaker(max_retries: u32) -> SharedBreaker {
-    Arc::new(Mutex::new(FractalRateLimiter::new(
-        BREAKER_BASE_PAUSE_SECS,
-        breaker_ceiling(max_retries),
-    )))
+    new_handle("unbound".to_string(), max_retries)
 }
 
 /// The one breaker for `{provider}#{model}`, creating it on first use.
@@ -93,10 +109,7 @@ pub fn shared_breaker(provider: &str, model: &str, max_retries: u32) -> SharedBr
         lock(&breaker).set_max_level(breaker_ceiling(max_retries));
         return breaker;
     }
-    let breaker: SharedBreaker = Arc::new(Mutex::new(FractalRateLimiter::new(
-        BREAKER_BASE_PAUSE_SECS,
-        breaker_ceiling(max_retries),
-    )));
+    let breaker = new_handle(id.clone(), max_retries);
     registry.insert(id, breaker.clone());
     breaker
 }
@@ -150,12 +163,22 @@ pub fn snapshot() -> Vec<(String, usize, usize, usize)> {
 ///   pause the breaker demands. Never holds the lock across the await, and
 ///   uses an async timer so tokio workers are not blocked.
 pub async fn gate_request(breaker: &SharedBreaker) -> Result<(), ApiError> {
+    let label = breaker.label.as_str();
     let wait = {
         let mut limiter = lock(breaker);
         let now = Instant::now();
         limiter.apply_decay(now);
         if limiter.is_at_chaos_point() {
             limiter.record_breaker_trip();
+            tracing::warn!(
+                breaker = %label,
+                level = limiter.current_level,
+                ceiling = limiter.max_level,
+                consecutive_failures = limiter.consecutive_failures,
+                trips = limiter.breaker_trips,
+                recovery_secs = BREAKER_DECAY_PERIOD.as_secs(),
+                "δ breaker at chaos point: shedding this request chain"
+            );
             return Err(ApiError::CircuitOpen {
                 consecutive_failures: limiter.consecutive_failures,
                 recovery_secs: BREAKER_DECAY_PERIOD.as_secs(),
@@ -165,10 +188,117 @@ pub async fn gate_request(breaker: &SharedBreaker) -> Result<(), ApiError> {
     };
 
     if wait > Duration::ZERO {
+        tracing::debug!(
+            breaker = %label,
+            pause_ms = wait.as_millis() as u64,
+            "δ breaker inter-chain pause"
+        );
         tokio::time::sleep(wait).await;
     }
     Ok(())
 }
+
+/// One-line summary of an [`ApiError`] safe to put in a log: status when the
+/// error carries one, plus a truncated body. The body is capped because
+/// provider error payloads routinely embed the whole request.
+fn error_summary(error: &ApiError) -> String {
+    const MAX_BODY: usize = 300;
+    let text = error.to_string();
+    let flat: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    if flat.chars().count() <= MAX_BODY {
+        flat
+    } else {
+        let cut: String = flat.chars().take(MAX_BODY).collect();
+        format!("{cut}… (+{} chars)", flat.chars().count() - MAX_BODY)
+    }
+}
+
+/// Record an exhausted retry chain and log the escalation it caused.
+///
+/// Returns the breaker level after the failure. The level *before and after*
+/// are both logged: the δ ramp is the whole point of the breaker, and a
+/// transition that is invisible in the log cannot be distinguished from a
+/// breaker that never escalates.
+pub fn note_failure(breaker: &SharedBreaker, error: &ApiError) -> usize {
+    let mut limiter = lock(breaker);
+    let before = limiter.current_level;
+    limiter.on_failure();
+    let (after, failures, ceiling) = (
+        limiter.current_level,
+        limiter.consecutive_failures,
+        limiter.max_level,
+    );
+    drop(limiter);
+
+    if after > before {
+        tracing::warn!(
+            breaker = %breaker.label,
+            level_before = before,
+            level = after,
+            ceiling,
+            consecutive_failures = failures,
+            error = %error_summary(error),
+            "retry chain failed: δ breaker escalated"
+        );
+    } else {
+        tracing::warn!(
+            breaker = %breaker.label,
+            level = after,
+            ceiling,
+            consecutive_failures = failures,
+            error = %error_summary(error),
+            "retry chain failed"
+        );
+    }
+    after
+}
+
+/// Record a successful chain, logging only when it actually de-escalated the
+/// breaker — a healthy provider must not add a line per request.
+pub fn note_success(breaker: &SharedBreaker) {
+    let mut limiter = lock(breaker);
+    let before = limiter.current_level;
+    limiter.on_success();
+    let after = limiter.current_level;
+    drop(limiter);
+    if before > 0 {
+        tracing::info!(
+            breaker = %breaker.label,
+            level_before = before,
+            level = after,
+            "chain succeeded: δ breaker de-escalated"
+        );
+    }
+}
+
+/// Escalate for a failure that has no [`ApiError`] to carry — an accepted
+/// request whose stream produced nothing. Silent stalls are the case a log
+/// reader most needs explained, because every HTTP-level signal said "200 OK".
+pub fn note_stall(breaker: &SharedBreaker, reason: &str) -> usize {
+    let mut limiter = lock(breaker);
+    let before = limiter.current_level;
+    limiter.on_failure();
+    let (after, failures, ceiling) = (
+        limiter.current_level,
+        limiter.consecutive_failures,
+        limiter.max_level,
+    );
+    drop(limiter);
+    tracing::warn!(
+        breaker = %breaker.label,
+        level_before = before,
+        level = after,
+        ceiling,
+        consecutive_failures = failures,
+        reason = %reason,
+        "request accepted but produced no content: δ breaker escalated"
+    );
+    after
+}
+
 
 /// Per-attempt backoff: `initial * 2^(attempt-1)`, capped at `max`.
 ///
@@ -228,4 +358,63 @@ fn jitter_for_base(base: Duration) -> Duration {
     // Inclusive upper bound: jitter may equal `base`, matching "up to base".
     let jitter_nanos = mixed % base_nanos.saturating_add(1);
     Duration::from_nanos(jitter_nanos)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{error_summary, new_breaker, note_failure, note_success};
+    use crate::error::{ApiError, ApiErrorInfo};
+    use reqwest::StatusCode;
+
+    fn api_error(status: u16, message: &str) -> ApiError {
+        ApiError::Api(Box::new(ApiErrorInfo {
+            status: StatusCode::from_u16(status).expect("valid status"),
+            error_type: None,
+            message: Some(message.to_string()),
+            request_id: None,
+            body: message.to_string(),
+            retryable: false,
+            suggested_action: None,
+            retry_after: None,
+        }))
+    }
+
+    #[test]
+    fn failure_escalates_and_success_de_escalates_the_shared_breaker() {
+        let breaker = new_breaker(1);
+        assert_eq!(breaker.label, "unbound");
+        let error = api_error(401, "token expired or incorrect");
+        assert_eq!(note_failure(&breaker, &error), 1);
+        assert_eq!(note_failure(&breaker, &error), 2);
+        note_success(&breaker);
+        assert_eq!(
+            super::lock(&breaker).current_level,
+            1,
+            "a success must pull the ramp back down one level"
+        );
+    }
+
+    #[test]
+    fn shared_breaker_carries_its_registry_identity() {
+        let breaker = super::shared_breaker("glm", "glm-4.7-flash", 2);
+        assert_eq!(breaker.label, "glm#glm-4.7-flash");
+        assert_eq!(super::lock(&breaker).max_level, super::breaker_ceiling(2));
+    }
+
+    #[test]
+    fn error_summary_keeps_the_status_and_caps_the_body() {
+        let short = error_summary(&api_error(401, "token expired or incorrect"));
+        assert!(short.contains("401"), "summary was: {short}");
+        assert!(short.contains("token expired or incorrect"), "summary was: {short}");
+
+        let long = error_summary(&api_error(400, &"x".repeat(5_000)));
+        assert!(long.len() < 500, "summary should be truncated, was {} chars", long.len());
+        assert!(long.contains("chars)"), "truncation marker missing: {long}");
+    }
+
+    #[test]
+    fn error_summary_strips_control_characters() {
+        let summary = error_summary(&api_error(500, "line1\nline2\ttab"));
+        assert!(!summary.contains('\n') && !summary.contains('\t'), "summary was: {summary:?}");
+    }
 }

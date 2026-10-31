@@ -39,41 +39,154 @@ impl TpmRateLimiter {
         }
     }
 
-    async fn acquire(&self, limit: usize, estimated_tokens: usize) {
+    /// Reserve `estimated_tokens` against `limit`, waiting only as long as the
+    /// budget actually requires. Returns the time spent waiting.
+    ///
+    /// The wait is the time until *just enough* recorded usage leaves the 60 s
+    /// window, not until the oldest entry does: waiting for the oldest entry
+    /// overshoots by the whole span of the entries in between (measured: 14–43 s
+    /// stalls between requests that needed far less).
+    async fn acquire(&self, limit: usize, estimated_tokens: usize) -> Duration {
+        // A single request larger than the whole budget can never fit. Waiting
+        // would only drain the window and then admit it anyway, so admit it now
+        // and say so — the provider's own 429 is the authority here, not us.
+        if estimated_tokens > limit {
+            tracing::warn!(
+                estimated_tokens,
+                limit,
+                "request exceeds the entire TPM budget; admitting without waiting"
+            );
+            self.record(estimated_tokens);
+            return Duration::ZERO;
+        }
+
+        let mut waited = Duration::ZERO;
         loop {
-            let now = Instant::now();
             let wait_duration = {
+                let now = Instant::now();
                 let mut lock = match self.window.lock() {
                     Ok(g) => g,
-                    Err(_) => return,
+                    Err(_) => return waited,
                 };
 
                 lock.retain(|(time, _)| now.duration_since(*time) < Duration::from_secs(60));
 
                 let current_tokens: usize = lock.iter().map(|(_, tokens)| tokens).sum();
-
                 if current_tokens + estimated_tokens <= limit {
                     lock.push((now, estimated_tokens));
-                    return;
+                    return waited;
                 }
 
-                if let Some(&(first_time, _)) = lock.first() {
-                    let elapsed = now.duration_since(first_time);
-                    Duration::from_secs(60).saturating_sub(elapsed)
-                } else {
-                    lock.push((now, estimated_tokens));
-                    return;
+                // Oldest first: each entry leaves the window at `time + 60s`, so
+                // the first prefix whose removal frees enough budget defines the
+                // earliest instant this request can go out.
+                let entries: Vec<(Instant, usize)> = lock.iter().copied().collect();
+                match minimal_wait(&entries, current_tokens, limit, estimated_tokens, now) {
+                    Some(wait) => wait,
+                    // Nothing in the window can free enough (only possible when
+                    // the budget is smaller than one request, handled above).
+                    None => {
+                        lock.push((now, estimated_tokens));
+                        return waited;
+                    }
                 }
             };
 
             tokio::time::sleep(wait_duration).await;
+            waited += wait_duration;
         }
     }
+
+    fn record(&self, estimated_tokens: usize) {
+        if let Ok(mut lock) = self.window.lock() {
+            lock.push((Instant::now(), estimated_tokens));
+        }
+    }
+}
+
+/// How long to wait before `estimated_tokens` fits in `limit`, given the usage
+/// already recorded in the window. `None` means no amount of waiting helps.
+///
+/// Waiting for the *oldest* entry to expire — the obvious implementation —
+/// overshoots by the span of everything recorded after it, which is what turned
+/// a 20 000-token budget and a 28 943-token request into 14–43 s stalls.
+fn minimal_wait(
+    entries: &[(Instant, usize)],
+    current_tokens: usize,
+    limit: usize,
+    estimated_tokens: usize,
+    now: Instant,
+) -> Option<Duration> {
+    if current_tokens + estimated_tokens <= limit {
+        return Some(Duration::ZERO);
+    }
+    let mut ordered: Vec<(Instant, usize)> = entries.to_vec();
+    ordered.sort_unstable_by_key(|(time, _)| *time);
+    let mut freed = 0usize;
+    for (time, tokens) in ordered {
+        freed += tokens;
+        if current_tokens - freed + estimated_tokens <= limit {
+            return Some((time + Duration::from_secs(60)).saturating_duration_since(now));
+        }
+    }
+    None
 }
 
 static GLM_LIMITER: OnceLock<TpmRateLimiter> = OnceLock::new();
 static GEMINI_LIMITER: OnceLock<TpmRateLimiter> = OnceLock::new();
 static DEFAULT_LIMITER: OnceLock<TpmRateLimiter> = OnceLock::new();
+
+/// When the previous request was scheduled to start, for the
+/// `CLAW_API_PAUSE_SECS` floor.
+static LAST_REQUEST_START: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// Sleep only the remainder of the configured minimum interval and return how
+/// long that was.
+///
+/// `CLAW_API_PAUSE_SECS` is a floor on the spacing between request *starts*, not
+/// a tax on every request. Sleeping the full amount unconditionally adds pure
+/// dead time whenever the previous request plus the tool work after it already
+/// took longer than the floor — measured as exactly 5.000 s gaps between
+/// requests in a turn that had spent 30 s executing tools (362 s of dead time in
+/// one turn).
+async fn apply_minimum_interval() -> Duration {
+    let Some(interval) = configured_minimum_interval() else {
+        return Duration::ZERO;
+    };
+    let now = Instant::now();
+    let wait = {
+        let mut last = match LAST_REQUEST_START.lock() {
+            Ok(g) => g,
+            Err(_) => return Duration::ZERO,
+        };
+        let wait = last
+            .map(|previous| (previous + interval).saturating_duration_since(now))
+            .unwrap_or(Duration::ZERO);
+        *last = Some(now + wait);
+        wait
+    };
+    if wait > Duration::ZERO {
+        tokio::time::sleep(wait).await;
+    }
+    wait
+}
+
+/// `CLAW_API_PAUSE_SECS` as a duration, or `None` when unset, unparseable or 0.
+fn configured_minimum_interval() -> Option<Duration> {
+    minimum_interval_from(std::env::var("CLAW_API_PAUSE_SECS").ok().as_deref())
+}
+
+fn minimum_interval_from(raw: Option<&str>) -> Option<Duration> {
+    let secs = raw?.trim().parse::<u64>().ok()?;
+    (secs > 0).then(|| Duration::from_secs(secs))
+}
+
+#[cfg(test)]
+fn reset_minimum_interval() {
+    if let Ok(mut last) = LAST_REQUEST_START.lock() {
+        *last = None;
+    }
+}
 
 pub(crate) fn estimate_request_tokens(request: &MessageRequest) -> usize {
     let mut total_bytes = 0;
@@ -378,7 +491,9 @@ impl ProviderClient {
 
 
 pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Option<ApiLockGuard> {
+    let pacing_started = Instant::now();
     let home = std::env::var("HOME").unwrap_or_default();
+    let mut narration_wait = Duration::ZERO;
     if !home.is_empty() {
         let lock_path = std::path::Path::new(&home).join(".claw/narration.lock");
         let max_wait_secs: u64 = std::env::var("CLAW_TTS_WAIT_SECS")
@@ -395,15 +510,10 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
             }
             tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
+        narration_wait = start.elapsed();
     }
 
-    if let Ok(val) = std::env::var("CLAW_API_PAUSE_SECS") {
-        if let Ok(secs) = val.parse::<u64>() {
-            if secs > 0 {
-                tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
-            }
-        }
-    }
+    let interval_wait = apply_minimum_interval().await;
 
     // Apply model-specific TPM rate limiting
     let mut limit = if model.contains("glm") {
@@ -440,6 +550,7 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
         }
     }
 
+    let mut tpm_wait = Duration::ZERO;
     if limit > 0 {
         let limiter = if model.contains("glm") {
             GLM_LIMITER.get_or_init(TpmRateLimiter::new)
@@ -449,8 +560,22 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
             DEFAULT_LIMITER.get_or_init(TpmRateLimiter::new)
         };
 
-        limiter.acquire(limit, estimated_tokens).await;
+        tpm_wait = limiter.acquire(limit, estimated_tokens).await;
     }
+
+    // One line per request, split by cause: a slow turn is otherwise
+    // indistinguishable from a slow provider, and the three waits below have
+    // three completely different fixes.
+    tracing::info!(
+        model = %model,
+        estimated_tokens,
+        tpm_limit = limit,
+        narration_wait_ms = narration_wait.as_millis() as u64,
+        interval_wait_ms = interval_wait.as_millis() as u64,
+        tpm_wait_ms = tpm_wait.as_millis() as u64,
+        total_pacing_ms = pacing_started.elapsed().as_millis() as u64,
+        "api pacing"
+    );
 
     if !home.is_empty() {
         Some(ApiLockGuard::new(&home))
@@ -592,7 +717,7 @@ pub(crate) async fn apply_api_pause(model: &str, estimated_tokens: usize) -> Opt
         let _lock = Self::apply_api_pause(&request.model, estimated_tokens).await;
 
         let msg_count = request.messages.len();
-        tracing::info!(
+        tracing::debug!(
             estimated_tokens,
             messages = msg_count,
             model = %request.model,
@@ -829,6 +954,7 @@ pub fn read_xai_base_url() -> String {
 #[cfg(test)]
 mod tests {
     use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
 
     use super::ProviderClient;
     use crate::providers::{detect_provider_kind, resolve_model_alias, ProviderKind};
@@ -940,5 +1066,141 @@ mod tests {
             }
             other => panic!("Expected ProviderClient::OpenAi for local model, got: {other:?}"),
         }
+    }
+
+    #[test]
+    fn minimum_interval_parses_only_positive_seconds() {
+        use super::minimum_interval_from;
+        assert_eq!(minimum_interval_from(Some("5")), Some(Duration::from_secs(5)));
+        assert_eq!(minimum_interval_from(Some(" 5 ")), Some(Duration::from_secs(5)));
+        assert_eq!(minimum_interval_from(Some("0")), None);
+        assert_eq!(minimum_interval_from(Some("-1")), None);
+        assert_eq!(minimum_interval_from(Some("soon")), None);
+        assert_eq!(minimum_interval_from(None), None);
+    }
+
+    #[test]
+    fn tpm_wait_is_zero_while_the_budget_fits() {
+        use super::minimal_wait;
+        let now = Instant::now();
+        let entries = [(now - Duration::from_secs(10), 4_000usize)];
+        assert_eq!(
+            minimal_wait(&entries, 4_000, 20_000, 5_000, now),
+            Some(Duration::ZERO)
+        );
+    }
+
+    #[test]
+    fn tpm_wait_ends_when_enough_budget_frees_not_when_the_oldest_entry_does() {
+        use super::minimal_wait;
+        let now = Instant::now();
+        // Recorded oldest-first, but deliberately passed out of order: the wait
+        // must be driven by expiry time, not by insertion order.
+        let entries = [
+            (now - Duration::from_secs(30), 6_000usize), // frees at +30 s
+            (now - Duration::from_secs(50), 5_000usize), // frees at +10 s
+            (now - Duration::from_secs(40), 4_000usize), // frees at +20 s
+        ];
+        // Budget 20 000, 15 000 used, 8 000 requested → must free 3 000.
+        // The +10 s expiry alone frees 5 000, which is enough.
+        let wait = minimal_wait(&entries, 15_000, 20_000, 8_000, now)
+            .expect("a finite wait must exist");
+        assert_eq!(wait, Duration::from_secs(10), "waited for the wrong expiry");
+    }
+
+    #[test]
+    fn tpm_wait_accumulates_expiries_until_the_request_fits() {
+        use super::minimal_wait;
+        let now = Instant::now();
+        let entries = [
+            (now - Duration::from_secs(50), 1_000usize),
+            (now - Duration::from_secs(45), 1_000usize),
+            (now - Duration::from_secs(40), 5_000usize),
+        ];
+        // 7 000 used of a 10 000 budget, 6 000 requested → must free 3 000,
+        // which only the third expiry provides.
+        let wait = minimal_wait(&entries, 7_000, 10_000, 6_000, now)
+            .expect("a finite wait must exist");
+        assert_eq!(wait, Duration::from_secs(20));
+    }
+
+    #[test]
+    fn tpm_wait_is_none_when_the_window_cannot_free_enough() {
+        use super::minimal_wait;
+        let now = Instant::now();
+        let entries = [(now - Duration::from_secs(5), 1_000usize)];
+        assert_eq!(minimal_wait(&entries, 1_000, 2_000, 5_000, now), None);
+    }
+
+    #[tokio::test]
+    async fn a_request_larger_than_the_whole_budget_is_admitted_immediately() {
+        use super::TpmRateLimiter;
+        let limiter = TpmRateLimiter::new();
+        let started = Instant::now();
+        // 28 943 estimated tokens against the real glm limit of 20 000: the
+        // shape that produced 14–43 s stalls in production.
+        let waited = limiter.acquire(20_000, 28_943).await;
+        assert_eq!(waited, Duration::ZERO);
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "oversized request should not drain the window, took {:?}",
+            started.elapsed()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_request_that_fits_is_admitted_without_waiting() {
+        use super::TpmRateLimiter;
+        let limiter = TpmRateLimiter::new();
+        let started = Instant::now();
+        let waited = limiter.acquire(100_000, 5_000).await;
+        assert_eq!(waited, Duration::ZERO);
+        assert!(started.elapsed() < Duration::from_millis(100));
+    }
+
+    // The guard has to outlive every await below: this test measures wall-clock
+    // spacing, so releasing the env lock mid-sequence would let another test
+    // rewrite CLAW_API_PAUSE_SECS and corrupt the measurement it is guarding.
+    #[allow(clippy::await_holding_lock)]
+    #[tokio::test]
+    async fn the_api_pause_is_a_floor_on_spacing_not_a_tax_on_every_request() {
+        let _lock = env_lock();
+        // An isolated HOME so a live voice narrator's `narration.lock` cannot
+        // make this test wait on TTS.
+        let home = std::env::temp_dir().join(format!("claw-pacing-{}", std::process::id()));
+        std::fs::create_dir_all(&home).expect("create temp home");
+        let _home_guard = EnvVarGuard::set("HOME", home.to_str());
+        let _pause = EnvVarGuard::set("CLAW_API_PAUSE_SECS", Some("1"));
+        let _tpm = EnvVarGuard::set("CLAW_TPM_LIMIT", Some("100000000"));
+        super::reset_minimum_interval();
+
+        let first = Instant::now();
+        ProviderClient::apply_api_pause("test-model", 100).await;
+        assert!(
+            first.elapsed() < Duration::from_millis(500),
+            "the first request has no predecessor to space itself from, took {:?}",
+            first.elapsed()
+        );
+
+        let second = Instant::now();
+        ProviderClient::apply_api_pause("test-model", 100).await;
+        assert!(
+            second.elapsed() >= Duration::from_millis(500),
+            "back-to-back requests must respect the floor, waited {:?}",
+            second.elapsed()
+        );
+
+        // Work that already took longer than the floor pays nothing: this is the
+        // 362 s of dead time the unconditional sleep used to add per turn.
+        tokio::time::sleep(Duration::from_millis(1_200)).await;
+        let third = Instant::now();
+        ProviderClient::apply_api_pause("test-model", 100).await;
+        assert!(
+            third.elapsed() < Duration::from_millis(300),
+            "elapsed work must count toward the floor, waited {:?}",
+            third.elapsed()
+        );
+
+        let _ = std::fs::remove_dir_all(&home);
     }
 }

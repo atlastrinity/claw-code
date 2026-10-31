@@ -456,21 +456,27 @@ impl OpenAiCompatClient {
             let retryable_error = match self.send_raw_request(request).await {
                 Ok(response) => match expect_success(response).await {
                     Ok(response) => {
-                        crate::breaker::lock(&self.breaker).on_success();
+                        crate::breaker::note_success(&self.breaker);
                         return Ok(response);
                     }
-                    Err(error) if error.is_retryable() && attempts <= self.max_retries + 1 => error,
+                    Err(error) if error.is_retryable() && attempts <= self.max_retries + 1 => {
+                        self.log_retryable_attempt(attempts, &error);
+                        error
+                    }
                     Err(error) => {
                         // Permanent rejection counts as an exhausted chain: the
                         // δ breaker must escalate or the outer retry layers keep
                         // re-sending a request the provider will never accept.
-                        crate::breaker::lock(&self.breaker).on_failure();
+                        crate::breaker::note_failure(&self.breaker, &error);
                         return Err(error);
                     }
                 },
-                Err(error) if error.is_retryable() && attempts <= self.max_retries + 1 => error,
+                Err(error) if error.is_retryable() && attempts <= self.max_retries + 1 => {
+                    self.log_retryable_attempt(attempts, &error);
+                    error
+                }
                 Err(error) => {
-                    crate::breaker::lock(&self.breaker).on_failure();
+                    crate::breaker::note_failure(&self.breaker, &error);
                     return Err(error);
                 }
             };
@@ -484,14 +490,37 @@ impl OpenAiCompatClient {
             } else {
                 crate::breaker::jittered_backoff(attempts, self.initial_backoff, self.max_backoff)?
             };
+            tracing::warn!(
+                provider = %self.config.provider_name,
+                model = %request.model,
+                attempt = attempts,
+                max_attempts = self.max_retries + 1,
+                retry_in_ms = delay.as_millis() as u64,
+                "retrying request chain after backoff"
+            );
             tokio::time::sleep(delay).await;
         };
 
-        crate::breaker::lock(&self.breaker).on_failure();
-        Err(ApiError::RetriesExhausted {
+        let error = ApiError::RetriesExhausted {
             attempts,
             last_error: Box::new(last_error),
-        })
+        };
+        crate::breaker::note_failure(&self.breaker, &error);
+        Err(error)
+    }
+
+    /// The per-attempt cause. Without this the only thing a log reader sees is
+    /// the eventual `RetriesExhausted`/`CircuitOpen`, which names no status and
+    /// no provider message — the failure that actually opened the breaker is
+    /// unrecoverable from the log.
+    fn log_retryable_attempt(&self, attempt: u32, error: &ApiError) {
+        tracing::warn!(
+            provider = %self.config.provider_name,
+            attempt,
+            max_attempts = self.max_retries + 1,
+            error = %error,
+            "request attempt failed with a retryable error"
+        );
     }
 
     async fn send_raw_request(
@@ -527,7 +556,7 @@ impl OpenAiCompatClient {
     /// Count an accepted-but-silent stream as a failed chain (see
     /// `ProviderClient::record_stream_stall`).
     pub fn record_stream_stall(&self) {
-        crate::breaker::lock(&self.breaker).on_failure();
+        crate::breaker::note_stall(&self.breaker, "stream accepted but produced no content");
     }
 }
 

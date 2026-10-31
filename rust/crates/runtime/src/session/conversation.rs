@@ -647,6 +647,20 @@ where
                 }
             };
             if let Some(usage) = usage {
+                // The API layer paces requests against a *byte-derived* token
+                // estimate; this is the provider's own count for the same
+                // request. Logging both is what makes the estimate calibratable
+                // instead of guessed — an estimate that is 1.8x too high costs
+                // real wall-clock time in the TPM window.
+                tracing::info!(
+                    iteration = iterations,
+                    model = self.session.model.as_deref().unwrap_or("unknown"),
+                    input_tokens = usage.input_tokens,
+                    cache_read_input_tokens = usage.cache_read_input_tokens,
+                    cache_creation_input_tokens = usage.cache_creation_input_tokens,
+                    output_tokens = usage.output_tokens,
+                    "provider-reported token usage"
+                );
                 self.usage_tracker.record(usage);
             }
             prompt_cache_events.extend(turn_prompt_cache_events);

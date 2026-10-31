@@ -232,8 +232,28 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
     // Auto-propagate statuses up & down the hierarchy
     propagate_task_statuses(&mut current_nodes);
 
-    // Validate transitions
-    validate_task_graph(&current_nodes)?;
+    // Validate transitions.
+    //
+    // A rejection used to return early and skip the store write, so the statuses
+    // the agent had just recorded were thrown away. Because the inconsistency
+    // lives in the stored graph rather than in the rejected call, the next call
+    // hit the same wall: the graph could not be repaired by retrying, and every
+    // attempt cost a full model round-trip. Persist the normalized graph first so
+    // recorded progress survives the ordering complaint.
+    if let Err(problem) = validate_task_graph(&current_nodes) {
+        save_task_graph_output_with_review(
+            &store_path,
+            &current_nodes,
+            updated_count,
+            None,
+            grisha_remarks,
+        )?;
+        return Err(format!(
+            "{problem}\n\n\
+             NOTE: the status changes from this call were still recorded — do not repeat them. \
+             Fix the ordering described above in your next TaskGraph call."
+        ));
+    }
 
     // Check for alerts (all children under an InProgress parent are Completed/Failed)
     let mut finished_parent_ids = Vec::new();

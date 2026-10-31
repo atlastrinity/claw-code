@@ -5,14 +5,35 @@ use tracing_subscriber::{
     EnvFilter,
 };
 
+/// Directory logs are written to: `$CLAW_LOG_DIR` when set, otherwise
+/// `~/.claw/logs`. The override exists so test runs and `cargo run` do not
+/// interleave with the installed agent's log file.
+#[must_use]
+pub fn log_dir() -> Option<std::path::PathBuf> {
+    resolve_log_dir(std::env::var_os("CLAW_LOG_DIR").as_deref(), dirs::home_dir())
+}
+
+fn resolve_log_dir(
+    override_dir: Option<&std::ffi::OsStr>,
+    home: Option<std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
+    if let Some(dir) = override_dir {
+        if !dir.is_empty() {
+            return Some(std::path::PathBuf::from(dir));
+        }
+    }
+    Some(home?.join(".claw").join("logs"))
+}
+
+
 /// Initialize a daily rotating file logger.
 ///
-/// Logs will be written to `~/.claw/logs/<app_name>.log.YYYY-MM-DD`.
+/// Logs will be written to `<log_dir>/<app_name>.log.YYYY-MM-DD`, where
+/// `log_dir` is [`log_dir`].
 /// Returns a `WorkerGuard`. This guard must be kept alive for the duration
 /// of the application, otherwise background log writing may be aborted.
 pub fn init_logger(app_name: &str) -> Option<WorkerGuard> {
-    let home = dirs::home_dir()?;
-    let log_dir = home.join(".claw").join("logs");
+    let log_dir = log_dir()?;
 
     // Ensure the directory exists
     let _ = std::fs::create_dir_all(&log_dir);
@@ -48,4 +69,35 @@ pub fn init_logger(app_name: &str) -> Option<WorkerGuard> {
         .try_init();
 
     Some(guard)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_log_dir;
+    use std::ffi::OsStr;
+    use std::path::PathBuf;
+
+    #[test]
+    fn override_wins_over_home() {
+        let home = Some(PathBuf::from("/home/dev"));
+        assert_eq!(
+            resolve_log_dir(Some(OsStr::new("/tmp/claw-logs")), home),
+            Some(PathBuf::from("/tmp/claw-logs"))
+        );
+    }
+
+    #[test]
+    fn empty_override_falls_back_to_home() {
+        let home = Some(PathBuf::from("/home/dev"));
+        assert_eq!(
+            resolve_log_dir(Some(OsStr::new("")), home.clone()),
+            Some(PathBuf::from("/home/dev/.claw/logs"))
+        );
+        assert_eq!(resolve_log_dir(None, home), Some(PathBuf::from("/home/dev/.claw/logs")));
+    }
+
+    #[test]
+    fn no_home_and_no_override_disables_file_logging() {
+        assert_eq!(resolve_log_dir(None, None), None);
+    }
 }

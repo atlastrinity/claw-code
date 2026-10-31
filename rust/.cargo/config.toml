@@ -1,0 +1,7 @@
+# Test and `cargo run` processes must not write into the installed agent's log
+# directory: a single `cargo test --workspace` run spawns thousands of `claw`
+# child processes, and their startup lines buried the live session's log
+# (~4200 "claw starting" entries in one day, 1.6 MB of noise in claw.log).
+# `force = false` keeps an explicitly exported CLAW_LOG_DIR authoritative.
+[env]
+CLAW_LOG_DIR = { value = "target/claw-logs", relative = true }

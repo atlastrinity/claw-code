@@ -275,15 +275,28 @@ copy_binaries() {
     mkdir -p "$GLOBAL_BIN_DIR"
 
     local binaries=("claw" "claw-analog" "claw-rag-service")
+    local missing=()
     for bin in "${binaries[@]}"; do
         if [ -x "${src_dir}/${bin}" ]; then
             rm -f "${GLOBAL_BIN_DIR}/${bin}"
             cp "${src_dir}/${bin}" "${GLOBAL_BIN_DIR}/"
             echo -e "  ${_LS_GREEN}✅${_LS_NC} ${bin}"
         else
+            missing+=("${bin}")
             echo -e "  ${_LS_YELLOW}⚠️${_LS_NC}  ${bin}: not found in ${src_dir}"
         fi
     done
+
+    # A skipped copy leaves the *previous* binary in place, so the agent keeps
+    # running code that no longer matches the source tree — this is how a
+    # claw-rag-service from August kept re-embedding the workspace on every file
+    # event long after the debounce fix was written. Missing output is a failed
+    # install, not a warning.
+    if [ "${#missing[@]}" -gt 0 ]; then
+        echo -e "${_LS_RED}❌ Not installed (missing from ${src_dir}): ${missing[*]}${_LS_NC}" >&2
+        echo -e "${_LS_RED}   Stale copies may still be present in ${GLOBAL_BIN_DIR}.${_LS_NC}" >&2
+        return 1
+    fi
 
     # Re-sign on macOS
     if [ "$(uname)" = "Darwin" ]; then

@@ -1,6 +1,5 @@
-use aspect_macros::aspect;
-use aspect_std::LoggingAspect;
 use serde_json::Value;
+use std::time::Instant;
 use runtime::{
     BashCommandInput, GrepSearchInput, ContextBudget,
     PermissionMode,
@@ -40,9 +39,54 @@ pub fn execute_tool(name: &str, input: &Value) -> Result<String, String> {
     execute_tool_with_enforcer(None, name, input, ContextBudget::default_budget())
 }
 
-#[allow(clippy::too_many_lines)]
-#[aspect(LoggingAspect::new().log_args().log_result())]
+/// One log line per tool call: which tool, how long it took, and whether it
+/// worked. This replaces an aspect-generated `[ENTRY]`/`[EXIT]` pair that named
+/// neither the tool nor the duration and printed its result as
+/// `"dyn core::any::Any"`, i.e. two lines per call carrying no information.
 pub(crate) fn execute_tool_with_enforcer(
+    enforcer: Option<&PermissionEnforcer>,
+    name: &str,
+    input: &Value,
+    budget: ContextBudget,
+) -> Result<String, String> {
+    let started = Instant::now();
+    let result = dispatch_tool(enforcer, name, input, budget);
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    match &result {
+        Ok(output) => tracing::info!(
+            tool = %name,
+            ms = elapsed_ms,
+            output_chars = output.len(),
+            "tool call"
+        ),
+        Err(error) => tracing::warn!(
+            tool = %name,
+            ms = elapsed_ms,
+            error = %summarize_error(error),
+            "tool call failed"
+        ),
+    }
+    result
+}
+
+/// Tool errors routinely embed the failing command's whole output; a log line
+/// that repeats it makes the log unreadable and hides the tool name.
+fn summarize_error(error: &str) -> String {
+    const MAX_CHARS: usize = 300;
+    let flat: String = error
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    if flat.chars().count() <= MAX_CHARS {
+        flat
+    } else {
+        let cut: String = flat.chars().take(MAX_CHARS).collect();
+        format!("{cut}… (+{} chars)", flat.chars().count() - MAX_CHARS)
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn dispatch_tool(
     enforcer: Option<&PermissionEnforcer>,
     name: &str,
     input: &Value,
@@ -234,8 +278,7 @@ pub(crate) fn execute_tool_with_enforcer(
     res
 }
 
-/// Enforce permission check with a dynamically classified permission mode.
-/// Used for tools like bash and `PowerShell` where the required permission
+/// Enforce permission check with a dynamically classified permission mode./// Used for tools like bash and `PowerShell` where the required permission
 /// depends on the actual command being executed.
 pub(crate) fn maybe_enforce_permission_check_with_mode(
     enforcer: Option<&PermissionEnforcer>,
@@ -253,5 +296,31 @@ pub(crate) fn maybe_enforce_permission_check_with_mode(
         }
     } else {
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::summarize_error;
+
+    #[test]
+    fn short_errors_pass_through_unchanged() {
+        assert_eq!(
+            summarize_error("No such file or directory: edge-tts"),
+            "No such file or directory: edge-tts"
+        );
+    }
+
+    #[test]
+    fn long_errors_are_truncated_with_the_overflow_counted() {
+        let summary = summarize_error(&"x".repeat(5_000));
+        assert!(summary.chars().count() < 400, "summary was {} chars", summary.chars().count());
+        assert!(summary.ends_with("… (+4700 chars)"), "summary was: {summary}");
+    }
+
+    #[test]
+    fn embedded_command_output_does_not_break_the_log_line() {
+        let summary = summarize_error("exit 1\nstdout:\nline1\n\tline2\r\n");
+        assert!(!summary.contains(['\n', '\r', '\t']), "summary was: {summary:?}");
     }
 }

@@ -721,7 +721,7 @@ impl BifurcationEngine {
             let tool = fingerprint.split(':').next().unwrap_or(fingerprint);
             let transient = fingerprint
                 .split_once(':')
-                .map_or(false, |(_, category)| Self::is_transient_category(category));
+                .is_some_and(|(_, category)| Self::is_transient_category(category));
 
             if self.proven_tools.contains_key(tool) {
                 // Something that used to work now fails: divergence, not a cycle.

@@ -75,6 +75,15 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
                 let any_failed = children
                     .iter()
                     .any(|c| c.status == Some(TaskStatus::Failed));
+                // Work recorded under a parent makes that parent in-progress by
+                // definition. Without this the `Pending` parent of an already
+                // `Completed` child is unreachable by repair: validate_task_graph
+                // rejects it, and because validation runs before the store write
+                // the rejection discards the agent's update outright.
+                let any_started = children
+                    .iter()
+                    .any(|c| c.status.unwrap_or(TaskStatus::Pending) != TaskStatus::Pending);
+                let parent_status = parent_node.status.unwrap_or(TaskStatus::Pending);
 
                 if all_completed && parent_node.status != Some(TaskStatus::Completed) {
                     parents_to_complete.push(parent_node.id.clone());
@@ -84,8 +93,8 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
                 {
                     parents_to_fail.push(parent_node.id.clone());
                 } else if !all_finished
-                    && (parent_node.status == Some(TaskStatus::Completed)
-                        || parent_node.status == Some(TaskStatus::Failed))
+                    && any_started
+                    && parent_status != TaskStatus::InProgress
                 {
                     parents_to_reopen.push(parent_node.id.clone());
                 }
@@ -210,7 +219,7 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
                 if is_active {
                     if !found_active {
                         found_active = true;
-                    } else {
+                    } else if !subtree_has_finished_work(current_nodes, &sib.id) {
                         nodes_to_reset_to_pending.push(sib.id.clone());
                     }
                 }
@@ -234,4 +243,25 @@ pub fn propagate_task_statuses(current_nodes: &mut Vec<TaskNode>) {
             }
         }
     }
+}
+
+/// Whether `id` or anything below it is already Completed/Failed.
+///
+/// Demoting such a branch to Pending produces a Pending parent with finished
+/// children, which `validate_task_graph` rejects and no propagation rule can
+/// repair — the loop then oscillates between promoting and demoting until its
+/// iteration cap and settles on the rejected shape.
+fn subtree_has_finished_work(nodes: &[TaskNode], id: &str) -> bool {
+    let status = nodes
+        .iter()
+        .find(|n| n.id == id)
+        .and_then(|n| n.status)
+        .unwrap_or(TaskStatus::Pending);
+    if status == TaskStatus::Completed || status == TaskStatus::Failed {
+        return true;
+    }
+    nodes
+        .iter()
+        .filter(|n| n.parent_id.as_deref() == Some(id))
+        .any(|child| subtree_has_finished_work(nodes, &child.id))
 }

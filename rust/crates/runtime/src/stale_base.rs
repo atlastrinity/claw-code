@@ -141,7 +141,11 @@ mod tests {
 
     fn init_repo(path: &std::path::Path) {
         fs::create_dir_all(path).expect("create repo dir");
-        run(path, &["init", "--quiet", "-b", "main"]);
+        // `--template=` skips the system hook templates: copying them is what
+        // made this flake under parallel test runs ("cannot copy
+        // .../pre-rebase.sample: File exists", git exit 128), and no test here
+        // needs hooks.
+        run(path, &["init", "--quiet", "--template=", "-b", "main"]);
         run(path, &["config", "user.email", "tests@example.com"]);
         run(path, &["config", "user.name", "Stale Base Tests"]);
         fs::write(path.join("init.txt"), "initial\n").expect("write init file");
