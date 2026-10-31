@@ -2106,11 +2106,8 @@ fn task_graph_view_returns_snapshot_without_mutating() {
 
     let before = std::fs::read_to_string(&path).expect("store readable");
 
-    let view = execute_tool(
-        "TaskGraph",
-        &json!({ "operation": "view", "nodes": [] }),
-    )
-    .expect("view must never fail");
+    let view = execute_tool("TaskGraph", &json!({ "operation": "view", "nodes": [] }))
+        .expect("view must never fail");
     let view_output: serde_json::Value = serde_json::from_str(&view).expect("valid json");
     assert_eq!(view_output["nodes_updated"].as_i64().expect("int"), 0);
     let snapshot = view_output["alert"].as_str().expect("snapshot in alert");
@@ -2152,12 +2149,11 @@ fn task_graph_removes_pending_leaves_and_prunes_placeholders() {
         }),
     )
     .expect("removing a pending leaf should succeed");
-    let removed_output: serde_json::Value =
-        serde_json::from_str(&removed).expect("valid json");
+    let removed_output: serde_json::Value = serde_json::from_str(&removed).expect("valid json");
     assert!(removed_output["nodes_updated"].as_i64().expect("int") >= 1);
 
-    let view = execute_tool("TaskGraph", &json!({ "operation": "view" }))
-        .expect("view should succeed");
+    let view =
+        execute_tool("TaskGraph", &json!({ "operation": "view" })).expect("view should succeed");
     let view_output: serde_json::Value = serde_json::from_str(&view).expect("valid json");
     let snapshot = view_output["alert"].as_str().expect("snapshot");
     assert!(!snapshot.contains("Obsolete draft step"));
@@ -2205,8 +2201,8 @@ fn task_graph_remove_rejects_active_parents_and_unknown_ids() {
     assert!(err.contains("does not exist"));
 
     // the batch was rejected upfront: g1.2 survived the failed call
-    let view = execute_tool("TaskGraph", &json!({ "operation": "view" }))
-        .expect("view should succeed");
+    let view =
+        execute_tool("TaskGraph", &json!({ "operation": "view" })).expect("view should succeed");
     let view_output: serde_json::Value = serde_json::from_str(&view).expect("valid json");
     assert!(view_output["alert"]
         .as_str()
@@ -2247,13 +2243,12 @@ fn task_graph_output_carries_progress_scoreboard() {
     )
     .expect("first step should complete");
 
-    let done = execute_tool(
-        "TaskGraph",
-        &json!({ "operation": "view" }),
-    )
-    .expect("view should succeed");
+    let done =
+        execute_tool("TaskGraph", &json!({ "operation": "view" })).expect("view should succeed");
     let done_output: serde_json::Value = serde_json::from_str(&done).expect("valid json");
-    let progress = done_output["progress"].as_str().expect("progress scoreboard");
+    let progress = done_output["progress"]
+        .as_str()
+        .expect("progress scoreboard");
     assert!(progress.contains("Progress"));
     assert!(progress.contains("active: #p1.2"));
 
@@ -2336,8 +2331,8 @@ fn grisha_synthesizes_missing_parents_instead_of_only_noting_them() {
     )
     .expect("deep add should succeed via synthesis");
 
-    let view = execute_tool("TaskGraph", &json!({ "operation": "view" }))
-        .expect("view should succeed");
+    let view =
+        execute_tool("TaskGraph", &json!({ "operation": "view" })).expect("view should succeed");
     let view_output: serde_json::Value = serde_json::from_str(&view).expect("valid json");
     let snapshot = view_output["alert"].as_str().expect("snapshot");
     assert!(snapshot.contains("Task 5.2"));
@@ -2416,7 +2411,10 @@ fn grisha_advises_verification_for_phases_without_one() {
     ];
     let outcome = crate::grisha::GrishaPlanReviewer::review_and_enhance(&with_verify, &[])
         .expect("review should approve");
-    assert!(!outcome.remarks.iter().any(|r| r.contains("GRISHA_PLAN_002")));
+    assert!(!outcome
+        .remarks
+        .iter()
+        .any(|r| r.contains("GRISHA_PLAN_002")));
 }
 
 #[test]
@@ -2426,9 +2424,7 @@ fn grisha_detector_flags_generalized_fabrication_shapes() {
     assert!(crate::grisha::GrishaSimulationDetector::check_bash_command(fake).is_err());
 
     let fake_single = r#"echo "=== Verification complete: all green ===""#;
-    assert!(
-        crate::grisha::GrishaSimulationDetector::check_bash_command(fake_single).is_err()
-    );
+    assert!(crate::grisha::GrishaSimulationDetector::check_bash_command(fake_single).is_err());
 
     // A plain banner without analytical assertions stays allowed.
     let benign = "echo \"=== Building docs ===\" && make docs";
@@ -2469,4 +2465,103 @@ fn active_leaf_prefers_real_depth_over_id_length() {
         crate::task_graph::compare_task_ids("2", "10"),
         std::cmp::Ordering::Less
     );
+}
+#[test]
+fn closed_graph_with_failures_reports_loss_not_success() {
+    let _guard = env_guard();
+    let path = temp_path("failed_close_tasks.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "q1", "content": "Create the desktop folder and verify it"},
+                {"id": "q1.1", "parent_id": "q1", "content": "Create the folder"},
+                {"id": "q1.2", "parent_id": "q1", "content": "Verify the folder exists"}
+            ]
+        }),
+    )
+    .expect("add should succeed");
+
+    let mut last = String::new();
+    for (id, status) in [
+        ("q1.1", "in_progress"),
+        ("q1.1", "failed"),
+        ("q1.2", "in_progress"),
+        ("q1.2", "failed"),
+    ] {
+        last = execute_tool(
+            "TaskGraph",
+            &json!({ "operation": "update_status", "nodes": [{"id": id, "status": status}] }),
+        )
+        .expect("leaves should fail");
+    }
+
+    let output: serde_json::Value = serde_json::from_str(&last).expect("valid json");
+    let summary = output["alert"].as_str().expect("closing summary");
+    assert!(
+        summary.contains("GRAPH CLOSED WITH UNFINISHED WORK"),
+        "a graph of failed leaves must be reported as unfinished: {summary}"
+    );
+    assert!(
+        summary.contains("Verify the folder exists"),
+        "the abandoned task title must be named: {summary}"
+    );
+    assert!(
+        !summary.contains('\u{1f389}'),
+        "a graph holding Failed work must never be congratulated: {summary}"
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn closed_graph_without_failures_is_congratulated() {
+    let _guard = env_guard();
+    let path = temp_path("clean_close_tasks.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "r1", "content": "Write the report and check it"},
+                {"id": "r1.1", "parent_id": "r1", "content": "Write the report"},
+                {"id": "r1.2", "parent_id": "r1", "content": "Read the report back"}
+            ]
+        }),
+    )
+    .expect("add should succeed");
+
+    let mut last = String::new();
+    for (id, status) in [
+        ("r1.1", "in_progress"),
+        ("r1.1", "completed"),
+        ("r1.2", "in_progress"),
+        ("r1.2", "completed"),
+    ] {
+        last = execute_tool(
+            "TaskGraph",
+            &json!({ "operation": "update_status", "nodes": [{"id": id, "status": status}] }),
+        )
+        .expect("leaves should complete");
+    }
+
+    let output: serde_json::Value = serde_json::from_str(&last).expect("valid json");
+    let summary = output["alert"].as_str().expect("closing summary");
+    assert!(
+        summary.contains('\u{1f389}'),
+        "an all-completed graph should be closed as success: {summary}"
+    );
+    assert!(
+        !summary.contains("UNFINISHED WORK"),
+        "nothing was abandoned: {summary}"
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
 }

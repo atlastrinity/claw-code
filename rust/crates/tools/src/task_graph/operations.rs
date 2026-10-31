@@ -335,14 +335,56 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         }
     }
 
-    let all_graph_finished = !current_nodes.is_empty()
+    // A graph whose nodes are all terminal is *closed*, which is not the same as
+    // *done*. Congratulating a graph that still holds `Failed` leaves is how a
+    // run reports success having produced nothing, so the abandoned titles have
+    // to be in front of the model — and through it, the user — instead of a 🎉.
+    let graph_is_terminal = !current_nodes.is_empty()
         && current_nodes.iter().all(|n| {
             n.status == Some(TaskStatus::Completed) || n.status == Some(TaskStatus::Failed)
         });
-    if all_graph_finished {
-        alerts.push(
-            "🎉 All tasks in the task graph are now COMPLETED or finished. Please summarize the completed work for the user and ask for the next goal or task.".to_string()
-        );
+    if graph_is_terminal {
+        let failed_leaves: Vec<&TaskNode> = current_nodes
+            .iter()
+            .filter(|n| {
+                n.status == Some(TaskStatus::Failed)
+                    && !current_nodes
+                        .iter()
+                        .any(|c| c.parent_id.as_deref() == Some(&n.id))
+            })
+            .collect();
+        if failed_leaves.is_empty() {
+            alerts.push(
+                "🎉 Every task in the graph is COMPLETED. Summarize the delivered work for the \
+                 user — name each artifact and how it was verified — then ask for the next goal."
+                    .to_string(),
+            );
+        } else {
+            let completed = current_nodes
+                .iter()
+                .filter(|n| n.status == Some(TaskStatus::Completed))
+                .count();
+            let lost = failed_leaves
+                .iter()
+                .map(|n| {
+                    format!(
+                        "- {} — \"{}\"",
+                        n.id,
+                        n.content.as_deref().unwrap_or("(untitled)")
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            alerts.push(format!(
+                "⛔ GRAPH CLOSED WITH UNFINISHED WORK — this is not a success.\n\
+                 {completed} of {} tasks completed; these were abandoned:\n{lost}\n\
+                 Do NOT tell the user the goal was achieved and do NOT ask for the next task. \
+                 Report the completed part and this list of unfinished work plainly, state why \
+                 each item failed, and either propose one concrete way to finish it or ask the \
+                 user which trade-off they want.",
+                current_nodes.len()
+            ));
+        }
     }
 
     let alert = if !alerts.is_empty() {
