@@ -120,6 +120,7 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for LoopDetectionMiddleware<'a> {
             }
 
             let mut identical_count = 0;
+            let operative = BifurcationEngine::operative_input(input);
 
             // Scan backwards through session messages until the last User message
             for message in self.session.messages.iter().rev() {
@@ -139,7 +140,11 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for LoopDetectionMiddleware<'a> {
                             if refused_ids.contains(id) {
                                 continue;
                             }
-                            if name == tool_name && past_input == input {
+                            // Compare the action, not the caption: the same command
+                            // with a new `description` is one more lap of the orbit.
+                            if name == tool_name
+                                && BifurcationEngine::operative_input(past_input) == operative
+                            {
                                 identical_count += 1;
                             }
                             // Reset counter if a successful TaskGraph call happened between attempts
@@ -153,7 +158,7 @@ impl<'a, 'p> TurnMiddleware<'a, 'p> for LoopDetectionMiddleware<'a> {
             }
 
             if identical_count >= self.max_identical_calls {
-                let reason = "[SYSTEM DIRECTIVE - LOOP DETECTED]\nYou have executed this exact same tool with the exact same input recently in this turn.\nYou are caught in a repetitive loop. Analyze your actions, stop repeating the same cyclical events, try a completely different approach.\n\
+                let reason = "[SYSTEM DIRECTIVE - LOOP DETECTED]\nYou have executed this same action (same arguments — a reworded `description` does not make it a new attempt) recently in this turn.\nYou are caught in a repetitive loop. Analyze your actions, stop repeating the same cyclical events, try a completely different approach.\n\
                 \nTaskGraph RECOVERY DIRECTIVE:\n\
                 1. If this task keeps failing, DO NOT delete it.\n\
                 2. Mark the current active task as 'failed' using TaskGraph operation: 'update_status'.\n\

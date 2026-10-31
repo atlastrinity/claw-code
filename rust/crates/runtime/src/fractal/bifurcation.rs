@@ -1013,10 +1013,50 @@ impl BifurcationEngine {
         self.probe_required = self.regime > Regime::Laminar;
     }
 
+    /// The executable meaning of a call, with the fields a model varies between
+    /// two otherwise identical attempts removed and object keys canonicalized.
+    ///
+    /// `description` is a comment on intent, not part of the action: re-issuing a
+    /// failed command with a new one is the same orbit, and a gate keyed on the
+    /// raw JSON lets a run retry a dead call forever by editing its caption.
+    /// Unparseable input is returned unchanged — the byte compare is then exactly
+    /// what it was before.
+    #[must_use]
+    pub fn operative_input(input: &str) -> String {
+        const INCIDENTAL_KEYS: &[&str] = &[
+            "description",
+            "task_description",
+            "reason",
+            "note",
+            "notes",
+            "label",
+            "intent",
+            "explanation",
+        ];
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
+            return input.to_string();
+        };
+        let Some(map) = value.as_object() else {
+            return input.to_string();
+        };
+        let mut parts: Vec<String> = map
+            .iter()
+            .filter(|(key, _)| !INCIDENTAL_KEYS.contains(&key.as_str()))
+            .map(|(key, value)| {
+                // serde_json sorts object keys, so two hand-written variants of
+                // the same call collapse onto one signature.
+                let canonical = serde_json::to_string(value).unwrap_or_default();
+                format!("{key}={canonical}")
+            })
+            .collect();
+        parts.sort();
+        parts.join("&")
+    }
+
     #[must_use]
     pub fn attempt_key(tool: &str, input: &str) -> AttemptKey {
         let mut hasher = Sha256::new();
-        hasher.update(input.as_bytes());
+        hasher.update(Self::operative_input(input).as_bytes());
         let digest = hasher.finalize();
         let mut bytes = [0u8; 8];
         bytes.copy_from_slice(&digest[..8]);

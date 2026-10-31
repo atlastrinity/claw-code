@@ -471,6 +471,40 @@ fn test_attempt_key_is_stable_and_input_sensitive() {
 }
 
 #[test]
+fn test_attempt_key_ignores_the_caption_and_the_key_order() {
+    let first = BifurcationEngine::attempt_key(
+        "bash",
+        "{\"command\":\"ls -la\",\"description\":\"List files\"}",
+    );
+    let reworded = BifurcationEngine::attempt_key(
+        "bash",
+        "{\"description\":\"Now show me everything\",\"command\":\"ls -la\"}",
+    );
+    assert_eq!(
+        first, reworded,
+        "a caption is not a new attempt at the world"
+    );
+    assert_ne!(
+        first,
+        BifurcationEngine::attempt_key(
+            "bash",
+            "{\"command\":\"ls -l\",\"description\":\"List files\"}"
+        ),
+        "the action itself still separates attempts"
+    );
+    // Nested payloads canonicalize: a reordered `edits` array is the same edit.
+    assert_eq!(
+        BifurcationEngine::operative_input(
+            "{\"path\":\"a.rs\",\"edits\":[{\"a\":1,\"b\":2},{\"c\":3}]}"
+        ),
+        BifurcationEngine::operative_input(
+            "{\"edits\":[{\"b\":2,\"a\":1},{\"c\":3}],\"path\":\"a.rs\"}"
+        )
+    );
+    assert_eq!(BifurcationEngine::operative_input("not json"), "not json");
+}
+
+#[test]
 fn test_ledger_is_bounded() {
     let mut engine = BifurcationEngine::new();
     for i in 0..(MAX_LEDGER_ENTRIES + 40) {
