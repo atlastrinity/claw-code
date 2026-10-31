@@ -152,24 +152,23 @@ impl GrishaPlanReviewer {
         // 5.5 Sibling duplicate check: two children of the same parent with
         // identical titles are planning noise — one of them is redundant.
         for node in nodes {
-            let Some(content) = &node.content else { continue };
+            let Some(content) = &node.content else {
+                continue;
+            };
             let norm = content.trim().to_lowercase();
             if norm.is_empty() {
                 continue;
             }
-            let twin = enriched
-                .iter()
-                .chain(existing_nodes.iter())
-                .find(|other| {
-                    other.id != node.id
-                        && other.parent_id == node.parent_id
-                        && other
-                            .content
-                            .as_deref()
-                            .map(|c| c.trim().to_lowercase())
-                            .as_deref()
-                            == Some(norm.as_str())
-                });
+            let twin = enriched.iter().chain(existing_nodes.iter()).find(|other| {
+                other.id != node.id
+                    && other.parent_id == node.parent_id
+                    && other
+                        .content
+                        .as_deref()
+                        .map(|c| c.trim().to_lowercase())
+                        .as_deref()
+                        == Some(norm.as_str())
+            });
             if let Some(twin) = twin {
                 return Err(GrishaExecutionError::new(
                     GrishaErrorCode::PlanRecursiveDuplicate,
@@ -191,19 +190,24 @@ impl GrishaPlanReviewer {
             }
             let family: Vec<&TaskNode> = merged
                 .iter()
-                .filter(|n| n.id == node.id || crate::task_graph::types::is_descendant_id(&n.id, &node.id))
+                .filter(|n| {
+                    n.id == node.id || crate::task_graph::types::is_descendant_id(&n.id, &node.id)
+                })
                 .copied()
                 .collect();
             let has_verification = family.iter().any(|n| {
-                n.content.as_deref().map(|c| {
-                    let lc = c.to_lowercase();
-                    lc.contains("verif")
-                        || lc.contains("test")
-                        || lc.contains("check")
-                        || lc.contains("validate")
-                        || lc.contains("review")
-                        || lc.contains("compile")
-                }).unwrap_or(false)
+                n.content
+                    .as_deref()
+                    .map(|c| {
+                        let lc = c.to_lowercase();
+                        lc.contains("verif")
+                            || lc.contains("test")
+                            || lc.contains("check")
+                            || lc.contains("validate")
+                            || lc.contains("review")
+                            || lc.contains("compile")
+                    })
+                    .unwrap_or(false)
             });
             if !has_verification && !family.is_empty() {
                 remarks.push(format!(

@@ -463,7 +463,9 @@ pub fn auto_create_recovery_subtask(failed_tool: &str, error_msg: &str) -> Resul
     let Some(active_id) = find_active_leaf(&nodes).map(|n| n.id.clone()) else {
         return Ok(());
     };
-    let is_leaf = !nodes.iter().any(|n| n.parent_id.as_deref() == Some(active_id.as_str()));
+    let is_leaf = !nodes
+        .iter()
+        .any(|n| n.parent_id.as_deref() == Some(active_id.as_str()));
     if !is_leaf {
         return Ok(());
     }

@@ -280,7 +280,10 @@ pub fn save_task_graph_output_with_review(
         let _ = write_atomically(&task_md_path, &markdown);
     }
 
-    write_atomically(store_path, &serde_json::to_string_pretty(&mutable_nodes).map_err(|e| e.to_string())?)?;
+    write_atomically(
+        store_path,
+        &serde_json::to_string_pretty(&mutable_nodes).map_err(|e| e.to_string())?,
+    )?;
 
     let (active_leaf_id, active_recursion_chain, active_branch_summary) =
         compute_active_recursion_branch(&mutable_nodes);
