@@ -322,6 +322,11 @@ pub(crate) const DEFAULT_AGENT_SYSTEM_DATE: &str = "2026-03-31";
 pub(crate) const DEFAULT_AGENT_MAX_ITERATIONS: usize = 50;
 
 pub(crate) fn parse_skill_description(contents: &str) -> Option<String> {
+    if contents.lines().next().map(str::trim) == Some("---") {
+        // Block scalars (`description: |`) are folded by the shared front-matter
+        // reader; scanning the key line alone used to return the literal "|".
+        return commands::parse_skill_frontmatter(contents).1;
+    }
     for line in contents.lines() {
         if let Some(value) = line.strip_prefix("description:") {
             let trimmed = value.trim().trim_matches('"').trim_matches('\'');

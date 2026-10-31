@@ -4324,35 +4324,85 @@ fn parse_toml_string(contents: &str, key: &str) -> Option<String> {
     None
 }
 
-fn parse_skill_frontmatter(contents: &str) -> (Option<String>, Option<String>) {
+/// The `---`-delimited YAML block at the top of a definition file.
+fn frontmatter_lines(contents: &str) -> Vec<&str> {
     let mut lines = contents.lines();
     if lines.next().map(str::trim) != Some("---") {
-        return (None, None);
+        return Vec::new();
     }
-
-    let mut name = None;
-    let mut description = None;
+    let mut block = Vec::new();
     for line in lines {
-        let trimmed = line.trim();
-        if trimmed == "---" {
+        if line.trim() == "---" {
             break;
         }
-        if let Some(value) = trimmed.strip_prefix("name:") {
-            let value = unquote_frontmatter_value(value.trim());
-            if !value.is_empty() {
-                name = Some(value);
-            }
+        block.push(line);
+    }
+    block
+}
+
+/// Value of a front-matter key, following YAML block scalars.
+///
+/// Most installed `SKILL.md` files write `description: |` and put the text on
+/// the indented lines beneath it; reading only the key line handed back the
+/// literal `"|"` as the description, which reaches both `claw skills` and the
+/// skill index in the system prompt. `|` and `>` differ in YAML, but a
+/// front-matter description is only ever rendered as one summary line, so both
+/// fold to spaces. Returns the value and the index of its last consumed line.
+fn frontmatter_value(block: &[&str], index: usize, inline: &str) -> (String, usize) {
+    let inline = inline.trim();
+    if !inline.starts_with('|') && !inline.starts_with('>') {
+        return (unquote_frontmatter_value(inline), index);
+    }
+    let key_indent = block[index].find(|c: char| !c.is_whitespace()).unwrap_or(0);
+    let mut collected = Vec::new();
+    let mut cursor = index + 1;
+    while let Some(line) = block.get(cursor) {
+        if line.trim().is_empty() {
+            cursor += 1;
             continue;
         }
-        if let Some(value) = trimmed.strip_prefix("description:") {
-            let value = unquote_frontmatter_value(value.trim());
-            if !value.is_empty() {
-                description = Some(value);
-            }
+        let indent = line.find(|c: char| !c.is_whitespace()).unwrap_or(0);
+        if indent <= key_indent {
+            break;
         }
+        collected.push(line.trim());
+        cursor += 1;
     }
+    (collected.join(" "), cursor - 1)
+}
 
-    (name, description)
+/// Reads the requested top-level keys of a front-matter block in a single pass,
+/// so the indented body of a block scalar is never mistaken for another key.
+fn frontmatter_fields(block: &[&str], keys: &[&str]) -> BTreeMap<String, String> {
+    let mut found = BTreeMap::new();
+    let mut index = 0;
+    while index < block.len() {
+        let trimmed = block[index].trim();
+        let matched = keys.iter().find_map(|key| {
+            trimmed
+                .strip_prefix(*key)
+                .and_then(|rest| rest.strip_prefix(':'))
+                .map(|inline| (*key, inline))
+        });
+        if let Some((key, inline)) = matched {
+            let (value, last) = frontmatter_value(block, index, inline);
+            if !value.is_empty() {
+                found.insert(key.to_string(), value);
+            }
+            index = last + 1;
+            continue;
+        }
+        index += 1;
+    }
+    found
+}
+
+pub fn parse_skill_frontmatter(contents: &str) -> (Option<String>, Option<String>) {
+    let fields = frontmatter_fields(&frontmatter_lines(contents), &["name", "description"]);
+    (
+        fields.get("name").cloned(),
+        fields.get("description").cloned(),
+    )
 }
 
 fn unquote_frontmatter_value(value: &str) -> String {
@@ -4380,50 +4430,16 @@ fn parse_agent_frontmatter(
     Option<String>,
     Option<String>,
 ) {
-    let mut lines = contents.lines();
-    if lines.next().map(str::trim) != Some("---") {
-        return (None, None, None, None);
-    }
-
-    let mut name = None;
-    let mut description = None;
-    let mut model = None;
-    let mut reasoning_effort = None;
-    for line in lines {
-        let trimmed = line.trim();
-        if trimmed == "---" {
-            break;
-        }
-        if let Some(value) = trimmed.strip_prefix("name:") {
-            let value = unquote_frontmatter_value(value.trim());
-            if !value.is_empty() {
-                name = Some(value);
-            }
-            continue;
-        }
-        if let Some(value) = trimmed.strip_prefix("description:") {
-            let value = unquote_frontmatter_value(value.trim());
-            if !value.is_empty() {
-                description = Some(value);
-            }
-            continue;
-        }
-        if let Some(value) = trimmed.strip_prefix("model:") {
-            let value = unquote_frontmatter_value(value.trim());
-            if !value.is_empty() {
-                model = Some(value);
-            }
-            continue;
-        }
-        if let Some(value) = trimmed.strip_prefix("model_reasoning_effort:") {
-            let value = unquote_frontmatter_value(value.trim());
-            if !value.is_empty() {
-                reasoning_effort = Some(value);
-            }
-        }
-    }
-
-    (name, description, model, reasoning_effort)
+    let fields = frontmatter_fields(
+        &frontmatter_lines(contents),
+        &["name", "description", "model", "model_reasoning_effort"],
+    );
+    (
+        fields.get("name").cloned(),
+        fields.get("description").cloned(),
+        fields.get("model").cloned(),
+        fields.get("model_reasoning_effort").cloned(),
+    )
 }
 
 fn render_agents_report(agents: &[AgentSummary]) -> String {
@@ -7131,6 +7147,50 @@ mod tests {
         let (name, description) = super::parse_skill_frontmatter(contents);
         assert_eq!(name.as_deref(), Some("hud"));
         assert_eq!(description.as_deref(), Some("Quoted description"));
+    }
+
+    #[test]
+    fn folds_yaml_block_scalar_descriptions_instead_of_returning_the_indicator() {
+        // Most installed SKILL.md files describe themselves this way; reading
+        // only the `description:` line used to render "name · |" in the index.
+        let contents = "---\nname: asc-cli\ndescription: |\n  Use asc to manage App Store Connect.\n  \
+                        Use this skill when a user asks about releases.\n\n  Blank lines inside the scalar stay tolerated.\n\
+                        model: gemini\n---\n\n# Body\ndescription: body text must not win\n";
+        let (name, description) = super::parse_skill_frontmatter(contents);
+        assert_eq!(name.as_deref(), Some("asc-cli"));
+        let description = description.expect("block scalar description");
+        assert_eq!(
+            description,
+            "Use asc to manage App Store Connect. Use this skill when a user asks about releases. Blank lines inside the scalar stay tolerated."
+        );
+        assert!(!description.contains('|'));
+    }
+
+    #[test]
+    fn folds_folded_scalars_and_ignores_body_keys() {
+        let folded = "---\ndescription: >-\n  one\n  two\n---\nbody\n";
+        assert_eq!(
+            super::parse_skill_frontmatter(folded).1.as_deref(),
+            Some("one two")
+        );
+
+        // A key indented under a block scalar belongs to that scalar, not to
+        // the front matter mapping.
+        let nested = "---\nname: |\n  description: swallowed\n---\n";
+        assert_eq!(super::parse_skill_frontmatter(nested).1, None);
+    }
+
+    #[test]
+    fn agent_frontmatter_handles_block_scalars() {
+        let contents = "---\nname: reviewer\ndescription: |\n  Reviews diffs.\n  Asks for tests.\nmodel: claude-opus-4-7\n---\n";
+        let (name, description, model, reasoning) = super::parse_agent_frontmatter(contents);
+        assert_eq!(name.as_deref(), Some("reviewer"));
+        assert_eq!(
+            description.as_deref(),
+            Some("Reviews diffs. Asks for tests.")
+        );
+        assert_eq!(model.as_deref(), Some("claude-opus-4-7"));
+        assert_eq!(reasoning, None);
     }
 
     #[test]
