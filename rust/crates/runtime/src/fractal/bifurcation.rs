@@ -1558,8 +1558,10 @@ impl BifurcationEngine {
             (None, Some(vacuous), change) if change.is_none_or(|seen| vacuous > seen) => {
                 Some(format!(
                 "The check did run ({}) and exited 0, but it asserted nothing — an empty suite \
-                 passing is the greenest kind of nothing. Write the test the title implies, let \
-                 the check run over it, and then make the claim.",
+                 passing is the greenest kind of nothing. Write the test the title implies, in the \
+                 place this project's runner looks for it (a file outside the declared targets is \
+                 never compiled and never run), let the check run over it, and then make the \
+                 claim.",
                 describe(vacuous)
             ))
             }
