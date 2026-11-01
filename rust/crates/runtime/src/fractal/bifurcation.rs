@@ -495,6 +495,16 @@ enum Evidence {
     SuccessfulLook,
 }
 
+/// Which end of the leaf a plan write is claiming.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Claim {
+    /// "This is done" — has to be earned.
+    Completed,
+    /// "This will not work here" — allowed, but the first time it follows a
+    /// failing check with nothing changed since, it is asked once.
+    Abandoned,
+}
+
 /// Tracks the trajectory of one conversation loop and forces the thinking mode
 /// to split when resistance accumulates.
 #[derive(Debug, Clone)]
@@ -537,6 +547,12 @@ pub struct BifurcationEngine {
     /// Completion claims refused because no check has passed since the last
     /// change (observability).
     verification_gate_trips: usize,
+    /// Leaves whose first `failed` was sent back once for a materially
+    /// different try. A node is refused here at most once, ever, so an
+    /// environment that genuinely cannot build still has an honest exit.
+    give_ups_refused: HashSet<String>,
+    /// Give-up claims sent back (observability).
+    give_up_gate_trips: usize,
     /// Error tool results collapsed into tombstones by the demon (observability).
     pruned_outputs: usize,
     /// Broken-write backpressure hits (observability).
@@ -580,6 +596,8 @@ impl BifurcationEngine {
             probe_required: false,
             probe_gate_trips: 0,
             verification_gate_trips: 0,
+            give_ups_refused: HashSet::new(),
+            give_up_gate_trips: 0,
             pruned_outputs: 0,
             syntax_backpressure_hits: 0,
             stalled_steps: 0,
@@ -691,6 +709,12 @@ impl BifurcationEngine {
     #[must_use]
     pub fn verification_gate_trips(&self) -> usize {
         self.verification_gate_trips
+    }
+
+    /// Give-up claims the gate sent back for one more try.
+    #[must_use]
+    pub fn give_up_gate_trips(&self) -> usize {
+        self.give_up_gate_trips
     }
 
     /// Error outputs the demon collapsed this turn.
@@ -1069,14 +1093,15 @@ impl BifurcationEngine {
         matches!(lower, "task_graph" | "taskgraph" | "taskgraphwrite")
     }
 
-    /// Nodes this call claims as done, with their title when the call carries it.
+    /// Nodes this call moves to a status the gates police, with the title when
+    /// the call carries one.
     ///
     /// `update_status` is the honest form. `add` can carry the same claim inside
     /// the node, which is the same lie told one operation earlier, so both land
     /// in the same gate — the title is right there on an `add` and has to be
     /// read back from history on a `update_status`.
     #[must_use]
-    fn completed_claims(input: &str) -> Vec<(String, Option<String>)> {
+    fn status_claims(input: &str) -> Vec<(String, Option<String>, Claim)> {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
             return Vec::new();
         };
@@ -1098,12 +1123,15 @@ impl BifurcationEngine {
             .map(|nodes| {
                 nodes
                     .iter()
-                    .filter(|node| {
-                        node.get("status")
-                            .and_then(serde_json::Value::as_str)
-                            .is_some_and(|status| status.eq_ignore_ascii_case("completed"))
-                    })
                     .filter_map(|node| {
+                        let status = node.get("status").and_then(serde_json::Value::as_str)?;
+                        let claim = if status.eq_ignore_ascii_case("completed") {
+                            Claim::Completed
+                        } else if status.eq_ignore_ascii_case("failed") {
+                            Claim::Abandoned
+                        } else {
+                            return None;
+                        };
                         let id = node.get("id").and_then(serde_json::Value::as_str)?;
                         let title = if creates_nodes {
                             node.get("content")
@@ -1112,7 +1140,7 @@ impl BifurcationEngine {
                         } else {
                             None
                         };
-                        Some((id.to_string(), title))
+                        Some((id.to_string(), title, claim))
                     })
                     .collect()
             })
@@ -1166,39 +1194,72 @@ impl BifurcationEngine {
     /// saw, and `ls` returning after the `mkdir` is the honest evidence —
     /// demanding a compiler for it would lock the leaf shut and turn the gate
     /// into the treadmill it exists to prevent.
+    ///
+    /// A program word anywhere in the title wins, so "Verify the app builds." is
+    /// not laundered by an earlier `ls`: the look tier only applies when the
+    /// title never promises a run.
     #[must_use]
     fn required_evidence(title: &str) -> Option<Evidence> {
         const EXECUTED_CHECK: &[&str] = &[
             "test",
             "tests",
+            "testing",
             "build",
+            "builds",
+            "building",
             "rebuild",
+            "rebuilding",
             "compile",
+            "compiles",
+            "compiling",
             "run",
+            "runs",
             "launch",
+            "launches",
             "install",
+            "installs",
             "deploy",
+            "deploys",
             "benchmark",
+            "benchmarks",
             "smoke",
         ];
-        const SUCCESSFUL_LOOK: &[&str] = &["verify", "verifies", "validate", "check", "confirms"];
-        let verb = title
+        const SUCCESSFUL_LOOK: &[&str] = &[
+            "verify",
+            "verifies",
+            "validate",
+            "validates",
+            "check",
+            "checks",
+            "confirm",
+            "confirms",
+        ];
+        let words: Vec<String> = title
             .split_whitespace()
-            .next()?
-            .trim_end_matches(['.', ':', ',', '!'])
-            .to_lowercase();
-        if EXECUTED_CHECK.contains(&verb.as_str()) {
+            .map(|word| {
+                word.trim_matches(|c: char| !c.is_alphanumeric())
+                    .to_lowercase()
+            })
+            .collect();
+        if words
+            .iter()
+            .any(|word| EXECUTED_CHECK.contains(&word.as_str()))
+        {
             return Some(Evidence::ExecutedCheck);
         }
-        if SUCCESSFUL_LOOK.contains(&verb.as_str()) {
+        if words
+            .first()
+            .is_some_and(|word| SUCCESSFUL_LOOK.contains(&word.as_str()))
+        {
             return Some(Evidence::SuccessfulLook);
         }
         None
     }
 
-    /// Verification gate: a leaf whose title names a check may not be claimed
+    /// Claims gate: a leaf whose title names a check may not be claimed
     /// `completed` until that check has passed *after* the last change to the
-    /// workspace.
+    /// workspace, and the same leaf may not be abandoned on the first failing
+    /// run without one try that changed something.
     ///
     /// `history` is every call this session has already answered, in emission
     /// order. A call the tool refused never counts as proof; a command that ran
@@ -1213,11 +1274,16 @@ impl BifurcationEngine {
     /// emitted in this same step has not returned yet, so it proves nothing
     /// either.
     ///
+    /// The give-up half is the same failure seen from the other side: one
+    /// non-zero exit, a `failed`, and a run that ends with the error it could
+    /// have fixed still in its own transcript. Asking once costs a step; not
+    /// asking costs the task.
+    ///
     /// Narrow on purpose: only check-shaped titles, only nodes this process can
-    /// name a title for, and `failed` is never blocked — an environment that
-    /// cannot build has an honest exit, so the gate cannot become a new
-    /// treadmill.
-    pub fn gate_completions_for_step(
+    /// name a title for, and `failed` is refused at most once per node — an
+    /// environment that cannot build has an honest exit, so neither gate can
+    /// become the treadmill it exists to prevent.
+    pub fn gate_claims_for_step(
         &mut self,
         calls: &[(String, String)],
         history: &[StepRecord],
@@ -1228,7 +1294,7 @@ impl BifurcationEngine {
             if !Self::is_plan_tool(&tool.to_lowercase()) {
                 continue;
             }
-            for (id, inline_title) in Self::completed_claims(input) {
+            for (id, inline_title, claim) in Self::status_claims(input) {
                 let title = match inline_title {
                     Some(title) => title,
                     None => match Self::title_from_history(&id, history) {
@@ -1239,23 +1305,51 @@ impl BifurcationEngine {
                 let Some(demand) = Self::required_evidence(&title) else {
                     continue;
                 };
-                // A change queued ahead of this claim in the same step lands after
-                // any check that has already returned, so the evidence is stale
-                // before the step is even executed.
-                let mutation_ahead = calls[..index]
-                    .iter()
-                    .any(|(tool, input)| Self::is_mutating_call(tool, input));
-                let proof = Self::last_evidence_position(demand, history);
-                let earned = !mutation_ahead
-                    && proof.is_some_and(|seen| last_mutation.is_none_or(|change| seen > change));
-                if earned {
-                    continue;
+                match claim {
+                    Claim::Completed => {
+                        // A change queued ahead of this claim in the same step
+                        // lands after any check that has already returned, so
+                        // the evidence is stale before the step is even executed.
+                        let mutation_ahead = calls[..index]
+                            .iter()
+                            .any(|(tool, input)| Self::is_mutating_call(tool, input));
+                        let proof = Self::last_evidence_position(demand, history);
+                        let earned = !mutation_ahead
+                            && proof.is_some_and(|seen| {
+                                last_mutation.is_none_or(|change| seen > change)
+                            });
+                        if earned {
+                            continue;
+                        }
+                        self.verification_gate_trips += 1;
+                        refusals.push((
+                            index,
+                            Self::verification_gate_refusal(
+                                &id,
+                                &title,
+                                demand,
+                                mutation_ahead,
+                                history,
+                            ),
+                        ));
+                    }
+                    Claim::Abandoned => {
+                        if demand != Evidence::ExecutedCheck || self.give_ups_refused.contains(&id)
+                        {
+                            continue;
+                        }
+                        let Some(failure) = Self::first_check_failure_position(history) else {
+                            continue;
+                        };
+                        if Self::tried_again_since(failure, history) {
+                            continue;
+                        }
+                        self.give_ups_refused.insert(id.clone());
+                        self.give_up_gate_trips += 1;
+                        refusals
+                            .push((index, Self::give_up_refusal(&id, &title, failure, history)));
+                    }
                 }
-                self.verification_gate_trips += 1;
-                refusals.push((
-                    index,
-                    Self::verification_gate_refusal(&id, &title, demand, mutation_ahead, history),
-                ));
             }
         }
         refusals
@@ -1282,6 +1376,49 @@ impl BifurcationEngine {
         history.iter().rposition(|record| {
             record.succeeded() && Self::is_mutating_call(&record.tool, &record.input)
         })
+    }
+
+    /// The first check that ran and reported a non-zero exit — the attempt the
+    /// agent is about to call hopeless.
+    #[must_use]
+    fn first_check_failure_position(history: &[StepRecord]) -> Option<usize> {
+        history.iter().position(|record| {
+            record.answered()
+                && record.command_failed
+                && Self::is_verifier_call(&record.tool, &record.input)
+        })
+    }
+
+    /// Did anything happen after that failing check that could change its
+    /// answer — a touched file, or the check run again?
+    #[must_use]
+    fn tried_again_since(failure: usize, history: &[StepRecord]) -> bool {
+        history.iter().skip(failure + 1).any(|record| {
+            (record.succeeded() && Self::is_mutating_call(&record.tool, &record.input))
+                || (record.answered() && Self::is_verifier_call(&record.tool, &record.input))
+        })
+    }
+
+    /// Refusal text for a first give-up: what was tried, what has not changed
+    /// since, and the one thing that would make a repeat mean something.
+    #[must_use]
+    fn give_up_refusal(id: &str, title: &str, failure: usize, history: &[StepRecord]) -> String {
+        let record = &history[failure];
+        let detail = Self::bash_command(&record.input).unwrap_or_else(|| record.input.clone());
+        let detail = detail.chars().take(72).collect::<String>();
+        format!(
+            "[SYSTEM DIRECTIVE — GIVE-UP GATE]\n\
+             Task '{id}' (\"{title}\") is being abandoned, but the check its own title names ran \
+             once (`{}` {detail}) and nothing in the workspace has changed since that run.\n\
+             The same command over the same files returns the same answer, so a second `failed` \
+             without a change in between is the same attempt counted twice.\n\
+             Read the output of that run and change the cause it names — a missing manifest, the \
+             wrong directory, a path, a flag, a dependency — then let the check run again.\n\
+             If no such fix exists in this environment, re-issue this exact call: a give-up is \
+             asked once and granted the second time, and a `failed` with a reason is worth more \
+             than a green graph over a build that does not compile.",
+            record.tool
+        )
     }
 
     /// Refusal text for an unearned completion claim, naming the evidence that
@@ -1352,8 +1489,8 @@ impl BifurcationEngine {
              {evidence}\n\
              {how_to_prove}\n\
              Do not answer by editing more files: an edit is not evidence. If this environment \
-             cannot satisfy the title, mark '{id}' `failed` and say why — that is always allowed, \
-             and it is the honest version of this result."
+             cannot satisfy the title, mark '{id}' `failed` and say why — that closes the branch \
+             honestly, and it is never refused twice."
         )
     }
 
@@ -2085,11 +2222,12 @@ impl BifurcationEngine {
                 self.crossings.len(),
             ),
             format!(
-                "Maxwell demon: pruned_outputs={} probe_gate={} trips={} verification_gate={} syntax_backpressure_hits={}",
+                "Maxwell demon: pruned_outputs={} probe_gate={} trips={} verification_gate={} give_up_gate={} syntax_backpressure_hits={}",
                 self.pruned_outputs,
                 if self.probe_required { "armed" } else { "open" },
                 self.probe_gate_trips,
                 self.verification_gate_trips,
+                self.give_up_gate_trips,
                 self.syntax_backpressure_hits,
             ),
             format!(

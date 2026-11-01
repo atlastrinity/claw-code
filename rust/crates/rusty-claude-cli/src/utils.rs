@@ -1675,8 +1675,8 @@ pub fn print_fractal_status_snapshot(
                  (anthropic/openai_compat) · tools provider-chain ceiling · REPL retry ladder · \
                  stream-stall charging · conversation loop bifurcation ladder (system-prompt directive, \
                  dead-orbit middleware gate, orbit-escape provenance in learned skills) · \
-                 Maxwell demon (dead-orbit context pruning, step-level probe gate, verification gate, \
-                 syntax backpressure, turn working set)"
+                 Maxwell demon (dead-orbit context pruning, step-level probe gate, claims gate, \
+                 give-up gate, syntax backpressure, turn working set)"
             );
         }
         CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
@@ -1736,6 +1736,12 @@ pub fn print_fractal_status_snapshot(
                             "always_allowed": "marking a leaf `failed`, so an environment that cannot build has an honest exit",
                             "live_counter": "verification_gate (ladder summary)",
                         },
+                        "give_up_gate": {
+                            "trigger": "the first `failed` on a leaf whose title promises a run",
+                            "blocks": "that claim once, when nothing changed and no check ran again after the failing one",
+                            "grants": "the same `failed` re-issued, and any give-up after a real try",
+                            "live_counter": "give_up_gate (ladder summary)",
+                        },
                         "syntax_guard": {
                             "checks": ["json", "toml", "sh/bash/zsh", "py", "rs", "ts/tsx/js/jsx", "c/cpp/h/swift/go"],
                             "marker": runtime::syntax_guard::SYNTAX_BACKPRESSURE_MARKER,
@@ -1766,7 +1772,7 @@ pub fn print_fractal_status_snapshot(
                     "runtime::session::conversation bifurcation ladder (directive + gate + escape provenance)",
                     "runtime::fractal::bifurcation dead-orbit context pruning (Maxwell demon)",
                     "runtime::session::conversation step-level hard probe gate",
-                    "runtime::session::conversation verification gate (completion claims need an executed check)",
+                    "runtime::session::conversation claims gate (completion claims need an executed check, give-ups are asked once)",
                     "runtime::syntax_guard zero-turn write backpressure (tools runners)",
                     "runtime::turn_state transactional working memory (quadrupole/chaos directives)",
                 ],

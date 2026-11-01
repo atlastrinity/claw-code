@@ -393,17 +393,20 @@ where
             ));
         }
 
-        // Verification gate: a leaf titled "Test/Build/Verify …" may not be
-        // claimed `completed` until that check has actually passed, after the
-        // last change to the workspace. Without it a run writes a file, ticks
-        // the testing box, closes the graph green and reports success over a
-        // build that does not compile.
+        // Claims gate: a leaf titled "Test/Build/Verify …" may not be claimed
+        // `completed` until that check has actually passed, after the last
+        // change to the workspace; and the first `failed` on such a leaf, issued
+        // with nothing changed since the run that failed, is sent back for one
+        // real try. Without the first half a run writes a file, ticks the
+        // testing box, closes the graph green and reports success over a build
+        // that does not compile. Without the second it abandons a branch on the
+        // first error message it could have fixed.
         let step_history = self.step_history();
         for (index, refusal) in self
             .bifurcation
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .gate_completions_for_step(&gate_pairs, &step_history)
+            .gate_claims_for_step(&gate_pairs, &step_history)
         {
             let call = &calls[index];
             gate_blocked.push(index);
@@ -3337,6 +3340,138 @@ mod tests {
                 .bifurcation_summary()
                 .contains("verification_gate=2"),
             "{}",
+            runtime.bifurcation_summary()
+        );
+    }
+
+    #[test]
+    fn abandoning_a_leaf_on_its_first_failure_is_asked_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        const ADD: &str =
+            r#"{"operation":"add","nodes":[{"id":"2.3","content":"Test the application."}]}"#;
+        const GIVE_UP: &str =
+            r#"{"operation":"update_status","nodes":[{"id":"2.3","status":"failed"}]}"#;
+        const CLAIM: &str =
+            r#"{"operation":"update_status","nodes":[{"id":"2.3","status":"completed"}]}"#;
+        const MANIFEST: &str =
+            r#"{"path":"Package.swift","content":"// swift-tools-version:5.9\n"}"#;
+        const BUILD: &str = r#"{"command":"swift build"}"#;
+
+        struct RunSix {
+            turn: std::cell::Cell<usize>,
+        }
+
+        impl ApiClient for RunSix {
+            fn stream(
+                &mut self,
+                _request: ApiRequest,
+            ) -> Result<Vec<AssistantEvent>, RuntimeError> {
+                let n = self.turn.get();
+                self.turn.set(n + 1);
+                // Run 5 ended here: one failed build, then `failed`, then a
+                // closing message naming the missing manifest as the fix.
+                let tool = match n {
+                    0 => Some(("TaskGraph", ADD)),
+                    1 => Some(("bash", BUILD)),
+                    2 => Some(("TaskGraph", GIVE_UP)),
+                    3 => Some(("write_file", MANIFEST)),
+                    4 => Some(("bash", BUILD)),
+                    5 => Some(("TaskGraph", CLAIM)),
+                    _ => None,
+                };
+                Ok(match tool {
+                    Some((name, input)) => vec![
+                        AssistantEvent::ToolUse {
+                            id: format!("tool-{n}"),
+                            name: name.to_string(),
+                            input: input.to_string(),
+                            signature: None,
+                        },
+                        AssistantEvent::MessageStop,
+                    ],
+                    None => vec![
+                        AssistantEvent::TextDelta("done".to_string()),
+                        AssistantEvent::MessageStop,
+                    ],
+                })
+            }
+        }
+
+        let give_ups = Arc::new(AtomicUsize::new(0));
+        let seen_give_ups = Arc::clone(&give_ups);
+        let completions = Arc::new(AtomicUsize::new(0));
+        let seen_completions = Arc::clone(&completions);
+        let builds = Arc::new(AtomicUsize::new(0));
+        let seen_builds = Arc::clone(&builds);
+
+        let executor = StaticToolExecutor::new()
+            .register("TaskGraph", move |input| {
+                if input.contains("\"failed\"") {
+                    seen_give_ups.fetch_add(1, Ordering::SeqCst);
+                }
+                if input.contains("completed") {
+                    seen_completions.fetch_add(1, Ordering::SeqCst);
+                }
+                Ok(r#"{"nodes_updated":1}"#.to_string())
+            })
+            .register("write_file", |_input| Ok("written".to_string()))
+            .register("bash", move |_input| {
+                Ok(match seen_builds.fetch_add(1, Ordering::SeqCst) {
+                    0 => r#"{"stdout":"","stderr":"error: Could not find Package.swift in this directory or any of its parent directories.","interrupted":false,"returnCodeInterpretation":"exit_code:1"}"#,
+                    _ => r#"{"stdout":"Build complete!","stderr":"","interrupted":false}"#,
+                }
+                .to_string())
+            });
+
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            RunSix {
+                turn: std::cell::Cell::default(),
+            },
+            executor,
+            PermissionPolicy::new(PermissionMode::DangerFullAccess),
+            vec!["system".to_string()],
+        )
+        .with_max_iterations(12);
+
+        runtime
+            .run_turn("build a macOS app", None)
+            .expect("turn should complete");
+
+        assert_eq!(
+            give_ups.load(Ordering::SeqCst),
+            0,
+            "the first give-up never reached the graph"
+        );
+        assert_eq!(
+            builds.load(Ordering::SeqCst),
+            2,
+            "the run went back to the failing command after a fix"
+        );
+        assert_eq!(completions.load(Ordering::SeqCst), 1);
+
+        let asked = runtime
+            .session()
+            .messages
+            .iter()
+            .flat_map(|message| message.blocks.iter())
+            .filter(|block| match block {
+                ContentBlock::ToolResult { output, .. } => output.contains("GIVE-UP GATE"),
+                _ => false,
+            })
+            .count();
+        assert_eq!(asked, 1, "the leaf was asked once, not twice");
+        assert!(
+            runtime.bifurcation_summary().contains("give_up_gate=1"),
+            "{}",
+            runtime.bifurcation_summary()
+        );
+        assert!(
+            runtime
+                .bifurcation_summary()
+                .contains("verification_gate=0"),
+            "the earned claim after the passing build was never refused: {}",
             runtime.bifurcation_summary()
         );
     }

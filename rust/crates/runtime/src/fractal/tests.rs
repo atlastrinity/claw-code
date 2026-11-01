@@ -887,7 +887,7 @@ fn summary_exposes_the_demon_counters() {
     let mut engine = BifurcationEngine::new();
     engine.arm_probe_gate();
     engine.prune_dead_orbit_outputs(&mut []);
-    engine.gate_completions_for_step(
+    engine.gate_claims_for_step(
         &[(
             "TaskGraph".to_string(),
             r#"{"operation":"update_status","nodes":[{"id":"1.1","status":"completed"}]}"#
@@ -898,7 +898,7 @@ fn summary_exposes_the_demon_counters() {
     let summary = engine.summary();
     assert!(
         summary.contains(
-            "Maxwell demon: pruned_outputs=0 probe_gate=armed trips=0 verification_gate=1 syntax_backpressure_hits=0"
+            "Maxwell demon: pruned_outputs=0 probe_gate=armed trips=0 verification_gate=1 give_up_gate=0 syntax_backpressure_hits=0"
         ),
         "{summary}"
     );
@@ -1162,7 +1162,7 @@ fn write_done(path: &str) -> StepRecord {
 fn a_check_shaped_leaf_cannot_close_without_its_check() {
     let mut engine = BifurcationEngine::new();
     let history = [plan_add("1.2.5", "Test the application.")];
-    let refusals = engine.gate_completions_for_step(&[completion_claim("1.2.5")], &history);
+    let refusals = engine.gate_claims_for_step(&[completion_claim("1.2.5")], &history);
     assert_eq!(refusals.len(), 1, "the claim has no evidence: {refusals:?}");
     assert_eq!(refusals[0].0, 0);
     assert!(refusals[0].1.contains("VERIFICATION GATE"));
@@ -1184,7 +1184,7 @@ fn a_check_that_passed_after_the_last_change_earns_the_claim() {
     ];
     assert!(
         engine
-            .gate_completions_for_step(&[completion_claim("1.2.5")], &history)
+            .gate_claims_for_step(&[completion_claim("1.2.5")], &history)
             .is_empty(),
         "the build passed after the edit — the claim is earned"
     );
@@ -1201,7 +1201,7 @@ fn a_failing_check_and_a_stale_check_are_both_refused() {
     ];
     assert_eq!(
         engine
-            .gate_completions_for_step(&[completion_claim("1.2.5")], &after_failure)
+            .gate_claims_for_step(&[completion_claim("1.2.5")], &after_failure)
             .len(),
         1
     );
@@ -1211,7 +1211,7 @@ fn a_failing_check_and_a_stale_check_are_both_refused() {
         bash_run("swift build", false),
         write_done("Sources/App.swift"),
     ];
-    let refusals = engine.gate_completions_for_step(&[completion_claim("1.2.5")], &after_edit);
+    let refusals = engine.gate_claims_for_step(&[completion_claim("1.2.5")], &after_edit);
     assert_eq!(refusals.len(), 1);
     assert!(
         refusals[0].1.contains("BEFORE the last change"),
@@ -1229,7 +1229,7 @@ fn a_change_queued_in_the_same_step_voids_the_check_before_it() {
     ];
     let step = [bash_call("rm -rf DerivedData"), completion_claim("1.2.5")];
     assert_eq!(
-        engine.gate_completions_for_step(&step, &history).len(),
+        engine.gate_claims_for_step(&step, &history).len(),
         1,
         "the claim sits behind a change no check has seen yet"
     );
@@ -1247,7 +1247,7 @@ fn an_observation_leaf_closes_on_an_answer_after_the_change() {
     ];
     assert!(
         engine
-            .gate_completions_for_step(&[completion_claim("1.1.1")], &folder_missing)
+            .gate_claims_for_step(&[completion_claim("1.1.1")], &folder_missing)
             .is_empty(),
         "an answer that says \"no\" is still the answer the title asked for"
     );
@@ -1260,7 +1260,7 @@ fn an_observation_leaf_closes_on_an_answer_after_the_change() {
     ];
     assert_eq!(
         engine
-            .gate_completions_for_step(&[completion_claim("1.1.1")], &stale)
+            .gate_claims_for_step(&[completion_claim("1.1.1")], &stale)
             .len(),
         1
     );
@@ -1272,7 +1272,7 @@ fn an_observation_leaf_closes_on_an_answer_after_the_change() {
     ];
     assert_eq!(
         engine
-            .gate_completions_for_step(&[completion_claim("1.1.1")], &silent)
+            .gate_claims_for_step(&[completion_claim("1.1.1")], &silent)
             .len(),
         1
     );
@@ -1288,7 +1288,7 @@ fn a_program_leaf_is_not_satisfied_by_reading_a_file_back() {
     ];
     assert_eq!(
         engine
-            .gate_completions_for_step(&[completion_claim("1.2.5")], &history)
+            .gate_claims_for_step(&[completion_claim("1.2.5")], &history)
             .len(),
         1,
         "reading the file back is a look, not a test"
@@ -1300,24 +1300,25 @@ fn the_gate_only_touches_check_shaped_leaves_that_claim_success() {
     let mut engine = BifurcationEngine::new();
     let plain = [plan_add("1.1", "Create the application folder.")];
     assert!(engine
-        .gate_completions_for_step(&[completion_claim("1.1")], &plain)
+        .gate_claims_for_step(&[completion_claim("1.1")], &plain)
         .is_empty());
 
-    // `failed` is always an allowed exit, including in an environment that
-    // cannot build at all — otherwise the gate would become a new treadmill.
+    // `failed` stays available even on a check-shaped leaf that never got a
+    // passing run — an environment that cannot build at all has an honest exit,
+    // and the gate would otherwise become the treadmill it exists to prevent.
     let shaped = [plan_add("1.2.5", "Test the application.")];
     assert!(engine
-        .gate_completions_for_step(&[status_claim("1.2.5", "failed")], &shaped)
+        .gate_claims_for_step(&[status_claim("1.2.5", "failed")], &shaped)
         .is_empty());
 
     // A node this process never saw created (resumed session) is not guessed at.
     assert!(engine
-        .gate_completions_for_step(&[completion_claim("9.9")], &shaped)
+        .gate_claims_for_step(&[completion_claim("9.9")], &shaped)
         .is_empty());
 
     // Only plan tools carry claims.
     assert!(engine
-        .gate_completions_for_step(std::slice::from_ref(&bash_call("swift build")), &shaped)
+        .gate_claims_for_step(std::slice::from_ref(&bash_call("swift build")), &shaped)
         .is_empty());
     assert_eq!(engine.verification_gate_trips(), 0);
 }
@@ -1332,13 +1333,107 @@ fn a_leaf_added_already_completed_is_the_same_claim() {
         r#"{"operation":"add","nodes":[{"id":"1.3","content":"Verify the release build.","status":"completed"}]}"#
             .to_string(),
     );
-    let refusals = engine.gate_completions_for_step(std::slice::from_ref(&laundering), &[]);
+    let refusals = engine.gate_claims_for_step(std::slice::from_ref(&laundering), &[]);
     assert_eq!(
         refusals.len(),
         1,
         "an `add` cannot launder a claim: {refusals:?}"
     );
     assert!(refusals[0].1.contains("VERIFICATION GATE"));
+}
+
+#[test]
+fn a_first_give_up_after_an_unchanged_failure_is_asked_for_one_try() {
+    let mut engine = BifurcationEngine::new();
+    // Run 5: `swift build` said "Could not find Package.swift", the leaf was
+    // marked `failed` one step later, and the run ended naming that missing
+    // file as the fix it had not attempted.
+    let history = [
+        plan_add("2.3", "Test the application."),
+        write_done("Sources/main.swift"),
+        bash_run("swift build", true),
+    ];
+    let refusals = engine.gate_claims_for_step(&[status_claim("2.3", "failed")], &history);
+    assert_eq!(refusals.len(), 1, "the give-up was unasked: {refusals:?}");
+    assert!(refusals[0].1.contains("GIVE-UP GATE"));
+    assert!(
+        refusals[0].1.contains("swift build"),
+        "the refusal names the attempt: {}",
+        refusals[0].1
+    );
+    assert_eq!(engine.give_up_gate_trips(), 1);
+
+    // The same call issued again is granted: an honest exit is asked once, never
+    // twice, or the gate would be a treadmill with extra steps.
+    assert!(engine
+        .gate_claims_for_step(&[status_claim("2.3", "failed")], &history)
+        .is_empty());
+    assert_eq!(engine.give_up_gate_trips(), 1);
+}
+
+#[test]
+fn a_give_up_that_follows_a_real_try_is_granted_at_once() {
+    let mut engine = BifurcationEngine::new();
+    let history = [
+        plan_add("2.3", "Test the application."),
+        bash_run("swift build", true),
+        write_done("Package.swift"),
+        bash_run("swift build", true),
+    ];
+    assert!(
+        engine
+            .gate_claims_for_step(&[status_claim("2.3", "failed")], &history)
+            .is_empty(),
+        "the workspace changed between the failing run and the give-up"
+    );
+    assert_eq!(engine.give_up_gate_trips(), 0);
+}
+
+#[test]
+fn the_give_up_gate_only_asks_of_leaves_that_promise_a_run() {
+    let mut engine = BifurcationEngine::new();
+    let observed = [
+        plan_add("1.1.1", "Check if the folder already exists."),
+        bash_run("ls ~/Desktop/App", true),
+    ];
+    assert!(
+        engine
+            .gate_claims_for_step(&[status_claim("1.1.1", "failed")], &observed)
+            .is_empty(),
+        "an observation leaf has no build to retry"
+    );
+
+    let prose = [
+        plan_add("1.1", "Create the application folder."),
+        bash_run("mkdir -p ~/Desktop/App", true),
+    ];
+    assert!(engine
+        .gate_claims_for_step(&[status_claim("1.1", "failed")], &prose)
+        .is_empty());
+
+    // A completion claim on the same leaf still meets the verification gate, so
+    // the give-up half did not widen what counts as a policed write.
+    assert_eq!(engine.give_up_gate_trips(), 0);
+    assert_eq!(engine.verification_gate_trips(), 0);
+}
+
+#[test]
+fn a_title_that_promises_a_build_is_not_proved_by_a_look() {
+    let mut engine = BifurcationEngine::new();
+    // "Verify" alone would sit in the read-only tier; the build word in the same
+    // title is the promise, so an `ls` cannot discharge it.
+    let history = [
+        plan_add("1.3", "Verify the app builds."),
+        write_done("Sources/main.swift"),
+        bash_run("ls Sources", false),
+    ];
+    assert_eq!(
+        engine
+            .gate_claims_for_step(&[completion_claim("1.3")], &history)
+            .len(),
+        1,
+        "a directory listing is not a build"
+    );
 }
 
 #[test]
