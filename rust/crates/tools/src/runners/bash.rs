@@ -136,6 +136,28 @@ pub(crate) fn analyze_command_failure_hint(stdout: &str, stderr: &str) -> Option
     if combined.contains("No project spec found at") && combined.contains("project.yml") {
         return Some("💡 DIAGNOSTIC HINT: xcodegen default spec is project.yml. If your spec file is .xcodegen.yml, specify the spec flag: 'xcodegen generate -s .xcodegen.yml'.".to_string());
     }
+    // A create that fails because the thing is already there — `swift package
+    // init` in a directory an earlier run populated, `mkdir` without -p, a branch
+    // that exists. Repeating it is the same failure by definition, and a live run
+    // spent three turns and one whole phase doing exactly that.
+    if [
+        "already exists",
+        "is not empty",
+        "file exists",
+        "directory exists",
+    ]
+    .iter()
+    .any(|marker| combined.contains(marker))
+    {
+        return Some(
+            "💡 DIAGNOSTIC HINT: this failed because what it creates is already present. Look at \
+             the existing state (`ls -a <path>`, `git branch --list`, `swift build` where `swift \
+             package init` was used) and continue from it — the same command cannot produce a \
+             different result. If the existing state is wrong, remove or move it deliberately in \
+             its own command and say why."
+                .to_string(),
+        );
+    }
     None
 }
 

@@ -3731,6 +3731,27 @@ fn given_no_enforcer_when_bash_then_executes_normally() {
 }
 
 #[test]
+fn a_create_that_collided_with_existing_state_is_explained() {
+    let hint = crate::runners::bash::analyze_command_failure_hint(
+        "Creating executable package: DisplayControlPro\n",
+        "error: a manifest file already exists in this directory\nerror: no output was specified.\n",
+    )
+    .expect("the collision has to be named");
+    assert!(hint.contains("already present"), "{hint}");
+    assert!(hint.contains("cannot produce a different result"), "{hint}");
+
+    // An unrelated failure is not dressed up as a collision.
+    assert!(
+        crate::runners::bash::analyze_command_failure_hint(
+            "",
+            "error: cannot convert value of type 'Int' to 'String'"
+        )
+        .is_none(),
+        "a type error is not an existing-state collision"
+    );
+}
+
+#[test]
 fn a_call_that_lost_only_its_tool_label_still_runs() {
     let _guard = env_lock()
         .lock()

@@ -33,6 +33,63 @@ fn temp_path(name: &str) -> std::path::PathBuf {
 }
 
 #[test]
+fn a_status_for_an_unknown_id_does_not_conjure_a_task() {
+    let _guard = env_guard();
+    let path = temp_path("stub_node.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Build the app"},
+                {"id": "1.2", "parent_id": "1", "content": "Create the project skeleton", "status": "in_progress"},
+                {"id": "1.2.1", "parent_id": "1.2", "content": "Run swift package init", "status": "failed"}
+            ]
+        }),
+    )
+    .expect("valid plan");
+
+    // The live run did exactly this after the plan gate reopened the failed twin:
+    // it updated an id that had never been created.
+    let error = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [{"id": "1.2.1.2", "status": "in_progress"}]
+        }),
+    )
+    .expect_err("an id and a status, with no task in it, is not a task");
+    assert!(
+        error.contains("Task '1.2.1.2' is not in the graph"),
+        "{error}"
+    );
+    assert!(
+        error.contains("Its parent 1.2.1 [failed] is \"Run swift package init\""),
+        "the reopened twin has to be named: {error}"
+    );
+
+    let view = execute_tool("TaskGraph", &json!({"operation": "view"})).expect("view");
+    assert!(!view.contains("Task 1.2.1.2"), "no stub may exist:\n{view}");
+
+    // A node the model actually described still gets created, so the escape hatch
+    // that keeps a run unblocked survives.
+    let created = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "update_status",
+            "nodes": [{"id": "1.2.2", "status": "in_progress", "content": "Write the build script"}]
+        }),
+    )
+    .expect("a described node may still be upserted");
+    assert!(created.contains("1.2.2"), "{created}");
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn task_graph_operations() {
     let _guard = env_guard();
     let path = temp_path("tasks.json");
@@ -1269,7 +1326,7 @@ fn task_graph_downward_in_progress_propagation() {
 }
 
 #[test]
-fn task_graph_update_status_auto_upserts_missing_nodes() {
+fn task_graph_update_status_refuses_an_undescribed_node() {
     let _guard = env_guard();
     let path = temp_path("auto_upsert.json");
     std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
@@ -1285,8 +1342,9 @@ fn task_graph_update_status_auto_upserts_missing_nodes() {
     )
     .expect("TaskGraph add should succeed");
 
-    // Call update_status directly for non-existent node 1.1.1 — should auto-create it without error!
-    execute_tool(
+    // A bare id and a status is not a task: it used to conjure an empty node
+    // titled "Task 1.1.1" that could be marked complete without any work.
+    let error = execute_tool(
         "TaskGraph",
         &json!({
             "operation": "update_status",
@@ -1295,16 +1353,18 @@ fn task_graph_update_status_auto_upserts_missing_nodes() {
             ]
         }),
     )
-    .expect("update_status on missing node should auto-create node");
+    .expect_err("an undescribed node must not be created");
+    assert!(
+        error.contains("Task '1.1.1' is not in the graph"),
+        "{error}"
+    );
 
     let graph_content = std::fs::read_to_string(&path).expect("read graph store");
     let nodes: serde_json::Value = serde_json::from_str(&graph_content).expect("parse store json");
-    let _node_1_1_1 = nodes
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|n| n["id"] == "1.1.1")
-        .unwrap();
+    assert!(
+        nodes.as_array().unwrap().iter().all(|n| n["id"] != "1.1.1"),
+        "the refusal must not have written the node: {graph_content}"
+    );
     let _ = std::fs::remove_file(&path);
 }
 

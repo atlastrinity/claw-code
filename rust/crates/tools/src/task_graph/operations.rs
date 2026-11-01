@@ -91,20 +91,18 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                             newly_failed_nodes.push(node.id.clone());
                         }
                     }
-                } else {
-                    // Auto-upsert missing nodes so models never get stuck if a node is not yet added
+                } else if let Some(content) = node.content.clone() {
+                    // Auto-upsert only what the model actually described. The
+                    // escape hatch exists so a missing node never stalls a run, and
+                    // it works when the call carries the task's text.
                     let new_status = node.status.unwrap_or(TaskStatus::Pending);
-                    let content = node
-                        .content
-                        .clone()
-                        .or_else(|| Some(format!("Task {}", node.id)));
                     current_nodes.push(TaskNode {
                         id: node.id.clone(),
                         parent_id: node
                             .parent_id
                             .clone()
                             .or_else(|| parent_id_from_task_id(&node.id)),
-                        content,
+                        content: Some(content),
                         status: Some(new_status),
                     });
                     updated_count += 1;
@@ -113,6 +111,61 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                     } else if new_status == TaskStatus::Failed {
                         newly_failed_nodes.push(node.id.clone());
                     }
+                } else {
+                    // An id and a status, with no task in it. This is how
+                    // `[-] 1.2.1.2 "Task 1.2.1.2"` got into a live graph: the plan
+                    // gate redirected a retry onto the failed twin it reopened, the
+                    // model then updated the id it had meant to add, and the
+                    // auto-upsert invented an empty node that could be marked
+                    // complete — phantom progress that reads as work.
+                    let parent = parent_id_from_task_id(&node.id);
+                    let state_of = |status: Option<TaskStatus>| match status {
+                        Some(TaskStatus::Pending) => "pending",
+                        Some(TaskStatus::InProgress) => "in progress",
+                        Some(TaskStatus::Completed) => "completed",
+                        Some(TaskStatus::Failed) => "failed",
+                        None => "pending",
+                    };
+                    let siblings = current_nodes
+                        .iter()
+                        .filter(|n| n.parent_id == parent)
+                        .map(|n| {
+                            format!(
+                                "{} [{}] \"{}\"",
+                                n.id,
+                                state_of(n.status),
+                                n.content.as_deref().unwrap_or("(untitled)")
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    // Usually the level is empty because the parent itself is the
+                    // task the model meant — that is where a reopened twin shows up.
+                    let parent_line = parent.as_ref().and_then(|pid| {
+                        current_nodes.iter().find(|n| n.id == *pid).map(|p| {
+                            format!(
+                                "Its parent {} [{}] is \"{}\".",
+                                p.id,
+                                state_of(p.status),
+                                p.content.as_deref().unwrap_or("(untitled)")
+                            )
+                        })
+                    });
+                    return Err(format!(
+                        "Task '{}' is not in the graph, and no task text came with the status, so \
+                         there is nothing to create. {}\n{}\nIf this repeats work already in the \
+                         graph, update that task under its existing id. If it is new work, use \
+                         operation \"add\" with `content`.",
+                        node.id,
+                        parent_line.unwrap_or_default(),
+                        if siblings.is_empty() {
+                            format!(
+                                "Nothing else lives under {}.",
+                                parent.as_deref().unwrap_or("the root")
+                            )
+                        } else {
+                            format!("Under the same parent: {}.", siblings.join("; "))
+                        }
+                    ));
                 }
             }
 
