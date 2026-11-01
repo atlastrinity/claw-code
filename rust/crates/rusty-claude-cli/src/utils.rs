@@ -9719,22 +9719,34 @@ impl AnthropicRuntimeClient {
         RuntimeError::new(format!("{STREAM_STALL_MARKER}: {}", reason.as_ref()))
     }
 
-    /// Silence after part of the answer already reached the terminal.
+    /// Silence after part of the answer already reached the terminal: charge the
+    /// stall, then keep what completed.
     ///
-    /// The stall is charged to the δ breaker and reported, and the turn keeps
-    /// what it has. Dropping the prefix and failing the request was the design
-    /// that ended a run over one gap: the partial answer had nowhere to go, the
-    /// transcript lost it, and the exit code reported the task as failed.
-    ///
-    /// What is kept is safe to keep — `events` holds only complete blocks, so
-    /// either text the user has already read or a tool call whose input JSON
-    /// arrived whole. A tool call still accumulating its arguments exists only
-    /// in `pending_tool`, so it is dropped with the dead connection rather than
-    /// executed half-built.
-    fn keep_partial_stream(&self, reason: impl AsRef<str>) {
+    /// The transport accepted the request, so the provider client logged a
+    /// breaker success for it — without this charge the δ breaker never
+    /// escalates against an endpoint that is silently dying between turns.
+    fn keep_stalled_stream(&self, reason: impl AsRef<str>) {
         self.client.record_stream_stall();
+        self.keep_partial_stream(format!("{STREAM_STALL_MARKER}: {}", reason.as_ref()));
+    }
+
+    /// A stream that ended before its answer did — silence, a reset socket, a
+    /// request timeout, any transport error the retry loop would have re-sent.
+    ///
+    /// What already completed becomes the turn instead of the request being
+    /// re-sent. Re-sending was the old behavior and it failed twice over: the
+    /// prefix reached the terminal a second time, and the first copy was dropped
+    /// on the floor — the transcript only records an assistant message once the
+    /// stream succeeds, so a run that died this way lost the reasoning and the
+    /// tool call it had already shown, then exited 1 with the plan half-open.
+    ///
+    /// Keeping is safe because `events` holds only complete blocks: text the user
+    /// has read, or a tool call whose input JSON arrived whole. A call still
+    /// accumulating arguments exists only in `pending_tool`, so it dies with the
+    /// connection rather than running half-built.
+    fn keep_partial_stream(&self, reason: impl AsRef<str>) {
         eprintln!(
-            "⚠️ {STREAM_STALL_MARKER}: {} — keeping the partial answer instead of failing the turn.",
+            "⚠️ {} — keeping the partial answer instead of failing the turn.",
             reason.as_ref()
         );
     }
@@ -9792,30 +9804,36 @@ impl AnthropicRuntimeClient {
             let next = match tokio::time::timeout(stall_timeout, stream.next_event()).await {
                 Ok(Ok(event)) => event,
                 Ok(Err(error)) => {
-                    if let ApiError::StreamStall {
-                        provider,
-                        idle_secs,
-                    } = &error
-                    {
-                        if !events.is_empty() {
-                            self.keep_partial_stream(format!(
-                                "provider '{provider}' sent no chunks for {idle_secs}s"
-                            ));
-                            break;
+                    if !events.is_empty() {
+                        match &error {
+                            ApiError::StreamStall {
+                                provider,
+                                idle_secs,
+                            } => {
+                                self.keep_stalled_stream(format!(
+                                    "provider '{provider}' sent no chunks for {idle_secs}s"
+                                ));
+                                break;
+                            }
+                            // Anything else the retry loop would have re-sent
+                            // cannot be re-sent here without printing the
+                            // prefix a second time.
+                            other if other.is_retryable() => {
+                                self.keep_partial_stream(other.to_string());
+                                break;
+                            }
+                            _ => {}
                         }
                     }
                     return Err(self.stream_api_error(&error));
                 }
                 Err(_elapsed) => {
-                    // The transport accepted the request, so the provider
-                    // client already logged a breaker success — correct it or
-                    // the δ breaker never escalates against a silent endpoint.
                     if events.is_empty() {
                         return Err(
                             self.stall_error(format!("model went silent for {stall_timeout:?}"))
                         );
                     }
-                    self.keep_partial_stream(format!("model went silent for {stall_timeout:?}"));
+                    self.keep_stalled_stream(format!("model went silent for {stall_timeout:?}"));
                     break;
                 }
             };
