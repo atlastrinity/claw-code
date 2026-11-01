@@ -51,6 +51,15 @@ for _p in _extra_paths:
         _paths.insert(0, _p)
 os.environ["PATH"] = os.pathsep.join(_paths)
 
+# Озвучка найчастіше пише у файл (narrator.log), а не в термінал. Без line
+# buffering Python буферизує stdout блоками, і лог мовчить увесь хід до самого
+# виходу процесу — «наскільки синхронно озвучка йде за виконанням» тоді
+# невимірювана взагалі.
+try:
+    sys.stdout.reconfigure(line_buffering=True)
+except (AttributeError, ValueError):
+    pass
+
 # Load .env files automatically to ensure API keys are populated even if run in raw shell
 for env_dir in (project_root, Path.home() / ".claw"):
     env_file = env_dir / ".env"
@@ -615,8 +624,15 @@ class VoicePlayer:
         bold = COLORS["bold"]
         dim = COLORS["dim"]
 
+        # Штемпель часу і стан черги — щоб одним поглядом у лог міряти, наскільки
+        # озвучка встигає за виконанням (run.log дає події, mtime play_*.wav — відтворення).
+        stamp = time.strftime("%H:%M:%S")
+        ahead = self.turns_ahead
+        queued = self.backlog_segments()
+        behind_note = f"  ⏳ попереду {ahead} · у черзі {queued}" if (ahead or queued) else ""
+
         print(f"\n{bold}{color}{'─' * 60}{reset}")
-        print(f"{color}{emoji}  {name}  —  {title}{reset}")
+        print(f"{color}{emoji}  {name}  —  {title}  [{stamp}]{behind_note}{reset}")
         print(f"{dim}{color}{'─' * 60}{reset}")
         print(f"  {color}{natural_text_ua}{reset}")
         print(f"{dim}{color}{'─' * 60}{reset}")
