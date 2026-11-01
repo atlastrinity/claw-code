@@ -367,9 +367,24 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                         fid
                     ));
                 } else if depth < 4 {
+                    // The example titles here used to be categories of action —
+                    // "[Diagnose root cause]", "[Apply fix or alternative]",
+                    // "[Verify]" — and the model pasted them as leaf titles
+                    // verbatim. A title like that names no artifact, so when the
+                    // step claims completion the closing gate has no promise to
+                    // check against and the leaf stays shut forever. Examples must
+                    // therefore be described by what they leave behind.
                     alerts.push(format!(
-                        "🛡️ Grisha Root-Cause Recovery Advisory: Task '{}' failed and its title holds several phases. Decompose it into those phases as sub-tasks (e.g. '{}.1' [Diagnose root cause: inspect logs/environment/devices], '{}.2' [Apply fix or alternative], '{}.3' [Verify]) and give each a title naming the distinct step, then attempt root-cause resolution before admitting permanent failure.",
-                        fid, fid, fid, fid
+                        "🛡️ Grisha Root-Cause Recovery Advisory: Task '{}' failed and its title \
+                         holds several phases. Decompose it along those phases as sub-tasks \
+                         ('{}.1', '{}.2', …), each titled by the artifact it leaves behind — the \
+                         log or path it reads, the file it changes, the exact command that must \
+                         exit 0. Never title a step by its category of action: 'Diagnose', \
+                         'Apply fix or alternative' and 'Verify' as titles are refused by the \
+                         plan gate, and even if they got in, no artifact could ever satisfy \
+                         them. Then attempt root-cause resolution before admitting permanent \
+                         failure.",
+                        fid, fid, fid
                     ));
                 } else {
                     alerts.push(format!(

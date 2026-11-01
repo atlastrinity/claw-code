@@ -156,6 +156,52 @@ impl GrishaPlanReviewer {
             }
         }
 
+        // 4c. Directive echo: a leaf whose title is a line of system guidance
+        // rather than a description of work.
+        //
+        // A live run filled its plan with "Reach the same goal without this call
+        // at all: …", "Apply fix or alternative: …" and "Determine the
+        // precondition: …" — the bifurcation and give-up texts pasted straight
+        // into `add`. The damage shows up later: a title is what the verification
+        // gate reads as the promise the step must keep, and a promise copied from
+        // an instruction names no artifact and no command that could satisfy it.
+        // The leaf can never close, the siblings behind it can never start, and
+        // the run circles until every gate is refusing. Refusing the title at the
+        // gate that creates it costs one turn; letting it in costs the session.
+        fn is_directive_echo(title: &str) -> bool {
+            let lc = title.to_lowercase();
+            [
+                "reach the same goal",
+                "without this call",
+                "determine the precondition",
+                "apply fix or alternative",
+                "mark the blocked approach",
+                "split the orbit",
+                "the precondition as the thing",
+            ]
+            .iter()
+            .any(|marker| lc.contains(marker))
+        }
+
+        for node in &enriched {
+            if let Some(content) = node.content.as_deref() {
+                if is_directive_echo(content) {
+                    return Err(GrishaExecutionError::new(
+                        GrishaErrorCode::PlanDirectiveEcho,
+                        format!(
+                            "Task '{}' (\"{}\") is a line copied from a system directive, not a \
+                             step of work.",
+                            node.id, content
+                        ),
+                        "Name the step by what it produces — the file that will exist, the \
+                         command that will exit 0, the behaviour a user can see. A leaf titled \
+                         with the words of an instruction is read back later as the promise the \
+                         step must keep, and nothing in the workspace can satisfy it.",
+                    ));
+                }
+            }
+        }
+
         // 5. Duplicate child & ancestor cycle check: prevent recreating identical tasks under parent
         //
         // `retried_abandoned` collects the clones that are really second attempts:
@@ -362,7 +408,11 @@ impl GrishaPlanReviewer {
         // and the duplicate is never added.
         for (clone_id, twin_id) in retried_abandoned {
             enriched.retain(|n| n.id != clone_id);
-            let pool: Vec<TaskNode> = existing_nodes.iter().chain(enriched.iter()).cloned().collect();
+            let pool: Vec<TaskNode> = existing_nodes
+                .iter()
+                .chain(enriched.iter())
+                .cloned()
+                .collect();
             let reopen_id = match reopen_target(&twin_id, &pool) {
                 Some(id) => id,
                 None => {
@@ -562,6 +612,48 @@ mod tests {
         let res = GrishaPlanReviewer::review_and_enhance(&nodes, &[]);
         assert!(res.is_err());
         assert_eq!(res.unwrap_err().code, GrishaErrorCode::PlanMaxDepthExceeded);
+    }
+
+    /// A leaf named after a line of system guidance can never be closed: its
+    /// title promises no artifact, so the verification gate has nothing to look
+    /// for and the run circles behind a refusal it cannot answer.
+    #[test]
+    fn a_title_copied_from_a_system_directive_is_not_a_step() {
+        for title in [
+            "Reach the same goal without this call at all: use swift build directly",
+            "Apply fix or alternative: modify the Package.swift file",
+            "Determine the precondition: the swift build command must succeed",
+        ] {
+            let res = GrishaPlanReviewer::review_and_enhance(
+                &[TaskNode {
+                    id: "7.2.2.1".to_string(),
+                    parent_id: Some("7.2.2".to_string()),
+                    content: Some(title.to_string()),
+                    status: Some(TaskStatus::Pending),
+                }],
+                &[],
+            );
+            let error = res.expect_err("a directive line is not a planned step");
+            assert_eq!(error.code, GrishaErrorCode::PlanDirectiveEcho, "{title}");
+        }
+
+        // Real work, including a feature whose own words sit next to the
+        // directive vocabulary, still plans.
+        for title in [
+            "Add colour inversion to the display profile",
+            "Write the build script that runs swift build and signs the app",
+        ] {
+            let res = GrishaPlanReviewer::review_and_enhance(
+                &[TaskNode {
+                    id: "7.2.2.1".to_string(),
+                    parent_id: Some("7.2.2".to_string()),
+                    content: Some(title.to_string()),
+                    status: Some(TaskStatus::Pending),
+                }],
+                &[],
+            );
+            assert!(res.is_ok(), "{title} is a step of work: {:?}", res.err());
+        }
     }
 
     #[test]

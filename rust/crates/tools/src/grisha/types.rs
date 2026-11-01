@@ -22,6 +22,8 @@ pub enum GrishaErrorCode {
     PlanMaxDepthExceeded,
     /// Plan step manages the task tracker instead of producing an artifact.
     PlanMetaTask,
+    /// Plan step is a line copied from a system directive rather than work.
+    PlanDirectiveEcho,
     /// Phase transition attempted with incomplete prerequisites.
     PhaseTransitionIncomplete,
 }
@@ -40,6 +42,7 @@ impl GrishaErrorCode {
             Self::PlanRecursiveDuplicate => "GRISHA_PLAN_003",
             Self::PlanMaxDepthExceeded => "GRISHA_PLAN_004",
             Self::PlanMetaTask => "GRISHA_PLAN_005",
+            Self::PlanDirectiveEcho => "GRISHA_PLAN_006",
             Self::PhaseTransitionIncomplete => "GRISHA_PHASE_001",
         }
     }
