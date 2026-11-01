@@ -381,18 +381,19 @@ where
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .gate_mutations_for_step(&gate_pairs);
-        let mut gate_refusals = Vec::new();
+        // One call can trip a gate more than once: a TaskGraph batch that claims
+        // two unearned `completed` boxes is refused per node. The provider
+        // tolerates exactly one result per tool_use id, and the second answer to
+        // the same call used to reach it as a 400 `invalid_request_message_order`
+        // — a whole session lost because a refusal was delivered twice. So the
+        // reasons accumulate per call and travel in the single result it gets.
+        let mut refusal_reasons: std::collections::BTreeMap<usize, Vec<String>> =
+            std::collections::BTreeMap::new();
         for &index in &gate_blocked {
-            let call = &calls[index];
-            gate_refusals.push((
-                index,
-                ConversationMessage::tool_result(
-                    call.tool_use_id.clone(),
-                    call.tool_name.clone(),
-                    BifurcationEngine::probe_gate_refusal(&call.tool_name),
-                    true,
-                ),
-            ));
+            refusal_reasons
+                .entry(index)
+                .or_default()
+                .push(BifurcationEngine::probe_gate_refusal(&calls[index].tool_name));
         }
 
         // Claims gate: a leaf titled "Test/Build/Verify …" may not be claimed
@@ -410,18 +411,24 @@ where
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .gate_claims_for_step(&gate_pairs, &step_history)
         {
-            let call = &calls[index];
             gate_blocked.push(index);
-            gate_refusals.push((
-                index,
-                ConversationMessage::tool_result(
-                    call.tool_use_id.clone(),
-                    call.tool_name.clone(),
-                    refusal,
-                    true,
-                ),
-            ));
+            refusal_reasons.entry(index).or_default().push(refusal);
         }
+        let gate_refusals: Vec<(usize, ConversationMessage)> = refusal_reasons
+            .into_iter()
+            .map(|(index, reasons)| {
+                let call = &calls[index];
+                (
+                    index,
+                    ConversationMessage::tool_result(
+                        call.tool_use_id.clone(),
+                        call.tool_name.clone(),
+                        merge_refusal_reasons(&reasons),
+                        true,
+                    ),
+                )
+            })
+            .collect();
         let calls: Vec<ToolCallRequest> = calls
             .into_iter()
             .enumerate()
@@ -820,7 +827,7 @@ where
 
             let request = ApiRequest {
                 system_prompt,
-                messages: self.session.messages.clone(),
+                messages: request_messages(&self.session.messages),
             };
             let mut retries = 0;
             let max_retries = 2;
@@ -1524,12 +1531,77 @@ fn recover_textual_tool_calls(message: &mut ConversationMessage) {
     }
 }
 
+/// Several refusals answered one call. They travel together because the batch
+/// does not run until every reason is cleared: sending them one per round trip
+/// would make the model fix a single node, resend the whole batch, and be
+/// refused again for each remaining node.
+fn merge_refusal_reasons(reasons: &[String]) -> String {
+    match reasons.len() {
+        0 => String::new(),
+        1 => reasons[0].clone(),
+        _ => {
+            let mut merged = format!(
+                "[This one call was refused for {} separate reasons. Clear all of them in your \
+                 next call — the batch does not run while any remain.]\n\n",
+                reasons.len()
+            );
+            merged.push_str(&reasons.join("\n\n"));
+            merged
+        }
+    }
+}
+
+/// The history as the provider is allowed to see it.
+///
+/// Providers pair every `tool_result` with the `tool_use` it answers and reject
+/// the request outright when that pairing breaks — a call answered twice, or a
+/// result for a call that is not in the history, both come back as a 400
+/// `invalid_request_message_order` before a single token is generated. Several
+/// producers write results here (the gates, the middleware chain, hooks) and the
+/// live runs proved each of them can slip, so the boundary enforces the
+/// invariant instead of trusting them: the first answer to a call is the one
+/// that counts and a result with no call to answer is dropped. Repairs are
+/// logged, never swallowed — an unexplained repair hides the producer that made
+/// the duplicate.
+fn request_messages(messages: &[ConversationMessage]) -> Vec<ConversationMessage> {
+    use std::collections::HashSet;
+
+    let mut calls: HashSet<String> = HashSet::new();
+    let mut answered: HashSet<String> = HashSet::new();
+    let mut dropped = 0usize;
+    let mut repaired = Vec::with_capacity(messages.len());
+    for message in messages {
+        let mut message = message.clone();
+        let before = message.blocks.len();
+        message.blocks.retain(|block| match block {
+            ContentBlock::ToolUse { id, .. } => calls.insert(id.clone()),
+            ContentBlock::ToolResult { tool_use_id, .. } => {
+                calls.contains(tool_use_id) && answered.insert(tool_use_id.clone())
+            }
+            _ => true,
+        });
+        dropped += before.saturating_sub(message.blocks.len());
+        if !message.blocks.is_empty() {
+            repaired.push(message);
+        }
+    }
+    if dropped > 0 {
+        tracing::warn!(
+            dropped,
+            "tool result pairing repaired before the API call — a duplicate or orphaned \
+             tool_result was removed; the provider rejects such a request outright"
+        );
+    }
+    repaired
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_assistant_message, parse_auto_compaction_threshold, ApiClient, ApiRequest,
-        AssistantEvent, AutoCompactionEvent, ConversationRuntime, PromptCacheEvent, RuntimeError,
-        StaticToolExecutor, ToolExecutor, DEFAULT_AUTO_COMPACTION_INPUT_TOKENS_THRESHOLD,
+        build_assistant_message, parse_auto_compaction_threshold, request_messages, ApiClient,
+        ApiRequest, AssistantEvent, AutoCompactionEvent, ConversationMessage, ConversationRuntime,
+        PromptCacheEvent, RuntimeError, StaticToolExecutor, ToolExecutor,
+        DEFAULT_AUTO_COMPACTION_INPUT_TOKENS_THRESHOLD,
     };
     use crate::compact::CompactionConfig;
     use crate::config::{RuntimeFeatureConfig, RuntimeHookConfig};
@@ -1672,6 +1744,119 @@ mod tests {
                 ..
             }
         ));
+    }
+
+    /// The live run that lost a whole session: one TaskGraph call claimed two
+    /// untested leaves `completed`, the claims gate refused each node, and both
+    /// refusals went out as results for the same tool_use id. The provider
+    /// answered `400 invalid_request_message_order`, the turn died, and the
+    /// restart loop began an empty session. One refused call, one result — no
+    /// matter how many reasons refuse it.
+    #[test]
+    fn one_call_refused_for_several_reasons_is_answered_once() {
+        struct BatchClaimsApiClient {
+            call_count: usize,
+        }
+
+        impl ApiClient for BatchClaimsApiClient {
+            fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+                self.call_count += 1;
+                if self.call_count == 1 {
+                    return Ok(vec![
+                        AssistantEvent::ToolUse {
+                            id: "batch-1".to_string(),
+                            name: "TaskGraph".to_string(),
+                            input: r#"{"operation":"add","nodes":[{"id":"1.1","parent_id":"1","content":"Test the settings screen","status":"completed"},{"id":"1.2","parent_id":"1","content":"Build the app bundle","status":"completed"}]}"#.to_string(),
+                            signature: None,
+                        },
+                        AssistantEvent::MessageStop,
+                    ]);
+                }
+                Ok(vec![
+                    AssistantEvent::TextDelta("Running the checks first.".to_string()),
+                    AssistantEvent::MessageStop,
+                ])
+            }
+        }
+
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            BatchClaimsApiClient { call_count: 0 },
+            StaticToolExecutor::new(),
+            PermissionPolicy::new(PermissionMode::WorkspaceWrite),
+            vec!["system".to_string()],
+        );
+
+        runtime
+            .run_turn("plan it", None)
+            .expect("turn should finish");
+
+        let answers = runtime
+            .session()
+            .messages
+            .iter()
+            .flat_map(|message| message.blocks.iter())
+            .filter_map(|block| match block {
+                ContentBlock::ToolResult {
+                    tool_use_id,
+                    output,
+                    is_error,
+                    ..
+                } => Some((tool_use_id.as_str(), output.as_str(), *is_error)),
+                _ => None,
+            })
+            .filter(|(id, _, _)| *id == "batch-1")
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            answers.len(),
+            1,
+            "one tool_use may not be answered twice: {answers:?}"
+        );
+        assert!(answers[0].2, "a refusal is an error result");
+        assert!(
+            answers[0].1.contains("1.1") && answers[0].1.contains("1.2"),
+            "both refused nodes must be named in the single result, got: {}",
+            answers[0].1
+        );
+    }
+
+    /// The request boundary cannot assume every producer of results kept the
+    /// pairing: a second answer to one call and a result for a call that never
+    /// happened are both a guaranteed 400 from the provider.
+    #[test]
+    fn the_request_drops_a_second_answer_and_an_unasked_result() {
+        let call = ConversationMessage {
+            role: MessageRole::Assistant,
+            blocks: vec![ContentBlock::ToolUse {
+                id: "dup-1".to_string(),
+                name: "bash".to_string(),
+                input: r#"{"command":"true"}"#.to_string(),
+                signature: None,
+            }],
+            usage: None,
+        };
+        let first = ConversationMessage::tool_result("dup-1", "bash", "the real answer", false);
+        let second = ConversationMessage::tool_result("dup-1", "bash", "a duplicate", true);
+        let orphan = ConversationMessage::tool_result("never-asked", "bash", "nobody called", true);
+
+        let sent = request_messages(&[call, first, second, orphan]);
+        let results = sent
+            .iter()
+            .flat_map(|message| message.blocks.iter())
+            .filter_map(|block| match block {
+                ContentBlock::ToolResult {
+                    tool_use_id, output, ..
+                } => Some((tool_use_id.as_str(), output.as_str())),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            results,
+            vec![("dup-1", "the real answer")],
+            "the provider must see exactly one result, and only for a call it made"
+        );
     }
 
     #[test]
