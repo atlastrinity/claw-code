@@ -98,6 +98,39 @@ pub(crate) fn auto_continue_limit() -> usize {
         .unwrap_or(32)
 }
 
+/// Errors that mean "this request was too much for the endpoint", so a smaller
+/// one is the recovery.
+///
+/// Beyond the literal no-content cases this covers a shed, which by definition
+/// follows a streak of failures, and a stalled stream — but a stall only counts
+/// while `stall_counts` holds. One silence on one payload is a blip worth
+/// re-sending; the same payload going silent twice running is the endpoint
+/// telling us about the payload, and shrinking it is the only variable left.
+pub(crate) fn error_means_send_less(error: &str, stall_counts: bool) -> bool {
+    if error.contains("assistant stream produced no content")
+        || error.contains("Failed to parse input at pos")
+    {
+        return true;
+    }
+    if error.contains("provider circuit open") {
+        return true;
+    }
+    stall_counts && error.contains(crate::STREAM_STALL_MARKER)
+}
+
+/// The deepest escalation any live breaker has reached in this process.
+fn breaker_escalation() -> usize {
+    api::breaker::snapshot()
+        .into_iter()
+        .map(|(_, level, _, _)| level)
+        .max()
+        .unwrap_or(0)
+}
+
+/// Two silent chains on the same payload: enough evidence to shrink it rather
+/// than keep re-sending.
+const SILENCE_ROUNDS_BEFORE_SHRINKING: usize = 2;
+
 pub(crate) fn check_autonomous_continuation(cli: &LiveCli) -> (bool, String) {
     let mut last_assistant_text = String::new();
     if let Some(last_msg) = cli.runtime.session().messages.last() {
@@ -620,10 +653,14 @@ impl LiveCli {
                         .to_ascii_lowercase()
                         .contains("context size has been exceeded");
 
-                // Also treat "assistant stream produced no content" and parse failures
-                // as recoverable errors that may benefit from auto-compaction.
-                let is_no_content = error_str.contains("assistant stream produced no content")
-                    || error_str.contains("Failed to parse input at pos");
+                // Silence is recoverable the same way as an overflow: the
+                // endpoint took a request this size and answered nothing. A
+                // shed carries that history, so all three mean "send something
+                // smaller" — which is exactly what the ladder below does.
+                let is_no_content = error_means_send_less(
+                    &error_str,
+                    breaker_escalation() >= SILENCE_ROUNDS_BEFORE_SHRINKING,
+                );
 
                 if is_context_window || is_no_content {
                     // If the error tells us the server's actual context window, adapt our
@@ -694,6 +731,10 @@ impl LiveCli {
                             .set_hook_abort_signal(hook_abort_signal.clone());
                         let hook_abort_monitor = HookAbortMonitor::spawn(hook_abort_signal);
                         let mut rp = CliPermissionPrompter::new(self.permission_mode);
+                        // The ramp opened against the payload just replaced; a
+                        // shed on arrival would end the recovery before the
+                        // smaller request is ever tried.
+                        api::breaker::note_request_rewritten();
                         let retry_result = self.runtime.run_turn(input, Some(&mut rp));
                         hook_abort_monitor.stop();
 
@@ -736,9 +777,10 @@ impl LiveCli {
                                     || retry_str
                                         .to_ascii_lowercase()
                                         .contains("context size has been exceeded");
-                                let still_no_content = retry_str
-                                    .contains("assistant stream produced no content")
-                                    || retry_str.contains("Failed to parse input at pos");
+                                // Already descending: a stall here means the
+                                // payload just shrank and the endpoint is still
+                                // silent, so shrink once more rather than stop.
+                                let still_no_content = error_means_send_less(&retry_str, true);
 
                                 if (still_context_window || still_no_content)
                                     && round + 1 < max_compact_rounds
@@ -2105,5 +2147,38 @@ mod tests {
             decide_autonomous_continuation(text, Some(task_md), false, true);
         assert!(!should_continue);
         assert!(prompt.is_empty());
+    }
+
+    #[test]
+    fn a_silent_provider_is_recovered_by_sending_less() {
+        assert!(error_means_send_less(
+            "stream stall: model went silent for 45s",
+            true
+        ));
+        assert!(error_means_send_less(
+            "assistant stream produced no content",
+            false
+        ));
+        assert!(error_means_send_less(
+            "provider circuit open after 4 consecutive failed retry chains",
+            false
+        ));
+    }
+
+    #[test]
+    fn one_blink_is_worth_re_sending_before_shrinking() {
+        assert!(!error_means_send_less(
+            "stream stall: model went silent for 45s",
+            false
+        ));
+    }
+
+    #[test]
+    fn a_rejected_request_is_not_a_silence_recovery() {
+        assert!(!error_means_send_less(
+            "401 Unauthorized: token expired or incorrect",
+            true
+        ));
+        assert!(!error_means_send_less("unsupported tool: no_such_tool", true));
     }
 }

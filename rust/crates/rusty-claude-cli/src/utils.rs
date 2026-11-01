@@ -71,7 +71,7 @@ const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(
 /// raises it as an error, [`AnthropicRuntimeClient::keep_partial_stream`] reports
 /// it on stderr — and the marker the stream retry loop matches on. Only these
 /// two build it, so the check cannot drift onto an unrelated error message.
-const STREAM_STALL_MARKER: &str = "stream stall";
+pub(crate) const STREAM_STALL_MARKER: &str = "stream stall";
 
 /// Silence bound for one stream, with the env override applied on top of the
 /// compiled default. Zero or unparseable values fall back rather than disabling
@@ -9675,17 +9675,27 @@ impl ApiClient for AnthropicRuntimeClient {
             let max_attempts: usize = 3;
 
             for attempt in 1..=max_attempts {
-                let result = self.consume_stream(&message_request, stall_timeout).await;
+                // A stream that was accepted and then fell silent is most often
+                // the endpoint being slow rather than dead, so the second send
+                // waits twice as long for the first event. A third identical
+                // send into the same window proves nothing: surfacing the stall
+                // lets the turn-level recovery shrink the payload instead, which
+                // is the variable that actually changed the outcome.
+                let attempt_timeout = if attempt == 1 {
+                    stall_timeout
+                } else {
+                    (stall_timeout * 2).min(std::time::Duration::from_secs(150))
+                };
+                let result = self.consume_stream(&message_request, attempt_timeout).await;
                 match result {
                     Ok(events) => return Ok(events),
                     Err(error) if error.is_terminal() => return Err(error),
                     Err(error)
-                        if error.to_string().contains(STREAM_STALL_MARKER)
-                            && attempt < max_attempts =>
+                        if error.to_string().contains(STREAM_STALL_MARKER) && attempt == 1 =>
                     {
-                        // Stalled before producing anything: the dead
-                        // connection is dropped and the same request re-sent,
-                        // so there is nothing to duplicate on the terminal.
+                        // Stalled before producing anything: the dead connection
+                        // is dropped and the same request re-sent once, with
+                        // double patience, so there is nothing to duplicate here.
                     }
                     Err(error) if attempt < max_attempts => {
                         eprintln!(
