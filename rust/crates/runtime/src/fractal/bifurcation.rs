@@ -104,6 +104,19 @@ pub const CHAOS_HALT_STEPS: usize = 3;
 /// measured evidence, instead of a bare prohibition.
 pub const MIN_ATTEMPTS_BEFORE_REFUSAL: usize = 1;
 
+/// Re-runs tolerated for a *check* command (`swift build`, `cargo test`) before
+/// the orbit counts as dead.
+///
+/// A check is the only evidence the verification gate reads, and the gate sends
+/// the agent back to run it — "run the check now, then re-issue this same
+/// update_status". Refusing that exact command one step later is two gates giving
+/// opposite orders, which is how a run stalls holding the proof it was asked for.
+/// A check can also legitimately start passing with nothing mutated here (a lock
+/// clears, a fetch finishes), unlike an edit that failed for a reason in its own
+/// arguments. The budget is finite so a genuinely broken build cannot be re-run
+/// forever.
+pub const VERIFIER_RETRY_BUDGET: usize = 3;
+
 /// Retention on the failed-attempt ledger. Bounded so a long session cannot grow
 /// it without limit; the oldest entries are evicted first.
 pub const MAX_LEDGER_ENTRIES: usize = 64;
@@ -111,11 +124,18 @@ pub const MAX_LEDGER_ENTRIES: usize = 64;
 /// Transport failures. These are the circuit breaker's job (pause and retry with
 /// a δ-scaled backoff); the ladder only under-weights them, because an identical
 /// retry of a timed-out call can legitimately succeed.
+///
+/// A lock belongs here for the same reason a timeout does: it is held by
+/// something else, and it clears with waiting rather than with a mutation in
+/// this workspace. The epoch rule cannot see that — nothing here changed, so a
+/// live run refused the `swift build` its own verification gate was demanding,
+/// stamped `resource_locked`, and the leaf stayed shut.
 pub const TRANSIENT_CATEGORIES: &[&str] = &[
     "timeout",
     "connection_error",
     "rate_limit",
     "network_unreachable",
+    "resource_locked",
 ];
 
 /// Error outputs at or below this length are already cheap to attend to — only
@@ -130,6 +150,17 @@ const TOMBSTONE_EXCERPT_CHARS: usize = 160;
 /// world is untouched, which is how a run narrates ten plan updates and delivers
 /// nothing. Past this streak the orbit is forced to split.
 pub const MAX_STALL_STEPS: usize = 3;
+
+/// Consecutive steps that end with *nothing executed* — every call denied by a
+/// gate — before the turn is cut off.
+///
+/// This is the loudest signature a run can make and the one the pressure ladder
+/// reads as mere failure: a live run spent 132 iterations answering nothing but
+/// its own refusals (74 dead-orbit denials, 11 lap stops), 65k input tokens per
+/// turn, zero successful calls. Each individual gate was right; together they
+/// formed a room with no door, and the only thing missing was noticing. Eight
+/// steps is generous — a probe or one accepted call resets the count.
+pub const MAX_DENIAL_ONLY_STEPS: usize = 8;
 
 /// Thinking regime the runtime is currently forcing on the model. Ordered by
 /// severity so `max()` composes the pressure-derived level with a cycle floor.
@@ -296,6 +327,32 @@ pub struct Refusal {
 impl Refusal {
     #[must_use]
     pub fn to_directive(&self) -> String {
+        // The last step of this directive used to be the same for every dead
+        // orbit: "record the split with TaskGraph operation 'add' under the
+        // active leaf". A live run obeyed it eight turns in a row and got refused
+        // eight times, because the leaf it was told to hang children on already
+        // sat at the graph's five-level cap, and a plan edit that the graph
+        // forbids is not an escape route. When the dead call is itself the plan
+        // edit, the directive must stop sending the agent back to the tool that
+        // just refused it.
+        let record_split = if self.tool.eq_ignore_ascii_case("taskgraph") {
+            "Your next call must not be another plan edit — the graph has turned this \
+             one down repeatedly at this epoch. Do the ORTHODOX action first: run the \
+             command or the read-only probe it names, in the workspace. If the plan \
+             will not hold the split, carry the split out anyway and say so in your \
+             reply; the graph records work, it does not license it."
+        } else {
+            "Then record the split: use TaskGraph operation 'add' to create the two \
+             orbit sub-tasks under the active leaf, and mark the blocked approach \
+             'failed'. Do not delete the failing task. A new node may not go deeper \
+             than five levels, so if the active leaf already sits at that depth, add \
+             the two tasks beside it — under its parent — instead of under it. If the \
+             add is still refused, do the ORTHODOX action anyway. Title each sub-task \
+             by what it will produce, not by the words of this directive — a leaf \
+             named \"reach the same goal without this call\" is an instruction pasted \
+             into the plan, and the gate later reads that title as a promise the step \
+             must keep and refuses to close it."
+        };
         format!(
             "[SYSTEM DIRECTIVE — BIFURCATION: DEAD ORBIT REFUSED]\n\
              `{tool}` with this exact input already failed with `{category}` \
@@ -310,14 +367,13 @@ impl Refusal {
              under, and a child that repeats its parent is refused by the graph.\n\
              2. INVERSION — reach the same goal without this call at all (different tool, \
              different layer, different entry point).\n\
-             Then record the split: use TaskGraph operation 'add' to create the two orbit \
-             sub-tasks under the active leaf, and mark the blocked approach 'failed'. Do not \
-             delete the failing task.",
+             {record_split}",
             tool = self.tool,
             category = self.category,
             attempts = self.attempts,
             s = if self.attempts == 1 { "" } else { "s" },
             epoch = self.epoch,
+            record_split = record_split,
         )
     }
 }
@@ -456,6 +512,9 @@ struct FailedAttempt {
     attempts: usize,
     step: usize,
     transient: bool,
+    /// The call re-runs a check (`swift build`, `cargo test`) rather than trying
+    /// to change something. See [`VERIFIER_RETRY_BUDGET`].
+    is_check: bool,
 }
 
 /// One call the session has already answered, in emission order.
@@ -541,6 +600,12 @@ pub struct BifurcationEngine {
     /// ladder would be blind to its cleanest limit-cycle evidence. Drained by
     /// [`Self::observe`].
     refused_this_step: Vec<String>,
+    /// Steps in a row that executed nothing because every call was denied by a
+    /// gate. See [`MAX_DENIAL_ONLY_STEPS`].
+    denial_only_steps: usize,
+    /// Set once that streak passes the budget: the gates have built a room with
+    /// no door and the turn should be ended rather than paid for again.
+    gate_stuck: bool,
     /// Set when the ladder is past r∞ for [`CHAOS_HALT_STEPS`] steps and halting
     /// was enabled by the caller.
     halt_requested: bool,
@@ -601,6 +666,8 @@ impl BifurcationEngine {
             seen_fingerprints: HashSet::new(),
             proven_tools: HashMap::new(),
             refused_this_step: Vec::new(),
+            denial_only_steps: 0,
+            gate_stuck: false,
             halt_requested: false,
             halt_at_chaos: false,
             pending_escape: None,
@@ -667,6 +734,21 @@ impl BifurcationEngine {
     #[must_use]
     pub fn halt_requested(&self) -> bool {
         self.halt_requested
+    }
+
+    /// Steps in a row that ended with nothing executed because every call was
+    /// denied by a gate.
+    #[must_use]
+    pub fn denial_only_steps(&self) -> usize {
+        self.denial_only_steps
+    }
+
+    /// True once that streak passes [`MAX_DENIAL_ONLY_STEPS`]: the gates are all
+    /// refusing and none of their refusals can be acted on from inside this turn,
+    /// so the caller should end it and hand the blocker to the user.
+    #[must_use]
+    pub fn gate_stuck(&self) -> bool {
+        self.gate_stuck
     }
 
     /// Transient categories belong to the circuit breaker, not to the ladder: an
@@ -1057,6 +1139,15 @@ impl BifurcationEngine {
         // had been looked at, the graph refused to advance, and every action that
         // could fix either sat behind that refusal.
         Self::is_observation_command(&command)
+    }
+
+    /// Is this call re-running a check — the command a verification gate would
+    /// read as evidence? Same parse the probe classifier uses: a `bash` call
+    /// whose `command` is a verifier.
+    #[must_use]
+    fn is_check_call(tool: &str, input: &str) -> bool {
+        tool.eq_ignore_ascii_case("bash")
+            && Self::bash_command(input).is_some_and(|command| Self::is_verifier_command(&command))
     }
 
     /// A command that reads the machine and provably changes nothing in it.
@@ -1850,9 +1941,14 @@ impl BifurcationEngine {
     /// it and the mutation epoch has not moved since — nothing that could change
     /// the outcome has succeeded in between.
     fn is_dead_orbit(&self, entry: &FailedAttempt) -> bool {
+        let budget = if entry.is_check {
+            VERIFIER_RETRY_BUDGET
+        } else {
+            MIN_ATTEMPTS_BEFORE_REFUSAL
+        };
         !entry.transient
             && !entry.category.is_empty()
-            && entry.attempts >= MIN_ATTEMPTS_BEFORE_REFUSAL
+            && entry.attempts >= budget
             && entry.epoch == self.mutation_epoch
     }
 
@@ -1906,6 +2002,7 @@ impl BifurcationEngine {
             attempts: 1,
             step: self.steps,
             transient: false,
+            is_check: Self::is_check_call(tool, input),
         };
         self.ledger.insert(key.clone(), entry);
         self.ledger_order.push_back(key);
@@ -1996,6 +2093,22 @@ impl BifurcationEngine {
         // orbit and the gate stopped it. Fold those attempts in before measuring,
         // otherwise the ladder is blind to its clearest limit-cycle signature.
         let refused = std::mem::take(&mut self.refused_this_step);
+
+        // A step whose only outcome is that nothing was allowed to run is not
+        // resistance being worked through: it is the run asking permission for
+        // the same call again. Pressure reads it as failure and climbs; nobody
+        // reads it as *no progress at all*, which is why a live turn reached 132
+        // iterations without a single accepted call. One accepted call ends it.
+        if !refused.is_empty() && sample.successes.is_empty() && !sample.mutated_state {
+            self.denial_only_steps += 1;
+            if self.denial_only_steps >= MAX_DENIAL_ONLY_STEPS {
+                self.gate_stuck = true;
+            }
+        } else {
+            self.denial_only_steps = 0;
+            self.gate_stuck = false;
+        }
+
         let mut delta = 0.0f64;
         let mut saw_failure = false;
 

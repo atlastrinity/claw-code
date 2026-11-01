@@ -302,6 +302,157 @@ fn test_dead_orbit_is_refused_only_while_the_world_is_unchanged() {
     assert_eq!(engine.would_refuse(&key), None);
 }
 
+/// A live run was told by the verification gate to "run the check now, then
+/// re-issue this same update_status", and the dead-orbit ledger refused exactly
+/// that check on the next turn: the agent held the demand and the prohibition at
+/// the same time and circled until the run loop stopped. A check is the evidence
+/// the gate reads, and it can start passing with nothing mutated here, so it
+/// spends a retry budget before the orbit closes.
+#[test]
+fn a_failing_check_spends_its_retry_budget_before_the_orbit_closes() {
+    let mut engine = BifurcationEngine::new();
+    let input = "{\"command\":\"swift build\"}";
+    let key = BifurcationEngine::attempt_key("bash", input);
+
+    for attempt in 1..VERIFIER_RETRY_BUDGET {
+        fail_step(&mut engine, "bash", input, "syntax_error");
+        assert_eq!(
+            engine.would_refuse(&key),
+            None,
+            "retry {attempt} of the check the gate demanded must still run"
+        );
+    }
+
+    fail_step(&mut engine, "bash", input, "syntax_error");
+    let refusal = engine
+        .would_refuse(&key)
+        .expect("a check re-run past its budget is a loop like any other");
+    assert_eq!(refusal.attempts, VERIFIER_RETRY_BUDGET);
+}
+
+/// A non-check call keeps the one-strike rule: an edit that failed on its own
+/// arguments gains nothing from being issued again.
+#[test]
+fn an_ordinary_call_is_still_refused_at_the_first_retry() {
+    let mut engine = BifurcationEngine::new();
+    let key = BifurcationEngine::attempt_key("edit_file", "{\"old_string\": \"y\"}");
+    fail_step(
+        &mut engine,
+        "edit_file",
+        "{\"old_string\": \"y\"}",
+        "file_not_found",
+    );
+    assert!(engine.would_refuse(&key).is_some());
+}
+
+/// `resource_locked` says another process is holding the file, the port, or the
+/// database. That clears with waiting and needs no mutation in this workspace,
+/// so the epoch rule cannot judge it — and one run lost the `swift build` its
+/// gate was demanding to a refusal stamped with exactly this category.
+#[test]
+fn a_lock_held_by_something_else_is_never_a_dead_orbit() {
+    let mut engine = BifurcationEngine::new();
+    let input = "{\"command\":\"edge-tts --text hi\"}";
+    let key = BifurcationEngine::attempt_key("bash", input);
+
+    for _ in 0..4 {
+        fail_step(&mut engine, "bash", input, "resource_locked");
+        assert_eq!(
+            engine.would_refuse(&key),
+            None,
+            "the holder may have let go by now; the retry is a new experiment"
+        );
+    }
+}
+
+/// The escape route of a dead orbit must be walkable. Telling the agent to
+/// record the split with a plan edit — when the dead call *is* the plan edit the
+/// graph keeps refusing — made a run issue the same refused `add` eight turns in
+/// a row.
+#[test]
+fn a_dead_plan_edit_is_not_sent_back_to_the_plan() {
+    let mut engine = BifurcationEngine::new();
+    let input = "{\"operation\":\"update_status\",\"nodes\":[{\"id\":\"1.1.3.2.2\",\"status\":\"completed\"}]}";
+    let key = BifurcationEngine::attempt_key("TaskGraph", input);
+    fail_step(
+        &mut engine,
+        "TaskGraph",
+        input,
+        "errortask_113221_is_not_in_the_graph",
+    );
+
+    let directive = engine
+        .would_refuse(&key)
+        .expect("the repeated plan edit is a dead orbit")
+        .to_directive();
+    assert!(
+        directive.contains("must not be another plan edit"),
+        "{directive}"
+    );
+    assert!(
+        !directive.contains("under the active leaf"),
+        "a plan edit the graph refuses cannot be the recorded split: {directive}"
+    );
+
+    // A workspace call still gets the recording step — with the depth rule
+    // spelled out, since a leaf at the cap cannot take children.
+    let mut engine = BifurcationEngine::new();
+    let input = "{\"command\":\"rm -rf build\"}";
+    let key = BifurcationEngine::attempt_key("bash", input);
+    fail_step(&mut engine, "bash", input, "permission_denied");
+    let directive = engine
+        .would_refuse(&key)
+        .expect("a refused mutating call repeats as a dead orbit")
+        .to_directive();
+    assert!(directive.contains("under the active leaf"), "{directive}");
+    assert!(directive.contains("five levels"), "{directive}");
+}
+
+/// Each gate was right on its own turn; together they were a wall. A run where
+/// every call is denied and nothing executes is not resistance being worked
+/// through — it is the turn paying itself to re-read its own refusals, so the
+/// streak has to end something other than more turns.
+#[test]
+fn a_run_where_every_call_is_denied_is_cut_off() {
+    let mut engine = BifurcationEngine::new();
+    let input =
+        "{\"operation\":\"add\",\"nodes\":[{\"id\":\"1.1.3.2.2.1\",\"content\":\"Probe\"}]}";
+    let key = BifurcationEngine::attempt_key("TaskGraph", input);
+    fail_step(
+        &mut engine,
+        "TaskGraph",
+        input,
+        "errortask_113221_is_not_in_the_graph",
+    );
+
+    for step in 1..MAX_DENIAL_ONLY_STEPS {
+        let refusal = engine
+            .would_refuse(&key)
+            .expect("the plan edit stays a dead orbit at this epoch");
+        engine.note_refusal(&refusal);
+        engine.observe(&OrbitSample::new(engine.steps() + 1));
+        assert_eq!(engine.denial_only_steps(), step);
+        assert!(
+            !engine.gate_stuck(),
+            "step {step} of the budget must still leave room to recover"
+        );
+    }
+
+    let refusal = engine.would_refuse(&key).expect("still denied");
+    engine.note_refusal(&refusal);
+    engine.observe(&OrbitSample::new(engine.steps() + 1));
+    assert!(
+        engine.gate_stuck(),
+        "a full budget of denial-only steps must be reported to the caller"
+    );
+
+    // One accepted call is a different story: the streak is about nothing
+    // running, not about the gates having spoken.
+    ok_step(&mut engine, "write_file", "{\"path\": \"Probe.swift\"}");
+    assert_eq!(engine.denial_only_steps(), 0);
+    assert!(!engine.gate_stuck());
+}
+
 /// The whole point of the ladder is that it escalates on loops it *blocks*, not
 /// only on loops it lets run: a refused retry never reaches the tool executor, so
 /// the middleware has to hand the evidence back.

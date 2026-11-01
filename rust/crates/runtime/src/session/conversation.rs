@@ -971,6 +971,38 @@ where
                 self.record_turn_failed(iterations, &error);
                 return Err(error);
             }
+
+            // Every call denied, several steps in a row: the run is not stuck on
+            // the world any more, it is stuck on its own gates. Each refusal is
+            // correct read alone and none of them can be satisfied from inside the
+            // turn, so the loop only buys more refusals — one live session spent
+            // 132 iterations and 65k input tokens per turn answering nothing but its
+            // own denials. End it, and put the blocker where a person can act.
+            let stuck = {
+                let engine = self
+                    .bifurcation
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                (engine.gate_stuck(), engine.denial_only_steps())
+            };
+            if stuck.0 {
+                tracing::warn!(
+                    denial_only_steps = stuck.1,
+                    iterations,
+                    "turn ended: every call denied by a gate"
+                );
+                let error = RuntimeError::terminal(format!(
+                    "The run was ended after {} turns in a row in which every tool call was \
+                     refused by a gate and nothing executed. This is a contradiction between the \
+                     guards, not a slow task: each refusal names a condition the others forbid. \
+                     Human input needed — say which guard to relax, or restate the task so one \
+                     guard does not demand what another blocks. The last directives in the tool \
+                     results name the condition each guard is waiting on.",
+                    stuck.1
+                ));
+                self.record_turn_failed(iterations, &error);
+                return Err(error);
+            }
         }
 
         let summary = TurnSummary {
