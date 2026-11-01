@@ -339,7 +339,17 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         let has_children = current_nodes
             .iter()
             .any(|n| n.parent_id.as_ref() == Some(&active.id));
-        if !has_children && leaf_has_hidden_phases(active) {
+        // The plan reviewer already said this at 'add' time, in the same
+        // response, about the same node. Two near-identical nags read as emphasis
+        // and cost the tokens the work itself needs.
+        let already_said = grisha_remarks
+            .as_ref()
+            .map(|remarks| {
+                let marker = format!("Phase '{}' has no leaf sub-tasks", active.id);
+                remarks.iter().any(|remark| remark.contains(&marker))
+            })
+            .unwrap_or(false);
+        if !has_children && !already_said && leaf_has_hidden_phases(active) {
             let depth = active.id.split('.').count();
             if depth < 3 {
                 alerts.push(format!(
