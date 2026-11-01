@@ -280,6 +280,13 @@ def simplify_path_for_speech(text: str) -> str:
     
     return text
 
+def cyrillic_letter_share(text: str) -> float:
+    """Частка кириличних літер серед усіх літер тексту (0.0–1.0)."""
+    cyrillic = len(re.findall(r'[а-яА-ЯёЁєЄіІїЇґҐ]', text))
+    latin = len(re.findall(r'[a-zA-Z]', text))
+    total = cyrillic + latin
+    return cyrillic / total if total else 0.0
+
 def prepare_text_for_tts(text: str) -> str:
     # 0. Прибирання емодзі та символів перед синтезом мови
     text = strip_emojis(text)
@@ -305,12 +312,16 @@ def prepare_text_for_tts(text: str) -> str:
     pattern_eng_ukr = r'[a-zA-Z0-9_./\\#@$%^&*()+\-\s]+\s*\(([^a-zA-Z]+)\)'
     processed = re.sub(pattern_eng_ukr, r'\1', processed)
     
-    # 7. Замінюємо популярні терміни за словником
-    for eng, ua in TECH_GLOSSARY.items():
-        processed = re.sub(r'\b' + re.escape(eng) + r'\b', ua, processed, flags=re.IGNORECASE)
-        
-    # 8. Транслітеруємо решту англійських слів, щоб вони читалися українськими буквами
-    processed = transliterate_eng_to_ukr(processed)
+    # 7-8. Словник і транслітерація потрібні лише тоді, коли репліка вже
+    # українська, а англійські вставки слід вимовити українськими літерами.
+    # Якщо текст переважно англійський (переклад не вдався), лишаємо його як є:
+    # edge-tts читає англійські слова, тоді як посимвольна транслітерація цілого
+    # речення перетворює його на нерозбірливий набір складів.
+    if cyrillic_letter_share(processed) >= 0.4:
+        for eng, ua in TECH_GLOSSARY.items():
+            processed = re.sub(r'\b' + re.escape(eng) + r'\b', ua, processed, flags=re.IGNORECASE)
+
+        processed = transliterate_eng_to_ukr(processed)
     
     # 9. Прибираємо зайві пробіли перед розділовими знаками
     processed = re.sub(r'\s+([,.:;!?])', r'\1', processed)
@@ -367,6 +378,11 @@ class VoicePlayer:
         self.tts_engine = None
         self.wav_paths: list[Path] = []
         self.seg_count = 0
+        # Файли, які ще мають прозвучати (у черзі або грають просто зараз).
+        # Прибирання старих play_*.wav не повинно їх чіпати: інакше afplay
+        # отримує вже видалений шлях і падає з "AudioFileOpen failed".
+        self._live_wavs: set[Path] = set()
+        self._live_lock = threading.Lock()
         self.last_action_desc = ""
         self.last_action_tool = ""
         self.success_index = 0
@@ -450,15 +466,23 @@ class VoicePlayer:
                 self.wav_paths.append(cached_wav_path)
                 self.seg_count += 1
 
+                with self._live_lock:
+                    self._live_wavs.add(wav_path)
+                self.play_queue.put(wav_path)
+
                 play_files = sorted(self.output_dir.glob("play_*.wav"), key=lambda p: p.stat().st_mtime)
-                while len(play_files) > 10:
-                    oldest = play_files.pop(0)
+                pruned = 0
+                for oldest in play_files:
+                    if len(play_files) - pruned <= 10:
+                        break
+                    with self._live_lock:
+                        if oldest in self._live_wavs:
+                            continue
                     try:
                         oldest.unlink()
+                        pruned += 1
                     except Exception:
                         pass
-
-                self.play_queue.put(wav_path)
             except Exception as e:
                 print(f"  {COLORS['grisha']}⚠️ Помилка генерації аудіо: {e}{COLORS['reset']}")
                 if self.play_queue.empty() and self.synth_queue.empty() and lock_path.exists():
@@ -519,6 +543,8 @@ class VoicePlayer:
             except Exception as e:
                 print(f"\n{COLORS['grisha']}⚠️ Помилка відтворення аудіо: {e}{COLORS['reset']}")
             finally:
+                with self._live_lock:
+                    self._live_wavs.discard(wav_path)
                 send_avatar_event("speech_end")
                 self.current_proc = None
                 self.play_queue.task_done()
@@ -1310,14 +1336,19 @@ def summarize_assistant_response_via_llm(text: str) -> str:
     if len(clean_prompt_text) < 3:
         return ""
 
-    # 1. Пряме зачитування без змін для коротких/діалогових повідомлень (привітання, короткі відповіді)
+    # 1. Пряме зачитування для коротких/діалогових повідомлень (привітання,
+    #    короткі відповіді). Англійську відповідь спершу перекладаємо: без цього
+    #    TTS отримує латиницю і читає її по літерах.
     if len(words) <= 50 and not ("```" in text or "|" in text):
-        return prepare_text_for_tts(clean_prompt_text)
+        return translate_to_ukrainian(clean_prompt_text, voice="atlas", title="Заключення")
 
     # 2. Фінальне заключення перед Done
     # Якщо текст помірної довжини і без складного форматування — зачитуємо прямо
     if len(words) <= 100 and not has_complex_formatting:
-        return smart_truncate_sentence(prepare_text_for_tts(clean_prompt_text), max_chars=4000)
+        return smart_truncate_sentence(
+            translate_to_ukrainian(clean_prompt_text, voice="atlas", title="Заключення"),
+            max_chars=4000,
+        )
 
     # Для довгих звітів та аналізів — лаконічна, структурована подача через модель
     system_prompt = (
@@ -1334,8 +1365,10 @@ def summarize_assistant_response_via_llm(text: str) -> str:
     if llm_spoken and len(llm_spoken.strip()) > 10:
         return llm_spoken.strip()
 
-    # Fallback if LLM is unavailable: return full cleaned text up to 4000 characters
-    return smart_truncate_sentence(prepare_text_for_tts(clean_prompt_text), max_chars=4000)
+    # Fallback if LLM is unavailable: keep the cleaned text as written. Running
+    # it through prepare_text_for_tts would transliterate an English report into
+    # Cyrillic pseudo-syllables, which is worse than speaking the original.
+    return smart_truncate_sentence(strip_emojis(clean_prompt_text), max_chars=4000)
 
 
 def summarize_tool_action_via_llm(tool_name: str, params: dict) -> str:
