@@ -302,6 +302,38 @@ pub fn note_stall(breaker: &SharedBreaker, reason: &str) -> usize {
     after
 }
 
+/// Step every registered breaker one level back because the caller is about to
+/// send a *materially different* request.
+///
+/// A ramp that opened on a silent stream did so against one payload; the
+/// recovery is to shrink that payload, and a chaos-point shed on arrival would
+/// end the recovery before the smaller request was ever tried. The failures are
+/// not forgotten: a rewritten payload that also goes silent re-escalates from
+/// the next level and sheds again.
+pub fn note_request_rewritten() {
+    let registry = REGISTRY.lock().unwrap_or_else(PoisonError::into_inner);
+    for breaker in registry.values() {
+        relax_one(breaker);
+    }
+}
+
+/// One breaker, pulled back for a rewritten payload — see
+/// [`note_request_rewritten`].
+fn relax_one(breaker: &SharedBreaker) {
+    let mut limiter = lock(breaker);
+    // `on_success` steps down one level, which does nothing at the ceiling
+    // itself — and the ceiling is exactly where a rewritten payload needs
+    // relief. Clearing the streak also clears the level, and the failures
+    // stay counted, so a payload that goes silent again re-arms the ramp.
+    if limiter.current_level > 0 {
+        limiter.on_success();
+    }
+    if limiter.is_at_chaos_point() {
+        limiter.consecutive_failures = 0;
+        limiter.current_level = limiter.current_level.saturating_sub(1);
+    }
+}
+
 /// Per-attempt backoff: `initial * 2^(attempt-1)`, capped at `max`.
 ///
 /// This is the intra-chain schedule; the δ breaker governs what happens
@@ -393,6 +425,37 @@ mod tests {
             super::lock(&breaker).current_level,
             1,
             "a success must pull the ramp back down one level"
+        );
+    }
+
+    #[test]
+    fn silence_escalates_to_the_chaos_point_and_a_rewritten_payload_steps_back() {
+        let breaker = new_breaker(2);
+        assert_eq!(super::lock(&breaker).max_level, 4);
+        let levels: Vec<usize> = (0..4)
+            .map(|_| super::note_stall(&breaker, "stream accepted but produced no content"))
+            .collect();
+        assert_eq!(levels, vec![1, 2, 3, 4], "each silent chain escalates one level");
+        assert!(
+            super::lock(&breaker).is_at_chaos_point(),
+            "four silent chains must reach the shed point"
+        );
+
+        super::relax_one(&breaker);
+        assert!(
+            !super::lock(&breaker).is_at_chaos_point(),
+            "a rewritten payload is a different request, not the one that was shed"
+        );
+    }
+
+    #[test]
+    fn rewriting_a_payload_does_not_disturb_a_closed_breaker() {
+        let breaker = new_breaker(2);
+        super::relax_one(&breaker);
+        assert_eq!(super::lock(&breaker).current_level, 0);
+        assert_eq!(
+            super::lock(&breaker).consecutive_failures, 0,
+            "a healthy breaker keeps its clean count"
         );
     }
 

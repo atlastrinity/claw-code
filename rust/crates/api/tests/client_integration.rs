@@ -483,9 +483,9 @@ async fn retries_retryable_failures_before_succeeding() {
         state.clone(),
         vec![
             http_response(
-                "429 Too Many Requests",
+                "503 Service Unavailable",
                 "application/json",
-                "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow down\"}}",
+                "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}",
             ),
             http_response(
                 "200 OK",
@@ -507,6 +507,45 @@ async fn retries_retryable_failures_before_succeeding() {
 
     assert_eq!(response.total_tokens(), 5);
     assert_eq!(state.lock().await.len(), 2);
+}
+
+#[tokio::test]
+async fn a_rate_limit_without_a_hint_ends_the_chain_it_is_in() {
+    // Retrying a window-shaped failure every second fails the same way while
+    // spending the quota it is waiting for. One attempt, then the caller above
+    // rotates a key and the δ breaker holds the pause between chains.
+    let state = Arc::new(Mutex::new(Vec::<CapturedRequest>::new()));
+    let server = spawn_server(
+        state.clone(),
+        vec![
+            http_response(
+                "429 Too Many Requests",
+                "application/json",
+                "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow down\"}}",
+            ),
+            http_response(
+                "200 OK",
+                "application/json",
+                "{\"id\":\"msg_after_window\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"Would have answered\"}],\"model\":\"claude-3-7-sonnet-latest\",\"stop_reason\":\"end_turn\",\"stop_sequence\":null,\"usage\":{\"input_tokens\":3,\"output_tokens\":2}}",
+            ),
+        ],
+    )
+    .await;
+
+    let client = ApiClient::new("test-key")
+        .with_base_url(server.base_url())
+        .with_retry_policy(2, Duration::from_millis(1), Duration::from_millis(2));
+
+    let error = client
+        .send_message(&sample_request(false))
+        .await
+        .expect_err("a hintless rate limit must not walk the ladder");
+    assert!(error.is_rate_limit(), "error was: {error}");
+    assert_eq!(
+        state.lock().await.len(),
+        1,
+        "the chain should stop at the first rate limit"
+    );
 }
 
 #[tokio::test]
@@ -601,9 +640,9 @@ async fn retries_multiple_retryable_failures_with_exponential_backoff_and_jitter
         state.clone(),
         vec![
             http_response(
-                "429 Too Many Requests",
+                "503 Service Unavailable",
                 "application/json",
-                "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow down\"}}",
+                "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}",
             ),
             http_response(
                 "500 Internal Server Error",
@@ -613,12 +652,12 @@ async fn retries_multiple_retryable_failures_with_exponential_backoff_and_jitter
             http_response(
                 "503 Service Unavailable",
                 "application/json",
-                "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy\"}}",
+                "{\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"busy again\"}}",
             ),
             http_response(
-                "429 Too Many Requests",
+                "500 Internal Server Error",
                 "application/json",
-                "{\"type\":\"error\",\"error\":{\"type\":\"rate_limit_error\",\"message\":\"slow down again\"}}",
+                "{\"type\":\"error\",\"error\":{\"type\":\"api_error\",\"message\":\"boom again\"}}",
             ),
             http_response(
                 "503 Service Unavailable",

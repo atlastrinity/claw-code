@@ -327,11 +327,14 @@ impl AnthropicClient {
         let request_id = request_id_from_headers(http_response.headers());
         let body = http_response.text().await.map_err(ApiError::from)?;
         let mut response = serde_json::from_str::<MessageResponse>(&body).map_err(|error| {
-            ApiError::json_deserialize("Anthropic", &request.model, &body, error)
+            let error = ApiError::json_deserialize("Anthropic", &request.model, &body, error);
+            crate::breaker::note_failure(&self.breaker, &error);
+            error
         })?;
         if response.request_id.is_none() {
             response.request_id = request_id;
         }
+        crate::breaker::note_success(&self.breaker);
 
         if let Some(prompt_cache) = &self.prompt_cache {
             let record = prompt_cache.record_response(&request, &response);
@@ -381,6 +384,8 @@ impl AnthropicClient {
             latest_usage: None,
             usage_recorded: false,
             last_prompt_cache_record: Arc::clone(&self.last_prompt_cache_record),
+            breaker: self.breaker.clone(),
+            content_recorded: false,
         })
     }
 
@@ -458,7 +463,12 @@ impl AnthropicClient {
                                 Map::new(),
                             );
                         }
-                        crate::breaker::note_success(&self.breaker);
+                        // No breaker success here: an accepted response is not
+                        // an answered one. `send_message` charges on a parsed
+                        // body, `MessageStream::record_content` on the first
+                        // event, so a stream that answers 200 and then goes
+                        // silent stays a failure instead of being forgiven by
+                        // its own retry.
                         return Ok(response);
                     }
                     Err(error) if error.is_retryable() && attempts <= self.max_retries + 1 => {
@@ -489,6 +499,17 @@ impl AnthropicClient {
             }
 
             if attempts > self.max_retries {
+                break;
+            }
+
+            // A rate limit is a window, not a blip — same rule as
+            // `openai_compat::send_with_retry`: stop the chain so the caller can
+            // rotate a key and the δ breaker can hold the inter-chain pause,
+            // instead of spending the quota the attempts are waiting for.
+            if last_error
+                .as_ref()
+                .is_some_and(|error| error.is_rate_limit() && error.retry_after().is_none())
+            {
                 break;
             }
 
@@ -853,6 +874,8 @@ pub struct MessageStream {
     latest_usage: Option<Usage>,
     usage_recorded: bool,
     last_prompt_cache_record: Arc<Mutex<Option<PromptCacheRecord>>>,
+    breaker: crate::breaker::SharedBreaker,
+    content_recorded: bool,
 }
 
 impl MessageStream {
@@ -861,9 +884,20 @@ impl MessageStream {
         self.request_id.as_deref()
     }
 
+    /// Charge the δ breaker for a chain that actually answered — see
+    /// `openai_compat::MessageStream::record_content` for why accept alone is
+    /// not an answer.
+    fn record_content(&mut self) {
+        if !self.content_recorded {
+            self.content_recorded = true;
+            crate::breaker::note_success(&self.breaker);
+        }
+    }
+
     pub async fn next_event(&mut self) -> Result<Option<StreamEvent>, ApiError> {
         loop {
             if let Some(event) = self.pending.pop_front() {
+                self.record_content();
                 self.observe_event(&event);
                 return Ok(Some(event));
             }
@@ -872,6 +906,7 @@ impl MessageStream {
                 let remaining = self.parser.finish()?;
                 self.pending.extend(remaining);
                 if let Some(event) = self.pending.pop_front() {
+                    self.record_content();
                     return Ok(Some(event));
                 }
                 return Ok(None);

@@ -383,13 +383,17 @@ impl OpenAiCompatClient {
             }
         }
         let payload = serde_json::from_str::<ChatCompletionResponse>(&body).map_err(|error| {
-            ApiError::json_deserialize(self.config.provider_name, &original_model, &body, error)
+            let error =
+                ApiError::json_deserialize(self.config.provider_name, &original_model, &body, error);
+            crate::breaker::note_failure(&self.breaker, &error);
+            error
         })?;
         let mut normalized = normalize_response(&request.model, payload)?;
         if normalized.request_id.is_none() {
             normalized.request_id = request_id;
         }
         normalized.model = original_model;
+        crate::breaker::note_success(&self.breaker);
         Ok(normalized)
     }
 
@@ -443,6 +447,8 @@ impl OpenAiCompatClient {
             pending: VecDeque::new(),
             done: false,
             state: StreamState::new(original_model),
+            breaker: self.breaker.clone(),
+            content_recorded: false,
         })
     }
 
@@ -460,10 +466,12 @@ impl OpenAiCompatClient {
             attempts += 1;
             let retryable_error = match self.send_raw_request(request).await {
                 Ok(response) => match expect_success(response).await {
-                    Ok(response) => {
-                        crate::breaker::note_success(&self.breaker);
-                        return Ok(response);
-                    }
+                    // No breaker success here: an accepted response is not an
+                    // answered one. `send_message` charges on a parsed body,
+                    // `MessageStream::record_content` on the first event, so a
+                    // stream that answers 200 and then goes silent stays a
+                    // failure instead of being forgiven by its own retry.
+                    Ok(response) => return Ok(response),
                     Err(error) if error.is_retryable() && attempts <= self.max_retries + 1 => {
                         self.log_retryable_attempt(attempts, &error);
                         error
@@ -487,6 +495,15 @@ impl OpenAiCompatClient {
             };
 
             if attempts > self.max_retries {
+                break retryable_error;
+            }
+
+            // A rate limit is a window, not a blip: the next attempt two seconds
+            // from now lands in the same window and fails the same way while
+            // spending the quota it is waiting for. End the chain here — the
+            // caller above rotates a key, and the δ breaker holds the pause
+            // between chains, which is where a wait of that shape belongs.
+            if retryable_error.is_rate_limit() && retryable_error.retry_after().is_none() {
                 break retryable_error;
             }
 
@@ -601,6 +618,8 @@ pub struct MessageStream {
     pending: VecDeque<StreamEvent>,
     done: bool,
     state: StreamState,
+    breaker: crate::breaker::SharedBreaker,
+    content_recorded: bool,
 }
 
 impl MessageStream {
@@ -609,15 +628,31 @@ impl MessageStream {
         self.request_id.as_deref()
     }
 
+    /// Charge the δ breaker for a chain that actually answered.
+    ///
+    /// A 200 only proves the endpoint took the request; the failures this
+    /// breaker exists for are the ones that answer 200 and then put nothing on
+    /// the wire. Recording success at accept forgave every stall on the next
+    /// accept, so the ramp oscillated between 0 and 1 and never shed a
+    /// silently-dying endpoint.
+    fn record_content(&mut self) {
+        if !self.content_recorded {
+            self.content_recorded = true;
+            crate::breaker::note_success(&self.breaker);
+        }
+    }
+
     pub async fn next_event(&mut self) -> Result<Option<StreamEvent>, ApiError> {
         loop {
             if let Some(event) = self.pending.pop_front() {
+                self.record_content();
                 return Ok(Some(event));
             }
 
             if self.done {
                 self.pending.extend(self.state.finish()?);
                 if let Some(event) = self.pending.pop_front() {
+                    self.record_content();
                     return Ok(Some(event));
                 }
                 return Ok(None);
