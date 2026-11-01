@@ -162,6 +162,38 @@ pub const MAX_STALL_STEPS: usize = 3;
 /// steps is generous — a probe or one accepted call resets the count.
 pub const MAX_DENIAL_ONLY_STEPS: usize = 8;
 
+/// How many closed-but-unproven leaves the closing check names in its own text.
+///
+/// The list then stops and counts the rest: the point of the directive is a
+/// truthful final message, and a 40-line inventory inside it does that worse
+/// than one line saying "and 31 more".
+pub const MAX_CLOSING_LEAVES_LISTED: usize = 12;
+
+/// Verbs that promise a change to *the program*, as opposed to a look at it or
+/// a note about it.
+///
+/// Documentation verbs are deliberately absent: "Write the findings to
+/// NOTES.md" is not a claim about compiled code, and a build that does not
+/// compile says nothing about whether the note was written.
+const PROGRAM_VERBS: &[&str] = &[
+    "implement",
+    "create",
+    "build",
+    "write",
+    "add",
+    "fix",
+    "refactor",
+    "generate",
+    "configure",
+    "integrate",
+    "extend",
+    "define",
+    "migrate",
+    "install",
+    "wire",
+    "register",
+];
+
 /// Thinking regime the runtime is currently forcing on the model. Ordered by
 /// severity so `max()` composes the pressure-derived level with a cycle floor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -630,6 +662,9 @@ pub struct BifurcationEngine {
     give_ups_refused: HashSet<String>,
     /// Give-up claims sent back (observability).
     give_up_gate_trips: usize,
+    /// Turns that tried to end with the project's check still failing while
+    /// program leaves claimed `completed` (observability).
+    closing_check_asks: usize,
     /// Error tool results collapsed into tombstones by the demon (observability).
     pruned_outputs: usize,
     /// Broken-write backpressure hits (observability).
@@ -677,6 +712,7 @@ impl BifurcationEngine {
             verification_gate_trips: 0,
             give_ups_refused: HashSet::new(),
             give_up_gate_trips: 0,
+            closing_check_asks: 0,
             pruned_outputs: 0,
             syntax_backpressure_hits: 0,
             stalled_steps: 0,
@@ -809,6 +845,18 @@ impl BifurcationEngine {
     #[must_use]
     pub fn give_up_gate_trips(&self) -> usize {
         self.give_up_gate_trips
+    }
+
+    /// Times this turn was about to end on a failing check with program leaves
+    /// marked done, and was asked once to say so honestly instead.
+    #[must_use]
+    pub fn closing_check_asks(&self) -> usize {
+        self.closing_check_asks
+    }
+
+    /// Record that the closing check was issued, for the turn summary.
+    pub fn note_closing_check(&mut self) {
+        self.closing_check_asks += 1;
     }
 
     /// Error outputs the demon collapsed this turn.
@@ -1797,6 +1845,151 @@ impl BifurcationEngine {
         )
     }
 
+    /// Does the title promise a change to the program itself?
+    ///
+    /// Titles are imperative, so the first word is the verb; only that position
+    /// is read, the same way [`Self::required_evidence`] reads it. A title that
+    /// ends in a document is excluded: writing a note is not compiling code.
+    #[must_use]
+    fn is_program_shaped_title(title: &str) -> bool {
+        let lower = title.to_lowercase();
+        if lower.contains(".md") || lower.contains(".txt") || lower.contains("notes") {
+            return false;
+        }
+        lower
+            .split_whitespace()
+            .next()
+            .map(|word| {
+                word.trim_matches(|c: char| !c.is_alphanumeric())
+                    .to_string()
+            })
+            .is_some_and(|verb| PROGRAM_VERBS.contains(&verb.as_str()))
+    }
+
+    /// The last check the run executed, when that check did not prove anything.
+    ///
+    /// `None` means the run is green on its own terms: some check answered and
+    /// the most recent one passed with assertions behind it. Anything else —
+    /// exit non-zero, or exit 0 over an empty suite — is a program whose state
+    /// the run has not seen.
+    #[must_use]
+    fn last_check_unproven(history: &[StepRecord]) -> Option<usize> {
+        history
+            .iter()
+            .rposition(|record| {
+                record.answered() && Self::is_verifier_call(&record.tool, &record.input)
+            })
+            .filter(|&index| !history[index].proved())
+    }
+
+    /// Leaves claimed `completed` whose title promises program code.
+    ///
+    /// The last claim for a node wins, so a leaf closed and later reopened on an
+    /// honest `failed` is not listed.
+    #[must_use]
+    fn completed_program_leaves(history: &[StepRecord]) -> Vec<(String, String)> {
+        let mut claims: std::collections::BTreeMap<String, Claim> =
+            std::collections::BTreeMap::new();
+        let mut listed: Vec<(String, String)> = Vec::new();
+        for record in history {
+            if !Self::is_plan_tool(&record.tool.to_lowercase()) {
+                continue;
+            }
+            for (id, inline_title, claim) in Self::status_claims(&record.input) {
+                if claim != Claim::Completed {
+                    // A later `failed` is the run taking the claim back; the
+                    // leaf is then not being reported as done.
+                    claims.insert(id, claim);
+                    continue;
+                }
+                let title = match inline_title {
+                    Some(title) => title,
+                    None => match Self::title_from_history(&id, history) {
+                        Some(title) => title,
+                        None => continue,
+                    },
+                };
+                if Self::is_program_shaped_title(&title) {
+                    claims.insert(id.clone(), claim);
+                    if !listed.iter().any(|(seen, _)| seen == &id) {
+                        listed.push((id, title));
+                    }
+                }
+            }
+        }
+        listed
+            .into_iter()
+            .filter(|(id, _)| {
+                claims
+                    .get(id)
+                    .is_some_and(|claim| *claim == Claim::Completed)
+            })
+            .collect()
+    }
+
+    /// The one thing the run must not do: report a program it never saw work.
+    ///
+    /// A live run wrote twenty-odd Swift files, ran `swift test` four times and
+    /// `./build.sh` once, and every one of those exited non-zero on
+    /// `static property 'shared' is not concurrency-safe`. It then closed
+    /// "Implement native brightness control", "Create NSStatusItem", "Register
+    /// Carbon hotkeys" and eleven more as `completed`, and its final message
+    /// listed them as завершено. The per-leaf claims gate caught the four
+    /// *test*-shaped leaves and stopped there, because the titles of the other
+    /// twenty name no command: nothing in a title like "Create popover" asks for
+    /// a build, so nothing refused it.
+    ///
+    /// The graph is not the liar — the report is, and the report reads the graph.
+    /// So the refusal does not belong on twenty claims (that is the treadmill the
+    /// claims gate exists to avoid); it belongs once, at the boundary where the
+    /// run turns its answer into prose, and it names the choice the run actually
+    /// has: make the check pass, or say the code is uncompiled.
+    #[must_use]
+    pub fn closing_check_directive(history: &[StepRecord]) -> Option<String> {
+        let unproven = Self::last_check_unproven(history)?;
+        let leaves = Self::completed_program_leaves(history);
+        if leaves.is_empty() {
+            return None;
+        }
+        let record = &history[unproven];
+        let detail = Self::bash_command(&record.input).unwrap_or_else(|| record.input.clone());
+        let detail = detail.chars().take(72).collect::<String>();
+        let listed = leaves
+            .iter()
+            .take(MAX_CLOSING_LEAVES_LISTED)
+            .map(|(id, title)| format!("  {id} — \"{title}\""))
+            .collect::<Vec<_>>()
+            .join("\n");
+        let rest = leaves.len().saturating_sub(MAX_CLOSING_LEAVES_LISTED);
+        let rest = if rest > 0 {
+            format!("  … and {rest} more claimed the same way.\n")
+        } else {
+            String::new()
+        };
+        let verdict = if record.vacuous {
+            "exited 0 over an empty suite, so it asserted nothing".to_string()
+        } else {
+            "exited non-zero".to_string()
+        };
+        Some(format!(
+            "[SYSTEM DIRECTIVE — CLOSING CHECK]\n\
+             The last check this run executed (`{}` {detail}) {verdict}, and no check has \
+             passed since. {count} leaves are claimed `completed` over it:\n\
+             {listed}\n\
+             {rest}\
+             A finished message may not present these as working. Choose one, now, in this turn:\n\
+             1. Fix what that output names and run the check again until it exits 0 with real \
+             assertions — then the graph and the report agree, and nothing else is asked of you; or\n\
+             2. Leave the check failing and state, in the final message, that these leaves are \
+             code that has never compiled, naming the error that stops them.\n\
+             Both are acceptable; presenting them as the same thing is not. Do not answer this \
+             with a plan edit or another `update_status` — the graph cannot change what the \
+             compiler said.",
+            record.tool,
+            count = leaves.len(),
+        ))
+    }
+
     /// Maxwell's-demon gate for one step's calls, evaluated in emission order:
     /// a probe emitted before a mutation proves the agent looked, so the
     /// mutation runs; a mutation with no probe yet in the step is blind and gets
@@ -2547,12 +2740,13 @@ impl BifurcationEngine {
                 self.crossings.len(),
             ),
             format!(
-                "Maxwell demon: pruned_outputs={} probe_gate={} trips={} verification_gate={} give_up_gate={} syntax_backpressure_hits={}",
+                "Maxwell demon: pruned_outputs={} probe_gate={} trips={} verification_gate={} give_up_gate={} closing_check={} syntax_backpressure_hits={}",
                 self.pruned_outputs,
                 if self.probe_required { "armed" } else { "open" },
                 self.probe_gate_trips,
                 self.verification_gate_trips,
                 self.give_up_gate_trips,
+                self.closing_check_asks,
                 self.syntax_backpressure_hits,
             ),
             format!(

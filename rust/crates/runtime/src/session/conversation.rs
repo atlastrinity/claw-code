@@ -789,6 +789,8 @@ where
         let mut prompt_cache_events = Vec::new();
         let mut iterations = 0;
         let mut auto_compaction = None;
+        // The closing check is asked once per turn, ever.
+        let mut closing_check_asked = false;
 
         loop {
             iterations += 1;
@@ -921,6 +923,34 @@ where
             }
 
             if pending_tool_uses.is_empty() {
+                // The run is about to answer in prose. One question has to be
+                // settled first: does that prose describe a program the run
+                // never saw work? A live session closed twenty-plus code leaves
+                // as `completed` while every `swift test` and `./build.sh` it ran
+                // exited non-zero, and reported them as done — the per-leaf gate
+                // caught only the four *test*-shaped titles, because a leaf named
+                // "Create popover" promises no command to the gate at all.
+                // Asked once per turn, never twice: the run has an honest exit
+                // (say it is uncompiled), and nagging would only cost tokens.
+                if !closing_check_asked {
+                    closing_check_asked = true;
+                    let directive =
+                        BifurcationEngine::closing_check_directive(&self.step_history());
+                    if let Some(directive) = directive {
+                        self.bifurcation
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .note_closing_check();
+                        tracing::warn!(
+                            iterations,
+                            "run ended over a failing check: asked once for an honest report"
+                        );
+                        self.session
+                            .push_message(ConversationMessage::user_text(directive))
+                            .map_err(|error| RuntimeError::new(error.to_string()))?;
+                        continue;
+                    }
+                }
                 break;
             }
 

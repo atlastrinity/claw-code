@@ -1063,7 +1063,7 @@ fn summary_exposes_the_demon_counters() {
     let summary = engine.summary();
     assert!(
         summary.contains(
-            "Maxwell demon: pruned_outputs=0 probe_gate=armed trips=0 verification_gate=1 give_up_gate=0 syntax_backpressure_hits=0"
+            "Maxwell demon: pruned_outputs=0 probe_gate=armed trips=0 verification_gate=1 give_up_gate=0 closing_check=0 syntax_backpressure_hits=0"
         ),
         "{summary}"
     );
@@ -1773,4 +1773,128 @@ fn command_failed_reads_the_exit_code_not_just_the_tool_flag() {
         "write_file",
         "artificial intelligence"
     ));
+}
+
+// ── closing check ────────────────────────────────────────────────────────────
+
+/// A `update_status` that has already been answered, and so is part of the
+/// record the closing check reads the graph from.
+fn plan_claim(id: &str, status: &str) -> StepRecord {
+    StepRecord {
+        tool: "TaskGraph".to_string(),
+        input: status_claim(id, status).1,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_run_that_ends_over_a_failing_check_is_asked_for_an_honest_report() {
+    let history = [
+        plan_add("1.3.1", "Implement native brightness control."),
+        write_done("Sources/App/Brightness.swift"),
+        plan_claim("1.3.1", "completed"),
+        bash_run("swift test", true),
+    ];
+    let directive = BifurcationEngine::closing_check_directive(&history)
+        .expect("the leaf is closed over a check that said no");
+    assert!(directive.contains("CLOSING CHECK"));
+    assert!(directive.contains("1.3.1"));
+    assert!(directive.contains("swift test"));
+    assert!(
+        directive.contains("never compiled"),
+        "the directive must name the second honest option: {directive}"
+    );
+}
+
+#[test]
+fn a_run_that_ends_on_a_passing_check_is_left_alone() {
+    let history = [
+        plan_add("1.3.1", "Implement native brightness control."),
+        bash_run("swift test", false),
+        plan_claim("1.3.1", "completed"),
+    ];
+    assert_eq!(
+        BifurcationEngine::closing_check_directive(&history),
+        None,
+        "the check passed after the change, so the report is owed nothing"
+    );
+}
+
+#[test]
+fn a_passing_check_alone_does_not_silence_an_older_failing_one() {
+    let history = [
+        plan_add("1.3.1", "Implement native brightness control."),
+        bash_run("swift test", false),
+        write_done("Sources/App/Brightness.swift"),
+        bash_run("swift test", true),
+        plan_claim("1.3.1", "completed"),
+    ];
+    assert!(BifurcationEngine::closing_check_directive(&history).is_some());
+}
+
+#[test]
+fn a_note_about_the_run_is_not_program_work() {
+    let history = [
+        plan_add("1.1.5", "Write the findings to NOTES.md."),
+        plan_claim("1.1.5", "completed"),
+        bash_run("swift test", true),
+    ];
+    assert_eq!(
+        BifurcationEngine::closing_check_directive(&history),
+        None,
+        "a failing build says nothing about a note that was written"
+    );
+}
+
+#[test]
+fn a_leaf_taken_back_as_failed_is_not_reported_as_done() {
+    let history = [
+        plan_add("1.6.1", "Implement preset math."),
+        plan_claim("1.6.1", "completed"),
+        plan_claim("1.6.1", "failed"),
+        bash_run("swift test", true),
+    ];
+    assert_eq!(BifurcationEngine::closing_check_directive(&history), None);
+}
+
+#[test]
+fn an_empty_suite_leaves_the_run_as_unproven_as_a_failing_one() {
+    let history = [
+        plan_add("1.4.2", "Create popover."),
+        plan_claim("1.4.2", "completed"),
+        check_run("swift test"),
+    ];
+    let directive = BifurcationEngine::closing_check_directive(&history)
+        .expect("exit 0 over zero assertions proved nothing");
+    assert!(directive.contains("empty suite"), "{directive}");
+}
+
+#[test]
+fn a_long_list_of_leaves_is_capped_and_counted() {
+    let mut history = Vec::new();
+    for index in 1..=15 {
+        history.push(plan_add(
+            &format!("1.3.{index}"),
+            &format!("Implement control number {index}."),
+        ));
+        history.push(plan_claim(&format!("1.3.{index}"), "completed"));
+    }
+    history.push(bash_run("swift build", true));
+    let directive = BifurcationEngine::closing_check_directive(&history)
+        .expect("fifteen leaves closed over a failing build");
+    assert!(directive.contains("15 leaves are claimed"), "{directive}");
+    assert!(
+        directive.contains("and 3 more"),
+        "the listing stops at the budget and counts the rest: {directive}"
+    );
+    assert!(!directive.contains("1.3.15"));
+}
+
+#[test]
+fn the_closing_check_is_counted_for_the_turn_summary() {
+    let mut engine = BifurcationEngine::new();
+    assert_eq!(engine.closing_check_asks(), 0);
+    engine.note_closing_check();
+    assert_eq!(engine.closing_check_asks(), 1);
+    assert!(engine.summary().contains("closing_check=1"));
 }
