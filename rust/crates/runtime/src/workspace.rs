@@ -47,16 +47,8 @@ pub fn workspace_root() -> PathBuf {
 pub fn resolve_path(path: &str) -> PathBuf {
     let path = path.trim();
 
-    // Expand ~ prefix
-    if path == "~" {
-        if let Some(home) = home_dir() {
-            return home;
-        }
-    }
-    if let Some(rest) = path.strip_prefix("~/") {
-        if let Some(home) = home_dir() {
-            return home.join(rest);
-        }
+    if let Some(expanded) = expand_home_prefix(path) {
+        return expanded;
     }
 
     let p = Path::new(path);
@@ -65,6 +57,25 @@ pub fn resolve_path(path: &str) -> PathBuf {
     }
 
     workspace_root().join(path)
+}
+
+/// Expand a leading `~` home-directory prefix, or `None` when the string carries
+/// no such prefix (or the home directory is unknown) so the caller keeps its own
+/// relative-path rule.
+///
+/// Every tool that takes a path from the model has to answer this the same way:
+/// `bash` hands `~/Desktop/x` to the shell and gets the real Desktop, and a file
+/// tool that treats `~` as an ordinary directory name writes to
+/// `<cwd>/~/Desktop/x` and reports "Wrote". The agent has no way to tell those
+/// apart from the result.
+#[must_use]
+pub(crate) fn expand_home_prefix(path: &str) -> Option<PathBuf> {
+    let home = home_dir()?;
+    if path == "~" {
+        return Some(home);
+    }
+    let rest = path.strip_prefix("~/")?;
+    Some(home.join(rest))
 }
 
 /// Cross-platform home directory lookup.

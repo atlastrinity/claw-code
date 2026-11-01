@@ -353,8 +353,14 @@ fn glob_search_impl(
     if let Some(root) = canonical_root.as_deref() {
         validate_workspace_boundary(&base_dir, root)?;
     }
-    let search_pattern = if Path::new(pattern).is_absolute() {
-        pattern.to_owned()
+    // A pattern is a path with wildcards in it, so it carries `~` for the same
+    // reason one does — and joining it to the base directory rather than
+    // expanding it answers "find every .swift on the Desktop" with "no matches".
+    let pattern = crate::workspace::expand_home_prefix(pattern)
+        .map(|expanded| expanded.to_string_lossy().into_owned())
+        .unwrap_or_else(|| pattern.to_owned());
+    let search_pattern = if Path::new(&pattern).is_absolute() {
+        pattern
     } else {
         base_dir.join(pattern).to_string_lossy().into_owned()
     };
@@ -681,19 +687,19 @@ fn make_patch(original: &str, updated: &str) -> Vec<StructuredPatchHunk> {
 }
 
 fn normalize_path(path: &str) -> io::Result<PathBuf> {
-    let candidate = if Path::new(path).is_absolute() {
-        PathBuf::from(path)
-    } else {
-        std::env::current_dir()?.join(path)
+    let candidate = match crate::workspace::expand_home_prefix(path.trim()) {
+        Some(expanded) => expanded,
+        None if Path::new(path).is_absolute() => PathBuf::from(path),
+        None => std::env::current_dir()?.join(path),
     };
     candidate.canonicalize()
 }
 
 fn normalize_path_allow_missing(path: &str) -> io::Result<PathBuf> {
-    let candidate = if Path::new(path).is_absolute() {
-        PathBuf::from(path)
-    } else {
-        std::env::current_dir()?.join(path)
+    let candidate = match crate::workspace::expand_home_prefix(path.trim()) {
+        Some(expanded) => expanded,
+        None if Path::new(path).is_absolute() => PathBuf::from(path),
+        None => std::env::current_dir()?.join(path),
     };
 
     if let Ok(canonical) = candidate.canonicalize() {
@@ -819,8 +825,9 @@ mod tests {
 
     use super::{
         component_contains_glob, derive_glob_walk_root, edit_file, expand_braces, glob_search,
-        grep_search, is_symlink_escape, read_file, read_file_in_workspace, write_file,
-        write_file_in_workspace, GrepSearchInput, MAX_WRITE_SIZE,
+        grep_search, is_symlink_escape, normalize_path_allow_missing, read_file,
+        read_file_in_workspace, write_file, write_file_in_workspace, GrepSearchInput,
+        MAX_WRITE_SIZE,
     };
 
     fn temp_path(name: &str) -> std::path::PathBuf {
@@ -829,6 +836,30 @@ mod tests {
             .expect("time should move forward")
             .as_nanos();
         std::env::temp_dir().join(format!("clawd-native-{name}-{unique}"))
+    }
+
+    #[test]
+    fn a_home_prefix_resolves_home_not_to_a_literal_tilde_folder() {
+        // `bash` lets the shell expand `~/Desktop/app`, so a file tool that reads
+        // the same string as a relative path puts the work under
+        // `<cwd>/~/Desktop/app` — a directory nobody asked for, reported as
+        // "Wrote". Resolution has to agree with the shell before the boundary
+        // check can even mean what it says.
+        let Ok(home) = std::env::var("HOME") else {
+            return;
+        };
+        for (input, expected) in [("~/clawd-tilde-check", "clawd-tilde-check"), ("~", "")] {
+            let resolved = normalize_path_allow_missing(input).expect("tilde should resolve");
+            let want = if expected.is_empty() {
+                PathBuf::from(&home)
+            } else {
+                PathBuf::from(&home).join(expected)
+            };
+            assert_eq!(resolved, want, "{input} should resolve inside $HOME");
+        }
+        let still_relative = normalize_path_allow_missing("~nosuchuser/file")
+            .expect("an unexpanded prefix stays an ordinary relative path");
+        assert!(still_relative.starts_with(std::env::current_dir().expect("current directory")));
     }
 
     #[test]
