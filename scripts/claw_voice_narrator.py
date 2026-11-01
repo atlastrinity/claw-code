@@ -340,6 +340,12 @@ def _env_int(name: str, default: int) -> int:
         return int(raw.strip())
     return default
 
+def _env_float(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, "") or default)
+    except ValueError:
+        return default
+
 def tts_char_cap() -> int:
     """Ліміт символів на одну репліку озвучки (CLAW_TTS_MAX_CHARS)."""
     return max(80, _env_int("CLAW_TTS_MAX_CHARS", 320))
@@ -1103,10 +1109,58 @@ def resolve_narration_api_config(model: str) -> tuple[str, str, str, str]:
     return base_url, api_key, model_id, target_env
 
 
+# Озвучка не повинна чекати перекладу вічно: рядок, який запізнюється на 20 с,
+# це вже не супровід, а відставання. Тому три важелі — кеш повторних фраз,
+# лічильник часу на один виклик і cooldown для ключа, який щойно відмовив.
+_NARRATION_CACHE: "dict[str, str]" = {}
+_NARRATION_CACHE_MAX = 256
+_NARRATION_COOLDOWN: "dict[str, float]" = {}
+_NARRATION_LOCK = threading.Lock()
+
+
+def _narration_cache_key(system_prompt: str, user_prompt: str) -> str:
+    import hashlib
+    return hashlib.sha256(f"{system_prompt}\n#—\n{user_prompt}".encode("utf-8")).hexdigest()
+
+
+def _narration_endpoint_key(base_url: str, api_key: str, model_id: str) -> str:
+    import hashlib
+    # Ключ акаунту тут лише хешується: cooldown прив'язаний до конкретного
+    # пулу, а не до рядка, який можна прочитати з пам'яті процесу.
+    digest = hashlib.sha256(f"{base_url}|{model_id}|{api_key}".encode("utf-8")).hexdigest()[:16]
+    return digest
+
+
+def _mark_narration_failure(endpoint: str) -> None:
+    with _NARRATION_LOCK:
+        _NARRATION_COOLDOWN[endpoint] = time.time() + 30.0
+
+
+def narration_budget_secs() -> float:
+    return _env_float("CLAW_NARRATION_BUDGET_SECS", 8.0)
+
+
+def narration_timeout_secs() -> float:
+    return _env_float("CLAW_NARRATION_TIMEOUT_SECS", 4.0)
+
+
 def call_narration_llm_chain(system_prompt: str, user_prompt: str) -> str:
     import urllib.request, urllib.error, time
     model_setting = os.environ.get("CLAW_NARRATION_MODEL", "gemini-lite")
-    
+
+    cache_key = _narration_cache_key(system_prompt, user_prompt)
+    with _NARRATION_LOCK:
+        cached = _NARRATION_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    # Уся спільна пам'ять ланцюга — під одним замком: synth- і play-потоки
+    # читають і пишуть її одночасно.
+    budget = narration_budget_secs()
+    deadline = time.monotonic() + budget
+    timeout = narration_timeout_secs()
+    now = time.time()
+
     candidates = []
     
     # 1. First candidates: All available keys for the strictly configured CLAW_NARRATION_MODEL
@@ -1133,12 +1187,22 @@ def call_narration_llm_chain(system_prompt: str, user_prompt: str) -> str:
     for base_url, api_key, model_id, target_env in candidates:
         if not base_url:
             continue
-            
+
+        endpoint = _narration_endpoint_key(base_url, api_key, model_id)
+        with _NARRATION_LOCK:
+            until = _NARRATION_COOLDOWN.get(endpoint, 0.0)
+        if until > now:
+            # Цей ключ/модель уже відмовили в межах цієї репліки — не витрачати
+            # на них бюджет часу, поки інші ще можуть відповісти.
+            continue
+        if time.monotonic() >= deadline:
+            break
+
         url = f"{base_url.rstrip('/')}/chat/completions"
         headers = {"Content-Type": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-            
+
         payload = {
             "model": model_id,
             "messages": [
@@ -1156,18 +1220,25 @@ def call_narration_llm_chain(system_prompt: str, user_prompt: str) -> str:
                 headers=headers,
                 method='POST'
             )
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
                 res_data = json.loads(response.read().decode('utf-8'))
                 choices = res_data.get("choices", [])
                 if choices:
                     text = choices[0].get("message", {}).get("content", "").strip()
                     if text:
-                        return strip_agent_names(text)
+                        result = strip_agent_names(text)
+                        with _NARRATION_LOCK:
+                            if len(_NARRATION_CACHE) >= _NARRATION_CACHE_MAX:
+                                _NARRATION_CACHE.pop(next(iter(_NARRATION_CACHE)), None)
+                            _NARRATION_CACHE[cache_key] = result
+                        return result
         except urllib.error.HTTPError as e:
+            _mark_narration_failure(endpoint)
             if target_env and target_env not in ("LOCAL_OLLAMA", ""):
                 rotate_api_key_index(target_env)
             continue
         except Exception:
+            _mark_narration_failure(endpoint)
             if target_env and target_env not in ("LOCAL_OLLAMA", ""):
                 rotate_api_key_index(target_env)
             continue
