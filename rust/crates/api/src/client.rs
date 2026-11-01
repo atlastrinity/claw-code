@@ -523,21 +523,39 @@ impl ProviderClient {
         let mut narration_wait = Duration::ZERO;
         if !home.is_empty() {
             let lock_path = std::path::Path::new(&home).join(".claw/narration.lock");
+            let behind_path = std::path::Path::new(&home).join(".claw/narration.behind");
             let max_wait_secs: u64 = std::env::var("CLAW_TTS_WAIT_SECS")
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(30);
+            // The narrator raises this flag the moment it starts dropping lines
+            // because it is already behind. Waiting for the lock then buys nothing:
+            // the speech we would be waiting for is never going to play. A flag
+            // older than a minute is a crashed narrator, not a busy one, so it is
+            // ignored and the ordinary wait applies.
+            let narrator_is_behind = behind_path
+                .metadata()
+                .and_then(|m| m.modified())
+                .map(|seen| {
+                    seen.elapsed()
+                        .map(|age| age < Duration::from_secs(60))
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
             let start = std::time::Instant::now();
-            // Give background voice narrator a brief window to detect new session entry and touch lock
-            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
-            while lock_path.exists() {
-                if start.elapsed().as_secs() > max_wait_secs {
-                    let _ = std::fs::remove_file(&lock_path);
-                    break;
+            if !narrator_is_behind {
+                // Give background voice narrator a brief window to detect new session entry and touch lock
+                tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+                let bound = Duration::from_secs(max_wait_secs);
+                while lock_path.exists() {
+                    if start.elapsed() >= bound {
+                        let _ = std::fs::remove_file(&lock_path);
+                        break;
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                narration_wait = start.elapsed();
             }
-            narration_wait = start.elapsed();
         }
 
         let interval_wait = apply_minimum_interval().await;
@@ -1238,6 +1256,46 @@ mod tests {
             third.elapsed() < Duration::from_millis(300),
             "elapsed work must count toward the floor, waited {:?}",
             third.elapsed()
+        );
+
+        let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[allow(clippy::await_holding_lock)]
+    #[tokio::test]
+    async fn a_narrator_that_drops_lines_does_not_hold_the_agent() {
+        let _lock = env_lock();
+        let home = std::env::temp_dir().join(format!("claw-behind-{}", std::process::id()));
+        std::fs::create_dir_all(home.join(".claw")).expect("create temp home");
+        let _home_guard = EnvVarGuard::set("HOME", home.to_str());
+        let _pause = EnvVarGuard::set("CLAW_API_PAUSE_SECS", Some("0"));
+        let _tpm = EnvVarGuard::set("CLAW_TPM_LIMIT", Some("100000000"));
+        let _wait = EnvVarGuard::set("CLAW_TTS_WAIT_SECS", Some("2"));
+        super::reset_minimum_interval();
+
+        let claw = home.join(".claw");
+        std::fs::write(claw.join("narration.lock"), b"").expect("touch lock");
+
+        // Behind: the narrator is skipping lines, so no amount of waiting on the
+        // lock would put the speech back in step with the work.
+        std::fs::write(claw.join("narration.behind"), b"").expect("touch behind flag");
+        let started = Instant::now();
+        ProviderClient::apply_api_pause("test-model", 100).await;
+        assert!(
+            started.elapsed() < Duration::from_millis(300),
+            "a fresh behind flag must release the agent, waited {:?}",
+            started.elapsed()
+        );
+
+        // Not behind — or behind so long ago the narrator has crashed: the bound
+        // applies, and it applies as the configured seconds, not seconds-plus-one.
+        let _ = std::fs::remove_file(claw.join("narration.behind"));
+        let started = Instant::now();
+        ProviderClient::apply_api_pause("test-model", 100).await;
+        let without_flag = started.elapsed();
+        assert!(
+            without_flag >= Duration::from_secs(2) && without_flag < Duration::from_millis(2_400),
+            "the wait should end at the configured 2 s bound, took {without_flag:?}"
         );
 
         let _ = std::fs::remove_dir_all(&home);

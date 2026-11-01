@@ -351,6 +351,21 @@ def _env_int(name: str, default: int) -> int:
         return int(raw.strip())
     return default
 
+def _mark_behind(behind: bool) -> None:
+    # Tell the runtime that озвучка already gives up on step lines: while this
+    # flag is fresh, waiting on narration.lock cannot restore sync, so the agent
+    # stops paying the wait. The runtime ignores the flag after a minute, so a
+    # narrator that dies mid-run cannot leave the agent un-gated forever.
+    flag = Path.home() / ".claw" / "narration.behind"
+    try:
+        if behind:
+            flag.parent.mkdir(parents=True, exist_ok=True)
+            flag.touch(exist_ok=True)
+        elif flag.exists():
+            flag.unlink()
+    except Exception:
+        pass
+
 def _env_float(name: str, default: float) -> float:
     try:
         return float(os.environ.get(name, "") or default)
@@ -624,6 +639,7 @@ class VoicePlayer:
         # «План») відкидаються — контроль Гріші та висновок Атласа лишаються.
         max_backlog = _env_int("CLAW_TTS_MAX_BACKLOG", 2)
         behind = self.backlog_segments() >= max_backlog or self.turns_ahead > 0
+        _mark_behind(max_backlog > 0 and behind)
         if max_backlog > 0 and behind and not priority:
             word = plural_ua(self.turns_ahead, "хід", "ходи", "ходів")
             print(f"{COLORS['dim']}🎙️ озвучка відстає ({self.backlog_segments()} у черзі, "
