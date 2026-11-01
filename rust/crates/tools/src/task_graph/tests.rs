@@ -2685,6 +2685,89 @@ fn a_one_action_leaf_is_not_forced_into_a_decomposition() {
 }
 
 #[test]
+fn a_verification_leaf_keeps_its_checks_in_one_step() {
+    let _guard = env_guard();
+    let path = temp_path("verification_leaf.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    let added: serde_json::Value = serde_json::from_str(
+        &execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "add",
+                "nodes": [
+                    {"id": "3", "content": "Confirm the release", "status": "pending"},
+                    {"id": "3.1", "parent_id": "3", "content": "Verify the notes and the command outputs", "status": "in_progress"}
+                ]
+            }),
+        )
+        .expect("add the verification leaf"),
+    )
+    .expect("valid json");
+    let alert = added["alert"].as_str().unwrap_or("");
+    assert!(
+        !alert.contains("Deep Recursion Alert"),
+        "a verification leaf must not be split into duplicate checks: {alert}"
+    );
+
+    execute_tool(
+        "TaskGraph",
+        &json!({"operation": "update_status", "nodes": [{"id": "3.1", "status": "completed"}]}),
+    )
+    .expect("clear the verification branch");
+
+    // A retry of a verification is still one verification, not two steps.
+    let retried: serde_json::Value = serde_json::from_str(
+        &execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "add",
+                "nodes": [
+                    {"id": "5", "content": "Confirm the build", "status": "pending"},
+                    {"id": "5.1", "parent_id": "5", "content": "Retry verification of the build", "status": "in_progress"}
+                ]
+            }),
+        )
+        .expect("add the retried verification"),
+    )
+    .expect("valid json");
+    let retried_alert = retried["alert"].as_str().unwrap_or("");
+    assert!(
+        !retried_alert.contains("Deep Recursion Alert"),
+        "a retried verification must not be split into duplicate checks: {retried_alert}"
+    );
+    execute_tool(
+        "TaskGraph",
+        &json!({"operation": "update_status", "nodes": [{"id": "5.1", "status": "completed"}]}),
+    )
+    .expect("clear the retried verification branch");
+
+    // The same title is real work when it also asks for a fix: still split.
+    let mixed: serde_json::Value = serde_json::from_str(
+        &execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "add",
+                "nodes": [
+                    {"id": "4", "content": "Repair the release", "status": "pending"},
+                    {"id": "4.1", "parent_id": "4", "content": "Check the logs and fix the crash", "status": "in_progress"}
+                ]
+            }),
+        )
+        .expect("add the mixed leaf"),
+    )
+    .expect("valid json");
+    let mixed_alert = mixed["alert"].as_str().unwrap_or("");
+    assert!(
+        mixed_alert.contains("Deep Recursion Alert"),
+        "a check that also mutates must be decomposed: {mixed_alert}"
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
 fn a_failed_atomic_leaf_is_told_to_retry_instead_of_splitting() {
     let _guard = env_guard();
     let path = temp_path("failed_atomic.json");
@@ -2789,6 +2872,82 @@ fn a_clone_of_an_abandoned_task_reopens_it_instead_of_erroring() {
         snapshot.contains("[/] **1.1**") || snapshot.contains("[/] **1**"),
         "the abandoned step should be reopened, not left failed:\n{snapshot}"
     );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn a_verification_retry_reopens_the_failed_check_instead_of_adding_a_twin() {
+    let _guard = env_guard();
+    let path = temp_path("verification_retry_redirect.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Ship the brightness app", "status": "pending"},
+                {"id": "1.1", "parent_id": "1", "content": "Implement the brightness engine", "status": "completed"},
+                {"id": "1.2", "parent_id": "1", "content": "Verify the brightness engine", "status": "failed"}
+            ]
+        }),
+    )
+    .expect("add");
+
+    // Live shape: the check failed for a reason outside the graph, so the agent
+    // re-planned the same check under a retry title. Verification titles are
+    // exempt from the clone gate, so that used to enter the graph as new work
+    // and the run re-ran the same check under a second task.
+    let retry: serde_json::Value = serde_json::from_str(
+        &execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "add",
+                "nodes": [{"id": "1.3", "parent_id": "1", "content": "Retry verification of the brightness engine after building the project", "status": "pending"}]
+            }),
+        )
+        .expect("a retried check should be redirected, not rejected"),
+    )
+    .expect("valid json");
+    let review = retry["grisha_review"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" | ")
+        })
+        .unwrap_or_default();
+    assert!(
+        review.contains("Grisha Retry Redirection"),
+        "the redirect should be reported: {review}"
+    );
+
+    let view: serde_json::Value = serde_json::from_str(
+        &execute_tool("TaskGraph", &json!({"operation": "view", "nodes": []})).expect("view"),
+    )
+    .expect("valid json");
+    let snapshot = view["alert"].as_str().expect("snapshot");
+    assert!(
+        !snapshot.contains("1.3"),
+        "the retried check must not become a second task:\n{snapshot}"
+    );
+    assert!(
+        snapshot.contains("[/] **1.2**"),
+        "the failed check should be reopened:\n{snapshot}"
+    );
+
+    // A different check on a different subject is new work, not a retry.
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [{"id": "1.4", "parent_id": "1", "content": "Check that the menu bar icon appears", "status": "pending"}]
+        }),
+    )
+    .expect("a distinct check is not a retry of the failed one");
 
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(path);

@@ -191,6 +191,29 @@ impl GrishaPlanReviewer {
                 .any(|marker| lc.contains(marker))
         }
 
+        // The words that identify *what* a check looks at, with retry wording
+        // and verb tense removed. "Verify the brightness engine" and "Retry
+        // verification of the brightness engine after building" describe one
+        // check, so they must land on one task.
+        fn verification_subject(title: &str) -> std::collections::BTreeSet<String> {
+            const RETRY_MARKERS: [&str; 10] = [
+                "retry", "again", "repeat", "another", "second", "attempt", "rerun", "redo",
+                "after", "before",
+            ];
+            title
+                .to_lowercase()
+                .split(|c: char| !(c.is_alphanumeric() || c == '.' || c == '_'))
+                .filter(|w| !w.is_empty() && w.chars().count() > 3 && !STOPWORDS.contains(w))
+                .filter(|w| !RETRY_MARKERS.contains(w))
+                .map(|w| {
+                    ["verif", "check", "test", "validat", "review", "inspect"]
+                        .iter()
+                        .find(|stem| w.starts_with(*stem))
+                        .map_or_else(|| w.to_owned(), |stem| (*stem).to_owned())
+                })
+                .collect()
+        }
+
         let mut occupied: std::collections::BTreeMap<String, &TaskNode> =
             std::collections::BTreeMap::new();
         for node in existing_nodes.iter().chain(enriched.iter()) {
@@ -246,6 +269,45 @@ impl GrishaPlanReviewer {
             ));
         }
 
+        // A verification step is real work every time it runs, so it is exempt
+        // from the clone gate above. A *retry* of a verification that already
+        // failed is different: wording it "Retry verification of X" let a live
+        // run add two siblings that each repeated the check the previous one had
+        // just failed, and the graph grew while the evidence did not. A retry
+        // that restates a failed check reopens it, exactly as a verbatim clone
+        // reopens abandoned work.
+        for node in nodes {
+            let Some(content) = &node.content else {
+                continue;
+            };
+            if content.trim().is_empty() || !is_verification(content) {
+                continue;
+            }
+            let subject = verification_subject(content);
+            if subject.is_empty() {
+                continue;
+            }
+            let twin = existing_nodes.iter().chain(enriched.iter()).find(|other| {
+                other.id != node.id
+                    && other.status == Some(TaskStatus::Failed)
+                    && other.content.as_deref().is_some_and(|old| {
+                        is_verification(old) && {
+                            let old_subject = verification_subject(old);
+                            // One shared word ("engine") is a topic, not a
+                            // repeat; an empty subject would match everything.
+                            old_subject.len() >= 2
+                                && old_subject.iter().all(|word| subject.contains(word))
+                        }
+                    })
+            });
+            let Some(twin) = twin else {
+                continue;
+            };
+            if !retried_abandoned.iter().any(|(_, id)| id == &twin.id) {
+                retried_abandoned.push((node.id.clone(), twin.id.clone()));
+            }
+        }
+
         // A clone of an abandoned task is not a planning mistake — it is the agent
         // asking for a second attempt at work that failed against the world.
         // Refusing it used to strand a run in both directions: to be allowed to
@@ -268,7 +330,7 @@ impl GrishaPlanReviewer {
                 }),
             }
             remarks.push(format!(
-                "Grisha Retry Redirection: '{}' repeats abandoned task '{}'. '{}' is reopened as 'in_progress' and the duplicate was not added. Execute the step under '{}' with a different command, path or parameter than the attempt that failed, and say in the call what you changed.",
+                "Grisha Retry Redirection: '{}' repeats failed task '{}'. '{}' is reopened as 'in_progress' and the duplicate was not added. Execute the step under '{}' with a different command, path or parameter than the attempt that failed, and say in the call what you changed.",
                 clone_id, twin_id, twin_id, twin_id
             ));
         }

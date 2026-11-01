@@ -379,9 +379,16 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
             })
             .collect();
         if failed_leaves.is_empty() {
+            // The graph can close mid-run: a live model completed every node, was
+            // congratulated, then planned the next phase in the following call —
+            // so the user heard "all done" while the work was still being
+            // specified. The confirmation step makes that summary conditional on
+            // the request actually being covered.
             alerts.push(
-                "🎉 Every task in the graph is COMPLETED. Summarize the delivered work for the \
-                 user — name each artifact and how it was verified — then ask for the next goal."
+                "🎉 Every task currently in the graph is COMPLETED. Before summarizing, re-read \
+                 the user's original request: if any part of it is not represented by a completed \
+                 task, plan that part now instead of reporting success. Otherwise summarize the \
+                 delivered work for the user — name each artifact and how it was verified."
                     .to_string(),
             );
         } else {
@@ -456,6 +463,34 @@ pub(crate) fn leaf_has_hidden_phases(leaf: &TaskNode) -> bool {
     }
 
     let lower = content.to_lowercase();
+    // A verification leaf names read-only checks, not work. Splitting
+    // "Verify the build and the tests" into two children only makes the model
+    // run the same checks twice; one round of evidence satisfies the
+    // verification gate either way.
+    const VERIFICATION_LEADS: &[&str] = &[
+        "verify", "check", "confirm", "validate", "ensure", "inspect", "review", "test",
+    ];
+    const MUTATING_STEPS: &[&str] = &[
+        "fix",
+        "implement",
+        "create",
+        "add ",
+        "write",
+        "install",
+        "update",
+        "change",
+        "remove",
+        "delete",
+        "refactor",
+        "deploy",
+    ];
+    let names_a_verification = lower
+        .split_whitespace()
+        .take(2)
+        .any(|word| VERIFICATION_LEADS.contains(&word));
+    if names_a_verification && !MUTATING_STEPS.iter().any(|step| lower.contains(step)) {
+        return false;
+    }
     const PHASE_JOINERS: &[&str] = &[
         " and ",
         " then ",
