@@ -916,6 +916,12 @@ fn task_graph_bash_read_only_commands_bypass() {
         "pwd",
         "date",
         "whoami",
+        // The list above cannot name every way of looking at a machine, and a
+        // run that is refused the look it is being told to perform cannot repair
+        // itself. These reach the classifier instead of the list.
+        "system_profiler SPDisplaysDataType",
+        "sw_vers -productVersion",
+        "xcrun --sdk macosx --show-sdk-path",
     ];
 
     for cmd in read_only_cmds {
@@ -943,6 +949,11 @@ fn task_graph_bash_whitelist_hardened() {
         "cargo build --release",
         "rm -rf /tmp/test --help",
         "dd if=/dev/zero of=/dev/sda -h",
+        // Looking is exempt; running something the classifier cannot see inside
+        // is not — an opaque script may write anything.
+        "./deploy.sh",
+        "python3 -c 'open(\"payload\",\"w\")'",
+        "docker compose down",
     ];
 
     for cmd in should_be_blocked {

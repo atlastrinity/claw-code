@@ -147,6 +147,14 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
                         || trimmed.contains("docker system df")
                         || trimmed.contains("docker volume ls")
                     ));
+                // The list above is a second, hand-kept opinion about what counts
+                // as looking, and it disagreed with the classifier the gates use:
+                // `system_profiler SPDisplaysDataType` is a read, and a locked-out
+                // run was refused the very look its own error message demanded.
+                // Where the list does not recognize the command, ask the
+                // classifier — a command that changes nothing is a look.
+                let is_read_only = is_read_only
+                    || runtime::fractal::BifurcationEngine::is_observation_command(cmd);
                 if is_read_only {
                     return Ok(());
                 }

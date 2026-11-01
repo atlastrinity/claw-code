@@ -303,8 +303,11 @@ impl Refusal {
              change the outcome has succeeded since, so the same call cannot produce a \
              different result.\n\
              Split the orbit instead:\n\
-             1. ORTHODOX — name the concrete precondition that must become true first, and \
-             make that the next action (a read-only probe counts).\n\
+             1. ORTHODOX — state the precondition as the thing that has to become true, named \
+             by its artifact: the command that must exit 0, the file that must exist, the tool \
+             that must be on PATH. Make that the next action (a read-only probe counts). \
+             \"Determine the precondition\" is not a step: it restates the task it was written \
+             under, and a child that repeats its parent is refused by the graph.\n\
              2. INVERSION — reach the same goal without this call at all (different tool, \
              different layer, different entry point).\n\
              Then record the split: use TaskGraph operation 'add' to create the two orbit \
@@ -1044,10 +1047,105 @@ impl BifurcationEngine {
         if Self::is_verifier_command(&command) {
             return true;
         }
-        if Self::bash_is_mutating(&command) {
+        // The allowlist `classify_command` serves is the one that decides what may
+        // run unattended; it was never meant to decide what counts as looking at
+        // the machine. A toolchain probe the list does not know — `swiftc
+        // --version`, `system_profiler`, `sw_vers` — still answers a question
+        // about the environment, and a live run was locked out for four turns
+        // because a `swiftc --version` that had just succeeded could not prove
+        // the task titled "Check Swift/Xcode availability": the gate said nothing
+        // had been looked at, the graph refused to advance, and every action that
+        // could fix either sat behind that refusal.
+        Self::is_observation_command(&command)
+    }
+
+    /// A command that reads the machine and provably changes nothing in it.
+    ///
+    /// An opaque program is not an observation, whatever its name suggests: a
+    /// script path or an interpreter handed inline code can write anything, and
+    /// the command text does not say which — one opaque segment makes the whole
+    /// chain opaque. Plan enforcement asks this question directly, because a
+    /// build is a look at the code but is still an action the plan has to own.
+    #[must_use]
+    pub fn is_observation_command(command: &str) -> bool {
+        const OPAQUE_INTERPRETERS: [&str; 8] = [
+            "bash",
+            "sh",
+            "zsh",
+            "python",
+            "python3",
+            "node",
+            "ruby",
+            "osascript",
+        ];
+        if Self::bash_is_mutating(command) {
             return false;
         }
-        matches!(classify_command(&command), CommandIntent::ReadOnly)
+        if command
+            .split([';', '|', '&', '\n'])
+            .map(str::trim)
+            .filter(|segment| !segment.is_empty())
+            .any(|segment| {
+                let first = segment.split_whitespace().next().unwrap_or_default();
+                first.contains('/')
+                    || first.contains('\\')
+                    || first.starts_with('.')
+                    || first.starts_with('~')
+                    || first.ends_with(".sh")
+                    || OPAQUE_INTERPRETERS.contains(&first)
+            })
+        {
+            return false;
+        }
+        // A command the allowlist has never heard of is only a look while nothing
+        // in it says otherwise: `docker compose down` and `defaults write …` are
+        // as unknown to the list as `system_profiler` is, and they change state.
+        // A command the allowlist has never heard of is only a look while nothing
+        // in it says otherwise: `docker compose down` and `defaults write …` are
+        // as unknown to the list as `system_profiler` is, and they change state.
+        let intent = classify_command(command);
+        if intent == CommandIntent::Unknown
+            && command.split_whitespace().any(|token| {
+                matches!(
+                    token.to_lowercase().as_str(),
+                    "add"
+                        | "apply"
+                        | "build"
+                        | "clean"
+                        | "commit"
+                        | "compile"
+                        | "create"
+                        | "delete"
+                        | "deploy"
+                        | "disable"
+                        | "down"
+                        | "edit"
+                        | "enable"
+                        | "exec"
+                        | "init"
+                        | "install"
+                        | "kill"
+                        | "launch"
+                        | "migrate"
+                        | "mount"
+                        | "prune"
+                        | "publish"
+                        | "remove"
+                        | "reset"
+                        | "restart"
+                        | "run"
+                        | "set"
+                        | "start"
+                        | "stop"
+                        | "uninstall"
+                        | "update"
+                        | "write"
+                )
+            })
+        {
+            return false;
+        }
+        matches!(intent, CommandIntent::ReadOnly | CommandIntent::Unknown)
     }
 
     /// Call that provably touches the workspace and therefore needs a probe

@@ -393,7 +393,9 @@ where
             refusal_reasons
                 .entry(index)
                 .or_default()
-                .push(BifurcationEngine::probe_gate_refusal(&calls[index].tool_name));
+                .push(BifurcationEngine::probe_gate_refusal(
+                    &calls[index].tool_name,
+                ));
         }
 
         // Claims gate: a leaf titled "Test/Build/Verify …" may not be claimed
@@ -1759,7 +1761,10 @@ mod tests {
         }
 
         impl ApiClient for BatchClaimsApiClient {
-            fn stream(&mut self, _request: ApiRequest) -> Result<Vec<AssistantEvent>, RuntimeError> {
+            fn stream(
+                &mut self,
+                _request: ApiRequest,
+            ) -> Result<Vec<AssistantEvent>, RuntimeError> {
                 self.call_count += 1;
                 if self.call_count == 1 {
                     return Ok(vec![
@@ -1846,7 +1851,9 @@ mod tests {
             .flat_map(|message| message.blocks.iter())
             .filter_map(|block| match block {
                 ContentBlock::ToolResult {
-                    tool_use_id, output, ..
+                    tool_use_id,
+                    output,
+                    ..
                 } => Some((tool_use_id.as_str(), output.as_str())),
                 _ => None,
             })

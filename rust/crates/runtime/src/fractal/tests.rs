@@ -728,7 +728,21 @@ fn probe_gate_classifies_bash_by_what_it_actually_does() {
         ("bash -n script.sh", true, false),
         ("python3 -m py_compile mod.py", true, false),
         ("tsc --noEmit", true, false),
-        ("edge-tts --text hi", false, false),
+        ("edge-tts --text hi", true, false),
+        ("swiftc --version", true, false),
+        ("system_profiler SPDisplaysDataType", true, false),
+        ("sw_vers -productVersion", true, false),
+        ("./build.sh", true, false),
+        ("./deploy.sh", false, false),
+        // Unknown to the allowlist and changing state all the same: an unknown
+        // name is only a look while no token in it says otherwise.
+        ("docker compose down", false, false),
+        (
+            "defaults write com.apple.Finder AppleShowAllFiles true",
+            false,
+            false,
+        ),
+        ("python3 -c 'import os; os.remove(\"x\")'", false, false),
         ("wc -l file", true, false),
         ("echo hi > out.txt", false, true),
         ("echo hi >> out.txt", false, true),
@@ -1287,6 +1301,39 @@ fn an_observation_leaf_closes_on_an_answer_after_the_change() {
             .gate_claims_for_step(&[completion_claim("1.1.1")], &silent)
             .len(),
         1
+    );
+}
+
+#[test]
+fn a_probe_the_read_only_list_does_not_know_is_still_a_look() {
+    let mut engine = BifurcationEngine::new();
+    // The run that died on this: `swiftc --version` answered, and the leaf
+    // titled "Check Swift/Xcode availability" was refused four more times
+    // because that command is not on the read-only list. Refused, the leaf
+    // could not close; unclosed, the next sibling could not start; so the graph
+    // locked and every action that could have repaired it sat behind the lock.
+    let history = [
+        plan_add("1.1.2", "Check Swift/Xcode availability."),
+        bash_run("swiftc --version", false),
+    ];
+    assert!(
+        engine
+            .gate_claims_for_step(&[completion_claim("1.1.2")], &history)
+            .is_empty(),
+        "a toolchain probe that answered is the look the title asked for"
+    );
+
+    // An opaque program is not a look: a script path does not say what it read.
+    let opaque = [
+        plan_add("1.1.2", "Check Swift/Xcode availability."),
+        bash_run("./check_toolchain.sh", false),
+    ];
+    assert_eq!(
+        engine
+            .gate_claims_for_step(&[completion_claim("1.1.2")], &opaque)
+            .len(),
+        1,
+        "a script the classifier cannot see inside is not evidence of looking"
     );
 }
 
