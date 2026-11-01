@@ -111,6 +111,51 @@ impl GrishaPlanReviewer {
             }
         }
 
+        // 4b. Meta-task check: a step whose object is the tracker itself.
+        //
+        // "Verify the current leaf task is in progress" and "Mark the current leaf
+        // task as completed" were both planned, both completed, and both produced
+        // nothing. Bookkeeping is what the tool does on its own; a plan node spent
+        // on it reads as progress and pushes the real work one leaf further away.
+        fn is_tracker_bookkeeping(title: &str) -> bool {
+            let lc = title.to_lowercase();
+            let names_tracker = [
+                "leaf task",
+                "current leaf",
+                "active task",
+                "active leaf",
+                "task graph",
+                "taskgraph",
+                "task.md",
+            ]
+            .iter()
+            .any(|marker| lc.contains(marker));
+            let bookkeeping = [
+                "verify", "checked", "checking", "confirm", "mark", "update", "set ", "ensure",
+            ]
+            .iter()
+            .any(|verb| lc.contains(verb));
+            names_tracker && bookkeeping
+        }
+
+        for node in &enriched {
+            if let Some(content) = node.content.as_deref() {
+                if is_tracker_bookkeeping(content) {
+                    return Err(GrishaExecutionError::new(
+                        GrishaErrorCode::PlanMetaTask,
+                        format!(
+                            "Task '{}' (\"{}\") is bookkeeping about the task tracker, not work on \
+                             the user's goal.",
+                            node.id, content
+                        ),
+                        "Do not plan steps whose object is the task graph itself — status updates \
+                         are what the tool does by itself. Name the artifact the step produces \
+                         (a file, a build, a running command) and plan that instead.",
+                    ));
+                }
+            }
+        }
+
         // 5. Duplicate child & ancestor cycle check: prevent recreating identical tasks under parent
         //
         // `retried_abandoned` collects the clones that are really second attempts:
@@ -454,6 +499,40 @@ mod tests {
         let res = GrishaPlanReviewer::review_and_enhance(&nodes, &[]);
         assert!(res.is_err());
         assert_eq!(res.unwrap_err().code, GrishaErrorCode::PlanMaxDepthExceeded);
+    }
+
+    #[test]
+    fn a_step_whose_object_is_the_tracker_is_not_a_step() {
+        for title in [
+            "Verify the current leaf task is in progress",
+            "Mark the current leaf task as completed",
+        ] {
+            let res = GrishaPlanReviewer::review_and_enhance(
+                &[TaskNode {
+                    id: "7.2.2.1".to_string(),
+                    parent_id: Some("7.2.2".to_string()),
+                    content: Some(title.to_string()),
+                    status: Some(TaskStatus::Pending),
+                }],
+                &[],
+            );
+            let error = res.expect_err("a step whose object is the tracker must be rejected");
+            assert_eq!(error.code, GrishaErrorCode::PlanMetaTask, "{title}");
+        }
+
+        // A real check that happens to be the last step of a phase still plans.
+        let res = GrishaPlanReviewer::review_and_enhance(
+            &[TaskNode {
+                id: "7.2.2.1".to_string(),
+                parent_id: Some("7.2.2".to_string()),
+                content: Some(
+                    "Verify the app writes brightness changes to the log file".to_string(),
+                ),
+                status: Some(TaskStatus::Pending),
+            }],
+            &[],
+        );
+        assert!(res.is_ok());
     }
 
     #[test]

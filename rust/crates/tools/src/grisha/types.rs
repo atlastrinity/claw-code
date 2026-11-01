@@ -20,6 +20,8 @@ pub enum GrishaErrorCode {
     PlanRecursiveDuplicate,
     /// Plan exceeds max allowed hierarchy depth.
     PlanMaxDepthExceeded,
+    /// Plan step manages the task tracker instead of producing an artifact.
+    PlanMetaTask,
     /// Phase transition attempted with incomplete prerequisites.
     PhaseTransitionIncomplete,
 }
@@ -37,6 +39,7 @@ impl GrishaErrorCode {
             Self::PlanMissingVerification => "GRISHA_PLAN_002",
             Self::PlanRecursiveDuplicate => "GRISHA_PLAN_003",
             Self::PlanMaxDepthExceeded => "GRISHA_PLAN_004",
+            Self::PlanMetaTask => "GRISHA_PLAN_005",
             Self::PhaseTransitionIncomplete => "GRISHA_PHASE_001",
         }
     }
