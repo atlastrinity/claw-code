@@ -1180,7 +1180,7 @@ fn persisted_block_json(block: &ContentBlock) -> JsonValue {
             );
             object.insert(
                 "tool_name".to_string(),
-                JsonValue::String(tool_name.clone()),
+                JsonValue::String(sanitize_jsonl_field(tool_name)),
             );
             object.insert(
                 "output".to_string(),

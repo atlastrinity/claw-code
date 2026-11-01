@@ -232,7 +232,25 @@ fn dispatch_tool(
             )?;
             from_value::<IngestContextInput>(input).and_then(run_ingest_context)
         }
-        _ => Err(format!("unsupported tool: {name}")),
+        // A live run sent the previous tool's *result* back as the tool name. The
+        // whole JSON payload then came home in the error text, was wrapped twice
+        // more by the recovery directive, and the next turn reproduced the same
+        // mistake with the blob in its context. Name the mistake in one line.
+        _ => {
+            let looks_like_payload =
+                name.trim_start().starts_with('{') || name.contains("\"operation\"");
+            if looks_like_payload {
+                let head: String = name.chars().take(80).collect();
+                Err(format!(
+                    "unsupported tool: that is a tool result, not a tool call ({head}…).\n\
+                     Read the state it reports and issue the next real call — `bash`, `read_file`, \
+                     `edit_file` or a `TaskGraph` operation — instead of echoing it back."
+                ))
+            } else {
+                let head: String = name.chars().take(80).collect();
+                Err(format!("unsupported tool: {head}"))
+            }
+        }
     };
 
     if let Ok(ref mut output) = res {

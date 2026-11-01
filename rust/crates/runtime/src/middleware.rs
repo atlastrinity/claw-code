@@ -680,7 +680,12 @@ fn format_grisha_tool_failure_directive(tool_name: &str, output: &str) -> String
         action_items.push("1. Analyze the exact error output and root cause step-by-step.");
         action_items.push("2. Do not repeat the identical failing command without addressing the underlying cause.");
         action_items.push("3. If this is a tool parameter or validation error, adjust parameters directly rather than decomposing into redundant subtasks.");
-        format!("Tool `{}` returned an execution error.", tool_name)
+        // A model that sends a tool result back as a tool call puts a multi-kilobyte
+        // JSON payload in `tool_name`; the directive quoted it in full, twice.
+        format!(
+            "Tool `{}` returned an execution error.",
+            truncate(tool_name, 120)
+        )
     };
 
     format!(
