@@ -65,6 +65,45 @@ pub(crate) fn execute_tool_with_enforcer(
     result
 }
 
+/// The name came back as a result blob: quote at most its first line, never the
+/// payload, or the error re-feeds the model the very JSON that confused it.
+pub(crate) fn unsupported_tool_error(name: &str) -> String {
+    let head: String = name.chars().take(80).collect();
+    if name.trim_start().starts_with('{') {
+        format!(
+            "unsupported tool: that is a tool result, not a tool call ({head}…).\nRead the state \
+             it reports and issue the next real call — `bash`, `read_file`, `edit_file` or a \
+             `TaskGraph` operation — instead of echoing it back."
+        )
+    } else {
+        format!("unsupported tool: {head}")
+    }
+}
+
+/// The argument key sets that belong to exactly one tool. A payload carrying
+/// `pattern` could be a glob or a grep, so those stay unrecoverable; a payload
+/// carrying `command` cannot be anything but a shell call.
+pub(crate) fn tool_name_from_payload_shape(name: &str, input: &Value) -> Option<&'static str> {
+    if !name.trim_start().starts_with('{') {
+        return None;
+    }
+    let fields = input.as_object()?;
+    let text = |key: &str| fields.get(key).and_then(Value::as_str).is_some();
+    if text("command") {
+        Some("bash")
+    } else if text("operation") {
+        Some("TaskGraph")
+    } else if text("path") && text("content") {
+        Some("write_file")
+    } else if text("path") && text("old_string") && text("new_string") {
+        Some("edit_file")
+    } else if text("path") && fields.len() == 1 {
+        Some("read_file")
+    } else {
+        None
+    }
+}
+
 /// Tool errors routinely embed the failing command's whole output; a log line
 /// that repeats it makes the log unreadable and hides the tool name.
 fn summarize_error(error: &str) -> String {
@@ -232,25 +271,10 @@ fn dispatch_tool(
             )?;
             from_value::<IngestContextInput>(input).and_then(run_ingest_context)
         }
-        // A live run sent the previous tool's *result* back as the tool name. The
-        // whole JSON payload then came home in the error text, was wrapped twice
-        // more by the recovery directive, and the next turn reproduced the same
-        // mistake with the blob in its context. Name the mistake in one line.
-        _ => {
-            let looks_like_payload =
-                name.trim_start().starts_with('{') || name.contains("\"operation\"");
-            if looks_like_payload {
-                let head: String = name.chars().take(80).collect();
-                Err(format!(
-                    "unsupported tool: that is a tool result, not a tool call ({head}…).\n\
-                     Read the state it reports and issue the next real call — `bash`, `read_file`, \
-                     `edit_file` or a `TaskGraph` operation — instead of echoing it back."
-                ))
-            } else {
-                let head: String = name.chars().take(80).collect();
-                Err(format!("unsupported tool: {head}"))
-            }
-        }
+        // The result blob that used to arrive here as a name is routed to its real
+        // tool before dispatch. What is left is a blob whose shape matches no
+        // tool, and the rule that matters is not to quote it back in full.
+        _ => Err(unsupported_tool_error(name)),
     };
 
     if let Ok(ref mut output) = res {

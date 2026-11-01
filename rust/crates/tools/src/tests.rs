@@ -3731,6 +3731,56 @@ fn given_no_enforcer_when_bash_then_executes_normally() {
 }
 
 #[test]
+fn a_call_that_lost_only_its_tool_label_still_runs() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let registry = super::GlobalToolRegistry::builtin();
+    let blob = json!({"nodes_updated": 1, "active_leaf_id": "5.5"}).to_string();
+
+    let result = registry
+        .execute(
+            &blob,
+            &json!({ "command": "printf 'ok'", "description": "say ok" }),
+        )
+        .expect("a complete bash payload must run even with a blob for a name");
+    let note_at = result
+        .find("\n[note:")
+        .expect("the note is appended, not prefixed");
+    let output: serde_json::Value =
+        serde_json::from_str(&result[..note_at]).expect("the payload stays head-parseable JSON");
+    assert_eq!(output["stdout"], "ok", "{result}");
+    assert!(result.contains("this ran as `bash`"), "{result}");
+    assert!(
+        !result.contains("nodes_updated"),
+        "the blob must not return: {result}"
+    );
+
+    // A payload whose keys belong to no single tool is not guessed at, and the
+    // rejection must not carry the blob back into the context.
+    let error = registry
+        .execute(
+            &blob,
+            &json!({ "structuredPatch": [], "filePath": "/tmp/x", "type": "update" }),
+        )
+        .expect_err("an unmatched shape stays an error");
+    assert!(
+        error.contains("that is a tool result, not a tool call"),
+        "{error}"
+    );
+    assert!(
+        error.chars().count() < 400,
+        "the rejection must bound the blob it quotes, got {} chars: {error}",
+        error.chars().count()
+    );
+
+    let ordinary = registry
+        .execute("NoSuchTool", &json!({ "query": "x" }))
+        .expect_err("a plain unknown name is still unknown");
+    assert_eq!(ordinary, "unsupported tool: no_such_tool");
+}
+
+#[test]
 fn provider_runtime_client_chain_uses_only_primary_when_no_fallbacks_configured() {
     // given
     let _guard = env_lock()

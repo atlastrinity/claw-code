@@ -34,6 +34,22 @@ pub struct ToolRegistry {
     entries: Vec<ToolManifestEntry>,
 }
 
+/// A recovered call is the model's own intent with the label lost; say the
+/// recovery in one line so the next turn sends the name. It goes after the
+/// output, not before it: tool results are JSON, and readers parse from the head.
+fn note_recovery(
+    recovered: Option<&'static str>,
+    result: Result<String, String>,
+) -> Result<String, String> {
+    match (recovered, result) {
+        (Some(tool), Ok(output)) => Ok(format!(
+            "{output}\n[note: this ran as `{tool}` — the tool name you sent was a result JSON, \
+             not a name. Send `{tool}` by name next time.]"
+        )),
+        (_, other) => other,
+    }
+}
+
 impl ToolRegistry {
     #[must_use]
     pub fn new(entries: Vec<ToolManifestEntry>) -> Self {
@@ -454,16 +470,27 @@ impl GlobalToolRegistry {
 
         let coerced_input = normalization::coerce_tool_input(input.clone());
 
+        // Six times in one live run the model built a correct call and lost only
+        // its label: the name arrived as the previous tool's result JSON while the
+        // arguments were a complete `{"command": …}`. Refusing that spent a whole
+        // round-trip re-sending the same payload, so when the argument keys belong
+        // to exactly one tool, run it and let the note travel with the output.
+        let recovered_name = crate::execute::tool_name_from_payload_shape(raw_name, &coerced_input);
+        let raw_name = recovered_name.unwrap_or(raw_name);
+
         // First try finding it exactly (ignoring case)
         if let Some(spec) = mvp_tool_specs()
             .iter()
             .find(|spec| spec.name.eq_ignore_ascii_case(raw_name))
         {
-            return execute_tool_with_enforcer(
-                self.enforcer.as_ref(),
-                spec.name,
-                &coerced_input,
-                self.budget,
+            return note_recovery(
+                recovered_name,
+                execute_tool_with_enforcer(
+                    self.enforcer.as_ref(),
+                    spec.name,
+                    &coerced_input,
+                    self.budget,
+                ),
             );
         }
 
@@ -478,11 +505,14 @@ impl GlobalToolRegistry {
             .iter()
             .find(|spec| normalization::canonical_allowed_tool_name(spec.name) == resolved_name)
         {
-            return execute_tool_with_enforcer(
-                self.enforcer.as_ref(),
-                spec.name,
-                &coerced_input,
-                self.budget,
+            return note_recovery(
+                recovered_name,
+                execute_tool_with_enforcer(
+                    self.enforcer.as_ref(),
+                    spec.name,
+                    &coerced_input,
+                    self.budget,
+                ),
             );
         }
 
@@ -505,7 +535,7 @@ impl GlobalToolRegistry {
             return tool.execute(&coerced_input).map_err(|e| e.to_string());
         }
 
-        Err(format!("unsupported tool: {resolved_name}"))
+        Err(crate::execute::unsupported_tool_error(&resolved_name))
     }
 
     fn searchable_tool_specs(&self) -> Vec<SearchableToolSpec> {
