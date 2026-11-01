@@ -6,6 +6,7 @@ use crate::providers::openai_compat::{self, OpenAiCompatClient, OpenAiCompatConf
 use crate::providers::{self, ProviderKind};
 use crate::types::{MessageRequest, MessageResponse, StreamEvent};
 use std::collections::HashMap;
+use std::sync::atomic::Ordering;
 use std::sync::{Mutex, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
@@ -172,8 +173,39 @@ async fn apply_minimum_interval() -> Duration {
 }
 
 /// `CLAW_API_PAUSE_SECS` as a duration, or `None` when unset, unparseable or 0.
+///
+/// The configured value is treated as the *ceiling* of the spacing, not the
+/// steady state: measured live, a 5 s floor paced a run whose provider answered
+/// in ~2 s and 15.6 s of an 8-request window went to spacing alone. The floor
+/// relaxes by a quarter every four clean responses, bottoming out at a quarter of
+/// the configured pause, and snaps back to the full configured value the moment
+/// the provider says 429 — so the knob stays what the user asked for as a worst
+/// case while an idle provider costs nothing.
 fn configured_minimum_interval() -> Option<Duration> {
-    minimum_interval_from(std::env::var("CLAW_API_PAUSE_SECS").ok().as_deref())
+    let interval = minimum_interval_from(std::env::var("CLAW_API_PAUSE_SECS").ok().as_deref())?;
+    let percent = PACE_PERCENT.load(Ordering::Relaxed).clamp(25, 100);
+    let relaxed = interval.mul_f64(f64::from(percent) / 100.0);
+    Some(relaxed.max(Duration::from_millis(250)))
+}
+
+/// Percentage of the configured pause currently used as the spacing floor.
+static PACE_PERCENT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(100);
+/// Consecutive responses that arrived without a rate limit.
+static CLEAN_STREAK: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+
+fn note_clean_response() {
+    let streak = CLEAN_STREAK
+        .fetch_add(1, Ordering::Relaxed)
+        .saturating_add(1);
+    if streak % 4 == 0 {
+        let next = PACE_PERCENT.load(Ordering::Relaxed).saturating_mul(3) / 4;
+        PACE_PERCENT.store(next.clamp(25, 100), Ordering::Relaxed);
+    }
+}
+
+fn note_throttled_response() {
+    CLEAN_STREAK.store(0, Ordering::Relaxed);
+    PACE_PERCENT.store(100, Ordering::Relaxed);
 }
 
 fn minimum_interval_from(raw: Option<&str>) -> Option<Duration> {
@@ -186,6 +218,8 @@ fn reset_minimum_interval() {
     if let Ok(mut last) = LAST_REQUEST_START.lock() {
         *last = None;
     }
+    PACE_PERCENT.store(100, Ordering::Relaxed);
+    CLEAN_STREAK.store(0, Ordering::Relaxed);
 }
 
 pub(crate) fn estimate_request_tokens(request: &MessageRequest) -> usize {
@@ -689,6 +723,7 @@ impl ProviderClient {
             match client_res {
                 Ok(response) => {
                     set_active_key_index(model, key_index);
+                    note_clean_response();
                     return Ok(response);
                 }
                 Err(err) => {
@@ -703,6 +738,9 @@ impl ProviderClient {
                         || err_str.contains("429")
                         || err_str.contains("Too Many Requests")
                         || err_str.contains("overloaded");
+                    if is_rate_limit {
+                        note_throttled_response();
+                    }
 
                     last_error = Some(err);
 
@@ -824,6 +862,7 @@ impl ProviderClient {
             match client_res {
                 Ok(response) => {
                     set_active_key_index(model, key_index);
+                    note_clean_response();
                     return Ok(response);
                 }
                 Err(err) => {
@@ -835,6 +874,9 @@ impl ProviderClient {
                     let status_code = err.status_code().unwrap_or(0);
                     let err_str = format!("{err:?}");
                     let retry_after = err.retry_after();
+                    if status_code == 429 || err.is_rate_limit() {
+                        note_throttled_response();
+                    }
                     // A transport/connection failure (no HTTP response) is the
                     // endpoint's problem, not this key's: every key in the pool
                     // hits the same host, so cooling this one and rotating would
@@ -1007,7 +1049,10 @@ mod tests {
     use std::sync::{Mutex, OnceLock};
     use std::time::{Duration, Instant};
 
-    use super::ProviderClient;
+    use super::{
+        configured_minimum_interval, note_clean_response, note_throttled_response,
+        reset_minimum_interval, ProviderClient,
+    };
     use crate::providers::{detect_provider_kind, resolve_model_alias, ProviderKind};
 
     /// Serializes every test in this module that mutates process-wide
@@ -1259,6 +1304,42 @@ mod tests {
         );
 
         let _ = std::fs::remove_dir_all(&home);
+    }
+
+    #[test]
+    fn the_spacing_floor_relaxes_while_the_provider_keeps_answering() {
+        let _lock = env_lock();
+        let _pause = EnvVarGuard::set("CLAW_API_PAUSE_SECS", Some("8"));
+        reset_minimum_interval();
+        assert_eq!(configured_minimum_interval(), Some(Duration::from_secs(8)));
+
+        // One relaxation step per four clean responses, each step three quarters
+        // of the spacing before it.
+        for _ in 0..4 {
+            note_clean_response();
+        }
+        assert_eq!(configured_minimum_interval(), Some(Duration::from_secs(6)));
+        for _ in 0..4 {
+            note_clean_response();
+        }
+        assert_eq!(
+            configured_minimum_interval(),
+            Some(Duration::from_millis(4_480))
+        );
+
+        // It stops at a quarter of what the user asked for, never below it.
+        for _ in 0..40 {
+            note_clean_response();
+        }
+        assert_eq!(
+            configured_minimum_interval(),
+            Some(Duration::from_millis(2_000)),
+            "the relaxation must bottom out at 25% of the configured pause"
+        );
+
+        // A single rate limit returns the full configured spacing.
+        note_throttled_response();
+        assert_eq!(configured_minimum_interval(), Some(Duration::from_secs(8)));
     }
 
     #[allow(clippy::await_holding_lock)]
