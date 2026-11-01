@@ -764,21 +764,7 @@ impl LiveCli {
                 // ============================================================================
                 // Auto-retry on network errors
                 // ============================================================================
-                let is_network_error = error_str.contains("error decoding response body")
-                    || error_str.contains("connection closed")
-                    || error_str.contains("error sending request")
-                    || error_str.contains("unable to connect")
-                    || error_str.contains("timeout")
-                    || error_str.contains("broken pipe")
-                    || error_str.contains("connection reset")
-                    || error_str.contains("Bad Gateway")
-                    || error_str.contains("Service Unavailable")
-                    || error_str.contains("502")
-                    || error_str.contains("503")
-                    || error_str.contains("504")
-                    || error_str.contains("429")
-                    || error_str.contains("Too Many Requests")
-                    || error_str.contains("api_rate_limit_error");
+                let is_network_error = crate::error::is_transient_transport_error(&error_str);
 
                 if is_network_error {
                     // Waiting between whole-turn retries is the same decision
@@ -851,22 +837,8 @@ impl LiveCli {
                                 )?;
 
                                 let retry_str = retry_error.to_string();
-                                let still_network_error = retry_str
-                                    .contains("error decoding response body")
-                                    || retry_str.contains("connection closed")
-                                    || retry_str.contains("error sending request")
-                                    || retry_str.contains("unable to connect")
-                                    || retry_str.contains("timeout")
-                                    || retry_str.contains("broken pipe")
-                                    || retry_str.contains("connection reset")
-                                    || retry_str.contains("Bad Gateway")
-                                    || retry_str.contains("Service Unavailable")
-                                    || retry_str.contains("502")
-                                    || retry_str.contains("503")
-                                    || retry_str.contains("504")
-                                    || retry_str.contains("429")
-                                    || retry_str.contains("Too Many Requests")
-                                    || retry_str.contains("api_rate_limit_error");
+                                let still_network_error =
+                                    crate::error::is_transient_transport_error(&retry_str);
 
                                 if still_network_error && round < NETWORK_RETRY_ROUNDS {
                                     round += 1;

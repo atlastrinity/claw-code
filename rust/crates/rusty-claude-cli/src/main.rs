@@ -296,6 +296,17 @@ fn main() {
             // #156: Add machine-readable error kind to text output so stderr observers
             // don't need to regex-scrape the prose.
             let kind = classify_error_kind(&message);
+            let usage_hint = if crate::error::is_transient_transport_error(&message) {
+                // A provider that stopped answering mid-run is not a usage
+                // mistake, and `--help` is the wrong next move: the plan still
+                // has open leaves and the completed work is already on disk, so
+                // the hint has to point back at the work.
+                "The provider stopped answering, so the run ended with the task graph still open. \
+                 Completed work is on disk — re-run the same prompt (or `claw --resume`) to pick up \
+                 where the leaves are."
+            } else {
+                "Run `claw --help` for usage."
+            };
             if message.contains("`claw --help`") {
                 eprintln!(
                     "[error-kind: {kind}]
@@ -306,7 +317,7 @@ error: {message}"
                     "[error-kind: {kind}]
 error: {message}
 
-Run `claw --help` for usage."
+{usage_hint}"
                 );
             }
         }

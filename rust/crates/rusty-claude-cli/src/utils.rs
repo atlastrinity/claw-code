@@ -52,17 +52,39 @@ use crate::render::{
     render_thinking_block_summary, InternalPromptProgressEvent, InternalPromptProgressState,
 };
 const INTERNAL_PROGRESS_HEARTBEAT_INTERVAL: std::time::Duration = std::time::Duration::from_secs(3);
-const POST_TOOL_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
+/// Silence bound on a post-tool continuation. The bound is deliberately
+/// tighter than [`STREAM_IDLE_TIMEOUT`]: the model has just been handed a tool
+/// result, so a re-send cannot duplicate anything on the terminal. Ten seconds
+/// was the original value and it fired on healthy runs — a throttled gateway
+/// buffers the deltas of a long tool call and releases them in a burst, so a
+/// gap that short says nothing about the model. `CLAW_POST_TOOL_STALL_SECS`
+/// tunes it per provider.
+const POST_TOOL_STALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 /// Deadline on silence in any stream. A provider can accept the connection and
 /// then never emit an SSE chunk; without this bound the CLI waits forever and
 /// is indistinguishable from a hung terminal. Kept below
 /// `api::providers::STREAM_IDLE_TIMEOUT` so this policy — which knows whether
 /// the request is a post-tool continuation and can rotate keys — decides first.
+/// `CLAW_STREAM_IDLE_SECS` tunes it per provider.
 const STREAM_IDLE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(120);
-/// Prefix shared by every stall this CLI raises, and the marker the stream
-/// retry loop matches on. Only [`AnthropicRuntimeClient::stall_error`] builds
-/// it, so the check cannot drift onto an unrelated error message.
+/// Prefix shared by every stall this CLI surfaces — [`AnthropicRuntimeClient::stall_error`]
+/// raises it as an error, [`AnthropicRuntimeClient::keep_partial_stream`] reports
+/// it on stderr — and the marker the stream retry loop matches on. Only these
+/// two build it, so the check cannot drift onto an unrelated error message.
 const STREAM_STALL_MARKER: &str = "stream stall";
+
+/// Silence bound for one stream, with the env override applied on top of the
+/// compiled default. Zero or unparseable values fall back rather than disabling
+/// the deadline — a stream with no bound is the hang this constant exists to
+/// prevent.
+fn silence_bound(default: std::time::Duration, env_var: &str) -> std::time::Duration {
+    std::env::var(env_var)
+        .ok()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|secs| *secs > 0)
+        .map(std::time::Duration::from_secs)
+        .unwrap_or(default)
+}
 
 use crate::mcp::{
     ListMcpResourcesRequest, McpToolRequest, ReadMcpResourceRequest, RuntimeMcpState,
@@ -3417,7 +3439,7 @@ mod tests {
         render_prompt_history_report, render_repl_help, render_resume_usage, render_session_list,
         render_session_markdown, resolve_model_alias, resolve_model_alias_with_config,
         resolve_repl_model, resolve_session_reference, response_to_events,
-        resume_supported_slash_commands, short_tool_id,
+        resume_supported_slash_commands, short_tool_id, silence_bound,
         slash_command_completion_candidates_with_sessions, split_error_hint, status_context,
         status_json_value, summarize_tool_payload_for_markdown, try_resolve_bare_skill_prompt,
         validate_no_args, write_mcp_server_fixture, CliAction, CliOutputFormat, CliToolExecutor,
@@ -5599,8 +5621,9 @@ mod tests {
             classify_error_kind("api returned 500 Internal Server Error"),
             "api_http_error"
         );
-        // A breaker shed and a silent stream each need their own kind: both
-        // mean "do not re-send", which a wrapper must be able to switch on.
+        // A breaker shed and a silent stream each need their own kind: the
+        // first is a verdict to respect, the second a transport blink to retry,
+        // and a wrapper must be able to tell them apart.
         assert_eq!(
             classify_error_kind("provider circuit open after 2 consecutive failed retry chains"),
             "api_circuit_open"
@@ -5725,6 +5748,62 @@ mod tests {
         let (short, hint) = split_error_hint("simple error with no hint");
         assert_eq!(short, "simple error with no hint");
         assert_eq!(hint, None);
+    }
+
+    #[test]
+    fn a_silent_provider_is_a_blink_the_run_recovers_from() {
+        // One ten-second gap ended an entire headless run: the stall message
+        // matched none of the strings the whole-turn retry tested, so the error
+        // propagated out of the loop and the process exited 1 with leaves open.
+        use crate::error::is_transient_transport_error;
+        for message in [
+            "stream stall: model went silent for 45s",
+            "stream stall: provider 'glm' sent no chunks for 150s",
+            "api returned unexpected status 429",
+            "connection closed before message completed",
+        ] {
+            assert!(
+                is_transient_transport_error(message),
+                "{message} should be re-sent after a pause"
+            );
+        }
+        // A fixed verdict and a deliberate shed must not be re-sent: retrying a
+        // 401 burns another chain, and re-sending what the breaker refused is
+        // precisely the load it was protecting the provider from.
+        for message in [
+            "provider circuit open after 2 consecutive failed retry chains",
+            "api returned 401 Unauthorized (authentication_error): invalid x-api-key",
+            "unknown_option: unknown system-prompt option: --foo.",
+        ] {
+            assert!(
+                !is_transient_transport_error(message),
+                "{message} must not be retried"
+            );
+        }
+    }
+
+    #[test]
+    fn the_silence_bound_tunes_per_provider_but_cannot_be_disabled() {
+        let _guard = EnvVarGuard::set("CLAW_POST_TOOL_STALL_SECS", "90");
+        assert_eq!(
+            silence_bound(
+                std::time::Duration::from_secs(45),
+                "CLAW_POST_TOOL_STALL_SECS"
+            ),
+            std::time::Duration::from_secs(90)
+        );
+        // Garbage and zero fall back to the compiled bound: a stream with no
+        // deadline is the hang these constants exist to prevent.
+        let _garbage = EnvVarGuard::set("CLAW_STREAM_IDLE_SECS", "not-a-number");
+        assert_eq!(
+            silence_bound(std::time::Duration::from_secs(120), "CLAW_STREAM_IDLE_SECS"),
+            std::time::Duration::from_secs(120)
+        );
+        let _zero = EnvVarGuard::set("CLAW_STREAM_IDLE_SECS", "0");
+        assert_eq!(
+            silence_bound(std::time::Duration::from_secs(120), "CLAW_STREAM_IDLE_SECS"),
+            std::time::Duration::from_secs(120)
+        );
     }
 
     #[test]
@@ -9575,9 +9654,9 @@ impl ApiClient for AnthropicRuntimeClient {
             // so silence there means it stalled and the request is re-sent as
             // a continuation nudge.
             let stall_timeout = if is_post_tool {
-                POST_TOOL_STALL_TIMEOUT
+                silence_bound(POST_TOOL_STALL_TIMEOUT, "CLAW_POST_TOOL_STALL_SECS")
             } else {
-                STREAM_IDLE_TIMEOUT
+                silence_bound(STREAM_IDLE_TIMEOUT, "CLAW_STREAM_IDLE_SECS")
             };
             let max_attempts: usize = 3;
 
@@ -9630,42 +9709,56 @@ impl AnthropicRuntimeClient {
     }
 
     /// A provider went quiet mid-stream. Charge the δ breaker — the transport
-    /// succeeded, so nothing else marks this as a failure — and raise the
-    /// CLI's own stall error.
+    /// succeeded, so nothing else marks this as a failure — and raise the CLI's
+    /// own stall error, which [`Self::stream`] re-sends on a rotated key.
     ///
-    /// Retrying is only safe while the stream has produced nothing: the
-    /// partial answer is already on the terminal, and re-sending the request
-    /// would print it a second time.
-    fn stall_error(&self, reason: impl AsRef<str>, streamed_any: bool) -> RuntimeError {
+    /// Only reached while nothing has streamed: once complete blocks are on the
+    /// terminal, [`Self::keep_partial_stream`] keeps them instead.
+    fn stall_error(&self, reason: impl AsRef<str>) -> RuntimeError {
         self.client.record_stream_stall();
-        let message = format!("{STREAM_STALL_MARKER}: {}", reason.as_ref());
-        if streamed_any {
-            RuntimeError::terminal(message)
-        } else {
-            RuntimeError::new(message)
-        }
+        RuntimeError::new(format!("{STREAM_STALL_MARKER}: {}", reason.as_ref()))
+    }
+
+    /// Silence after part of the answer already reached the terminal.
+    ///
+    /// The stall is charged to the δ breaker and reported, and the turn keeps
+    /// what it has. Dropping the prefix and failing the request was the design
+    /// that ended a run over one gap: the partial answer had nowhere to go, the
+    /// transcript lost it, and the exit code reported the task as failed.
+    ///
+    /// What is kept is safe to keep — `events` holds only complete blocks, so
+    /// either text the user has already read or a tool call whose input JSON
+    /// arrived whole. A tool call still accumulating its arguments exists only
+    /// in `pending_tool`, so it is dropped with the dead connection rather than
+    /// executed half-built.
+    fn keep_partial_stream(&self, reason: impl AsRef<str>) {
+        self.client.record_stream_stall();
+        eprintln!(
+            "⚠️ {STREAM_STALL_MARKER}: {} — keeping the partial answer instead of failing the turn.",
+            reason.as_ref()
+        );
     }
 
     /// Like [`Self::api_runtime_error`], for errors surfaced while reading a
-    /// stream: a provider-side stall becomes a retryable-or-terminal stall
-    /// depending on how much of the answer already reached the user.
-    fn stream_api_error(&self, error: &ApiError, streamed_any: bool) -> RuntimeError {
+    /// stream.
+    fn stream_api_error(&self, error: &ApiError) -> RuntimeError {
         if let ApiError::StreamStall {
             provider,
             idle_secs,
         } = error
         {
-            return self.stall_error(
-                format!("provider '{provider}' sent no chunks for {idle_secs}s"),
-                streamed_any,
-            );
+            return self.stall_error(format!(
+                "provider '{provider}' sent no chunks for {idle_secs}s"
+            ));
         }
         self.api_runtime_error(error)
     }
 
-    /// Consume a single streaming response, treating `stall_timeout` of
-    /// silence as a dead connection so a provider that stops streaming is
-    /// retried — or shed by the breaker — instead of blocking the session.
+    /// Consume a single streaming response, treating `stall_timeout` of silence
+    /// as a dead connection: with nothing streamed yet the caller re-sends (or
+    /// the δ breaker eventually sheds) instead of blocking the session, and with
+    /// part of the answer already on the terminal that part becomes the turn.
+    /// Either way the run survives the gap.
     #[allow(clippy::too_many_lines)]
     async fn consume_stream(
         &self,
@@ -9697,17 +9790,33 @@ impl AnthropicRuntimeClient {
             // indistinguishable from a hung terminal otherwise, whether it
             // falls silent before the first event or after the hundredth.
             let next = match tokio::time::timeout(stall_timeout, stream.next_event()).await {
-                Ok(inner) => {
-                    inner.map_err(|error| self.stream_api_error(&error, !events.is_empty()))?
+                Ok(Ok(event)) => event,
+                Ok(Err(error)) => {
+                    if let ApiError::StreamStall {
+                        provider,
+                        idle_secs,
+                    } = &error
+                    {
+                        if !events.is_empty() {
+                            self.keep_partial_stream(format!(
+                                "provider '{provider}' sent no chunks for {idle_secs}s"
+                            ));
+                            break;
+                        }
+                    }
+                    return Err(self.stream_api_error(&error));
                 }
                 Err(_elapsed) => {
                     // The transport accepted the request, so the provider
                     // client already logged a breaker success — correct it or
                     // the δ breaker never escalates against a silent endpoint.
-                    return Err(self.stall_error(
-                        format!("model went silent for {stall_timeout:?}"),
-                        !events.is_empty(),
-                    ));
+                    if events.is_empty() {
+                        return Err(
+                            self.stall_error(format!("model went silent for {stall_timeout:?}"))
+                        );
+                    }
+                    self.keep_partial_stream(format!("model went silent for {stall_timeout:?}"));
+                    break;
                 }
             };
 

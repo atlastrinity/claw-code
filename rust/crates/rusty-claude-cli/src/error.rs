@@ -149,6 +149,40 @@ pub fn classify_error_kind(message: &str) -> &'static str {
     }
 }
 
+/// The transport or the provider blinked rather than refused, so the same
+/// request is worth re-sending after a pause.
+///
+/// [`classify_error_kind`] names the two API-shaped cases; the literal markers
+/// catch the failures raised before any HTTP response exists — a socket that
+/// closed, a stream that went silent. A mid-stream stall belongs here: the
+/// message matched none of the retry strings callers used to test, so one
+/// ten-second gap of provider silence ended an entire headless run with exit
+/// code 1 instead of pausing and asking again.
+#[must_use]
+pub fn is_transient_transport_error(message: &str) -> bool {
+    const MARKERS: &[&str] = &[
+        "error decoding response body",
+        "connection closed",
+        "error sending request",
+        "unable to connect",
+        "timeout",
+        "broken pipe",
+        "connection reset",
+        "Bad Gateway",
+        "Service Unavailable",
+        "502",
+        "503",
+        "504",
+        "429",
+        "Too Many Requests",
+        "api_rate_limit_error",
+    ];
+    matches!(
+        classify_error_kind(message),
+        "api_stream_stall" | "api_rate_limit_error"
+    ) || MARKERS.iter().any(|marker| message.contains(marker))
+}
+
 /// #77: Split a multi-line error message into (`short_reason`, `optional_hint`).
 ///
 /// The `short_reason` is the first line (up to the first newline), and the hint
