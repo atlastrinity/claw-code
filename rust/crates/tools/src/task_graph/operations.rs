@@ -456,7 +456,12 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         && current_nodes.iter().all(|n| {
             n.status == Some(TaskStatus::Completed) || n.status == Some(TaskStatus::Failed)
         });
-    if graph_is_terminal {
+    // The closing summary is said once, by the call that actually closes the
+    // graph. A call that changes nothing (`nodes_updated: 0` — the model
+    // re-marking nodes that were already terminal) used to repeat the whole
+    // speech verbatim, and a live run emitted it twice per turn for twenty
+    // turns while it was stuck.
+    if graph_is_terminal && updated_count > 0 {
         let failed_leaves: Vec<&TaskNode> = current_nodes
             .iter()
             .filter(|n| {

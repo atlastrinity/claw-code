@@ -3157,3 +3157,122 @@ fn a_failed_parent_names_the_children_it_left_open() {
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn a_reopened_twin_leaves_the_graph_executable() {
+    let _guard = env_guard();
+    let path = temp_path("reopen_executable.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    // The live graph at 13:46: every node completed or failed, phase 2 failed.
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Probe the toolchain", "status": "completed"},
+                {"id": "2", "parent_id": null, "content": "Create the project skeleton and an icon", "status": "failed"},
+                {"id": "2.1", "parent_id": "2", "content": "Write the build script", "status": "failed"},
+                {"id": "2.2", "parent_id": "2", "content": "Verify the archive", "status": "failed"}
+            ]
+        }),
+    )
+    .expect("add");
+
+    // The retry the model issued next: the same title under a new id. The gate
+    // redirects it onto the failed twin instead of adding a clone.
+    let redirected = execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [{"id": "2.1", "parent_id": "2", "content": "Create the project skeleton and an icon", "status": "in_progress"}]
+        }),
+    )
+    .expect("retry redirected");
+    let doc: serde_json::Value = serde_json::from_str(&redirected).expect("json");
+    let review = doc["grisha_review"].as_array().cloned().unwrap_or_default();
+    let review = review
+        .iter()
+        .filter_map(serde_json::Value::as_str)
+        .collect::<Vec<_>>()
+        .join(" | ");
+    assert!(
+        review.contains("Retry Redirection") && review.contains("'2.1' is reopened"),
+        "the retry has to restart at the abandoned leaf, not the phase head: {review}"
+    );
+    assert!(
+        review.contains("not at the phase head"),
+        "the redirect should say which node it moved the retry to: {review}"
+    );
+
+    // The claim of the redirection has to be true in the store: after it, a
+    // mutating action must be executable.
+    let result = validate_active_task_for_tool(
+        "bash",
+        &json!({"command": "mkdir -p demo", "description": "Write the build script"}),
+    );
+    assert!(
+        result.is_ok(),
+        "the reopened leaf must be the task the action runs against: {result:?}"
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn a_closed_graph_is_mourned_once_not_every_repeat_call() {
+    let _guard = env_guard();
+    let path = temp_path("closing_once.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Compile the target", "status": "completed"},
+                {"id": "2", "content": "Package the app", "status": "in_progress"}
+            ]
+        }),
+    )
+    .expect("add");
+
+    let closed = execute_tool(
+        "TaskGraph",
+        &json!({"operation": "update_status", "nodes": [{"id": "2", "status": "failed"}]}),
+    )
+    .expect("close the graph");
+    let closed: serde_json::Value = serde_json::from_str(&closed).expect("json");
+    assert!(
+        closed["alert"]
+            .as_str()
+            .unwrap_or("")
+            .contains("UNFINISHED WORK"),
+        "the call that closes the graph has to say so: {closed}"
+    );
+
+    // The stuck runs did this next: re-mark the same node, changing nothing, and
+    // read the whole speech again — twice per turn when two calls were sent.
+    let repeated = execute_tool(
+        "TaskGraph",
+        &json!({"operation": "update_status", "nodes": [{"id": "2", "status": "failed"}]}),
+    )
+    .expect("repeat the close");
+    let repeated: serde_json::Value = serde_json::from_str(&repeated).expect("json");
+    assert_eq!(
+        repeated["nodes_updated"].as_u64(),
+        Some(0),
+        "nothing changed: {repeated}"
+    );
+    assert!(
+        !repeated["alert"]
+            .as_str()
+            .unwrap_or("")
+            .contains("UNFINISHED WORK"),
+        "a call that changed nothing must not re-deliver the closing summary: {repeated}"
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}

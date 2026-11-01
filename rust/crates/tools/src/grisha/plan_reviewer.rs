@@ -362,21 +362,40 @@ impl GrishaPlanReviewer {
         // and the duplicate is never added.
         for (clone_id, twin_id) in retried_abandoned {
             enriched.retain(|n| n.id != clone_id);
-            match enriched.iter_mut().find(|n| n.id == twin_id) {
-                Some(twin_node) => twin_node.status = Some(TaskStatus::InProgress),
+            let pool: Vec<TaskNode> = existing_nodes.iter().chain(enriched.iter()).cloned().collect();
+            let reopen_id = match reopen_target(&twin_id, &pool) {
+                Some(id) => id,
+                None => {
+                    remarks.push(format!(
+                        "Grisha Retry Redirection: '{}' repeats task '{}', and every step under it is already recorded as done, so there is nothing to reopen. Nothing was added. Say which artifact is actually missing and add it as a new sub-task of '{}' with a title that branch does not already state.",
+                        clone_id, twin_id, twin_id
+                    ));
+                    continue;
+                }
+            };
+            match enriched.iter_mut().find(|n| n.id == reopen_id) {
+                Some(node) => node.status = Some(TaskStatus::InProgress),
                 None => enriched.push(TaskNode {
-                    id: twin_id.clone(),
-                    parent_id: existing_nodes
+                    id: reopen_id.clone(),
+                    parent_id: pool
                         .iter()
-                        .find(|n| n.id == twin_id)
+                        .find(|n| n.id == reopen_id)
                         .and_then(|n| n.parent_id.clone()),
                     content: None,
                     status: Some(TaskStatus::InProgress),
                 }),
             }
+            let step_moved = if reopen_id == twin_id {
+                String::new()
+            } else {
+                format!(
+                    " (the retry restarts at abandoned step '{}', not at the phase head)",
+                    reopen_id
+                )
+            };
             remarks.push(format!(
-                "Grisha Retry Redirection: '{}' repeats failed task '{}'. '{}' is reopened as 'in_progress' and the duplicate was not added. Execute the step under '{}' with a different command, path or parameter than the attempt that failed, and say in the call what you changed.",
-                clone_id, twin_id, twin_id, twin_id
+                "Grisha Retry Redirection: '{}' repeats failed task '{}'. '{}' is reopened as 'in_progress'{} and the duplicate was not added. Execute the step under '{}' with a different command, path or parameter than the attempt that failed, and say in the call what you changed.",
+                clone_id, twin_id, reopen_id, step_moved, reopen_id
             ));
         }
 
@@ -426,6 +445,50 @@ impl GrishaPlanReviewer {
             remarks,
         })
     }
+}
+
+/// The node a redirected retry restarts from: the abandoned twin when it is a
+/// leaf, otherwise the shallowest unfinished step still hanging under it.
+///
+/// Reopening the phase head does not survive the store write. Status propagation
+/// fails a parent whose every child is terminal, so the redirect used to reopen a
+/// node the very same call closed again: the remark promised `in_progress`, the
+/// graph stayed all-terminal, and the agent's next mutating action was refused
+/// with "all tasks are completed or failed" — a loop it escaped only by abandoning
+/// the branch.
+///
+/// `None` means the branch has no unfinished step left to hand back, so the caller
+/// must not claim a reopen happened.
+fn reopen_target(twin_id: &str, pool: &[TaskNode]) -> Option<String> {
+    let children_of = |id: &str| -> Vec<TaskNode> {
+        pool.iter()
+            .filter(|n| n.parent_id.as_deref() == Some(id))
+            .cloned()
+            .collect()
+    };
+    if children_of(twin_id).is_empty() {
+        return Some(twin_id.to_string());
+    }
+    let mut frontier: Vec<TaskNode> = children_of(twin_id);
+    let mut steps: Vec<String> = Vec::new();
+    let mut depth = 0;
+    while !frontier.is_empty() && depth < 5 {
+        depth += 1;
+        let mut next = Vec::new();
+        for node in frontier {
+            let kids = children_of(&node.id);
+            if kids.is_empty() {
+                if node.status != Some(TaskStatus::Completed) {
+                    steps.push(node.id);
+                }
+            } else {
+                next.extend(kids);
+            }
+        }
+        frontier = next;
+    }
+    steps.sort_unstable_by(|a, b| crate::task_graph::types::compare_task_ids(a, b));
+    steps.into_iter().next()
 }
 
 fn strip_quotes_for_lang_check(s: &str) -> String {
