@@ -52,6 +52,27 @@ pub fn coerce_tool_input(mut input: serde_json::Value) -> serde_json::Value {
     input
 }
 
+/// The shell tools count their `timeout` in milliseconds, but the number a model
+/// writes is almost always seconds: `timeout: 10` meant ten seconds and got ten
+/// milliseconds. On one live run four discovery probes were killed at 10 ms each,
+/// and because a killed probe looks like a failing probe the model marked five
+/// tasks `failed` and wrote "Unknown" into its own research notes.
+///
+/// Nobody asks a model for a sub-second shell timeout, so anything under 1000 is
+/// read as seconds. An explicit millisecond value is trusted as given.
+#[must_use]
+pub fn resolve_timeout_ms(raw: Option<u64>) -> Option<u64> {
+    let seconds_floor: u64 = 1_000;
+    raw.map(|value| {
+        if value < seconds_floor {
+            value.saturating_mul(1_000)
+        } else {
+            value
+        }
+    })
+    .filter(|milliseconds| *milliseconds > 0) // `timeout: 0` cannot mean zero time; use the default
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -78,5 +99,20 @@ mod tests {
         });
 
         assert_eq!(coerce_tool_input(input), expected);
+    }
+
+    #[test]
+    fn a_timeout_below_a_second_is_read_as_seconds() {
+        assert_eq!(resolve_timeout_ms(Some(10)), Some(10_000));
+        assert_eq!(resolve_timeout_ms(Some(1)), Some(1_000));
+        assert_eq!(resolve_timeout_ms(Some(300)), Some(300_000));
+    }
+
+    #[test]
+    fn an_explicit_millisecond_timeout_is_left_alone() {
+        assert_eq!(resolve_timeout_ms(Some(1_000)), Some(1_000));
+        assert_eq!(resolve_timeout_ms(Some(30_000)), Some(30_000));
+        assert_eq!(resolve_timeout_ms(None), None);
+        assert_eq!(resolve_timeout_ms(Some(0)), None);
     }
 }

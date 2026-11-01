@@ -2747,7 +2747,7 @@ fn bash_tool_reports_success_exit_failure_timeout_and_background() {
         .expect("stderr")
         .contains("oops"));
 
-    let timeout = execute_tool("bash", &json!({ "command": "sleep 1", "timeout": 10 }))
+    let timeout = execute_tool("bash", &json!({ "command": "sleep 5", "timeout": 1_000 }))
         .expect("bash timeout should return output");
     let timeout_output: serde_json::Value = serde_json::from_str(&timeout).expect("json");
     assert_eq!(timeout_output["interrupted"], true);
@@ -2771,7 +2771,7 @@ fn bash_tool_reports_success_exit_failure_timeout_and_background() {
 fn bash_tool_classifies_test_timeout_as_hung_with_provenance() {
     let timeout = execute_tool(
         "bash",
-        &json!({ "command": "sleep 1 # cargo test slow_case", "timeout": 10 }),
+        &json!({ "command": "sleep 5 # cargo test slow_case", "timeout": 1_000 }),
     )
     .expect("bash timeout should return output");
     let timeout_output: serde_json::Value = serde_json::from_str(&timeout).expect("json");
@@ -2781,6 +2781,34 @@ fn bash_tool_classifies_test_timeout_as_hung_with_provenance() {
     assert_eq!(
         timeout_output["structuredContent"][0]["data"]["provenance"],
         "bash.timeout"
+    );
+}
+
+#[test]
+fn a_seconds_sized_timeout_is_not_read_as_milliseconds() {
+    // The live failure: `"timeout": 10` killed each discovery probe after ten
+    // milliseconds, `interrupted: true` read as a failed check, and five tasks
+    // plus a research note full of "Unknown" were the result.
+    let probe = execute_tool("bash", &json!({ "command": "sleep 1", "timeout": 10 }))
+        .expect("bash should return output");
+    let probe_output: serde_json::Value = serde_json::from_str(&probe).expect("json");
+    assert_eq!(
+        probe_output["interrupted"], false,
+        "a model that writes 10 means ten seconds"
+    );
+
+    let killed = execute_tool("bash", &json!({ "command": "sleep 3", "timeout": 1_000 }))
+        .expect("bash timeout should return output");
+    let killed_output: serde_json::Value = serde_json::from_str(&killed).expect("json");
+    assert_eq!(killed_output["interrupted"], true);
+    let stderr = killed_output["stderr"].as_str().expect("stderr");
+    assert!(
+        stderr.contains("TIME LIMIT"),
+        "a killed command must say the clock ran out, not that the command failed: {stderr}"
+    );
+    assert!(
+        stderr.contains("milliseconds"),
+        "and name the unit the model has to write: {stderr}"
     );
 }
 

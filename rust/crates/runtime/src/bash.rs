@@ -206,21 +206,18 @@ async fn execute_bash_async(
 
     let mut command = prepare_tokio_command(&input.command, &cwd, &sandbox_status, true);
 
-    let timeout_ms = match input.timeout {
-        Some(30_000) => Some(60_000),
-        Some(t) => Some(t),
-        None => Some(60_000),
-    };
+    // A missing `timeout` has always meant 60s. What it used *also* mean — for
+    // exactly one value — is that a caller asking for 30_000 ms silently got 60s,
+    // which makes the milliseconds contract the tool schema now states a lie.
+    const DEFAULT_BASH_TIMEOUT_MS: u64 = 60_000;
+    let timeout_ms = input.timeout.unwrap_or(DEFAULT_BASH_TIMEOUT_MS);
 
-    let output_result = if let Some(t_ms) = timeout_ms {
-        if let Ok(result) = timeout(Duration::from_millis(t_ms), command.output()).await {
+    let output_result =
+        if let Ok(result) = timeout(Duration::from_millis(timeout_ms), command.output()).await {
             (result?, false)
         } else {
-            return Ok(timeout_output(&input, t_ms, sandbox_status));
-        }
-    } else {
-        (command.output().await?, false)
-    };
+            return Ok(timeout_output(&input, timeout_ms, sandbox_status));
+        };
 
     let (output, interrupted) = output_result;
     let stdout = truncate_output(&String::from_utf8_lossy(&output.stdout), max_output_bytes);

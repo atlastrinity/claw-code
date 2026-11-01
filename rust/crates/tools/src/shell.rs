@@ -63,6 +63,7 @@ pub(crate) fn execute_shell_command(
     timeout: Option<u64>,
     run_in_background: Option<bool>,
 ) -> std::io::Result<runtime::BashCommandOutput> {
+    let timeout = crate::normalization::resolve_timeout_ms(timeout);
     if run_in_background.unwrap_or(false) {
         let child = std::process::Command::new(shell)
             .arg("-NoProfile")
@@ -102,97 +103,77 @@ pub(crate) fn execute_shell_command(
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
 
-    let timeout_ms = match timeout {
-        Some(30_000) => Some(60_000),
-        Some(t) => Some(t),
-        None => Some(60_000),
-    };
+    // A missing `timeout` means 60s; the old special case that doubled an exact
+    // 30_000 request made the documented millisecond contract false for one value.
+    const DEFAULT_SHELL_TIMEOUT_MS: u64 = 60_000;
+    let timeout_ms = timeout.unwrap_or(DEFAULT_SHELL_TIMEOUT_MS);
 
-    if let Some(t_ms) = timeout_ms {
-        let mut child = process.spawn()?;
-        let started = Instant::now();
-        loop {
-            if let Some(status) = child.try_wait()? {
-                let output = child.wait_with_output()?;
-                return Ok(runtime::BashCommandOutput {
-                    stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-                    stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-                    raw_output_path: None,
-                    interrupted: false,
-                    is_image: None,
-                    background_task_id: None,
-                    backgrounded_by_user: None,
-                    assistant_auto_backgrounded: None,
-                    dangerously_disable_sandbox: None,
-                    return_code_interpretation: status
-                        .code()
-                        .filter(|code| *code != 0)
-                        .map(|code| format!("exit_code:{code}")),
-                    no_output_expected: Some(output.stdout.is_empty() && output.stderr.is_empty()),
-                    structured_content: None,
-                    persisted_output_path: None,
-                    persisted_output_size: None,
-                    sandbox_status: None,
-                });
-            }
-            if started.elapsed() >= Duration::from_millis(t_ms) {
-                let _ = child.kill();
-                let output = child.wait_with_output()?;
-                let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
-                let stderr = if stderr.trim().is_empty() {
-                    format!("Command exceeded timeout of {t_ms} ms")
-                } else {
-                    format!(
-                        "{}\nCommand exceeded timeout of {t_ms} ms",
-                        stderr.trim_end()
-                    )
-                };
-                let is_test = is_test_command(command);
-                let return_code_interpretation = if is_test { "test.hung" } else { "timeout" };
-                return Ok(runtime::BashCommandOutput {
-                    stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-                    stderr,
-                    raw_output_path: None,
-                    interrupted: true,
-                    is_image: None,
-                    background_task_id: None,
-                    backgrounded_by_user: None,
-                    assistant_auto_backgrounded: None,
-                    dangerously_disable_sandbox: None,
-                    return_code_interpretation: Some(String::from(return_code_interpretation)),
-                    no_output_expected: Some(false),
-                    structured_content: Some(vec![test_timeout_provenance(command, t_ms, is_test)]),
-                    persisted_output_path: None,
-                    persisted_output_size: None,
-                    sandbox_status: None,
-                });
-            }
-            std::thread::sleep(Duration::from_millis(10));
+    let mut child = process.spawn()?;
+    let started = Instant::now();
+    loop {
+        if let Some(status) = child.try_wait()? {
+            let output = child.wait_with_output()?;
+            return Ok(runtime::BashCommandOutput {
+                stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+                raw_output_path: None,
+                interrupted: false,
+                is_image: None,
+                background_task_id: None,
+                backgrounded_by_user: None,
+                assistant_auto_backgrounded: None,
+                dangerously_disable_sandbox: None,
+                return_code_interpretation: status
+                    .code()
+                    .filter(|code| *code != 0)
+                    .map(|code| format!("exit_code:{code}")),
+                no_output_expected: Some(output.stdout.is_empty() && output.stderr.is_empty()),
+                structured_content: None,
+                persisted_output_path: None,
+                persisted_output_size: None,
+                sandbox_status: None,
+            });
         }
+        if started.elapsed() >= Duration::from_millis(timeout_ms) {
+            let _ = child.kill();
+            let output = child.wait_with_output()?;
+            let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+            let stderr = if stderr.trim().is_empty() {
+                format!("Command exceeded timeout of {timeout_ms} ms")
+            } else {
+                format!(
+                    "{}\nCommand exceeded timeout of {timeout_ms} ms",
+                    stderr.trim_end()
+                )
+            };
+            let is_test = is_test_command(command);
+            let return_code_interpretation = if is_test { "test.hung" } else { "timeout" };
+            let mut timed_out = runtime::BashCommandOutput {
+                stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+                stderr,
+                raw_output_path: None,
+                interrupted: true,
+                is_image: None,
+                background_task_id: None,
+                backgrounded_by_user: None,
+                assistant_auto_backgrounded: None,
+                dangerously_disable_sandbox: None,
+                return_code_interpretation: Some(String::from(return_code_interpretation)),
+                no_output_expected: Some(false),
+                structured_content: Some(vec![test_timeout_provenance(
+                    command,
+                    timeout_ms,
+                    is_test,
+                )]),
+                persisted_output_path: None,
+                persisted_output_size: None,
+                sandbox_status: None,
+            };
+            crate::runners::annotate_timeout_output(&mut timed_out);
+            return Ok(timed_out);
+        }
+        std::thread::sleep(Duration::from_millis(10));
     }
-
-    let output = process.output()?;
-    Ok(runtime::BashCommandOutput {
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        raw_output_path: None,
-        interrupted: false,
-        is_image: None,
-        background_task_id: None,
-        backgrounded_by_user: None,
-        assistant_auto_backgrounded: None,
-        dangerously_disable_sandbox: None,
-        return_code_interpretation: output
-            .status
-            .code()
-            .filter(|code| *code != 0)
-            .map(|code| format!("exit_code:{code}")),
-        no_output_expected: Some(output.stdout.is_empty() && output.stderr.is_empty()),
-        structured_content: None,
-        persisted_output_path: None,
-        persisted_output_size: None,
-        sandbox_status: None,
-    })
 }
 
 pub(crate) fn is_test_command(command: &str) -> bool {

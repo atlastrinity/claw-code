@@ -161,7 +161,42 @@ pub(crate) fn analyze_command_failure_hint(stdout: &str, stderr: &str) -> Option
     None
 }
 
+/// A killed command says nothing about whether the command works; it says the
+/// clock ran out. Left unexplained, `interrupted: true` reads as a failed check
+/// and the model marks the task `failed` — four 10 ms probe kills became five
+/// abandoned tasks and a research note full of "Unknown".
+pub(crate) fn annotate_timeout_output(output: &mut runtime::BashCommandOutput) {
+    const TIMEOUT_MARKS: [&str; 2] = ["timeout", "test.hung"];
+    if !output.interrupted {
+        return;
+    }
+    if !output
+        .return_code_interpretation
+        .as_deref()
+        .is_some_and(|kind| TIMEOUT_MARKS.contains(&kind))
+    {
+        return;
+    }
+    if output.stderr.contains("TIME LIMIT") {
+        return;
+    }
+    if !output.stderr.is_empty() {
+        output.stderr.push_str("\n\n");
+    }
+    output.stderr.push_str(
+        "⏱ TIME LIMIT, not a failure: the command was killed at the limit above. `timeout` is \
+         milliseconds (30000 = 30s) and the default is 60s. A command that needed longer is not a \
+         broken command, and the task it belongs to is not blocked. Pick one: (1) re-run the same \
+         command with no `timeout`, or a larger one in milliseconds — a first `swift build`/`cargo \
+         build` needs 300000+; (2) re-run it with `run_in_background: true` and read the output \
+         file; (3) only if it cannot finish for a real reason, mark the task 'failed' and name \
+         that reason.",
+    );
+}
+
 pub(crate) fn run_bash(input: BashCommandInput, budget: ContextBudget) -> Result<String, String> {
+    let mut input = input;
+    input.timeout = crate::normalization::resolve_timeout_ms(input.timeout);
     if input.command.contains("task.md")
         && (input.command.contains('>')
             || input.command.contains("sed ")
@@ -178,6 +213,7 @@ pub(crate) fn run_bash(input: BashCommandInput, budget: ContextBudget) -> Result
     }
     execute_bash(input, budget.max_bash_output_bytes)
         .map(|mut output| {
+            annotate_timeout_output(&mut output);
             if let Some(hint) = analyze_command_failure_hint(&output.stdout, &output.stderr) {
                 if !output.stderr.is_empty() {
                     output.stderr.push_str("\n\n");
