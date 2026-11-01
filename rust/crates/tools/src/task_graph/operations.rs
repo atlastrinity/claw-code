@@ -377,6 +377,41 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
                         depth, fid
                     ));
                 }
+            } else {
+                // The live run did this after one compile error: it marked the
+                // phase failed, and the sub-tasks still open under it were never
+                // named again. A parent may close; its children may not simply
+                // vanish from the count.
+                let abandoned: Vec<String> = current_nodes
+                    .iter()
+                    .filter(|n| {
+                        n.parent_id.as_ref() == Some(fid)
+                            && !matches!(
+                                n.status,
+                                Some(TaskStatus::Completed) | Some(TaskStatus::Failed)
+                            )
+                    })
+                    .map(|n| {
+                        let state = match n.status {
+                            Some(TaskStatus::InProgress) => "in progress",
+                            _ => "pending",
+                        };
+                        format!(
+                            "{} [{}] \"{}\"",
+                            n.id,
+                            state,
+                            n.content.as_deref().unwrap_or("(untitled)")
+                        )
+                    })
+                    .collect();
+                if !abandoned.is_empty() {
+                    alerts.push(format!(
+                        "🛡️ Grisha Root-Cause Recovery Advisory: '{}' is now failed, but {} sub-task(s) under it are still open: {}. A failed parent does not close their work — either end each of them the way it actually finished, or keep the parent's phase open and fix it there. Do not leave a plan that counts tasks nobody will run.",
+                        fid,
+                        abandoned.len(),
+                        abandoned.join(", ")
+                    ));
+                }
             }
         }
     }

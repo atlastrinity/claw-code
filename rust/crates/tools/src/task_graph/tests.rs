@@ -3109,3 +3109,51 @@ fn a_reopened_earlier_leaf_beats_a_deeper_one_for_the_active_slot() {
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn a_failed_parent_names_the_children_it_left_open() {
+    let _guard = env_guard();
+    let path = temp_path("failed_parent_open_children.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Build the app", "status": "in_progress"},
+                {"id": "1.1", "parent_id": "1", "content": "Compile the target", "status": "in_progress"},
+                {"id": "1.1.1", "parent_id": "1.1", "content": "Create the Xcode scheme", "status": "completed"},
+                {"id": "1.1.2", "parent_id": "1.1", "content": "Fix the reported errors", "status": "in_progress"},
+                {"id": "1.1.3", "parent_id": "1.1", "content": "Archive the release build", "status": "pending"}
+            ]
+        }),
+    )
+    .expect("add");
+
+    let failed: serde_json::Value = serde_json::from_str(
+        &execute_tool(
+            "TaskGraph",
+            &json!({"operation": "update_status", "nodes": [{"id": "1.1", "status": "failed"}]}),
+        )
+        .expect("mark the parent failed"),
+    )
+    .expect("valid json");
+    let alert = failed["alert"].as_str().unwrap_or("");
+
+    assert!(
+        alert.contains("still open") && alert.contains("1.1.2") && alert.contains("1.1.3"),
+        "the children abandoned by a failed parent must be named: {alert}"
+    );
+    assert!(
+        !alert.contains("1.1.1"),
+        "a child that already finished is not abandoned work: {alert}"
+    );
+    assert!(
+        !alert.contains("its title holds several phases"),
+        "a parent that already has children is not asking for a split: {alert}"
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
