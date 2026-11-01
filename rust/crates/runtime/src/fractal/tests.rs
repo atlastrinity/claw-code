@@ -1520,6 +1520,40 @@ fn a_chained_check_counts_and_a_piped_one_does_not() {
 }
 
 #[test]
+fn a_project_check_script_counts_as_the_projects_own_check() {
+    assert!(BifurcationEngine::is_verifier_call(
+        "bash",
+        r#"{"command":"cd App && ./build.sh"}"#
+    ));
+    assert!(BifurcationEngine::is_verifier_call(
+        "bash",
+        r#"{"command":"./scripts/test.sh"}"#
+    ));
+    // An arbitrary script proves nothing about the build.
+    assert!(!BifurcationEngine::is_verifier_call(
+        "bash",
+        r#"{"command":"./launch.sh"}"#
+    ));
+}
+
+#[test]
+fn a_self_test_flag_counts_as_the_apps_own_check() {
+    assert!(BifurcationEngine::is_verifier_call(
+        "bash",
+        r#"{"command":"~/Desktop/DisplayControlPro.app/Contents/MacOS/DisplayControlPro --self-test"}"#
+    ));
+    assert!(BifurcationEngine::is_verifier_call(
+        "bash",
+        r#"{"command":"./bin/app --check"}"#
+    ));
+    // Starting the app is not a check — it never returns.
+    assert!(!BifurcationEngine::is_verifier_call(
+        "bash",
+        r#"{"command":"open ~/Desktop/DisplayControlPro.app"}"#
+    ));
+}
+
+#[test]
 fn command_failed_reads_the_exit_code_not_just_the_tool_flag() {
     let passed = r#"{"stdout":"Build complete!","stderr":"","interrupted":false}"#;
     let failed = r#"{"stdout":"","stderr":"no such module","interrupted":false,"returnCodeInterpretation":"exit_code:1"}"#;

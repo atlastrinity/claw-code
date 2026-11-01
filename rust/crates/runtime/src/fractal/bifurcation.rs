@@ -874,10 +874,44 @@ impl BifurcationEngine {
         }
         // Tools that are their own subcommand: with no second token to match,
         // the program name is the whole check.
-        matches!(
+        if matches!(
             command.split_whitespace().next().unwrap_or(""),
             "xcodebuild" | "make" | "pytest" | "rspec" | "ctest"
-        )
+        ) {
+            return true;
+        }
+        // An application's own entry point can be its check: `<app> --self-test`
+        // exits non-zero when the app cannot even start. The gate's own refusal
+        // names "the app itself" as a place to look for evidence, but a path to
+        // a built binary matched none of the tool names above, so a run that
+        // printed nothing and returned 0 was recorded as "no check has run".
+        if command.split_whitespace().skip(1).any(|arg| {
+            matches!(
+                arg,
+                "--self-test" | "--selftest" | "--selfcheck" | "--check" | "--verify"
+            )
+        }) {
+            return true;
+        }
+        // A project's own build/test entry point is its definition of "the
+        // check": `./build.sh` runs `swift build` and can fail, but the gate
+        // cannot see inside the script, so it used to report that no check had
+        // ever run after a successful build.
+        command
+            .split_whitespace()
+            .next()
+            .and_then(|program| program.rsplit('/').next())
+            .is_some_and(|script| {
+                matches!(
+                    script,
+                    "build.sh"
+                        | "test.sh"
+                        | "run-tests.sh"
+                        | "run_tests.sh"
+                        | "verify.sh"
+                        | "check.sh"
+                )
+            })
     }
 
     /// Does this bash command provably write to the workspace?
