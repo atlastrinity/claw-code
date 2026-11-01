@@ -410,6 +410,9 @@ class VoicePlayer:
 
         # Скільки ходів асистента ще чекають озвучки попереду поточного.
         self.turns_ahead = 0
+        # Момент, коли рядок сесії потрапив у журналі озвучки. Різниця між ним і
+        # часом репліки — це і є справжнє відставання голосу від виконання.
+        self.event_at = time.time()
 
     def backlog_segments(self) -> int:
         """Сегменти, що ще не прозвучали: їх генерація чи відтворення попереду."""
@@ -625,14 +628,19 @@ class VoicePlayer:
         dim = COLORS["dim"]
 
         # Штемпель часу і стан черги — щоб одним поглядом у лог міряти, наскільки
-        # озвучка встигає за виконанням (run.log дає події, mtime play_*.wav — відтворення).
+        # озвучка встигає за виконанням: `+N.Ns` — час від читання рядка сесії до
+        # репліки, «попереду» — ходи, що ще чекають, «у черзі» — сегменти на
+        # синтез і відтворення.
         stamp = time.strftime("%H:%M:%S")
+        lag = max(0.0, time.time() - self.event_at)
         ahead = self.turns_ahead
         queued = self.backlog_segments()
-        behind_note = f"  ⏳ попереду {ahead} · у черзі {queued}" if (ahead or queued) else ""
+        sync_note = f"  ⏱ +{lag:.1f}s"
+        if ahead or queued:
+            sync_note += f" · попереду {ahead} · у черзі {queued}"
 
         print(f"\n{bold}{color}{'─' * 60}{reset}")
-        print(f"{color}{emoji}  {name}  —  {title}  [{stamp}]{behind_note}{reset}")
+        print(f"{color}{emoji}  {name}  —  {title}  [{stamp}]{sync_note}{reset}")
         print(f"{dim}{color}{'─' * 60}{reset}")
         print(f"  {color}{natural_text_ua}{reset}")
         print(f"{dim}{color}{'─' * 60}{reset}")
@@ -2126,6 +2134,9 @@ def tail_session_loop():
                     if not nxt:
                         break
                     batch.append(nxt)
+                # Ціна озвучки міряється від цього моменту: весь пакет прочитаний,
+                # далі — переклад, синтез і черга відтворення.
+                player.event_at = time.time()
 
                 entries = []
                 for raw in batch:
