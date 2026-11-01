@@ -3101,10 +3101,20 @@ pub fn format_write_result(icon: &str, parsed: &serde_json::Value) -> String {
         .get("type")
         .and_then(|value| value.as_str())
         .unwrap_or("write");
+    // `fileLines` is what the tool reports now; older sessions carry the whole
+    // `content` echo instead.
     let line_count = parsed
-        .get("content")
-        .and_then(|value| value.as_str())
-        .map_or(0, |content| content.lines().count());
+        .get("fileLines")
+        .and_then(serde_json::Value::as_u64)
+        .map(usize::try_from)
+        .and_then(Result::ok)
+        .or_else(|| {
+            parsed
+                .get("content")
+                .and_then(|value| value.as_str())
+                .map(|content| content.lines().count())
+        })
+        .unwrap_or(0);
     format!(
         "{icon} \x1b[1;32m✏️ {} {path}\x1b[0m \x1b[2m({line_count} lines)\x1b[0m",
         if kind == "create" { "Wrote" } else { "Updated" },

@@ -94,6 +94,7 @@ pub(crate) fn run_write_file(input: WriteFileInput) -> Result<String, String> {
         &output.content,
     );
     let mut payload = serde_json::to_value(&output).map_err(|e| e.to_string())?;
+    summarize_written_payload(&mut payload, &input.content);
     if let Some(defect) =
         runtime::syntax_guard::check_file_syntax(&output.file_path, &output.content)
     {
@@ -132,6 +133,7 @@ pub(crate) fn run_edit_file(input: EditFileInput) -> Result<String, String> {
         &current,
     );
     let mut payload = serde_json::to_value(&output).map_err(|e| e.to_string())?;
+    summarize_written_payload(&mut payload, &current);
     if let Some(defect) = runtime::syntax_guard::check_file_syntax(&output.file_path, &current) {
         payload["syntax_backpressure"] = serde_json::Value::String(
             runtime::syntax_guard::backpressure_block(&defect)
@@ -140,6 +142,23 @@ pub(crate) fn run_edit_file(input: EditFileInput) -> Result<String, String> {
         );
     }
     to_pretty_json(&payload)
+}
+
+/// Report the size of what landed, not the text that landed.
+///
+/// The assistant message that made this call already carries the file, and the
+/// patch now carries the lines that really changed. `content` and `originalFile`
+/// were echoes of text the model had in front of it either way: one write put
+/// the same file in the context three times over, and a live run spent 21 KB of
+/// tool results describing 6 KB of source. The scale stays — renderers and the
+/// model both want "how much is there now" — the copy goes.
+fn summarize_written_payload(payload: &mut serde_json::Value, file_text: &str) {
+    if let Some(object) = payload.as_object_mut() {
+        object.remove("content");
+        object.remove("originalFile");
+    }
+    payload["fileBytes"] = serde_json::Value::from(file_text.len());
+    payload["fileLines"] = serde_json::Value::from(file_text.lines().count());
 }
 
 #[allow(clippy::needless_pass_by_value)]

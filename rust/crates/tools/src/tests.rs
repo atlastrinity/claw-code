@@ -2922,7 +2922,26 @@ fn file_tools_cover_read_write_and_edit_behaviors() {
     .expect("write update should succeed");
     let write_update_output: serde_json::Value = serde_json::from_str(&write_update).expect("json");
     assert_eq!(write_update_output["type"], "update");
-    assert_eq!(write_update_output["originalFile"], "alpha\nbeta\nalpha\n");
+    // The result reports the size of what landed and the lines that changed; it
+    // no longer echoes the file back a second and third time.
+    assert!(
+        write_update_output.get("originalFile").is_none(),
+        "the previous file is not the model's news to be told twice"
+    );
+    assert!(write_update_output.get("content").is_none());
+    assert_eq!(write_update_output["fileLines"], 3);
+    let patch_lines = write_update_output["structuredPatch"][0]["lines"]
+        .as_array()
+        .expect("one hunk describing the change");
+    let rendered: Vec<&str> = patch_lines
+        .iter()
+        .map(|line| line.as_str().expect("patch line is a string"))
+        .collect();
+    assert_eq!(
+        rendered,
+        vec![" alpha", " beta", "-alpha", "+gamma"],
+        "a one-line change is one line, not the whole file"
+    );
 
     let read_full = execute_tool("read_file", &json!({ "path": "nested/demo.txt" }))
         .expect("read full should succeed");
@@ -3000,6 +3019,97 @@ fn file_tools_cover_read_write_and_edit_behaviors() {
     )
     .expect_err("missing substring should fail");
     assert!(edit_missing.contains("old_string not found"));
+
+    std::env::set_current_dir(&original_dir).expect("restore cwd");
+    let _ = fs::remove_dir_all(root);
+}
+
+#[test]
+fn a_write_reports_the_change_rather_than_the_whole_file() {
+    let _guard = env_lock()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let root = temp_path("patch-scale");
+    fs::create_dir_all(&root).expect("create root");
+    let original_dir = std::env::current_dir().expect("cwd");
+    std::env::set_current_dir(&root).expect("set cwd");
+
+    let body: String = (1..=40).map(|n| format!("line {n}\n")).collect();
+    let created = execute_tool(
+        "write_file",
+        &json!({ "path": "big.txt", "content": body.clone() }),
+    )
+    .expect("create should succeed");
+    let created_output: serde_json::Value = serde_json::from_str(&created).expect("json");
+
+    // A create has no other version to compare with, and the model is holding
+    // the text it just wrote: the result confirms the scale and stops there.
+    assert_eq!(created_output["type"], "create");
+    assert!(created_output.get("content").is_none());
+    assert_eq!(created_output["fileLines"], 40);
+    assert_eq!(created_output["fileBytes"], body.len());
+    let create_hunk = created_output["structuredPatch"][0].clone();
+    assert_eq!(create_hunk["newLines"], 40);
+    assert!(create_hunk["lines"]
+        .as_array()
+        .is_some_and(|l| l.is_empty()));
+
+    let edited = body.replace("line 20\n", "line twenty\n");
+    let updated = execute_tool(
+        "write_file",
+        &json!({ "path": "big.txt", "content": edited }),
+    )
+    .expect("update should succeed");
+    let updated_output: serde_json::Value = serde_json::from_str(&updated).expect("json");
+
+    assert_eq!(updated_output["type"], "update");
+    assert!(updated_output.get("originalFile").is_none());
+    let hunks = updated_output["structuredPatch"]
+        .as_array()
+        .expect("patch hunks");
+    assert_eq!(hunks.len(), 1, "one change is one hunk: {hunks:?}");
+    assert_eq!(hunks[0]["oldStart"], 17);
+    let patch_lines: Vec<&str> = hunks[0]["lines"]
+        .as_array()
+        .expect("hunk lines")
+        .iter()
+        .map(|line| line.as_str().expect("line is text"))
+        .collect();
+    assert!(
+        patch_lines.contains(&"-line 20") && patch_lines.contains(&"+line twenty"),
+        "{patch_lines:?}"
+    );
+    assert_eq!(
+        patch_lines.len(),
+        8,
+        "three context lines, the change, three context lines: {patch_lines:?}"
+    );
+    assert!(
+        updated_output.get("content").is_none() && updated_output.get("originalFile").is_none(),
+        "the file text must not be re-sent to the model that just wrote it"
+    );
+    let patch_text: usize = patch_lines.iter().map(|line| line.len()).sum();
+    assert!(
+        patch_text < 100,
+        "a one-line change described in {patch_text} bytes of patch against a {}-byte file",
+        body.len()
+    );
+
+    let edited_again = execute_tool(
+        "edit_file",
+        &json!({ "path": "big.txt", "old_string": "line 30\n", "new_string": "line thirty\n" }),
+    )
+    .expect("edit should succeed");
+    let edit_output: serde_json::Value = serde_json::from_str(&edited_again).expect("json");
+    assert!(
+        edit_output.get("originalFile").is_none(),
+        "the pre-edit file is the biggest echo of all"
+    );
+    assert_eq!(edit_output["fileLines"], 40);
+    let edit_hunks = edit_output["structuredPatch"]
+        .as_array()
+        .expect("edit patch");
+    assert_eq!(edit_hunks.len(), 1, "{edit_hunks:?}");
 
     std::env::set_current_dir(&original_dir).expect("restore cwd");
     let _ = fs::remove_dir_all(root);

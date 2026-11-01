@@ -668,22 +668,223 @@ fn apply_limit<T>(
     )
 }
 
+/// Unchanged lines shown on each side of a change inside a patch hunk.
+const PATCH_CONTEXT: usize = 3;
+
+/// Cell budget for the diff. Past it the patch states the scale of the change
+/// instead of describing it: the table would cost more than the write it
+/// reports on, and a truncated description is still honest while a quadratic
+/// stall on a large file is not.
+const PATCH_MAX_LCS_CELLS: usize = 1_000_000;
+
+/// One line of the edit script produced by diffing two versions of a file.
+struct DiffLine<'a> {
+    kind: DiffKind,
+    old_index: Option<usize>,
+    new_index: Option<usize>,
+    text: &'a str,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DiffKind {
+    Same,
+    Removed,
+    Added,
+}
+
+/// The lines a write or edit actually changed, grouped into hunks.
+///
+/// This used to emit every original line as `-` and every new line as `+`
+/// whatever really differed, so changing one line of a 400-line file reported
+/// 800 lines and told the model nothing it had not already written. The payload
+/// then repeated the file again in `content` and `originalFile`: one write put
+/// the same text in the context four times, and the session carried every copy
+/// until compaction. A live run spent 21 KB of tool results on 6 KB of source.
 fn make_patch(original: &str, updated: &str) -> Vec<StructuredPatchHunk> {
-    let mut lines = Vec::new();
-    for line in original.lines() {
-        lines.push(format!("-{line}"));
-    }
-    for line in updated.lines() {
-        lines.push(format!("+{line}"));
+    let old: Vec<&str> = original.lines().collect();
+    let new: Vec<&str> = updated.lines().collect();
+
+    if old.is_empty() || new.is_empty() || old.len().saturating_mul(new.len()) > PATCH_MAX_LCS_CELLS
+    {
+        // Nothing to compare against (a create), nothing left (a truncation), or
+        // the middle is too big to describe line by line.
+        return vec![StructuredPatchHunk {
+            old_start: 1,
+            old_lines: old.len(),
+            new_start: 1,
+            new_lines: new.len(),
+            lines: Vec::new(),
+        }];
     }
 
-    vec![StructuredPatchHunk {
-        old_start: 1,
-        old_lines: original.lines().count(),
-        new_start: 1,
-        new_lines: updated.lines().count(),
+    let script = diff_lines(&old, &new);
+    let changed: Vec<usize> = script
+        .iter()
+        .enumerate()
+        .filter(|(_, line)| line.kind != DiffKind::Same)
+        .map(|(index, _)| index)
+        .collect();
+    if changed.is_empty() {
+        return Vec::new();
+    }
+
+    let mut hunks = Vec::new();
+    let mut start = changed[0];
+    let mut previous = changed[0];
+    for &index in &changed[1..] {
+        if index - previous - 1 > 2 * PATCH_CONTEXT {
+            hunks.push(hunk_from_window(&script, start, previous));
+            start = index;
+        }
+        previous = index;
+    }
+    hunks.push(hunk_from_window(&script, start, previous));
+    hunks
+}
+
+/// Longest-common-subsequence diff over two line slices, after the agreed
+/// prefix and suffix are trimmed off — which is what keeps the table small in
+/// the case that matters: one edit somewhere in a large file.
+fn diff_lines<'a>(old: &[&'a str], new: &[&'a str]) -> Vec<DiffLine<'a>> {
+    let mut prefix = 0usize;
+    while prefix < old.len() && prefix < new.len() && old[prefix] == new[prefix] {
+        prefix += 1;
+    }
+    let mut suffix = 0usize;
+    while suffix < old.len() - prefix
+        && suffix < new.len() - prefix
+        && old[old.len() - 1 - suffix] == new[new.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+
+    let mut script: Vec<DiffLine<'a>> = (0..prefix)
+        .map(|index| DiffLine {
+            kind: DiffKind::Same,
+            old_index: Some(index),
+            new_index: Some(index),
+            text: old[index],
+        })
+        .collect();
+
+    let old_mid = &old[prefix..old.len() - suffix];
+    let new_mid = &new[prefix..new.len() - suffix];
+    let (m, n) = (old_mid.len(), new_mid.len());
+
+    let mut table = vec![vec![0u32; n + 1]; m + 1];
+    for i in (0..m).rev() {
+        for j in (0..n).rev() {
+            table[i][j] = if old_mid[i] == new_mid[j] {
+                table[i + 1][j + 1] + 1
+            } else {
+                table[i + 1][j].max(table[i][j + 1])
+            };
+        }
+    }
+
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < m && j < n {
+        if old_mid[i] == new_mid[j] {
+            script.push(DiffLine {
+                kind: DiffKind::Same,
+                old_index: Some(prefix + i),
+                new_index: Some(prefix + j),
+                text: old_mid[i],
+            });
+            i += 1;
+            j += 1;
+        } else if table[i + 1][j] >= table[i][j + 1] {
+            script.push(DiffLine {
+                kind: DiffKind::Removed,
+                old_index: Some(prefix + i),
+                new_index: None,
+                text: old_mid[i],
+            });
+            i += 1;
+        } else {
+            script.push(DiffLine {
+                kind: DiffKind::Added,
+                old_index: None,
+                new_index: Some(prefix + j),
+                text: new_mid[j],
+            });
+            j += 1;
+        }
+    }
+    while i < m {
+        script.push(DiffLine {
+            kind: DiffKind::Removed,
+            old_index: Some(prefix + i),
+            new_index: None,
+            text: old_mid[i],
+        });
+        i += 1;
+    }
+    while j < n {
+        script.push(DiffLine {
+            kind: DiffKind::Added,
+            old_index: None,
+            new_index: Some(prefix + j),
+            text: new_mid[j],
+        });
+        j += 1;
+    }
+
+    for offset in 0..suffix {
+        let old_index = old.len() - suffix + offset;
+        script.push(DiffLine {
+            kind: DiffKind::Same,
+            old_index: Some(old_index),
+            new_index: Some(new.len() - suffix + offset),
+            text: old[old_index],
+        });
+    }
+    script
+}
+
+/// One hunk: the changed lines with `PATCH_CONTEXT` unchanged lines around them.
+fn hunk_from_window(script: &[DiffLine<'_>], start: usize, end: usize) -> StructuredPatchHunk {
+    let from = start.saturating_sub(PATCH_CONTEXT);
+    let to = (end + PATCH_CONTEXT).min(script.len() - 1);
+
+    let mut lines = Vec::new();
+    let mut old_start = 0usize;
+    let mut new_start = 0usize;
+    let mut old_lines = 0usize;
+    let mut new_lines = 0usize;
+
+    for line in &script[from..=to] {
+        let (marker, prefix) = match line.kind {
+            DiffKind::Same => (' ', " "),
+            DiffKind::Removed => ('-', "-"),
+            DiffKind::Added => ('+', "+"),
+        };
+        if let Some(index) = line.old_index {
+            if old_start == 0 {
+                old_start = index + 1;
+            }
+            if marker != '+' {
+                old_lines += 1;
+            }
+        }
+        if let Some(index) = line.new_index {
+            if new_start == 0 {
+                new_start = index + 1;
+            }
+            if marker != '-' {
+                new_lines += 1;
+            }
+        }
+        lines.push(format!("{prefix}{}", line.text));
+    }
+
+    StructuredPatchHunk {
+        old_start: old_start.max(1),
+        old_lines,
+        new_start: new_start.max(1),
+        new_lines,
         lines,
-    }]
+    }
 }
 
 fn normalize_path(path: &str) -> io::Result<PathBuf> {
