@@ -189,9 +189,18 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
 
     let nodes = load_graph_nodes(&store_path);
 
-    // Ensure the task graph itself is consistent and valid
+    // A graph in violation blocks every mutating action, and the only move that
+    // unblocks it is the repair the violation names — a `TaskGraph` call, which
+    // is never itself blocked. The old wording ("resolve task graph validation
+    // errors using the TaskGraph tool before executing this action") read as a
+    // second wall in front of the one door, and a live run answered it by retrying
+    // the blocked action seven times instead of making the repair.
     validate_task_graph(&nodes).map_err(|err| {
-        format!("Error: TaskGraph is in an inconsistent state. Please resolve task graph validation errors using the TaskGraph tool before executing this action. Validation error: {}", err)
+        format!(
+            "Error: your plan graph is in a state that blocks this action. Nothing else does: \
+             the repair named below is a `TaskGraph` call, and that call is never blocked. Make \
+             exactly that call, then re-run this action.\n\n{err}"
+        )
     })?;
 
     // If all tasks in the graph are Completed or Failed, strict enforcement requires adding a new task before executing mutating actions

@@ -1197,7 +1197,11 @@ fn task_graph_active_task_inconsistent_graph_blocked() {
     );
     assert!(result.is_err());
     let err = result.unwrap_err();
-    assert!(err.contains("TaskGraph is in an inconsistent state"));
+    assert!(err.contains("blocks this action"));
+    assert!(
+        err.contains("that call is never blocked"),
+        "the refusal must name the one move that unblocks it: {err}"
+    );
     assert!(err.contains(
         "Parent task '1' is marked as Completed, but its sub-task '1.1' is currently 'InProgress'"
     ));
