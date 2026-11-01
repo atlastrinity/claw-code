@@ -112,6 +112,11 @@ impl GrishaPlanReviewer {
         }
 
         // 5. Duplicate child & ancestor cycle check: prevent recreating identical tasks under parent
+        //
+        // `retried_abandoned` collects the clones that are really second attempts:
+        // a task repeated against one already marked 'failed'. Those are not
+        // rejected below — see the redirect that explains why.
+        let mut retried_abandoned: Vec<(String, String)> = Vec::new();
         for node in &enriched {
             if let Some(node_content) = &node.content {
                 let norm_node_content = node_content.trim().to_lowercase();
@@ -131,6 +136,13 @@ impl GrishaPlanReviewer {
                         if let Some(parent_content) = &parent.content {
                             let norm_parent_content = parent_content.trim().to_lowercase();
                             if norm_node_content == norm_parent_content {
+                                if parent.status == Some(TaskStatus::Failed) {
+                                    if !retried_abandoned.iter().any(|(_, t)| t == &parent.id) {
+                                        retried_abandoned
+                                            .push((node.id.clone(), parent.id.clone()));
+                                    }
+                                    break;
+                                }
                                 return Err(GrishaExecutionError::new(
                                     GrishaErrorCode::PlanRecursiveDuplicate,
                                     format!(
@@ -209,6 +221,12 @@ impl GrishaPlanReviewer {
             if twin.id == node.id {
                 continue;
             }
+            if twin.status == Some(TaskStatus::Failed) {
+                if !retried_abandoned.iter().any(|(_, t)| t == &twin.id) {
+                    retried_abandoned.push((node.id.clone(), twin.id.clone()));
+                }
+                continue;
+            }
             let same_parent = twin.parent_id == node.parent_id;
             return Err(GrishaExecutionError::new(
                 GrishaErrorCode::PlanRecursiveDuplicate,
@@ -225,6 +243,33 @@ impl GrishaPlanReviewer {
                 } else {
                     "Re-planning the same step under a different parent does not change the outcome — the previous attempt failed on the world, not on the plan. Execute an alternative action directly, or mark the existing task 'failed' with the reason and move to the next sibling."
                 },
+            ));
+        }
+
+        // A clone of an abandoned task is not a planning mistake — it is the agent
+        // asking for a second attempt at work that failed against the world.
+        // Refusing it used to strand a run in both directions: to be allowed to
+        // execute the step at all it had to be worded differently, which this same
+        // gate then accepted as brand-new work, so the graph grew a synonym while
+        // the action stayed undone. The retry therefore reopens the original node
+        // and the duplicate is never added.
+        for (clone_id, twin_id) in retried_abandoned {
+            enriched.retain(|n| n.id != clone_id);
+            match enriched.iter_mut().find(|n| n.id == twin_id) {
+                Some(twin_node) => twin_node.status = Some(TaskStatus::InProgress),
+                None => enriched.push(TaskNode {
+                    id: twin_id.clone(),
+                    parent_id: existing_nodes
+                        .iter()
+                        .find(|n| n.id == twin_id)
+                        .and_then(|n| n.parent_id.clone()),
+                    content: None,
+                    status: Some(TaskStatus::InProgress),
+                }),
+            }
+            remarks.push(format!(
+                "Grisha Retry Redirection: '{}' repeats abandoned task '{}'. '{}' is reopened as 'in_progress' and the duplicate was not added. Execute the step under '{}' with a different command, path or parameter than the attempt that failed, and say in the call what you changed.",
+                clone_id, twin_id, twin_id, twin_id
             ));
         }
 

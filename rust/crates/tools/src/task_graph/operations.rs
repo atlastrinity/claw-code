@@ -293,15 +293,30 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
     let mut alerts = Vec::new();
     if !newly_failed_nodes.is_empty() {
         for fid in &newly_failed_nodes {
+            let failed_node = current_nodes.iter().find(|n| &n.id == fid);
             let has_children = current_nodes
                 .iter()
                 .any(|n| n.parent_id.as_ref() == Some(fid));
             if !has_children {
                 let depth = fid.split('.').count();
-                if depth < 4 {
+                let atomic = match failed_node {
+                    Some(node) => !leaf_has_hidden_phases(node),
+                    None => true,
+                };
+                if atomic {
+                    // Demanding three sub-tasks under "run this one command" is
+                    // how a failure turns into a clone-rejection treadmill: the
+                    // children can only be restatements, the clone gate refuses
+                    // them, each refusal buys another `failed`, and the advisory
+                    // asks for a deeper split of the thing that just failed.
                     alerts.push(format!(
-                        "🛡️ Grisha Root-Cause Recovery Advisory: Task '{}' failed. You MUST NOT abandon this phase immediately. Decompose '{}' into deeper subtasks (e.g. '{}.1' [Diagnose Root Cause: inspect logs/environment/devices], '{}.2' [Apply Parameter Fix/Alternative], '{}.3' [Verify]) to attempt root-cause resolution before admitting permanent failure.",
-                        fid, fid, fid, fid, fid
+                        "🛡️ Grisha Root-Cause Recovery Advisory: Task '{}' failed. Do NOT abandon this phase yet, and do NOT split it into sub-tasks — the title is a single action, and its only honest children would be restatements of it, which the plan gate rejects as clones. Instead: run read-only diagnostics under this same task (inspect the path, the environment, the tool output that failed), then RETRY the action with a materially different approach — a different command, path, parameter, or tool — and say in the next call what you changed. Marking it 'failed' is only correct once the alternative is known not to exist.",
+                        fid
+                    ));
+                } else if depth < 4 {
+                    alerts.push(format!(
+                        "🛡️ Grisha Root-Cause Recovery Advisory: Task '{}' failed and its title holds several phases. Decompose it into those phases as sub-tasks (e.g. '{}.1' [Diagnose root cause: inspect logs/environment/devices], '{}.2' [Apply fix or alternative], '{}.3' [Verify]) and give each a title naming the distinct step, then attempt root-cause resolution before admitting permanent failure.",
+                        fid, fid, fid, fid
                     ));
                 } else {
                     alerts.push(format!(
@@ -324,11 +339,11 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         let has_children = current_nodes
             .iter()
             .any(|n| n.parent_id.as_ref() == Some(&active.id));
-        if !has_children {
+        if !has_children && leaf_has_hidden_phases(active) {
             let depth = active.id.split('.').count();
             if depth < 3 {
                 alerts.push(format!(
-                    "⚠️ Deep Recursion Alert: The active task '{}' is at level {} and has no sub-tasks. For deep recursion planning, you MUST decompose tasks to at least level 3 (Phase -> Sub-task -> Micro-action). Please use TaskGraph operation: \"add\" to break this down.",
+                    "⚠️ Deep Recursion Alert: The active task '{}' is at level {} and its title contains several distinct phases, but it has no sub-tasks. Decompose it into the phases the title names (Phase -> Sub-task -> Micro-action) with operation: \"add\" — each child must be a step the parent does not already state. A single-command task needs no children; execute it instead.",
                     active.id, depth
                 ));
             }
@@ -401,4 +416,58 @@ pub fn execute_task_graph(input: TaskGraphInput) -> Result<TaskGraphOutput, Stri
         alert,
         grisha_remarks,
     )
+}
+
+/// Does this leaf's own title admit more than one step?
+///
+/// Decomposition is for work that has phases *inside* it. A leaf like "Create
+/// the folder on the desktop" is one command, and the only children it can be
+/// split into are restatements of itself — which the graph-wide clone gate then
+/// rejects. That rejection is followed by a `failed` status, which is followed
+/// by the recovery advisory demanding yet another split, and the run spends its
+/// whole budget building and abandoning a five-node zoo around a `mkdir` it was
+/// never allowed to simply run. So every "you must decompose this" nag has to
+/// check that the leaf is actually composite before issuing it.
+pub(crate) fn leaf_has_hidden_phases(leaf: &TaskNode) -> bool {
+    let Some(content) = leaf.content.as_deref().map(str::trim) else {
+        return false;
+    };
+    if content.is_empty() {
+        return false;
+    }
+    // Auto-created placeholder parents carry no intent to decompose further.
+    let placeholder = if leaf.id.contains('.') {
+        format!("Task {}", leaf.id)
+    } else {
+        format!("Phase {}", leaf.id)
+    };
+    if content == placeholder {
+        return false;
+    }
+
+    let lower = content.to_lowercase();
+    const PHASE_JOINERS: &[&str] = &[
+        " and ",
+        " then ",
+        " after ",
+        " before ",
+        " plus ",
+        " followed by ",
+        " which ",
+        "; ",
+        " + ",
+        " / ",
+    ];
+    if PHASE_JOINERS.iter().any(|joiner| lower.contains(joiner)) {
+        return true;
+    }
+    // Two commas without a joiner is a checklist wearing a leaf's clothes.
+    if lower.matches(',').count() >= 2 {
+        return true;
+    }
+    if content.split_whitespace().count() > 14 {
+        return true;
+    }
+    let has_enum = ["1.", "2."].iter().all(|marker| lower.contains(marker));
+    has_enum || lower.contains("step 2") || lower.contains(" phase 2")
 }

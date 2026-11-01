@@ -93,7 +93,9 @@ pub fn validate_task_graph(nodes: &[TaskNode]) -> Result<(), String> {
                                     format!(
                                         " (Parent Phase '{}': \"{}\")",
                                         p.id,
-                                        p.content.as_deref().unwrap_or("")
+                                        crate::task_graph::store::summarize_title(
+                                            p.content.as_deref().unwrap_or("")
+                                        )
                                     )
                                 })
                             })

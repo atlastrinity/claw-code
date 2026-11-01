@@ -250,14 +250,14 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
                 .iter()
                 .any(|n| n.parent_id.as_ref() == Some(&first_pending.id));
             return Err(format!(
-                "Error: Recursive Planning Required. The next pending task '{}' (\"{}\"){} is not yet decomposed into actionable leaf sub-tasks.\n\
+                "Error: Recursive Planning Required. The next pending task '{}' (\"{}\"){} and no pending leaf in the graph is executable.\n\
                  You MUST:\n\
-                 1. Call `TaskGraph` with `operation: \"add\"` to create sub-tasks (e.g. '{}.1', '{}.2') under this task.\n\
+                 1. Call `TaskGraph` with `operation: \"add\"` to create sub-tasks (e.g. '{}.1', '{}.2') under this task — each one a distinct action this task does not already state, never a restatement of it.\n\
                  2. Set the first leaf sub-task to `in_progress` using `operation: \"update_status\"`.\n\
                  3. Only THEN execute your mutating action.",
                 first_pending.id,
                 first_pending.content.as_deref().unwrap_or(""),
-                if !is_leaf { " (has children that need completion)" } else { " (Level 1 phase)" },
+                if !is_leaf { " already has children, none of them executable," } else { " is a Level 1 phase that needs decomposition," },
                 first_pending.id,
                 first_pending.id,
             ));
@@ -415,9 +415,37 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
                     }) || task_path_segs.iter().any(|seg| input_words.contains(seg));
 
                 if !has_word_overlap && !has_path_overlap {
+                    // The active leaf is where the plan says the agent should be,
+                    // and the refusal is correct while that is true. What made a
+                    // live run fail five atomic tasks in ninety seconds was the
+                    // dead end after it: the step it wanted to run belonged to a
+                    // task the agent had just marked `failed`, so "write a
+                    // matching title" produced a clone and "set a matching task
+                    // in_progress" named a task that no longer existed. Reopening
+                    // the failed task is the honest move, so say so.
+                    let reopenable = nodes
+                        .iter()
+                        .filter(|node| node.status == Some(TaskStatus::Failed))
+                        .take(6)
+                        .map(|node| {
+                            format!(
+                                "{} (\"{}\")",
+                                node.id,
+                                node.content.as_deref().unwrap_or("(untitled)")
+                            )
+                        })
+                        .collect::<Vec<_>>();
+                    let hint = if reopenable.is_empty() {
+                        "Ensure your tool description or parameters match the task in task.md, write task titles and descriptions in English ONLY, or set a matching task to 'in_progress'.".to_string()
+                    } else {
+                        format!(
+                            "Do NOT add a new task with a title that restates this action — the plan gate rejects it as a clone. If the action belongs to one of these failed tasks, reopen it with operation: \"update_status\" ({{\"id\":\"…\",\"status\":\"in_progress\"}}) and run the action under it, using a different command, path or parameter from the attempt that failed. Otherwise set the matching pending task to 'in_progress' first.\nFailed tasks in the graph: {}",
+                            reopenable.join(", ")
+                        )
+                    };
                     return Err(format!(
-                        "Error: Strict TaskGraph Enforcement. Your action ('{}') does not match the active task '{}' (\"{}\"). Ensure your tool description or parameters match the task in task.md, write task titles and descriptions in English ONLY, or set a matching task to 'in_progress'.",
-                        input_text.trim(), active_node.id, active_node.content.as_deref().unwrap_or("")
+                        "Error: Strict TaskGraph Enforcement. Your action ('{}') does not match the active task '{}' (\"{}\"). {}",
+                        input_text.trim(), active_node.id, active_node.content.as_deref().unwrap_or(""), hint
                     ));
                 }
             }
@@ -431,8 +459,8 @@ pub fn validate_active_task_for_tool(name: &str, input: &Value) -> Result<(), St
         let depth = matched_id.split('.').count();
         if depth < 2 {
             return Err(format!(
-                "Error: TaskGraph Enforcement. Task '{}' is a top-level task (Level 1). You MUST create sub-tasks (e.g. '{}.1') under root phases before executing mutating actions.",
-                matched_id, matched_id
+                "Error: TaskGraph Enforcement. Task '{}' is a top-level task (Level 1). You MUST create sub-tasks (e.g. '{}.1') under root phases before executing mutating actions — each sub-task naming one distinct step, never a restatement of '{}'.",
+                matched_id, matched_id, matched_id
             ));
         }
 

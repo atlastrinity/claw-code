@@ -2621,3 +2621,272 @@ fn closed_graph_without_failures_is_congratulated() {
     std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
     let _ = std::fs::remove_file(path);
 }
+
+#[test]
+fn a_one_action_leaf_is_not_forced_into_a_decomposition() {
+    let _guard = env_guard();
+    let path = temp_path("atomic_leaf.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Prepare the workspace", "status": "pending"},
+                {"id": "1.1", "parent_id": "1", "content": "Create a folder on the desktop", "status": "pending"}
+            ]
+        }),
+    )
+    .expect("add");
+
+    let activated: serde_json::Value = serde_json::from_str(
+        &execute_tool(
+            "TaskGraph",
+            &json!({"operation": "update_status", "nodes": [{"id": "1.1", "status": "in_progress"}]}),
+        )
+        .expect("activating an atomic leaf should succeed"),
+    )
+    .expect("valid json");
+    let alert = activated["alert"].as_str().unwrap_or("");
+    assert!(
+        !alert.contains("Deep Recursion Alert"),
+        "a single-command leaf must not be nagged into sub-tasks it can only restate: {alert}"
+    );
+
+    // Same position, but the title itself carries two steps: nagging is correct.
+    execute_tool(
+        "TaskGraph",
+        &json!({"operation": "update_status", "nodes": [{"id": "1.1", "status": "completed"}]}),
+    )
+    .expect("clear the first branch before testing the second");
+    let composite: serde_json::Value = serde_json::from_str(
+        &execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "add",
+                "nodes": [
+                    {"id": "2", "content": "Ship the build", "status": "pending"},
+                    {"id": "2.1", "parent_id": "2", "content": "Compile the target and run the tests", "status": "in_progress"}
+                ]
+            }),
+        )
+        .expect("add the composite leaf"),
+    )
+    .expect("valid json");
+    let composite_alert = composite["alert"].as_str().unwrap_or("");
+    assert!(
+        composite_alert.contains("Deep Recursion Alert"),
+        "a leaf whose title spans several phases should be decomposed: {composite_alert}"
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn a_failed_atomic_leaf_is_told_to_retry_instead_of_splitting() {
+    let _guard = env_guard();
+    let path = temp_path("failed_atomic.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Prepare the workspace", "status": "in_progress"},
+                {"id": "1.1", "parent_id": "1", "content": "Create a folder on the desktop", "status": "in_progress"}
+            ]
+        }),
+    )
+    .expect("add");
+
+    let failed: serde_json::Value = serde_json::from_str(
+        &execute_tool(
+            "TaskGraph",
+            &json!({"operation": "update_status", "nodes": [{"id": "1.1", "status": "failed"}]}),
+        )
+        .expect("marking failed"),
+    )
+    .expect("valid json");
+    let alert = failed["alert"].as_str().unwrap_or("");
+    assert!(
+        alert.contains("Grisha Root-Cause Recovery Advisory"),
+        "the advisory should still fire: {alert}"
+    );
+    assert!(
+        alert.contains("do NOT split it into sub-tasks"),
+        "splitting an atomic step is what produced the clone treadmill: {alert}"
+    );
+    assert!(
+        !alert.contains("Decompose '1.1' into deeper subtasks"),
+        "advising decomposition here asks for children that can only be clones: {alert}"
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn a_clone_of_an_abandoned_task_reopens_it_instead_of_erroring() {
+    let _guard = env_guard();
+    let path = temp_path("retry_redirect.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Prepare the workspace", "status": "pending"},
+                {"id": "1.1", "parent_id": "1", "content": "Create a folder on the desktop", "status": "failed"},
+                {"id": "1.2", "parent_id": "1", "content": "Write the manifest file", "status": "pending"}
+            ]
+        }),
+    )
+    .expect("add");
+
+    // The agent wants a second attempt at the abandoned step and says so in the
+    // same words. Refusing that used to strand the run: the only wording that
+    // passed the clone gate was a synonym, so the plan grew while the work stayed
+    // undone. The retry now reopens the original instead.
+    let retry: serde_json::Value = serde_json::from_str(
+        &execute_tool(
+            "TaskGraph",
+            &json!({
+                "operation": "add",
+                "nodes": [{"id": "1.1.1", "parent_id": "1.1", "content": "Create a folder on the desktop", "status": "pending"}]
+            }),
+        )
+        .expect("a retry of abandoned work should be redirected, not rejected"),
+    )
+    .expect("valid json");
+    let review = retry["grisha_review"]
+        .as_array()
+        .map(|rows| {
+            rows.iter()
+                .filter_map(serde_json::Value::as_str)
+                .collect::<Vec<_>>()
+                .join(" | ")
+        })
+        .unwrap_or_default();
+    assert!(
+        review.contains("Grisha Retry Redirection"),
+        "the redirect should be reported: {review}"
+    );
+
+    let view: serde_json::Value = serde_json::from_str(
+        &execute_tool("TaskGraph", &json!({"operation": "view", "nodes": []})).expect("view"),
+    )
+    .expect("valid json");
+    let snapshot = view["alert"].as_str().expect("snapshot");
+    assert!(
+        !snapshot.contains("1.1.1"),
+        "the duplicate must not enter the graph:\n{snapshot}"
+    );
+    assert!(
+        snapshot.contains("[/] **1.1**") || snapshot.contains("[/] **1**"),
+        "the abandoned step should be reopened, not left failed:\n{snapshot}"
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn the_branch_summary_stops_reprinting_the_root_goal() {
+    let _guard = env_guard();
+    let path = temp_path("summary_root.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    let root = "Create a folder on the desktop and create a macOS application there that must change the brightness of any screen, turn it on and off, both individually and simultaneously, with the button in the tray of this mac, with a menu and ease of management, and it must launch and work, so test it after creation and complete the task fully.";
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": root, "status": "in_progress"},
+                {"id": "1.1", "parent_id": "1", "content": "Create a folder on the desktop", "status": "pending"},
+                {"id": "1.1.1", "parent_id": "1.1", "content": "Run mkdir for the desktop folder", "status": "pending"}
+            ]
+        }),
+    )
+    .expect("add");
+
+    let view: serde_json::Value = serde_json::from_str(
+        &execute_tool("TaskGraph", &json!({"operation": "view", "nodes": []})).expect("view"),
+    )
+    .expect("valid json");
+    let summary = view["active_branch_summary"].as_str().expect("summary");
+    assert!(
+        !summary.contains("under [1]"),
+        "the root goal is the agent's own sentence, not context for the next step: {summary}"
+    );
+    assert!(
+        summary.contains("chain: 1 → 1.1 → 1.1.1"),
+        "the shape of the branch still belongs in the summary: {summary}"
+    );
+    assert!(
+        summary.contains("Run mkdir for the desktop folder"),
+        "the active leaf is the one title worth printing in full: {summary}"
+    );
+
+    let deep: serde_json::Value = serde_json::from_str(
+        &execute_tool(
+            "TaskGraph",
+            &json!({"operation": "update_status", "nodes": [{"id": "1.1.1", "status": "in_progress"}]}),
+        )
+        .expect("activate the deep leaf"),
+    )
+    .expect("valid json");
+    let deep_summary = deep["active_branch_summary"].as_str().expect("summary");
+    assert!(
+        deep_summary.contains("under [1.1] \"Create a folder on the desktop\""),
+        "a short parent title is useful and should survive: {deep_summary}"
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}
+
+#[test]
+fn a_reopened_earlier_leaf_beats_a_deeper_one_for_the_active_slot() {
+    let _guard = env_guard();
+    let path = temp_path("retry_active.json");
+    std::env::set_var("CLAWD_TASK_GRAPH_STORE", &path);
+
+    execute_tool(
+        "TaskGraph",
+        &json!({
+            "operation": "add",
+            "nodes": [
+                {"id": "1", "content": "Prepare the workspace", "status": "in_progress"},
+                {"id": "1.1", "parent_id": "1", "content": "Create a folder on the desktop", "status": "failed"},
+                {"id": "1.2", "parent_id": "1", "content": "Write the manifest file", "status": "in_progress"},
+                {"id": "1.2.1", "parent_id": "1.2", "content": "Write the manifest contents", "status": "in_progress"}
+            ]
+        }),
+    )
+    .expect("add");
+
+    // Reopening the abandoned step has to be able to win the single active-leaf
+    // slot, or the retry can never be the task the gates match actions against.
+    execute_tool(
+        "TaskGraph",
+        &json!({"operation": "update_status", "nodes": [{"id": "1.1", "status": "in_progress"}]}),
+    )
+    .expect("reopen the abandoned step");
+
+    let result = validate_active_task_for_tool(
+        "bash",
+        &json!({"command": "mkdir -p ~/Desktop/demo", "description": "Create a folder on the desktop"}),
+    );
+    assert!(
+        result.is_ok(),
+        "the retried step must be executable against the active leaf: {result:?}"
+    );
+
+    std::env::remove_var("CLAWD_TASK_GRAPH_STORE");
+    let _ = std::fs::remove_file(path);
+}

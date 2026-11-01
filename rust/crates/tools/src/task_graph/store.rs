@@ -130,17 +130,19 @@ pub fn normalize_single_active_leaf(nodes: &mut [TaskNode]) {
         .map(|(idx, _)| idx)
         .collect();
 
-    // If more than 1 leaf node is marked InProgress, keep only the deepest /
-    // highest-positioned one active (ids compare numerically per segment).
+    // If more than 1 leaf node is marked InProgress, keep the one that comes
+    // FIRST in the plan and return the others to 'pending'.
+    //
+    // Ranking by deepest id looks like "work the finest-grained step", but it
+    // makes a retry impossible: an abandoned shallower task the agent reopens
+    // loses the election to a deeper leaf in a later branch, so the step it is
+    // actually executing can never be the active one, and every action aimed at
+    // it is refused as a mismatch. The sequential gate already insists that
+    // preceding work comes first — the single-active-leaf rule has to agree.
     if leaf_in_progress_indices.len() > 1 {
         let active_index = *leaf_in_progress_indices
             .iter()
-            .max_by(|&&a, &&b| {
-                nodes[a]
-                    .depth()
-                    .cmp(&nodes[b].depth())
-                    .then_with(|| compare_task_ids(&nodes[a].id, &nodes[b].id))
-            })
+            .min_by(|&&a, &&b| compare_task_ids(&nodes[a].id, &nodes[b].id))
             .unwrap();
         for &idx in &leaf_in_progress_indices {
             if idx != active_index {
@@ -211,11 +213,17 @@ pub fn compute_active_recursion_branch(
     )];
     if chain_nodes.len() >= 2 {
         let parent = chain_nodes[chain_nodes.len() - 2];
-        summary_lines.push(format!(
-            "   under [{}] \"{}\"",
-            parent.id,
-            parent.content.as_deref().unwrap_or("")
-        ));
+        // The root of the chain is the user's goal statement, which the agent
+        // pasted into this graph itself. Reprinting a 400-character sentence on
+        // every graph response pays a paragraph to say nothing the model has
+        // forgotten; the id line below already carries the branch's shape.
+        if parent.id.contains('.') {
+            summary_lines.push(format!(
+                "   under [{}] \"{}\"",
+                parent.id,
+                summarize_title(parent.content.as_deref().unwrap_or(""))
+            ));
+        }
     }
     if chain_ids.len() >= 2 {
         summary_lines.push(format!("   chain: {}", chain_ids.join(" → ")));
@@ -226,6 +234,33 @@ pub fn compute_active_recursion_branch(
     );
 
     (Some(leaf_id), chain_ids, Some(summary))
+}
+
+/// Shorten a task title for a one-line reference to work the model can already
+/// read in full. Cutting on a whitespace boundary matters: `chars().take()`
+/// produced mid-word fragments that read as a different title than the node.
+pub(crate) fn summarize_title(title: &str) -> String {
+    const MAX_CHARS: usize = 60;
+    const MAX_WORDS: usize = 10;
+    if title.chars().count() <= MAX_CHARS {
+        return title.to_string();
+    }
+    let mut out = String::new();
+    let mut used = 0usize;
+    for (index, word) in title.split_whitespace().enumerate() {
+        let width = word.chars().count();
+        if index >= MAX_WORDS || (index > 0 && used + width > MAX_CHARS) {
+            break;
+        }
+        if index > 0 {
+            out.push(' ');
+            used += 1;
+        }
+        out.push_str(word);
+        used += width;
+    }
+    out.push('…');
+    out
 }
 
 pub fn save_task_graph_output(
