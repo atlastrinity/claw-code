@@ -1295,6 +1295,56 @@ fn record_step_outcome(
     sample.successes.push(tool.to_string());
 }
 
+/// Is every character of this name something a tool is allowed to be called?
+fn is_tool_name_char(chunk: char) -> bool {
+    chunk.is_ascii_alphanumeric() || matches!(chunk, '_' | '.' | ':' | '-')
+}
+
+/// Recover the tool from a name that arrived carrying somebody else's payload.
+///
+/// A live codestral run emitted `{"stdout":"","stderr":"cat: …",…}TaskGraph` as
+/// a tool name: the model had written the previous result back as prose and the
+/// provider's shim folded that text into `tool_calls[].function.name`. Sixty-nine
+/// of these across the last seven sessions.
+///
+/// The call itself still ran, because `tools` re-derives the tool from the
+/// payload shape when a name cannot be one. Everything keyed on the *name* went
+/// blind, though: the claims gate matches plan tools by name, so a completion
+/// claim smuggled in one of these calls was never checked; the error tracker,
+/// loop detection and task enforcement all read the same field, and the blob was
+/// re-sent to the provider on every later turn of the session.
+///
+/// So the name is repaired where it enters the transcript — the one place every
+/// provider's answer passes through. A blob that ends in an identifier is that
+/// identifier with its result glued in front of it; a blob that ends in `}`
+/// carries no tool and is left alone rather than invented.
+fn sanitize_tool_name(name: &str) -> String {
+    let starts_like_a_name = name
+        .chars()
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_');
+    let clean = !name.is_empty() && starts_like_a_name && name.chars().all(is_tool_name_char);
+    if clean {
+        return name.to_string();
+    }
+    let tail: String = name
+        .trim_end()
+        .chars()
+        .rev()
+        .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    // Four characters is the shortest real tool name this runtime routes to
+    // (`bash`); below that a trailing fragment of the blob is more likely a
+    // quoted value than a tool.
+    if tail.len() >= 4 && tail.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) {
+        return tail;
+    }
+    name.to_string()
+}
+
 fn build_assistant_message(
     events: Vec<AssistantEvent>,
 ) -> Result<
@@ -1333,7 +1383,7 @@ fn build_assistant_message(
                 flush_text_block(&mut text, &mut blocks);
                 blocks.push(ContentBlock::ToolUse {
                     id,
-                    name,
+                    name: sanitize_tool_name(&name),
                     input,
                     signature,
                 });
@@ -2732,6 +2782,63 @@ mod tests {
                 },
             ]
         );
+    }
+
+    fn assistant_tool_event(name: &str) -> Vec<AssistantEvent> {
+        vec![
+            AssistantEvent::ToolUse {
+                id: "tool-1".to_string(),
+                name: name.to_string(),
+                input:
+                    r#"{"operation":"update_status","nodes":[{"id":"1.6","status":"completed"}]}"#
+                        .to_string(),
+                signature: None,
+            },
+            AssistantEvent::MessageStop,
+        ]
+    }
+
+    fn tool_name_of(message: &ConversationMessage) -> String {
+        message
+            .blocks
+            .first()
+            .and_then(|block| match block {
+                ContentBlock::ToolUse { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .expect("tool use block")
+    }
+
+    #[test]
+    fn a_tool_name_glued_to_a_result_keeps_its_tool() {
+        // given — the live shape: the previous result, then the real name
+        let leaked = r#"{"stdout": "", "stderr": "cat: no such file", "returnCodeInterpretation": "exit_code:1"}TaskGraph"#;
+
+        // when
+        let (message, _, _) = build_assistant_message(assistant_tool_event(leaked)).expect("built");
+
+        // then
+        assert_eq!(tool_name_of(&message), "TaskGraph");
+    }
+
+    #[test]
+    fn a_blob_that_ends_in_punctuation_invents_no_tool() {
+        // given — nothing after the payload can be a name
+        let leaked = r#"{"description": "Search for crash reports.", "path": "~/Library/Logs/", "pattern": "*.crash"}"#;
+
+        // when
+        let (message, _, _) = build_assistant_message(assistant_tool_event(leaked)).expect("built");
+
+        // then — left for the payload-shape recovery in `tools`, not guessed here
+        assert_eq!(tool_name_of(&message), leaked);
+    }
+
+    #[test]
+    fn an_ordinary_or_qualified_tool_name_is_left_alone() {
+        for name in ["bash", "read_file", "mcp__playwright__playwright_navigate", "TaskGraph"] {
+            let (message, _, _) = build_assistant_message(assistant_tool_event(name)).expect("built");
+            assert_eq!(tool_name_of(&message), name, "{name}");
+        }
     }
 
     #[test]
