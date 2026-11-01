@@ -494,6 +494,9 @@ pub struct BifurcationEngine {
     probe_required: bool,
     /// Blind mutations the gate actually blocked (observability).
     probe_gate_trips: usize,
+    /// Completion claims refused because no check has passed since the last
+    /// change (observability).
+    verification_gate_trips: usize,
     /// Error tool results collapsed into tombstones by the demon (observability).
     pruned_outputs: usize,
     /// Broken-write backpressure hits (observability).
@@ -536,6 +539,7 @@ impl BifurcationEngine {
             crossings: Vec::new(),
             probe_required: false,
             probe_gate_trips: 0,
+            verification_gate_trips: 0,
             pruned_outputs: 0,
             syntax_backpressure_hits: 0,
             stalled_steps: 0,
@@ -641,6 +645,12 @@ impl BifurcationEngine {
     #[must_use]
     pub fn probe_gate_trips(&self) -> usize {
         self.probe_gate_trips
+    }
+
+    /// Completion claims the verification gate refused this turn.
+    #[must_use]
+    pub fn verification_gate_trips(&self) -> usize {
+        self.verification_gate_trips
     }
 
     /// Error outputs the demon collapsed this turn.
@@ -758,6 +768,13 @@ impl BifurcationEngine {
             ("go", "vet"),
             ("go", "test"),
             ("go", "build"),
+            ("swift", "build"),
+            ("swift", "test"),
+            ("swift", "run"),
+            ("dotnet", "test"),
+            ("mvn", "test"),
+            ("gradle", "test"),
+            ("gradle", "build"),
             ("python3", "test"),
             ("node", "--check"),
             ("npm", "test"),
@@ -782,7 +799,12 @@ impl BifurcationEngine {
         ) {
             return command.contains(" -n");
         }
-        false
+        // Tools that are their own subcommand: with no second token to match,
+        // the program name is the whole check.
+        matches!(
+            command.split_whitespace().next().unwrap_or(""),
+            "xcodebuild" | "make" | "pytest" | "rspec" | "ctest"
+        )
     }
 
     /// Does this bash command provably write to the workspace?
@@ -893,10 +915,7 @@ impl BifurcationEngine {
     #[must_use]
     pub fn is_plan_bookkeeping(tool: &str, input: &str) -> bool {
         let lower = tool.to_lowercase();
-        if !matches!(
-            lower.as_str(),
-            "task_graph" | "taskgraph" | "taskgraphwrite"
-        ) {
+        if !Self::is_plan_tool(&lower) {
             return false;
         }
         let operation = serde_json::from_str::<serde_json::Value>(input)
@@ -938,6 +957,334 @@ impl BifurcationEngine {
             return Self::bash_is_mutating(&command);
         }
         Self::MUTATION_TOOLS.contains(&lower.as_str())
+    }
+
+    /// Call that runs the project's own check — a build, a test suite, a compile.
+    /// It is the only evidence that a task named "Test the application" means
+    /// more than an intention, so it is what the verification gate below asks
+    /// for. Only `bash` can carry one: a tool that reads a file proves the file
+    /// exists, never that the program works.
+    ///
+    /// Chained commands count segment by segment — `cd App && swift build` is
+    /// the same build as bare `swift build` — but a segment with a pipe does
+    /// not: `swift build | tail -5` exits with `tail`'s status, so it reports
+    /// success for a build that failed. That is the exact lie this gate exists
+    /// to catch, so a piped check proves nothing until it is run plainly.
+    #[must_use]
+    pub fn is_verifier_call(tool: &str, input: &str) -> bool {
+        if tool.to_lowercase() != "bash" {
+            return false;
+        }
+        let Some(command) = Self::bash_command(input) else {
+            return false;
+        };
+        command
+            .split([';', '\n'])
+            .flat_map(|segment| segment.split("&&"))
+            .map(str::trim)
+            .filter(|segment| !segment.is_empty() && !segment.contains('|'))
+            .any(Self::is_verifier_command)
+    }
+
+    /// Did an answered call fail?
+    ///
+    /// `is_error` says the tool refused to run. A command that *did* run and
+    /// exited non-zero is the failure the gate cares about most and that flag
+    /// never sees: `bash` reports it inside an otherwise successful result as
+    /// `returnCodeInterpretation`. Anything the gate cannot read as a clean
+    /// exit — unparsable output, an interrupted command, a command it pushed
+    /// to the background — is treated as not passing, which costs one re-run
+    /// rather than one false green.
+    #[must_use]
+    pub fn step_failed(tool: &str, output: &str, is_error: bool) -> bool {
+        if is_error {
+            return true;
+        }
+        if tool.to_lowercase() != "bash" {
+            return false;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(output) else {
+            return true;
+        };
+        if value
+            .get("interrupted")
+            .and_then(serde_json::Value::as_bool)
+            .unwrap_or(false)
+        {
+            return true;
+        }
+        if value
+            .get("backgroundTaskId")
+            .and_then(serde_json::Value::as_str)
+            .is_some()
+        {
+            return true;
+        }
+        value
+            .get("returnCodeInterpretation")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|status| !status.is_empty())
+    }
+
+    /// Task-graph bookkeeping tools by their effective names.
+    #[must_use]
+    fn is_plan_tool(lower: &str) -> bool {
+        matches!(lower, "task_graph" | "taskgraph" | "taskgraphwrite")
+    }
+
+    /// Nodes this call claims as done, with their title when the call carries it.
+    ///
+    /// `update_status` is the honest form. `add` can carry the same claim inside
+    /// the node, which is the same lie told one operation earlier, so both land
+    /// in the same gate — the title is right there on an `add` and has to be
+    /// read back from history on a `update_status`.
+    #[must_use]
+    fn completed_claims(input: &str) -> Vec<(String, Option<String>)> {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
+            return Vec::new();
+        };
+        let Some(operation) = value
+            .get("operation")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned)
+        else {
+            return Vec::new();
+        };
+        let claims_status = operation.eq_ignore_ascii_case("update_status");
+        let creates_nodes = operation.eq_ignore_ascii_case("add");
+        if !claims_status && !creates_nodes {
+            return Vec::new();
+        }
+        value
+            .get("nodes")
+            .and_then(serde_json::Value::as_array)
+            .map(|nodes| {
+                nodes
+                    .iter()
+                    .filter(|node| {
+                        node.get("status")
+                            .and_then(serde_json::Value::as_str)
+                            .is_some_and(|status| status.eq_ignore_ascii_case("completed"))
+                    })
+                    .filter_map(|node| {
+                        let id = node.get("id").and_then(serde_json::Value::as_str)?;
+                        let title = if creates_nodes {
+                            node.get("content")
+                                .and_then(serde_json::Value::as_str)
+                                .map(str::to_owned)
+                        } else {
+                            None
+                        };
+                        Some((id.to_string(), title))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Title a node was created with, read back from the `add` calls in the
+    /// executed history. `None` when this process never watched the node being
+    /// created — a resumed session, or a plan written straight into the store —
+    /// and the gate treats an unknown title as not check-shaped rather than
+    /// blocking on a guess.
+    #[must_use]
+    fn title_from_history(id: &str, history: &[(String, String, bool)]) -> Option<String> {
+        for (tool, input, _failed) in history {
+            if !Self::is_plan_tool(&tool.to_lowercase()) {
+                continue;
+            }
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
+                continue;
+            };
+            if !value
+                .get("operation")
+                .and_then(serde_json::Value::as_str)
+                .is_some_and(|operation| operation.eq_ignore_ascii_case("add"))
+            {
+                continue;
+            }
+            let Some(nodes) = value.get("nodes").and_then(serde_json::Value::as_array) else {
+                continue;
+            };
+            for node in nodes {
+                if node.get("id").and_then(serde_json::Value::as_str) == Some(id) {
+                    if let Some(content) = node.get("content").and_then(serde_json::Value::as_str) {
+                        return Some(content.to_string());
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Does the title claim work that only an executed check can prove?
+    ///
+    /// Titles are imperative and English by mandate, so the first word is the
+    /// verb. Only that verb position is read: "Runbook for the release" is
+    /// documentation, not a run.
+    #[must_use]
+    fn is_verification_shaped(title: &str) -> bool {
+        const VERBS: &[&str] = &[
+            "test",
+            "tests",
+            "build",
+            "compile",
+            "run",
+            "launch",
+            "verify",
+            "validate",
+            "check",
+            "install",
+            "deploy",
+            "benchmark",
+        ];
+        title
+            .split_whitespace()
+            .next()
+            .map(|word| {
+                let word = word.trim_end_matches(['.', ':', ',', '!']).to_lowercase();
+                VERBS.contains(&word.as_str())
+            })
+            .unwrap_or(false)
+    }
+
+    /// Verification gate: a leaf whose title names a check may not be claimed
+    /// `completed` until that check has passed *after* the last change to the
+    /// workspace.
+    ///
+    /// `history` is every call this session has already answered, in order, as
+    /// `(tool, input, failed)` where `failed` comes from [`Self::step_failed`] —
+    /// the tool refused it *or* it ran and reported a non-zero exit.
+    ///
+    /// This is the last cheap place to refuse. A run writes a source file, marks
+    /// "Test the application" completed, closes the graph green, and reports
+    /// success over a build that does not compile — because nothing tied the
+    /// claim to an executed check. The evidence has to be ordered too: a check
+    /// that passed before the edit says nothing about the edit, and a check
+    /// emitted in this same step has not returned yet, so it proves nothing
+    /// either.
+    ///
+    /// Narrow on purpose: only check-shaped titles, only nodes this process can
+    /// name a title for, and `failed` is never blocked — an environment that
+    /// cannot build has an honest exit, so the gate cannot become a new
+    /// treadmill.
+    pub fn gate_completions_for_step(
+        &mut self,
+        calls: &[(String, String)],
+        history: &[(String, String, bool)],
+    ) -> Vec<(usize, String)> {
+        let last_mutation = history
+            .iter()
+            .rposition(|(tool, input, failed)| !failed && Self::is_mutating_call(tool, input));
+        let last_verification = history
+            .iter()
+            .rposition(|(tool, input, failed)| !failed && Self::is_verifier_call(tool, input));
+        let mut refusals = Vec::new();
+        for (index, (tool, input)) in calls.iter().enumerate() {
+            if !Self::is_plan_tool(&tool.to_lowercase()) {
+                continue;
+            }
+            for (id, inline_title) in Self::completed_claims(input) {
+                let title = match inline_title {
+                    Some(title) => title,
+                    None => match Self::title_from_history(&id, history) {
+                        Some(title) => title,
+                        None => continue,
+                    },
+                };
+                if !Self::is_verification_shaped(&title) {
+                    continue;
+                }
+                // A change queued ahead of this claim in the same step lands after
+                // any check that has already returned, so the evidence is stale
+                // before the step is even executed.
+                let mutation_ahead = calls[..index]
+                    .iter()
+                    .any(|(tool, input)| Self::is_mutating_call(tool, input));
+                let earned = !mutation_ahead
+                    && last_verification
+                        .is_some_and(|check| last_mutation.is_none_or(|change| check > change));
+                if earned {
+                    continue;
+                }
+                self.verification_gate_trips += 1;
+                refusals.push((index, Self::verification_gate_refusal(&id, &title, history)));
+            }
+        }
+        refusals
+    }
+
+    /// Refusal text for an unearned completion claim, naming the evidence that
+    /// is missing rather than the rule that was broken.
+    #[must_use]
+    fn verification_gate_refusal(
+        id: &str,
+        title: &str,
+        history: &[(String, String, bool)],
+    ) -> String {
+        let describe = |tool: &str, input: &str| -> String {
+            let detail = Self::bash_command(input).unwrap_or_else(|| input.to_string());
+            let detail = detail.chars().take(72).collect::<String>();
+            format!("`{tool}` {detail}")
+        };
+        let evidence = match (
+            history
+                .iter()
+                .rposition(|(tool, input, failed)| !failed && Self::is_verifier_call(tool, input)),
+            history
+                .iter()
+                .rposition(|(tool, input, failed)| !failed && Self::is_mutating_call(tool, input)),
+        ) {
+            (None, None) => "Nothing that could prove it has run — no build, no test command, and \
+                             no change to the workspace either."
+                .to_string(),
+            (None, Some(change)) => {
+                let (tool, input, _) = &history[change];
+                format!(
+                    "The workspace changed ({}) and no check has run since. No build or test \
+                     command has succeeded at any point in this session.",
+                    describe(tool, input)
+                )
+            }
+            (Some(check), None) => {
+                let (tool, input, _) = &history[check];
+                format!(
+                    "The last passing check ({}) is on record, but this session has no earlier \
+                     change to compare it against — run the check the title names and let it \
+                     return.",
+                    describe(tool, input)
+                )
+            }
+            (Some(check), Some(change)) if check > change => {
+                // Only reachable when a change is queued in this same step.
+                "A change is being applied in this same step, so any check that has already \
+                 returned describes the old workspace."
+                    .to_string()
+            }
+            (Some(check), Some(change)) => {
+                let (check_tool, check_input, _) = &history[check];
+                let (change_tool, change_input, _) = &history[change];
+                format!(
+                    "The last passing check ({}) came BEFORE the last change ({}), so it says \
+                     nothing about what is there now.",
+                    describe(check_tool, check_input),
+                    describe(change_tool, change_input)
+                )
+            }
+        };
+        format!(
+            "[SYSTEM DIRECTIVE — VERIFICATION GATE]\n\
+             Task '{id}' (\"{title}\") claims completion, but the check its own title names has not \
+             passed since the workspace last changed.\n\
+             {evidence}\n\
+             A build that failed, a build from before your last edit, or a build you never \
+             re-ran is not a test that passed. Run the check now — the command this project \
+             actually uses (`swift build`, `cargo test`, `npm test`, `pytest`, the app itself) — \
+             let it return, and only then re-issue this same `update_status`.\n\
+             Do not answer by editing more files: an edit is not evidence. If the check cannot \
+             pass in this environment, mark '{id}' `failed` and say why — that is always allowed, \
+             and it is the honest version of this result."
+        )
     }
 
     /// Maxwell's-demon gate for one step's calls, evaluated in emission order:
@@ -1668,10 +2015,11 @@ impl BifurcationEngine {
                 self.crossings.len(),
             ),
             format!(
-                "Maxwell demon: pruned_outputs={} probe_gate={} trips={} syntax_backpressure_hits={}",
+                "Maxwell demon: pruned_outputs={} probe_gate={} trips={} verification_gate={} syntax_backpressure_hits={}",
                 self.pruned_outputs,
                 if self.probe_required { "armed" } else { "open" },
                 self.probe_gate_trips,
+                self.verification_gate_trips,
                 self.syntax_backpressure_hits,
             ),
             format!(

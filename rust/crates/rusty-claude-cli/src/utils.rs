@@ -1675,8 +1675,8 @@ pub fn print_fractal_status_snapshot(
                  (anthropic/openai_compat) · tools provider-chain ceiling · REPL retry ladder · \
                  stream-stall charging · conversation loop bifurcation ladder (system-prompt directive, \
                  dead-orbit middleware gate, orbit-escape provenance in learned skills) · \
-                 Maxwell demon (dead-orbit context pruning, step-level probe gate, syntax backpressure, \
-                 turn working set)"
+                 Maxwell demon (dead-orbit context pruning, step-level probe gate, verification gate, \
+                 syntax backpressure, turn working set)"
             );
         }
         CliOutputFormat::Json | crate::cli::CliOutputFormat::Ndjson => {
@@ -1729,6 +1729,13 @@ pub fn print_fractal_status_snapshot(
                             "clears_on": "any probe call in a gated step",
                             "live_counter": "probe_gate trips (ladder summary)",
                         },
+                        "verification_gate": {
+                            "trigger": "every step, against the session's own executed history",
+                            "blocks": "`update_status → completed` on a leaf whose title names a check (test/build/compile/verify/…) until that check has passed after the last change",
+                            "evidence": "a bash command the project recognizes as a check, exiting 0; a piped or backgrounded run is not evidence",
+                            "always_allowed": "marking a leaf `failed`, so an environment that cannot build has an honest exit",
+                            "live_counter": "verification_gate (ladder summary)",
+                        },
                         "syntax_guard": {
                             "checks": ["json", "toml", "sh/bash/zsh", "py", "rs", "ts/tsx/js/jsx", "c/cpp/h/swift/go"],
                             "marker": runtime::syntax_guard::SYNTAX_BACKPRESSURE_MARKER,
@@ -1759,6 +1766,7 @@ pub fn print_fractal_status_snapshot(
                     "runtime::session::conversation bifurcation ladder (directive + gate + escape provenance)",
                     "runtime::fractal::bifurcation dead-orbit context pruning (Maxwell demon)",
                     "runtime::session::conversation step-level hard probe gate",
+                    "runtime::session::conversation verification gate (completion claims need an executed check)",
                     "runtime::syntax_guard zero-turn write backpressure (tools runners)",
                     "runtime::turn_state transactional working memory (quadrupole/chaos directives)",
                 ],

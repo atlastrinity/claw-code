@@ -292,6 +292,48 @@ where
             .summary()
     }
 
+    /// Every call this session has already answered, in emission order, as
+    /// `(tool, input, failed)`.
+    ///
+    /// A call with no result yet — the step currently being dispatched — is
+    /// left out, because a check that has not returned is not evidence of
+    /// anything. `failed` is [`BifurcationEngine::step_failed`], not the
+    /// `is_error` flag: a build that ran and exited non-zero is exactly the
+    /// outcome this has to read correctly.
+    fn step_history(&self) -> Vec<(String, String, bool)> {
+        let mut requests: Vec<(String, String, String)> = Vec::new();
+        let mut answers: std::collections::HashMap<String, (String, bool)> =
+            std::collections::HashMap::new();
+        for message in &self.session.messages {
+            for block in &message.blocks {
+                match block {
+                    ContentBlock::ToolUse {
+                        id, name, input, ..
+                    } => {
+                        requests.push((id.clone(), name.clone(), input.clone()));
+                    }
+                    ContentBlock::ToolResult {
+                        tool_use_id,
+                        output,
+                        is_error,
+                        ..
+                    } => {
+                        answers.insert(tool_use_id.clone(), (output.clone(), *is_error));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        requests
+            .into_iter()
+            .filter_map(|(id, tool, input)| {
+                let (output, is_error) = answers.get(&id)?;
+                let failed = BifurcationEngine::step_failed(&tool, output, *is_error);
+                Some((tool, input, failed))
+            })
+            .collect()
+    }
+
     #[allow(clippy::too_many_lines)]
     fn dispatch_tool_calls<'a>(
         &mut self,
@@ -329,7 +371,7 @@ where
             .iter()
             .map(|call| (call.tool_name.clone(), call.input.clone()))
             .collect();
-        let gate_blocked: Vec<usize> = self
+        let mut gate_blocked: Vec<usize> = self
             .bifurcation
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -343,6 +385,31 @@ where
                     call.tool_use_id.clone(),
                     call.tool_name.clone(),
                     BifurcationEngine::probe_gate_refusal(&call.tool_name),
+                    true,
+                ),
+            ));
+        }
+
+        // Verification gate: a leaf titled "Test/Build/Verify …" may not be
+        // claimed `completed` until that check has actually passed, after the
+        // last change to the workspace. Without it a run writes a file, ticks
+        // the testing box, closes the graph green and reports success over a
+        // build that does not compile.
+        let step_history = self.step_history();
+        for (index, refusal) in self
+            .bifurcation
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .gate_completions_for_step(&gate_pairs, &step_history)
+        {
+            let call = &calls[index];
+            gate_blocked.push(index);
+            gate_refusals.push((
+                index,
+                ConversationMessage::tool_result(
+                    call.tool_use_id.clone(),
+                    call.tool_name.clone(),
+                    refusal,
                     true,
                 ),
             ));
@@ -3151,5 +3218,123 @@ mod tests {
         } else {
             panic!("Expected recovered ToolUse block");
         }
+    }
+
+    /// The run-4 sequence replayed against the live middleware: add a leaf
+    /// titled "Test the application.", write a source file, claim the leaf done,
+    /// watch the build fail, claim it again, and only close it once a build has
+    /// passed *after* the last change. The two unearned claims never reach the
+    /// executor; the earned one does.
+    #[test]
+    fn a_check_shaped_leaf_closes_only_on_a_check_that_passed() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        const ADD: &str =
+            r#"{"operation":"add","nodes":[{"id":"1.2.5","content":"Test the application."}]}"#;
+        const CLAIM: &str =
+            r#"{"operation":"update_status","nodes":[{"id":"1.2.5","status":"completed"}]}"#;
+        const SOURCE: &str = r#"{"path":"Sources/App.swift","content":"import Foundation\n"}"#;
+        const BUILD: &str = r#"{"command":"swift build"}"#;
+
+        struct RunFour {
+            turn: std::cell::Cell<usize>,
+        }
+
+        impl ApiClient for RunFour {
+            fn stream(
+                &mut self,
+                _request: ApiRequest,
+            ) -> Result<Vec<AssistantEvent>, RuntimeError> {
+                let n = self.turn.get();
+                self.turn.set(n + 1);
+                let tool = match n {
+                    0 => Some(("TaskGraph", ADD)),
+                    1 => Some(("write_file", SOURCE)),
+                    2 | 4 | 6 => Some(("TaskGraph", CLAIM)),
+                    3 | 5 => Some(("bash", BUILD)),
+                    _ => None,
+                };
+                Ok(match tool {
+                    Some((name, input)) => vec![
+                        AssistantEvent::ToolUse {
+                            id: format!("tool-{n}"),
+                            name: name.to_string(),
+                            input: input.to_string(),
+                            signature: None,
+                        },
+                        AssistantEvent::MessageStop,
+                    ],
+                    None => vec![
+                        AssistantEvent::TextDelta("done".to_string()),
+                        AssistantEvent::MessageStop,
+                    ],
+                })
+            }
+        }
+
+        let claims = Arc::new(AtomicUsize::new(0));
+        let seen_claims = Arc::clone(&claims);
+        let builds = Arc::new(AtomicUsize::new(0));
+        let seen_builds = Arc::clone(&builds);
+
+        let executor = StaticToolExecutor::new()
+            .register("TaskGraph", move |input| {
+                if input.contains("completed") {
+                    seen_claims.fetch_add(1, Ordering::SeqCst);
+                }
+                Ok(r#"{"nodes_updated":1}"#.to_string())
+            })
+            .register("write_file", |_input| Ok("written".to_string()))
+            .register("bash", move |_input| {
+                Ok(match seen_builds.fetch_add(1, Ordering::SeqCst) {
+                    0 => r#"{"stdout":"","stderr":"error: no such module 'IOKit.pwr'","interrupted":false,"returnCodeInterpretation":"exit_code:1"}"#,
+                    _ => r#"{"stdout":"Build complete!","stderr":"","interrupted":false}"#,
+                }
+                .to_string())
+            });
+
+        let mut runtime = ConversationRuntime::new(
+            Session::new(),
+            RunFour {
+                turn: std::cell::Cell::default(),
+            },
+            executor,
+            PermissionPolicy::new(PermissionMode::DangerFullAccess),
+            vec!["system".to_string()],
+        )
+        .with_max_iterations(12);
+
+        runtime
+            .run_turn("build a macOS app", None)
+            .expect("turn should complete");
+
+        assert_eq!(
+            claims.load(Ordering::SeqCst),
+            1,
+            "only the claim with evidence may touch the graph"
+        );
+        assert_eq!(builds.load(Ordering::SeqCst), 2, "both builds ran");
+
+        let gate_messages = runtime
+            .session()
+            .messages
+            .iter()
+            .flat_map(|message| message.blocks.iter())
+            .filter(|block| match block {
+                ContentBlock::ToolResult { output, .. } => output.contains("VERIFICATION GATE"),
+                _ => false,
+            })
+            .count();
+        assert_eq!(
+            gate_messages, 2,
+            "the blind claim and the claim over a failed build are both refused"
+        );
+        assert!(
+            runtime
+                .bifurcation_summary()
+                .contains("verification_gate=2"),
+            "{}",
+            runtime.bifurcation_summary()
+        );
     }
 }
