@@ -993,6 +993,11 @@ fn parse_single_word_command_alias(
             // "doctor --help -h" is valid, routed to parse_local_help_action() instead
             return None;
         }
+        // `claw fractal status` is the natural way to ask for the snapshot that
+        // the runtime's own error hints point at; the redundant verb is a no-op.
+        if verb == "fractal" && rest.len() == 2 && matches!(rest[1].as_str(), "status" | "show") {
+            return Some(Ok(CliAction::Fractal { output_format }));
+        }
         // #720: `claw help <topic>` — when the verb is "help" and exactly one
         // non-flag argument follows, try to route to the topic's handler.
         if verb == "help" && rest.len() == 2 {
