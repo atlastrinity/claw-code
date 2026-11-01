@@ -220,7 +220,12 @@ pub(crate) fn estimate_request_tokens(request: &MessageRequest) -> usize {
             }
         }
     }
-    total_bytes / 2
+    // Bytes per token. Calibrated against provider-reported usage from real
+    // claw sessions (median 3.3 bytes/token for English prose, code and tool
+    // JSON). `/2` over-estimated ~1.66x, and because the TPM limiter paces on
+    // this number it held every other request for ~55 s. `/3` stays mildly
+    // conservative (~1.1x actual) without inventing capacity.
+    total_bytes / 3
 }
 
 pub(crate) struct ApiLockGuard {
