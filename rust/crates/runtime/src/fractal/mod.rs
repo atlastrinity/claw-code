@@ -16,8 +16,8 @@ pub mod rate_limiter;
 mod tests;
 
 pub use bifurcation::{
-    BifurcationEngine, CascadeThresholds, Escape, OrbitSample, Refusal, Regime, CHAOS_HALT_STEPS,
-    FIRST_BIFURCATION_PRESSURE, MAX_LEDGER_ENTRIES, MIN_ATTEMPTS_BEFORE_REFUSAL,
+    BifurcationEngine, CascadeThresholds, Escape, OrbitSample, Refusal, Regime, StepRecord,
+    CHAOS_HALT_STEPS, FIRST_BIFURCATION_PRESSURE, MAX_LEDGER_ENTRIES, MIN_ATTEMPTS_BEFORE_REFUSAL,
     NOVEL_STEP_PRESSURE, PRESSURE_GAP, REGRESSION_PRESSURE, REPEAT_STEP_PRESSURE,
     TOMBSTONE_MIN_OUTPUT_CHARS, TRANSIENT_CATEGORIES,
 };

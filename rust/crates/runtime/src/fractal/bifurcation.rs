@@ -455,6 +455,46 @@ struct FailedAttempt {
     transient: bool,
 }
 
+/// One call the session has already answered, in emission order.
+///
+/// Two kinds of failure, because the two demands read them differently. A tool
+/// that refused to run (`errored`) never produced an answer; a command that ran
+/// and exited non-zero (`command_failed`) produced an answer that says "no".
+/// "Check whether the folder exists" is honestly closed by an `ls` that answered
+/// *it does not* — demanding a zero exit there would lock the leaf shut.
+#[derive(Debug, Clone)]
+pub struct StepRecord {
+    pub tool: String,
+    pub input: String,
+    pub errored: bool,
+    pub command_failed: bool,
+}
+
+impl StepRecord {
+    /// The call ran and something came back, whatever it said.
+    #[must_use]
+    pub fn answered(&self) -> bool {
+        !self.errored
+    }
+
+    /// The call ran and succeeded.
+    #[must_use]
+    pub fn succeeded(&self) -> bool {
+        !self.errored && !self.command_failed
+    }
+}
+
+/// What a leaf's title demands as proof before it may be claimed `completed`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Evidence {
+    /// A command the runtime recognizes as the project's own check — build,
+    /// test, compile — has to have exited 0 after the last change.
+    ExecutedCheck,
+    /// A read-only call has to have returned successfully after the last
+    /// change: the agent looked at what it says it checked.
+    SuccessfulLook,
+}
+
 /// Tracks the trajectory of one conversation loop and forces the thinking mode
 /// to split when resistance accumulates.
 #[derive(Debug, Clone)]
@@ -986,20 +1026,17 @@ impl BifurcationEngine {
             .any(Self::is_verifier_command)
     }
 
-    /// Did an answered call fail?
+    /// Did a shell call run and *not* succeed?
     ///
-    /// `is_error` says the tool refused to run. A command that *did* run and
-    /// exited non-zero is the failure the gate cares about most and that flag
-    /// never sees: `bash` reports it inside an otherwise successful result as
-    /// `returnCodeInterpretation`. Anything the gate cannot read as a clean
-    /// exit — unparsable output, an interrupted command, a command it pushed
-    /// to the background — is treated as not passing, which costs one re-run
-    /// rather than one false green.
+    /// The tool's own error flag says the tool refused to run. A command that
+    /// *did* run and exited non-zero is the failure the gate cares about most
+    /// and that flag never sees: `bash` reports it inside an otherwise
+    /// successful result as `returnCodeInterpretation`. Anything the gate
+    /// cannot read as a clean exit — unparsable output, an interrupted command,
+    /// a command pushed to the background — counts as not succeeding, which
+    /// costs one re-run rather than one false green.
     #[must_use]
-    pub fn step_failed(tool: &str, output: &str, is_error: bool) -> bool {
-        if is_error {
-            return true;
-        }
+    pub fn command_failed(tool: &str, output: &str) -> bool {
         if tool.to_lowercase() != "bash" {
             return false;
         }
@@ -1088,12 +1125,12 @@ impl BifurcationEngine {
     /// and the gate treats an unknown title as not check-shaped rather than
     /// blocking on a guess.
     #[must_use]
-    fn title_from_history(id: &str, history: &[(String, String, bool)]) -> Option<String> {
-        for (tool, input, _failed) in history {
-            if !Self::is_plan_tool(&tool.to_lowercase()) {
+    fn title_from_history(id: &str, history: &[StepRecord]) -> Option<String> {
+        for record in history {
+            if !Self::is_plan_tool(&record.tool.to_lowercase()) {
                 continue;
             }
-            let Ok(value) = serde_json::from_str::<serde_json::Value>(input) else {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&record.input) else {
                 continue;
             };
             if !value
@@ -1117,44 +1154,56 @@ impl BifurcationEngine {
         None
     }
 
-    /// Does the title claim work that only an executed check can prove?
+    /// Does the title claim work that has to be proven, and by what?
     ///
     /// Titles are imperative and English by mandate, so the first word is the
     /// verb. Only that verb position is read: "Runbook for the release" is
     /// documentation, not a run.
+    ///
+    /// Two kinds of proof, because one demand fits every title badly. "Test /
+    /// Build / Run …" is a claim about the *program* and only an executed check
+    /// can back it. "Verify / Check the folder" is a claim about what the agent
+    /// saw, and `ls` returning after the `mkdir` is the honest evidence —
+    /// demanding a compiler for it would lock the leaf shut and turn the gate
+    /// into the treadmill it exists to prevent.
     #[must_use]
-    fn is_verification_shaped(title: &str) -> bool {
-        const VERBS: &[&str] = &[
+    fn required_evidence(title: &str) -> Option<Evidence> {
+        const EXECUTED_CHECK: &[&str] = &[
             "test",
             "tests",
             "build",
+            "rebuild",
             "compile",
             "run",
             "launch",
-            "verify",
-            "validate",
-            "check",
             "install",
             "deploy",
             "benchmark",
+            "smoke",
         ];
-        title
+        const SUCCESSFUL_LOOK: &[&str] = &["verify", "verifies", "validate", "check", "confirms"];
+        let verb = title
             .split_whitespace()
-            .next()
-            .map(|word| {
-                let word = word.trim_end_matches(['.', ':', ',', '!']).to_lowercase();
-                VERBS.contains(&word.as_str())
-            })
-            .unwrap_or(false)
+            .next()?
+            .trim_end_matches(['.', ':', ',', '!'])
+            .to_lowercase();
+        if EXECUTED_CHECK.contains(&verb.as_str()) {
+            return Some(Evidence::ExecutedCheck);
+        }
+        if SUCCESSFUL_LOOK.contains(&verb.as_str()) {
+            return Some(Evidence::SuccessfulLook);
+        }
+        None
     }
 
     /// Verification gate: a leaf whose title names a check may not be claimed
     /// `completed` until that check has passed *after* the last change to the
     /// workspace.
     ///
-    /// `history` is every call this session has already answered, in order, as
-    /// `(tool, input, failed)` where `failed` comes from [`Self::step_failed`] —
-    /// the tool refused it *or* it ran and reported a non-zero exit.
+    /// `history` is every call this session has already answered, in emission
+    /// order. A call the tool refused never counts as proof; a command that ran
+    /// and exited non-zero counts as proof only for a title that asks what the
+    /// agent *saw*, not for one that asks whether the program works.
     ///
     /// This is the last cheap place to refuse. A run writes a source file, marks
     /// "Test the application" completed, closes the graph green, and reports
@@ -1171,14 +1220,9 @@ impl BifurcationEngine {
     pub fn gate_completions_for_step(
         &mut self,
         calls: &[(String, String)],
-        history: &[(String, String, bool)],
+        history: &[StepRecord],
     ) -> Vec<(usize, String)> {
-        let last_mutation = history
-            .iter()
-            .rposition(|(tool, input, failed)| !failed && Self::is_mutating_call(tool, input));
-        let last_verification = history
-            .iter()
-            .rposition(|(tool, input, failed)| !failed && Self::is_verifier_call(tool, input));
+        let last_mutation = Self::last_change_position(history);
         let mut refusals = Vec::new();
         for (index, (tool, input)) in calls.iter().enumerate() {
             if !Self::is_plan_tool(&tool.to_lowercase()) {
@@ -1192,26 +1236,52 @@ impl BifurcationEngine {
                         None => continue,
                     },
                 };
-                if !Self::is_verification_shaped(&title) {
+                let Some(demand) = Self::required_evidence(&title) else {
                     continue;
-                }
+                };
                 // A change queued ahead of this claim in the same step lands after
                 // any check that has already returned, so the evidence is stale
                 // before the step is even executed.
                 let mutation_ahead = calls[..index]
                     .iter()
                     .any(|(tool, input)| Self::is_mutating_call(tool, input));
+                let proof = Self::last_evidence_position(demand, history);
                 let earned = !mutation_ahead
-                    && last_verification
-                        .is_some_and(|check| last_mutation.is_none_or(|change| check > change));
+                    && proof.is_some_and(|seen| last_mutation.is_none_or(|change| seen > change));
                 if earned {
                     continue;
                 }
                 self.verification_gate_trips += 1;
-                refusals.push((index, Self::verification_gate_refusal(&id, &title, history)));
+                refusals.push((
+                    index,
+                    Self::verification_gate_refusal(&id, &title, demand, mutation_ahead, history),
+                ));
             }
         }
         refusals
+    }
+
+    /// The last call that can serve as evidence for this demand. One definition,
+    /// used by both the decision and the refusal text, so the advice can never
+    /// describe an evidence the gate did not actually look for.
+    #[must_use]
+    fn last_evidence_position(demand: Evidence, history: &[StepRecord]) -> Option<usize> {
+        history.iter().rposition(|record| match demand {
+            Evidence::ExecutedCheck => {
+                record.succeeded() && Self::is_verifier_call(&record.tool, &record.input)
+            }
+            Evidence::SuccessfulLook => {
+                record.answered() && Self::is_probe_call(&record.tool, &record.input)
+            }
+        })
+    }
+
+    /// The last call that actually changed the workspace.
+    #[must_use]
+    fn last_change_position(history: &[StepRecord]) -> Option<usize> {
+        history.iter().rposition(|record| {
+            record.succeeded() && Self::is_mutating_call(&record.tool, &record.input)
+        })
     }
 
     /// Refusal text for an unearned completion claim, naming the evidence that
@@ -1220,69 +1290,69 @@ impl BifurcationEngine {
     fn verification_gate_refusal(
         id: &str,
         title: &str,
-        history: &[(String, String, bool)],
+        demand: Evidence,
+        mutation_ahead: bool,
+        history: &[StepRecord],
     ) -> String {
-        let describe = |tool: &str, input: &str| -> String {
-            let detail = Self::bash_command(input).unwrap_or_else(|| input.to_string());
-            let detail = detail.chars().take(72).collect::<String>();
-            format!("`{tool}` {detail}")
+        let noun = match demand {
+            Evidence::ExecutedCheck => "check",
+            Evidence::SuccessfulLook => "read-only look",
         };
+        let how_to_prove = match demand {
+            Evidence::ExecutedCheck => {
+                "Run the check now — the command this project actually uses (`swift build`, \
+                 `cargo test`, `npm test`, `pytest`, the app itself) — let it return, and only \
+                 then re-issue this same `update_status`."
+            }
+            Evidence::SuccessfulLook => {
+                "Run the read-only command that answers this title now (`ls`, `read_file`, `git \
+                 status`, the file you just wrote) — let it return, and only then re-issue this \
+                 same `update_status`."
+            }
+        };
+        let describe = |index: usize| -> String {
+            let record = &history[index];
+            let detail = Self::bash_command(&record.input).unwrap_or_else(|| record.input.clone());
+            let detail = detail.chars().take(72).collect::<String>();
+            format!("`{}` {detail}", record.tool)
+        };
+        let stale = "A change is being applied in this same step, so any proof that has already \
+             returned describes the old workspace.";
         let evidence = match (
-            history
-                .iter()
-                .rposition(|(tool, input, failed)| !failed && Self::is_verifier_call(tool, input)),
-            history
-                .iter()
-                .rposition(|(tool, input, failed)| !failed && Self::is_mutating_call(tool, input)),
+            Self::last_evidence_position(demand, history),
+            Self::last_change_position(history),
         ) {
-            (None, None) => "Nothing that could prove it has run — no build, no test command, and \
-                             no change to the workspace either."
-                .to_string(),
-            (None, Some(change)) => {
-                let (tool, input, _) = &history[change];
-                format!(
-                    "The workspace changed ({}) and no check has run since. No build or test \
-                     command has succeeded at any point in this session.",
-                    describe(tool, input)
-                )
-            }
-            (Some(check), None) => {
-                let (tool, input, _) = &history[check];
-                format!(
-                    "The last passing check ({}) is on record, but this session has no earlier \
-                     change to compare it against — run the check the title names and let it \
-                     return.",
-                    describe(tool, input)
-                )
-            }
-            (Some(check), Some(change)) if check > change => {
-                // Only reachable when a change is queued in this same step.
-                "A change is being applied in this same step, so any check that has already \
-                 returned describes the old workspace."
-                    .to_string()
-            }
-            (Some(check), Some(change)) => {
-                let (check_tool, check_input, _) = &history[check];
-                let (change_tool, change_input, _) = &history[change];
-                format!(
-                    "The last passing check ({}) came BEFORE the last change ({}), so it says \
-                     nothing about what is there now.",
-                    describe(check_tool, check_input),
-                    describe(change_tool, change_input)
-                )
-            }
+            (None, None) => format!(
+                "Nothing that could prove it has run — no {noun} in this session, and no change \
+                 to the workspace either."
+            ),
+            (None, Some(change)) => format!(
+                "The workspace changed ({}) and no {noun} has run since. No {noun} has succeeded \
+                 at any point in this session.",
+                describe(change)
+            ),
+            (Some(seen), Some(change)) if seen > change => stale.to_string(),
+            (Some(seen), Some(change)) => format!(
+                "The last passing {noun} ({}) came BEFORE the last change ({}), so it says \
+                 nothing about what is there now.",
+                describe(seen),
+                describe(change)
+            ),
+            (Some(_), None) if mutation_ahead => stale.to_string(),
+            (Some(seen), None) => format!(
+                "A passing {noun} ({}) is on record, but this session has no change to compare \
+                 it against — run the {noun} the title names and let it return.",
+                describe(seen)
+            ),
         };
         format!(
             "[SYSTEM DIRECTIVE — VERIFICATION GATE]\n\
-             Task '{id}' (\"{title}\") claims completion, but the check its own title names has not \
-             passed since the workspace last changed.\n\
+             Task '{id}' (\"{title}\") claims completion, but the {noun} its own title names has \
+             not passed since the workspace last changed.\n\
              {evidence}\n\
-             A build that failed, a build from before your last edit, or a build you never \
-             re-ran is not a test that passed. Run the check now — the command this project \
-             actually uses (`swift build`, `cargo test`, `npm test`, `pytest`, the app itself) — \
-             let it return, and only then re-issue this same `update_status`.\n\
-             Do not answer by editing more files: an edit is not evidence. If the check cannot \
-             pass in this environment, mark '{id}' `failed` and say why — that is always allowed, \
+             {how_to_prove}\n\
+             Do not answer by editing more files: an edit is not evidence. If this environment \
+             cannot satisfy the title, mark '{id}' `failed` and say why — that is always allowed, \
              and it is the honest version of this result."
         )
     }

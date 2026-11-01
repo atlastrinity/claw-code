@@ -893,12 +893,7 @@ fn summary_exposes_the_demon_counters() {
             r#"{"operation":"update_status","nodes":[{"id":"1.1","status":"completed"}]}"#
                 .to_string(),
         )],
-        &[(
-            "TaskGraph".to_string(),
-            r#"{"operation":"add","nodes":[{"id":"1.1","content":"Test the application."}]}"#
-                .to_string(),
-            false,
-        )],
+        &[plan_add("1.1", "Test the application.")],
     );
     let summary = engine.summary();
     assert!(
@@ -1102,12 +1097,13 @@ fn plan_writes_do_not_advance_the_mutation_epoch() {
 
 // ── verification gate ────────────────────────────────────────────────────────
 
-fn plan_add(id: &str, title: &str) -> (String, String, bool) {
-    (
-        "TaskGraph".to_string(),
-        format!(r#"{{"operation":"add","nodes":[{{"id":"{id}","content":"{title}"}}]}}"#,),
-        false,
-    )
+fn plan_add(id: &str, title: &str) -> StepRecord {
+    StepRecord {
+        tool: "TaskGraph".to_string(),
+        input: format!(r#"{{"operation":"add","nodes":[{{"id":"{id}","content":"{title}"}}]}}"#),
+        errored: false,
+        command_failed: false,
+    }
 }
 
 fn completion_claim(id: &str) -> (String, String) {
@@ -1130,17 +1126,36 @@ fn bash_call(command: &str) -> (String, String) {
     ("bash".to_string(), format!(r#"{{"command":"{command}"}}"#))
 }
 
-fn bash_done(command: &str, failed: bool) -> (String, String, bool) {
+/// A shell call that answered. `exit_nonzero` is the command's own verdict:
+/// `ls` on a path that is not there answers "it is not there", it does not
+/// fail to answer.
+fn bash_run(command: &str, exit_nonzero: bool) -> StepRecord {
     let (tool, input) = bash_call(command);
-    (tool, input, failed)
+    StepRecord {
+        tool,
+        input,
+        errored: false,
+        command_failed: exit_nonzero,
+    }
 }
 
-fn write_done(path: &str) -> (String, String, bool) {
-    (
-        "write_file".to_string(),
-        format!(r#"{{"path":"{path}","content":"fn main() {{}}"}}"#),
-        false,
-    )
+/// The tool itself never produced an answer.
+fn tool_errored(tool: &str, input: &str) -> StepRecord {
+    StepRecord {
+        tool: tool.to_string(),
+        input: input.to_string(),
+        errored: true,
+        command_failed: false,
+    }
+}
+
+fn write_done(path: &str) -> StepRecord {
+    StepRecord {
+        tool: "write_file".to_string(),
+        input: format!(r#"{{"path":"{path}","content":"fn main() {{}}"}}"#),
+        errored: false,
+        command_failed: false,
+    }
 }
 
 #[test]
@@ -1152,7 +1167,7 @@ fn a_check_shaped_leaf_cannot_close_without_its_check() {
     assert_eq!(refusals[0].0, 0);
     assert!(refusals[0].1.contains("VERIFICATION GATE"));
     assert!(
-        refusals[0].1.contains("no build, no test command"),
+        refusals[0].1.contains("no check in this session"),
         "the refusal names the missing evidence: {}",
         refusals[0].1
     );
@@ -1165,7 +1180,7 @@ fn a_check_that_passed_after_the_last_change_earns_the_claim() {
     let history = [
         plan_add("1.2.5", "Test the application."),
         write_done("Sources/App.swift"),
-        bash_done("swift build", false),
+        bash_run("swift build", false),
     ];
     assert!(
         engine
@@ -1182,7 +1197,7 @@ fn a_failing_check_and_a_stale_check_are_both_refused() {
     // Run 4: the build failed, the leaf was marked done anyway.
     let after_failure = [
         plan_add("1.2.5", "Test the application."),
-        bash_done("swift build", true),
+        bash_run("swift build", true),
     ];
     assert_eq!(
         engine
@@ -1193,7 +1208,7 @@ fn a_failing_check_and_a_stale_check_are_both_refused() {
     // A check that passed before the last edit says nothing about the edit.
     let after_edit = [
         plan_add("1.2.5", "Test the application."),
-        bash_done("swift build", false),
+        bash_run("swift build", false),
         write_done("Sources/App.swift"),
     ];
     let refusals = engine.gate_completions_for_step(&[completion_claim("1.2.5")], &after_edit);
@@ -1210,13 +1225,73 @@ fn a_change_queued_in_the_same_step_voids_the_check_before_it() {
     let mut engine = BifurcationEngine::new();
     let history = [
         plan_add("1.2.5", "Test the application."),
-        bash_done("swift build", false),
+        bash_run("swift build", false),
     ];
     let step = [bash_call("rm -rf DerivedData"), completion_claim("1.2.5")];
     assert_eq!(
         engine.gate_completions_for_step(&step, &history).len(),
         1,
         "the claim sits behind a change no check has seen yet"
+    );
+}
+
+#[test]
+fn an_observation_leaf_closes_on_an_answer_after_the_change() {
+    let mut engine = BifurcationEngine::new();
+    // Run 5: "Check if the folder already exists." was honestly answered by an
+    // `ls` that said it does not. Demanding a passing build there locked the
+    // leaf shut and the run marked it `failed` after three refused claims.
+    let folder_missing = [
+        plan_add("1.1.1", "Check if the folder already exists."),
+        bash_run("ls ~/Desktop/App", true),
+    ];
+    assert!(
+        engine
+            .gate_completions_for_step(&[completion_claim("1.1.1")], &folder_missing)
+            .is_empty(),
+        "an answer that says \"no\" is still the answer the title asked for"
+    );
+
+    // The look still has to follow the change it is verifying.
+    let stale = [
+        plan_add("1.1.1", "Check if the folder already exists."),
+        bash_run("ls ~/Desktop", false),
+        bash_run("mkdir -p ~/Desktop/App", false),
+    ];
+    assert_eq!(
+        engine
+            .gate_completions_for_step(&[completion_claim("1.1.1")], &stale)
+            .len(),
+        1
+    );
+
+    // A call that never answered is not a look.
+    let silent = [
+        plan_add("1.1.1", "Check if the folder already exists."),
+        tool_errored("bash", r#"{"command":"ls ~/Desktop"}"#),
+    ];
+    assert_eq!(
+        engine
+            .gate_completions_for_step(&[completion_claim("1.1.1")], &silent)
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn a_program_leaf_is_not_satisfied_by_reading_a_file_back() {
+    let mut engine = BifurcationEngine::new();
+    let history = [
+        plan_add("1.2.5", "Test the application."),
+        write_done("Sources/App.swift"),
+        tool_errored("read_file", r#"{"path":"Sources/App.swift"}"#),
+    ];
+    assert_eq!(
+        engine
+            .gate_completions_for_step(&[completion_claim("1.2.5")], &history)
+            .len(),
+        1,
+        "reading the file back is a look, not a test"
     );
 }
 
@@ -1248,6 +1323,25 @@ fn the_gate_only_touches_check_shaped_leaves_that_claim_success() {
 }
 
 #[test]
+fn a_leaf_added_already_completed_is_the_same_claim() {
+    // Closing a check-shaped leaf by creating it pre-completed is the same lie
+    // told one operation earlier, so it meets the same gate.
+    let mut engine = BifurcationEngine::new();
+    let laundering = (
+        "TaskGraph".to_string(),
+        r#"{"operation":"add","nodes":[{"id":"1.3","content":"Verify the release build.","status":"completed"}]}"#
+            .to_string(),
+    );
+    let refusals = engine.gate_completions_for_step(std::slice::from_ref(&laundering), &[]);
+    assert_eq!(
+        refusals.len(),
+        1,
+        "an `add` cannot launder a claim: {refusals:?}"
+    );
+    assert!(refusals[0].1.contains("VERIFICATION GATE"));
+}
+
+#[test]
 fn a_chained_check_counts_and_a_piped_one_does_not() {
     // `cd App && swift build` is the same build; the exit code is still the
     // build's, so it is real evidence.
@@ -1268,49 +1362,25 @@ fn a_chained_check_counts_and_a_piped_one_does_not() {
 }
 
 #[test]
-fn step_failed_reads_the_exit_code_not_just_the_tool_flag() {
+fn command_failed_reads_the_exit_code_not_just_the_tool_flag() {
     let passed = r#"{"stdout":"Build complete!","stderr":"","interrupted":false}"#;
     let failed = r#"{"stdout":"","stderr":"no such module","interrupted":false,"returnCodeInterpretation":"exit_code:1"}"#;
     let timed_out = r#"{"stdout":"","stderr":"Command exceeded timeout","interrupted":true,"returnCodeInterpretation":"timeout"}"#;
     let backgrounded = r#"{"stdout":"","stderr":"","interrupted":false,"backgroundTaskId":"t1"}"#;
 
-    assert!(!BifurcationEngine::step_failed("bash", passed, false));
-    assert!(BifurcationEngine::step_failed("bash", failed, false));
-    assert!(BifurcationEngine::step_failed("bash", timed_out, false));
+    assert!(!BifurcationEngine::command_failed("bash", passed));
+    assert!(BifurcationEngine::command_failed("bash", failed));
+    assert!(BifurcationEngine::command_failed("bash", timed_out));
     assert!(
-        BifurcationEngine::step_failed("bash", backgrounded, false),
+        BifurcationEngine::command_failed("bash", backgrounded),
         "a build pushed to the background has not returned anything yet"
     );
     assert!(
-        BifurcationEngine::step_failed("bash", "", false),
+        BifurcationEngine::command_failed("bash", ""),
         "unparsable output proves nothing"
     );
-    assert!(
-        BifurcationEngine::step_failed("bash", passed, true),
-        "the tool flag still wins"
-    );
-    assert!(!BifurcationEngine::step_failed(
+    assert!(!BifurcationEngine::command_failed(
         "write_file",
-        "artificial intelligence",
-        false
+        "artificial intelligence"
     ));
-}
-
-#[test]
-fn a_leaf_added_already_completed_is_the_same_claim() {
-    // Closing a check-shaped leaf by creating it pre-completed is the same lie
-    // told one operation earlier, so it meets the same gate.
-    let mut engine = BifurcationEngine::new();
-    let laundering = (
-        "TaskGraph".to_string(),
-        r#"{"operation":"add","nodes":[{"id":"1.3","content":"Verify the release build.","status":"completed"}]}"#
-            .to_string(),
-    );
-    let refusals = engine.gate_completions_for_step(std::slice::from_ref(&laundering), &[]);
-    assert_eq!(
-        refusals.len(),
-        1,
-        "an `add` cannot launder a claim: {refusals:?}"
-    );
-    assert!(refusals[0].1.contains("VERIFICATION GATE"));
 }

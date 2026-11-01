@@ -9,7 +9,7 @@ use crate::compact::{
     compact_session, estimate_session_tokens, CompactionConfig, CompactionResult,
 };
 use crate::config::RuntimeFeatureConfig;
-use crate::fractal::{BifurcationEngine, OrbitSample, Regime};
+use crate::fractal::{BifurcationEngine, OrbitSample, Regime, StepRecord};
 use crate::hooks::{HookAbortSignal, HookProgressReporter, HookRunner};
 use crate::security::permissions::{PermissionPolicy, PermissionPrompter};
 use crate::session::error_tracker::ErrorTracker;
@@ -292,15 +292,14 @@ where
             .summary()
     }
 
-    /// Every call this session has already answered, in emission order, as
-    /// `(tool, input, failed)`.
+    /// Every call this session has already answered, in emission order.
     ///
     /// A call with no result yet — the step currently being dispatched — is
     /// left out, because a check that has not returned is not evidence of
-    /// anything. `failed` is [`BifurcationEngine::step_failed`], not the
-    /// `is_error` flag: a build that ran and exited non-zero is exactly the
-    /// outcome this has to read correctly.
-    fn step_history(&self) -> Vec<(String, String, bool)> {
+    /// anything. The two failure flags are separated on purpose: the tool
+    /// refusing to run is not the same event as a command that ran and answered
+    /// "no", and the verification gate reads them differently.
+    fn step_history(&self) -> Vec<StepRecord> {
         let mut requests: Vec<(String, String, String)> = Vec::new();
         let mut answers: std::collections::HashMap<String, (String, bool)> =
             std::collections::HashMap::new();
@@ -328,8 +327,12 @@ where
             .into_iter()
             .filter_map(|(id, tool, input)| {
                 let (output, is_error) = answers.get(&id)?;
-                let failed = BifurcationEngine::step_failed(&tool, output, *is_error);
-                Some((tool, input, failed))
+                Some(StepRecord {
+                    tool: tool.clone(),
+                    input,
+                    errored: *is_error,
+                    command_failed: BifurcationEngine::command_failed(&tool, output),
+                })
             })
             .collect()
     }
