@@ -1103,6 +1103,7 @@ fn plan_add(id: &str, title: &str) -> StepRecord {
         input: format!(r#"{{"operation":"add","nodes":[{{"id":"{id}","content":"{title}"}}]}}"#),
         errored: false,
         command_failed: false,
+        vacuous: false,
     }
 }
 
@@ -1136,6 +1137,7 @@ fn bash_run(command: &str, exit_nonzero: bool) -> StepRecord {
         input,
         errored: false,
         command_failed: exit_nonzero,
+        vacuous: false,
     }
 }
 
@@ -1146,6 +1148,15 @@ fn tool_errored(tool: &str, input: &str) -> StepRecord {
         input: input.to_string(),
         errored: true,
         command_failed: false,
+        vacuous: false,
+    }
+}
+
+/// A check command that exited 0 over an empty suite.
+fn check_run(command: &str) -> StepRecord {
+    StepRecord {
+        vacuous: true,
+        ..bash_run(command, false)
     }
 }
 
@@ -1155,6 +1166,7 @@ fn write_done(path: &str) -> StepRecord {
         input: format!(r#"{{"path":"{path}","content":"fn main() {{}}"}}"#),
         errored: false,
         command_failed: false,
+        vacuous: false,
     }
 }
 
@@ -1340,6 +1352,57 @@ fn a_leaf_added_already_completed_is_the_same_claim() {
         "an `add` cannot launder a claim: {refusals:?}"
     );
     assert!(refusals[0].1.contains("VERIFICATION GATE"));
+}
+
+#[test]
+fn a_check_that_exited_zero_over_an_empty_suite_is_not_evidence() {
+    let mut engine = BifurcationEngine::new();
+    // Run 6: `swift test` exited 0 on the template's placeholder suite —
+    // "Executed 0 tests, with 0 failures". The graph closed 7/7 green with
+    // nothing asserted, which is the softest false green there is.
+    let history = [
+        plan_add("1.4.2", "Test the application."),
+        write_done("Sources/App.swift"),
+        check_run("swift test"),
+    ];
+    let refusals = engine.gate_claims_for_step(&[completion_claim("1.4.2")], &history);
+    assert_eq!(
+        refusals.len(),
+        1,
+        "an empty suite proves nothing: {refusals:?}"
+    );
+    assert!(
+        refusals[0].1.contains("asserted nothing"),
+        "the refusal says what was empty: {}",
+        refusals[0].1
+    );
+
+    // The same leaf is earned the moment the suite actually contains a test.
+    let asserted = [
+        plan_add("1.4.2", "Test the application."),
+        write_done("Tests/AppTests.swift"),
+        bash_run("swift test", false),
+    ];
+    assert!(engine
+        .gate_claims_for_step(&[completion_claim("1.4.2")], &asserted)
+        .is_empty());
+}
+
+#[test]
+fn vacuous_check_reads_the_suite_count_not_the_exit_code() {
+    let passing = r#"{"stdout":"Test Suite 'All tests' passed.\n\t Executed 3 tests, with 0 failures","stderr":"","interrupted":false}"#;
+    let empty = r#"{"stdout":"Test Suite 'All tests' passed.\n\t Executed 0 tests, with 0 failures","stderr":"","interrupted":false}"#;
+    let pytest =
+        r#"{"stdout":"====== 1 passed ======\nno tests ran","stderr":"","interrupted":false}"#;
+
+    assert!(!BifurcationEngine::vacuous_check("bash", passing));
+    assert!(BifurcationEngine::vacuous_check("bash", empty));
+    assert!(BifurcationEngine::vacuous_check("bash", pytest));
+    assert!(
+        !BifurcationEngine::vacuous_check("write_file", empty),
+        "only a check command has a suite to be empty"
+    );
+    assert!(!BifurcationEngine::vacuous_check("bash", "not json"));
 }
 
 #[test]

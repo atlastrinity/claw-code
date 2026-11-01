@@ -1732,7 +1732,7 @@ pub fn print_fractal_status_snapshot(
                         "verification_gate": {
                             "trigger": "every step, against the session's own executed history",
                             "blocks": "`update_status → completed` (and the same claim laundered through `add`) on a check-shaped leaf",
-                            "evidence": "Test/Build/Run …: a project check command exiting 0 after the last change. Verify/Check …: any read-only call that returned after the last change. A piped or backgrounded run is not evidence.",
+                            "evidence": "Test/Build/Run …: a project check command exiting 0 after the last change, with a suite that actually ran (0 tests asserted is not evidence). Verify/Check …: any read-only call that returned after the last change. A piped or backgrounded run is not evidence.",
                             "always_allowed": "marking a leaf `failed`, so an environment that cannot build has an honest exit",
                             "live_counter": "verification_gate (ladder summary)",
                         },

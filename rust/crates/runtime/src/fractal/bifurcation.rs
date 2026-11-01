@@ -462,12 +462,15 @@ struct FailedAttempt {
 /// and exited non-zero (`command_failed`) produced an answer that says "no".
 /// "Check whether the folder exists" is honestly closed by an `ls` that answered
 /// *it does not* — demanding a zero exit there would lock the leaf shut.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct StepRecord {
     pub tool: String,
     pub input: String,
     pub errored: bool,
     pub command_failed: bool,
+    /// A passing check whose suite was empty — exit 0 over zero assertions is a
+    /// green that proved nothing.
+    pub vacuous: bool,
 }
 
 impl StepRecord {
@@ -481,6 +484,12 @@ impl StepRecord {
     #[must_use]
     pub fn succeeded(&self) -> bool {
         !self.errored && !self.command_failed
+    }
+
+    /// The call ran, succeeded, and asserted something.
+    #[must_use]
+    pub fn proved(&self) -> bool {
+        self.succeeded() && !self.vacuous
     }
 }
 
@@ -1087,6 +1096,46 @@ impl BifurcationEngine {
             .is_some_and(|status| !status.is_empty())
     }
 
+    /// Did a passing check assert anything at all?
+    ///
+    /// Run 6 closed "Test the application." on `swift test` exiting 0 over the
+    /// template's placeholder suite — "Executed 0 tests, with 0 failures". The
+    /// exit code is honest and the claim is still empty: nothing was tested. A
+    /// green that asserts nothing is the softest false green there is, so the
+    /// evidence has to say a check ran *and* something ran inside it.
+    #[must_use]
+    pub fn vacuous_check(tool: &str, output: &str) -> bool {
+        const EMPTY: &[&str] = &[
+            "executed 0 tests",
+            "0 tests executed",
+            "no tests ran",
+            "no tests were executed",
+            "no test files",
+            "ran 0 tests",
+            "tests run: 0",
+            "test result: ok. 0 passed",
+        ];
+        if tool.to_lowercase() != "bash" {
+            return false;
+        }
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(output) else {
+            return false;
+        };
+        let text = format!(
+            "{}\n{}",
+            value
+                .get("stdout")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default(),
+            value
+                .get("stderr")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or_default(),
+        )
+        .to_lowercase();
+        EMPTY.iter().any(|marker| text.contains(marker))
+    }
+
     /// Task-graph bookkeeping tools by their effective names.
     #[must_use]
     fn is_plan_tool(lower: &str) -> bool {
@@ -1362,11 +1411,23 @@ impl BifurcationEngine {
     fn last_evidence_position(demand: Evidence, history: &[StepRecord]) -> Option<usize> {
         history.iter().rposition(|record| match demand {
             Evidence::ExecutedCheck => {
-                record.succeeded() && Self::is_verifier_call(&record.tool, &record.input)
+                record.proved() && Self::is_verifier_call(&record.tool, &record.input)
             }
             Evidence::SuccessfulLook => {
                 record.answered() && Self::is_probe_call(&record.tool, &record.input)
             }
+        })
+    }
+
+    /// A passing check that asserted nothing, most recently — the reason the
+    /// refusal can say "you ran it and it tested nothing" instead of "you never
+    /// ran it", which would be a lie the model can disprove in one scroll.
+    #[must_use]
+    fn last_vacuous_check_position(history: &[StepRecord]) -> Option<usize> {
+        history.iter().rposition(|record| {
+            record.succeeded()
+                && record.vacuous
+                && Self::is_verifier_call(&record.tool, &record.input)
         })
     }
 
@@ -1455,33 +1516,50 @@ impl BifurcationEngine {
         };
         let stale = "A change is being applied in this same step, so any proof that has already \
              returned describes the old workspace.";
-        let evidence = match (
+        let empty_suite = match (
             Self::last_evidence_position(demand, history),
+            Self::last_vacuous_check_position(history),
             Self::last_change_position(history),
         ) {
-            (None, None) => format!(
+            (None, Some(vacuous), change) if change.is_none_or(|seen| vacuous > seen) => {
+                Some(format!(
+                "The check did run ({}) and exited 0, but it asserted nothing — an empty suite \
+                 passing is the greenest kind of nothing. Write the test the title implies, let \
+                 the check run over it, and then make the claim.",
+                describe(vacuous)
+            ))
+            }
+            _ => None,
+        };
+        let evidence = empty_suite.unwrap_or_else(|| {
+            match (
+                Self::last_evidence_position(demand, history),
+                Self::last_change_position(history),
+            ) {
+                (None, None) => format!(
                 "Nothing that could prove it has run — no {noun} in this session, and no change \
                  to the workspace either."
             ),
-            (None, Some(change)) => format!(
+                (None, Some(change)) => format!(
                 "The workspace changed ({}) and no {noun} has run since. No {noun} has succeeded \
                  at any point in this session.",
                 describe(change)
             ),
-            (Some(seen), Some(change)) if seen > change => stale.to_string(),
-            (Some(seen), Some(change)) => format!(
-                "The last passing {noun} ({}) came BEFORE the last change ({}), so it says \
+                (Some(seen), Some(change)) if seen > change => stale.to_string(),
+                (Some(seen), Some(change)) => format!(
+                    "The last passing {noun} ({}) came BEFORE the last change ({}), so it says \
                  nothing about what is there now.",
-                describe(seen),
-                describe(change)
-            ),
-            (Some(_), None) if mutation_ahead => stale.to_string(),
-            (Some(seen), None) => format!(
+                    describe(seen),
+                    describe(change)
+                ),
+                (Some(_), None) if mutation_ahead => stale.to_string(),
+                (Some(seen), None) => format!(
                 "A passing {noun} ({}) is on record, but this session has no change to compare \
                  it against — run the {noun} the title names and let it return.",
                 describe(seen)
             ),
-        };
+            }
+        });
         format!(
             "[SYSTEM DIRECTIVE — VERIFICATION GATE]\n\
              Task '{id}' (\"{title}\") claims completion, but the {noun} its own title names has \

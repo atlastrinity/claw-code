@@ -296,9 +296,10 @@ where
     ///
     /// A call with no result yet — the step currently being dispatched — is
     /// left out, because a check that has not returned is not evidence of
-    /// anything. The two failure flags are separated on purpose: the tool
-    /// refusing to run is not the same event as a command that ran and answered
-    /// "no", and the verification gate reads them differently.
+    /// anything. The three verdicts are separated on purpose: the tool refusing
+    /// to run is not the same event as a command that ran and answered "no", and
+    /// neither is the same as a check that ran, exited 0 and asserted nothing.
+    /// The claims gate reads all three.
     fn step_history(&self) -> Vec<StepRecord> {
         let mut requests: Vec<(String, String, String)> = Vec::new();
         let mut answers: std::collections::HashMap<String, (String, bool)> =
@@ -332,6 +333,7 @@ where
                     input,
                     errored: *is_error,
                     command_failed: BifurcationEngine::command_failed(&tool, output),
+                    vacuous: BifurcationEngine::vacuous_check(&tool, output),
                 })
             })
             .collect()
